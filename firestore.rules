@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default Deny All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Test connection doc
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // User profile document
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId);
+      allow delete: if false;
+
+      // Settings subcollection
+      match /settings/{settingId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Tasks subcollection
+      match /tasks/{taskId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Focus sessions subcollection
+      match /focus_sessions/{sessionId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Income records subcollection
+      match /income/{incomeId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Recurring expenses subcollection
+      match /recurring_expenses/{recId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Expense transactions subcollection
+      match /expenses/{expenseId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Bills subcollection
+      match /bills/{billId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Payment history subcollection
+      match /payment_history/{payId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Sync queue subcollection
+      match /sync_queue/{queueId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}

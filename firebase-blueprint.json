@@ -1,0 +1,203 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "name": { "type": "string", "maxLength": 128 },
+        "avatarUrl": { "type": "string", "maxLength": 1024 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "email", "name"]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "User preferences and Google Sheets configuration",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "currency": { "type": "string", "enum": ["INR", "USD", "EUR", "GBP"] },
+        "pomodoroWorkDuration": { "type": "number" },
+        "shortBreakDuration": { "type": "number" },
+        "longBreakDuration": { "type": "number" },
+        "autoSwitchSessions": { "type": "boolean" },
+        "soundEnabled": { "type": "boolean" },
+        "theme": { "type": "string", "enum": ["light", "dark", "system"] },
+        "googleSpreadsheetId": { "type": "string", "maxLength": 256 },
+        "lastSyncedAt": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "User task item with Pomodoro estimates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 1024 },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "status": { "type": "string", "enum": ["todo", "in_progress", "completed"] },
+        "estimatedPomodoros": { "type": "number" },
+        "completedPomodoros": { "type": "number" },
+        "dueDate": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "priority", "status"]
+    },
+    "FocusSession": {
+      "title": "FocusSession",
+      "description": "Completed or recorded Pomodoro work and break session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "taskId": { "type": "string", "maxLength": 128 },
+        "taskTitle": { "type": "string", "maxLength": 256 },
+        "mode": { "type": "string", "enum": ["work", "short_break", "long_break"] },
+        "durationMinutes": { "type": "number" },
+        "durationSeconds": { "type": "number" },
+        "completed": { "type": "boolean" },
+        "startedAt": { "type": "string" },
+        "endedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "mode", "durationSeconds", "completed", "startedAt"]
+    },
+    "IncomeRecord": {
+      "title": "IncomeRecord",
+      "description": "Income stream transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "source": { "type": "string", "maxLength": 256 },
+        "amountPaise": { "type": "number" },
+        "date": { "type": "string" },
+        "category": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 1024 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "source", "amountPaise", "date"]
+    },
+    "RecurringExpense": {
+      "title": "RecurringExpense",
+      "description": "Fixed recurring expense plan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 256 },
+        "amountPaise": { "type": "number" },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "recurrence": { "type": "string", "enum": ["monthly", "quarterly", "yearly"] },
+        "dueDay": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 1024 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "amountPaise", "recurrence", "dueDay"]
+    },
+    "ExpenseRecord": {
+      "title": "ExpenseRecord",
+      "description": "Variable or fixed expense disbursement",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "billId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["fixed", "variable"] },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "amountPaise": { "type": "number" },
+        "date": { "type": "string" },
+        "description": { "type": "string", "maxLength": 256 },
+        "paymentMethod": { "type": "string", "enum": ["credit_card", "debit_card", "upi_bank", "cash", "other"] },
+        "notes": { "type": "string", "maxLength": 1024 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "amountPaise", "date", "description"]
+    },
+    "BillRecord": {
+      "title": "BillRecord",
+      "description": "Bill schedule obligation and payment status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "recurringExpenseId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 256 },
+        "amountPaise": { "type": "number" },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "dueDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["PAID", "UNPAID", "OVERDUE"] },
+        "paymentDate": { "type": "string" },
+        "notes": { "type": "string", "maxLength": 1024 },
+        "periodKey": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "amountPaise", "dueDate", "status"]
+    },
+    "PaymentHistoryRecord": {
+      "title": "PaymentHistoryRecord",
+      "description": "Audit record of settled bill payment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "billId": { "type": "string", "maxLength": 128 },
+        "billName": { "type": "string", "maxLength": 256 },
+        "amountPaise": { "type": "number" },
+        "paidDate": { "type": "string" },
+        "paymentMethod": { "type": "string", "maxLength": 64 },
+        "transactionRef": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 1024 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "billId", "amountPaise", "paidDate"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile collection"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/UserSettings" },
+      "description": "User configuration, preferences, and Google Sheets links"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "User tasks"
+    },
+    "/users/{userId}/focus_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/FocusSession" },
+      "description": "Pomodoro sessions"
+    },
+    "/users/{userId}/income/{incomeId}": {
+      "schema": { "$ref": "#/entities/IncomeRecord" },
+      "description": "Income streams"
+    },
+    "/users/{userId}/recurring_expenses/{recId}": {
+      "schema": { "$ref": "#/entities/RecurringExpense" },
+      "description": "Fixed recurring commitments"
+    },
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/ExpenseRecord" },
+      "description": "Expenses"
+    },
+    "/users/{userId}/bills/{billId}": {
+      "schema": { "$ref": "#/entities/BillRecord" },
+      "description": "Bills obligations"
+    },
+    "/users/{userId}/payment_history/{payId}": {
+      "schema": { "$ref": "#/entities/PaymentHistoryRecord" },
+      "description": "Payment audit history"
+    }
+  }
+}
