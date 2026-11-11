@@ -22,6 +22,11 @@ export interface UserSettings {
   autoSwitchSessions: boolean;
   soundEnabled: boolean;
   theme: 'light' | 'dark' | 'system';
+  themeConfig?: Record<string, unknown>;
+  savedThemes?: Array<Record<string, unknown>>;
+  activeSavedThemeId?: string | null;
+  googleSpreadsheetId?: string;
+  lastSyncedAt?: string;
 }
 
 export interface Task {

@@ -1,3 +1,6 @@
+import type { ThemeConfig, SavedCustomTheme } from './theme.ts';
+export * from './theme.ts';
+
 export type CurrencyCode = 'INR' | 'USD' | 'EUR' | 'GBP';
 
 export interface User {
@@ -17,6 +20,9 @@ export interface UserSettings {
   autoSwitchSessions: boolean;
   soundEnabled: boolean;
   theme: 'light' | 'dark' | 'system';
+  themeConfig?: ThemeConfig;
+  savedThemes?: SavedCustomTheme[];
+  activeSavedThemeId?: string | null;
   googleSpreadsheetId?: string;
   lastSyncedAt?: string;
 }

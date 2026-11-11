@@ -3,6 +3,16 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { Task } from '../../types/index.ts';
 import {
+  ThemeBadge,
+  ThemeButton,
+  ThemeCard,
+  ThemeInput,
+  ThemeModal,
+  ThemeSegmentedControl,
+  ThemeSelect,
+  ThemeTextarea,
+} from '../ui/ThemePrimitives.tsx';
+import {
   CheckCircle2,
   Circle,
   Plus,
@@ -15,12 +25,19 @@ import {
 } from 'lucide-react';
 
 export const TaskManager: React.FC = () => {
-  const { refreshKey, triggerRefresh, showToast, setActiveTaskId, switchTimerMode, startTimer, setCurrentTab } = useApp();
+  const {
+    refreshKey,
+    triggerRefresh,
+    showToast,
+    setActiveTaskId,
+    switchTimerMode,
+    startTimer,
+    setCurrentTab,
+  } = useApp();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
 
-  // Modal / Form state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [title, setTitle] = useState('');
@@ -135,90 +152,75 @@ export const TaskManager: React.FC = () => {
     return true;
   });
 
-  const priorityColors = {
-    high: 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900',
-    medium: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900',
-    low: 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700',
+  const priorityTone: Record<Task['priority'], 'danger' | 'warning' | 'neutral'> = {
+    high: 'danger',
+    medium: 'warning',
+    low: 'neutral',
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
       {/* Top Bar with Filter tabs and Add Task */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        {/* Interactive Segmented Filter tabs */}
-        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
-          <button
-            onClick={() => setFilter('all')}
-            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              filter === 'all'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            All Tasks ({tasks.length})
-          </button>
-          <button
-            onClick={() => setFilter('active')}
-            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              filter === 'active'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            In Progress ({tasks.filter((t) => t.status !== 'completed').length})
-          </button>
-          <button
-            onClick={() => setFilter('completed')}
-            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              filter === 'completed'
-                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            Completed ({tasks.filter((t) => t.status === 'completed').length})
-          </button>
-        </div>
+        <ThemeSegmentedControl<'all' | 'active' | 'completed'>
+          ariaLabel="Task status filter"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { id: 'all', label: `All Tasks (${tasks.length})` },
+            {
+              id: 'active',
+              label: `In Progress (${tasks.filter((t) => t.status !== 'completed').length})`,
+            },
+            {
+              id: 'completed',
+              label: `Completed (${tasks.filter((t) => t.status === 'completed').length})`,
+            },
+          ]}
+        />
 
-        <button
-          onClick={openCreateModal}
-          className="flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-all shrink-0"
-        >
+        <ThemeButton variant="primary" size="md" onClick={openCreateModal} className="shrink-0">
           <Plus className="w-4 h-4" />
           <span>New Task</span>
-        </button>
+        </ThemeButton>
       </div>
 
       {/* Task List */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+      <ThemeCard noPadding>
         {loading ? (
-          <div className="p-8 text-center text-xs text-slate-400">Loading tasks...</div>
+          <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
+            Loading tasks...
+          </div>
         ) : filteredTasks.length === 0 ? (
           <div className="p-12 text-center">
-            <CheckSquare className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-            <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">No tasks found</h4>
-            <p className="text-xs text-slate-500 mt-1">Get started by creating your first task above.</p>
+            <CheckSquare className="w-8 h-8 text-[var(--ff-text-muted)] mx-auto mb-2 opacity-50" />
+            <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">No tasks found</h3>
+            <p className="text-xs text-[var(--ff-text-muted)] mt-1">
+              Get started by creating your first task above.
+            </p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+          <div className="divide-y ff-divider">
             {filteredTasks.map((task) => {
               const isCompleted = task.status === 'completed';
 
               return (
                 <div
                   key={task.id}
-                  className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors hover:bg-slate-50/60 dark:hover:bg-slate-800/40 ${
-                    isCompleted ? 'opacity-60 bg-slate-50/30 dark:bg-slate-900/30' : ''
+                  className={`ff-row-hover flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                    isCompleted ? 'opacity-65' : ''
                   }`}
+                  style={{ padding: 'var(--ff-row-pad)' }}
                 >
                   <div className="flex items-start gap-3 min-w-0">
-                    {/* Completion Checkbox */}
                     <button
-                      onClick={() => toggleTaskStatus(task)}
-                      className="mt-0.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors shrink-0"
+                      type="button"
+                      onClick={() => void toggleTaskStatus(task)}
+                      className="mt-0.5 text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] transition-colors shrink-0"
                       aria-label={isCompleted ? 'Mark incomplete' : 'Mark complete'}
                     >
                       {isCompleted ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-500 fill-emerald-500/10" />
+                        <CheckCircle2 className="w-5 h-5" style={{ color: 'var(--ff-success)' }} />
                       ) : (
                         <Circle className="w-5 h-5" />
                       )}
@@ -227,40 +229,32 @@ export const TaskManager: React.FC = () => {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span
-                          className={`text-sm font-semibold text-slate-900 dark:text-white ${
-                            isCompleted ? 'line-through text-slate-400 dark:text-slate-500' : ''
+                          className={`text-sm font-semibold text-[var(--ff-text-primary)] ${
+                            isCompleted ? 'line-through text-[var(--ff-text-muted)]' : ''
                           }`}
                         >
                           {task.title}
                         </span>
 
-                        {/* Priority indicator */}
-                        <span
-                          className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md border ${
-                            priorityColors[task.priority]
-                          }`}
-                        >
-                          {task.priority}
-                        </span>
+                        <ThemeBadge tone={priorityTone[task.priority]}>{task.priority}</ThemeBadge>
                       </div>
 
                       {task.description && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
+                        <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
                           {task.description}
                         </p>
                       )}
 
-                      {/* Metadata row with unboxed discipline */}
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
                         {task.dueDate && (
                           <div className="flex items-center gap-1 font-mono">
-                            <Calendar className="w-3 h-3 text-slate-400" />
+                            <Calendar className="w-3 h-3" />
                             <span>Due {task.dueDate}</span>
                           </div>
                         )}
                         {task.dueDate && <span aria-hidden="true">·</span>}
                         <div className="flex items-center gap-1 font-mono">
-                          <Flame className="w-3 h-3 text-indigo-500" />
+                          <Flame className="w-3 h-3" style={{ color: 'var(--ff-accent-text)' }} />
                           <span>
                             {task.completedPomodoros} / {task.estimatedPomodoros} Pomodoros
                           </span>
@@ -273,8 +267,15 @@ export const TaskManager: React.FC = () => {
                   <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
                     {!isCompleted && (
                       <button
+                        type="button"
                         onClick={() => handleStartFocusOnTask(task)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border transition-colors"
+                        style={{
+                          borderRadius: 'var(--ff-radius-button)',
+                          background: 'var(--ff-accent-soft)',
+                          borderColor: 'var(--ff-accent-border)',
+                          color: 'var(--ff-accent-text)',
+                        }}
                         title="Start Pomodoro timer on this task"
                       >
                         <Play className="w-3.5 h-3.5 fill-current" />
@@ -283,17 +284,21 @@ export const TaskManager: React.FC = () => {
                     )}
 
                     <button
+                      type="button"
                       onClick={() => openEditModal(task)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors"
                       title="Edit task"
+                      aria-label={`Edit ${task.title}`}
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
 
                     <button
-                      onClick={() => handleDelete(task.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 transition-colors"
+                      type="button"
+                      onClick={() => void handleDelete(task.id)}
+                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
                       title="Delete task"
+                      aria-label={`Delete ${task.title}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -303,106 +308,112 @@ export const TaskManager: React.FC = () => {
             })}
           </div>
         )}
-      </div>
+      </ThemeCard>
 
       {/* Task Create / Edit Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-6 w-full max-w-md">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">
-              {editingTask ? 'Edit Task' : 'Create New Task'}
-            </h3>
-
-            <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Task Title
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g., Implement monthly bill calculation"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Description
-                </label>
-                <textarea
-                  rows={2}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Additional context, subtasks, or notes..."
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Priority
-                  </label>
-                  <select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value as typeof priority)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="high">High Priority</option>
-                    <option value="medium">Medium Priority</option>
-                    <option value="low">Low Priority</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Est. Pomodoros
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="20"
-                    value={estimatedPomodoros}
-                    onChange={(e) => setEstimatedPomodoros(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Target Due Date (Optional)
-                </label>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm"
-                >
-                  {editingTask ? 'Save Changes' : 'Create Task'}
-                </button>
-              </div>
-            </form>
+      <ThemeModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingTask ? 'Edit Task' : 'Create New Task'}
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <label
+              htmlFor="task-title-input"
+              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+            >
+              Task Title
+            </label>
+            <ThemeInput
+              id="task-title-input"
+              type="text"
+              required
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Implement monthly bill calculation"
+            />
           </div>
-        </div>
-      )}
+
+          <div>
+            <label
+              htmlFor="task-desc-input"
+              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+            >
+              Description
+            </label>
+            <ThemeTextarea
+              id="task-desc-input"
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Additional context, subtasks, or notes..."
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="task-priority-select"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Priority
+              </label>
+              <ThemeSelect
+                id="task-priority-select"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as typeof priority)}
+              >
+                <option value="high">High Priority</option>
+                <option value="medium">Medium Priority</option>
+                <option value="low">Low Priority</option>
+              </ThemeSelect>
+            </div>
+
+            <div>
+              <label
+                htmlFor="task-poms-input"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Est. Pomodoros
+              </label>
+              <ThemeInput
+                id="task-poms-input"
+                type="number"
+                min="1"
+                max="20"
+                value={estimatedPomodoros}
+                onChange={(e) => setEstimatedPomodoros(e.target.value)}
+                className="font-mono tabular-nums"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="task-due-input"
+              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+            >
+              Target Due Date (Optional)
+            </label>
+            <ThemeInput
+              id="task-due-input"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-2">
+            <ThemeButton variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
+              Cancel
+            </ThemeButton>
+            <ThemeButton type="submit" variant="primary" size="sm">
+              {editingTask ? 'Save Changes' : 'Create Task'}
+            </ThemeButton>
+          </div>
+        </form>
+      </ThemeModal>
     </div>
   );
 };

@@ -1,12 +1,11 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   deleteDoc,
   onSnapshot,
-  query,
-  orderBy,
   Unsubscribe,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase.ts';
@@ -35,6 +34,10 @@ export const firestoreService = {
   async getSettings(userId: string): Promise<Partial<UserSettings> | null> {
     const path = `users/${userId}/settings/default`;
     try {
+      const defaultSnap = await getDoc(doc(db, path));
+      if (defaultSnap.exists()) {
+        return defaultSnap.data() as Partial<UserSettings>;
+      }
       const snap = await getDocs(collection(db, `users/${userId}/settings`));
       if (!snap.empty) {
         return snap.docs[0].data() as Partial<UserSettings>;

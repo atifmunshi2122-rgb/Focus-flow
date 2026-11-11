@@ -1,0 +1,782 @@
+/* ==========================================================================
+   FocusFlow & Finance — Advanced Design System & Theme Engine CSS
+   Centralized Design Tokens + 16 Independent Design Styles
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+  accent-color: var(--ff-accent, #6366f1);
+
+  /* Viewport Scrollbar Theming (non-animated to avoid WebKit flicker) */
+  scrollbar-width: thin;
+  scrollbar-color: var(--ff-border-strong, #64748b) transparent;
+
+  /* Default token fallbacks before JS hydration */
+  --ff-bg-canvas: #09090b;
+  --ff-bg-backdrop: #09090b;
+  --ff-surface-card: #111114;
+  --ff-surface-elevated: #18181c;
+  --ff-surface-muted: #1c1c21;
+  --ff-surface-inset: #0c0c0f;
+  --ff-surface-hover: #1f1f25;
+  --ff-surface-sidebar: #0d0d10;
+  --ff-surface-header: rgba(13, 13, 16, 0.92);
+  --ff-surface-hero: linear-gradient(135deg, #18181b 0%, #1e1b4b 100%);
+  --ff-hero-text: #fafafa;
+  --ff-hero-muted: #cbd5e1;
+  --ff-text-primary: #fafafa;
+  --ff-text-secondary: #e4e4e7;
+  --ff-text-muted: #a1a1aa;
+  --ff-border-color: #27272a;
+  --ff-border-strong: #3f3f46;
+  --ff-border-highlight: #27272a;
+  --ff-border-width: 1px;
+  --ff-backdrop-blur: 0px;
+  --ff-shadow-card: none;
+  --ff-shadow-elevated: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --ff-shadow-button: none;
+  --ff-shadow-inset: none;
+  --ff-neu-light: #27272a;
+  --ff-neu-dark: #000000;
+  --ff-accent: #6366f1;
+  --ff-accent-secondary: #8b5cf6;
+  --ff-accent-hover: #4f46e5;
+  --ff-accent-soft: rgba(99, 102, 241, 0.18);
+  --ff-accent-border: rgba(99, 102, 241, 0.44);
+  --ff-accent-contrast: #ffffff;
+  --ff-accent-text: #818cf8;
+  --ff-success: #10b981;
+  --ff-success-soft: rgba(16, 185, 129, 0.18);
+  --ff-warning: #f59e0b;
+  --ff-warning-soft: rgba(245, 158, 11, 0.18);
+  --ff-danger: #f43f5e;
+  --ff-danger-soft: rgba(244, 63, 94, 0.18);
+  --ff-info: #38bdf8;
+  --ff-info-soft: rgba(56, 189, 248, 0.18);
+  --ff-font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --ff-font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --ff-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --ff-font-scale: 1;
+  --ff-heading-weight: 700;
+  --ff-heading-tracking: -0.02em;
+  --ff-radius-card: 16px;
+  --ff-radius-button: 10px;
+  --ff-radius-input: 8px;
+  --ff-radius-badge: 6px;
+  --ff-card-pad: 1.25rem;
+  --ff-section-gap: 1.75rem;
+  --ff-grid-gap: 1rem;
+  --ff-row-pad: 0.875rem 1.15rem;
+  --ff-duration-fast: 160ms;
+  --ff-duration-normal: 260ms;
+  --ff-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  &:has(> head > meta[name="color-scheme"][content="dark"]) {
+    color-scheme: dark;
+  }
+
+  &:has(> head > meta[name="color-scheme"][content="light"]) {
+    color-scheme: light;
+  }
+}
+
+@layer base {
+  html {
+    font-size: calc(16px * var(--ff-font-scale, 1));
+  }
+
+  body {
+    font-family: var(--ff-font-sans);
+    background-color: var(--ff-bg-canvas);
+    color: var(--ff-text-primary);
+    line-height: 1.5;
+  }
+
+  h1, h2, h3, h4, .ff-heading {
+    font-family: var(--ff-font-display);
+    font-weight: var(--ff-heading-weight);
+    letter-spacing: var(--ff-heading-tracking);
+  }
+
+  code, kbd, samp, pre, .font-mono {
+    font-family: var(--ff-font-mono);
+  }
+
+  /* Native <dialog> modal scroll containment (modern-web-guidance) */
+  dialog:modal {
+    overscroll-behavior: contain;
+    margin: auto;
+    max-height: calc(100dvh - 2rem);
+  }
+
+  dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
+    background: rgba(2, 6, 23, 0.62);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+
+  /* Accessible Focus Rings */
+  :where(a:any-link, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--ff-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* Legacy WebKit scrollbar fallback */
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--ff-border-strong);
+    border-radius: 9999px;
+  }
+}
+
+@layer components {
+/* ==========================================================================
+   Core Semantic Theme-Aware Primitives (.ff-*)
+   ========================================================================== */
+
+.ff-app-shell {
+  position: relative;
+  min-height: 100dvh;
+  background-color: var(--ff-bg-canvas);
+  background-image: var(--ff-bg-backdrop);
+  background-attachment: fixed;
+  color: var(--ff-text-primary);
+  font-family: var(--ff-font-sans);
+  transition: background-color var(--ff-duration-normal) var(--ff-ease),
+    color var(--ff-duration-fast) var(--ff-ease);
+}
+
+.ff-app-shell::selection,
+.ff-app-shell *::selection {
+  background: var(--ff-accent);
+  color: var(--ff-accent-contrast);
+}
+
+/* Ambient / Overlay layers for styles that use textures or drifting light */
+.ff-ambient-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.ff-sidebar {
+  background: var(--ff-surface-sidebar);
+  border-right: var(--ff-border-width) solid var(--ff-border-color);
+  color: var(--ff-text-primary);
+  backdrop-filter: blur(var(--ff-backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--ff-backdrop-blur));
+  transition: width var(--ff-duration-normal) var(--ff-ease),
+    transform var(--ff-duration-normal) var(--ff-ease),
+    background-color var(--ff-duration-normal) var(--ff-ease);
+}
+
+.ff-header {
+  background: var(--ff-surface-header);
+  border-bottom: var(--ff-border-width) solid var(--ff-border-color);
+  color: var(--ff-text-primary);
+  backdrop-filter: blur(calc(var(--ff-backdrop-blur) + 6px));
+  -webkit-backdrop-filter: blur(calc(var(--ff-backdrop-blur) + 6px));
+}
+
+.ff-card {
+  position: relative;
+  background: var(--ff-surface-card);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  border-radius: var(--ff-radius-card);
+  box-shadow: var(--ff-shadow-card);
+  color: var(--ff-text-primary);
+  padding: var(--ff-card-pad);
+  backdrop-filter: blur(var(--ff-backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--ff-backdrop-blur));
+  transition:
+    transform var(--ff-duration-fast) var(--ff-ease),
+    box-shadow var(--ff-duration-normal) var(--ff-ease),
+    border-color var(--ff-duration-fast) var(--ff-ease),
+    background-color var(--ff-duration-fast) var(--ff-ease);
+}
+
+.ff-card-compact {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ff-card-elevated {
+  background: var(--ff-surface-elevated);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  border-radius: var(--ff-radius-card);
+  box-shadow: var(--ff-shadow-elevated);
+  color: var(--ff-text-primary);
+  backdrop-filter: blur(calc(var(--ff-backdrop-blur) + 4px));
+  -webkit-backdrop-filter: blur(calc(var(--ff-backdrop-blur) + 4px));
+}
+
+.ff-card-inset {
+  background: var(--ff-surface-inset);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  border-radius: calc(var(--ff-radius-card) * 0.78);
+  box-shadow: var(--ff-shadow-inset);
+  color: var(--ff-text-primary);
+}
+
+.ff-card-interactive:hover {
+  background: var(--ff-surface-hover);
+  border-color: var(--ff-accent-border);
+}
+
+.ff-hero-banner {
+  position: relative;
+  overflow: hidden;
+  background: var(--ff-surface-hero);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  border-radius: calc(var(--ff-radius-card) * 1.15);
+  box-shadow: var(--ff-shadow-elevated);
+  color: var(--ff-hero-text);
+  padding: calc(var(--ff-card-pad) * 1.25);
+}
+
+.ff-divider {
+  border-color: var(--ff-border-color);
+}
+
+.ff-row-hover {
+  transition: background-color var(--ff-duration-fast) var(--ff-ease);
+}
+.ff-row-hover:hover {
+  background: var(--ff-surface-hover);
+}
+
+/* Buttons */
+.ff-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  border-radius: var(--ff-radius-button);
+  transition:
+    transform var(--ff-duration-fast) var(--ff-ease),
+    background-color var(--ff-duration-fast) var(--ff-ease),
+    box-shadow var(--ff-duration-fast) var(--ff-ease),
+    border-color var(--ff-duration-fast) var(--ff-ease),
+    color var(--ff-duration-fast) var(--ff-ease);
+  cursor: pointer;
+}
+
+.ff-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ff-btn-primary {
+  background: var(--ff-accent);
+  color: var(--ff-accent-contrast);
+  border: var(--ff-border-width) solid transparent;
+  box-shadow: var(--ff-shadow-button);
+}
+.ff-btn-primary:hover:not(:disabled) {
+  background: var(--ff-accent-hover);
+}
+
+.ff-btn-secondary {
+  background: var(--ff-surface-elevated);
+  color: var(--ff-text-primary);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  box-shadow: var(--ff-shadow-card);
+}
+.ff-btn-secondary:hover:not(:disabled) {
+  background: var(--ff-surface-hover);
+  border-color: var(--ff-border-strong);
+}
+
+.ff-btn-ghost {
+  background: transparent;
+  color: var(--ff-text-secondary);
+  border: var(--ff-border-width) solid transparent;
+}
+.ff-btn-ghost:hover:not(:disabled) {
+  background: var(--ff-surface-muted);
+  color: var(--ff-text-primary);
+}
+
+/* Inputs & Selects */
+.ff-input {
+  width: 100%;
+  background: var(--ff-surface-inset);
+  color: var(--ff-text-primary);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  border-radius: var(--ff-radius-input);
+  box-shadow: var(--ff-shadow-inset);
+  transition:
+    border-color var(--ff-duration-fast) var(--ff-ease),
+    box-shadow var(--ff-duration-fast) var(--ff-ease),
+    background-color var(--ff-duration-fast) var(--ff-ease);
+}
+
+.ff-input::placeholder {
+  color: var(--ff-text-muted);
+  opacity: 0.8;
+}
+
+.ff-input:focus {
+  outline: none;
+  border-color: var(--ff-accent);
+  box-shadow: var(--ff-shadow-inset), 0 0 0 3px var(--ff-accent-soft);
+}
+
+/* Segmented Controls */
+.ff-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: var(--ff-surface-muted);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  border-radius: calc(var(--ff-radius-button) + 3px);
+  box-shadow: var(--ff-shadow-inset);
+}
+
+.ff-segmented-item {
+  position: relative;
+  border-radius: var(--ff-radius-button);
+  color: var(--ff-text-muted);
+  font-weight: 600;
+  transition:
+    background-color var(--ff-duration-fast) var(--ff-ease),
+    color var(--ff-duration-fast) var(--ff-ease),
+    box-shadow var(--ff-duration-fast) var(--ff-ease),
+    transform var(--ff-duration-fast) var(--ff-ease);
+}
+
+.ff-segmented-item:hover:not([data-active="true"]) {
+  color: var(--ff-text-primary);
+}
+
+.ff-segmented-item[data-active="true"] {
+  background: var(--ff-surface-card);
+  color: var(--ff-text-primary);
+  box-shadow: var(--ff-shadow-card);
+}
+
+/* Badges */
+.ff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: var(--ff-radius-badge);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  font-weight: 600;
+}
+
+/* Progress Track */
+.ff-progress-track {
+  background: var(--ff-surface-muted);
+  border: 1px solid var(--ff-border-color);
+  box-shadow: var(--ff-shadow-inset);
+  border-radius: var(--ff-radius-badge);
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   STYLE-SPECIFIC VISUAL IDENTITIES & INTERACTION PHYSICS (16 STYLES)
+   ========================================================================== */
+
+/* 1. GLASSMORPHISM: frosted backdrop, specular highlight border */
+[data-design-style="glassmorphism"] .ff-card,
+[data-design-style="glassmorphism"] .ff-card-elevated {
+  backdrop-filter: blur(var(--ff-backdrop-blur)) saturate(165%);
+  -webkit-backdrop-filter: blur(var(--ff-backdrop-blur)) saturate(165%);
+}
+[data-design-style="glassmorphism"] .ff-btn-primary {
+  background: linear-gradient(135deg, var(--ff-accent), var(--ff-accent-secondary));
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+[data-design-style="glassmorphism"][data-animation="standard"] .ff-card-interactive:hover,
+[data-design-style="glassmorphism"][data-animation="expressive"] .ff-card-interactive:hover {
+  transform: translateY(-2px);
+}
+
+/* 2. CLAYMORPHISM: chunky inflated 3D shapes & spring bounce */
+[data-design-style="claymorphism"] .ff-card {
+  border-width: 2px;
+}
+[data-design-style="claymorphism"] .ff-btn-primary {
+  background: linear-gradient(145deg, var(--ff-accent), var(--ff-accent-secondary));
+}
+[data-design-style="claymorphism"]:not([data-animation="none"]) .ff-btn:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.015);
+}
+[data-design-style="claymorphism"]:not([data-animation="none"]) .ff-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.96);
+}
+[data-design-style="claymorphism"]:not([data-animation="none"]) .ff-card-interactive:hover {
+  transform: translateY(-3px);
+}
+
+/* 3. SKEUOMORPHISM: physical hardware bevels, leather stitching & recessed wells */
+[data-design-style="skeuomorphism"] .ff-hero-banner::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px dashed rgba(255, 240, 215, 0.28);
+  border-radius: calc(var(--ff-radius-card) * 0.85);
+  pointer-events: none;
+}
+[data-design-style="skeuomorphism"] .ff-btn-primary {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ff-accent) 85%, white) 0%, var(--ff-accent) 55%, color-mix(in oklab, var(--ff-accent) 82%, black) 100%);
+  border: 1px solid rgba(0, 0, 0, 0.28);
+}
+[data-design-style="skeuomorphism"] .ff-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--ff-shadow-inset);
+}
+[data-design-style="skeuomorphism"] .ff-segmented-item[data-active="true"] {
+  background: linear-gradient(180deg, #ffffff 0%, #e5e7eb 100%);
+  color: #111827;
+}
+[data-design-style="skeuomorphism"][data-theme-mode="dark"] .ff-segmented-item[data-active="true"] {
+  background: linear-gradient(180deg, #3b404c 0%, #2a2e38 100%);
+  color: #f8fafc;
+}
+
+/* 4. NEUMORPHISM: continuous extruded surface & carved inset controls */
+[data-design-style="neumorphism"] .ff-card,
+[data-design-style="neumorphism"] .ff-btn-secondary {
+  border-color: var(--ff-border-color);
+}
+[data-design-style="neumorphism"] .ff-btn-primary:active:not(:disabled),
+[data-design-style="neumorphism"] .ff-btn-secondary:active:not(:disabled) {
+  box-shadow: var(--ff-shadow-inset);
+}
+[data-design-style="neumorphism"] .ff-segmented {
+  background: var(--ff-bg-canvas);
+  box-shadow: var(--ff-shadow-inset);
+}
+[data-design-style="neumorphism"] .ff-segmented-item[data-active="true"] {
+  background: var(--ff-bg-canvas);
+  box-shadow: var(--ff-shadow-button);
+}
+
+/* 5. MINIMALISM: hairline architectural precision */
+[data-design-style="minimalism"] .ff-card {
+  box-shadow: var(--ff-shadow-card);
+}
+[data-design-style="minimalism"] .ff-segmented-item[data-active="true"] {
+  border: 1px solid var(--ff-border-strong);
+}
+
+/* 6. BRUTALISM: 0px corners, thick ink borders, hard offset shadows & mechanical snap */
+[data-design-style="brutalism"] .ff-card,
+[data-design-style="brutalism"] .ff-card-elevated,
+[data-design-style="brutalism"] .ff-hero-banner,
+[data-design-style="brutalism"] .ff-btn,
+[data-design-style="brutalism"] .ff-input,
+[data-design-style="brutalism"] .ff-segmented,
+[data-design-style="brutalism"] .ff-segmented-item,
+[data-design-style="brutalism"] .ff-badge {
+  border-radius: var(--ff-radius-card);
+  border-color: var(--ff-border-color);
+}
+[data-design-style="brutalism"] .ff-btn-primary {
+  border: 2.5px solid var(--ff-border-strong);
+  box-shadow: var(--ff-shadow-button);
+}
+[data-design-style="brutalism"] .ff-btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+}
+[data-design-style="brutalism"] .ff-btn:active:not(:disabled) {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+[data-design-style="brutalism"] .ff-segmented-item[data-active="true"] {
+  background: var(--ff-accent);
+  color: var(--ff-accent-contrast);
+  box-shadow: 2px 2px 0px var(--ff-border-strong);
+}
+[data-design-style="brutalism"] .ff-heading,
+[data-design-style="brutalism"] h2,
+[data-design-style="brutalism"] h3,
+[data-design-style="brutalism"] h4 {
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+/* 7. CYBERPUNK: HUD scanlines, angular neon frames, telemetry glow */
+[data-design-style="cyberpunk"] .ff-ambient-layer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 3px,
+    rgba(0, 240, 255, 0.025) 3px,
+    rgba(0, 240, 255, 0.025) 4px
+  );
+}
+[data-design-style="cyberpunk"] .ff-card::before,
+[data-design-style="cyberpunk"] .ff-hero-banner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28px;
+  height: 2px;
+  background: var(--ff-accent);
+  box-shadow: 0 0 10px var(--ff-accent);
+  pointer-events: none;
+}
+[data-design-style="cyberpunk"] .ff-btn-primary {
+  border: 1px solid var(--ff-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+[data-design-style="cyberpunk"] .ff-segmented-item[data-active="true"] {
+  border: 1px solid var(--ff-accent);
+  color: var(--ff-accent-text);
+  box-shadow: 0 0 12px var(--ff-accent-soft);
+}
+
+/* 8. 3D GRADIENT: multi-stop vibrant gradients + colored bloom + spatial hover */
+[data-design-style="gradient3d"] .ff-btn-primary {
+  background: linear-gradient(135deg, var(--ff-accent) 0%, var(--ff-accent-secondary) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+[data-design-style="gradient3d"]:not([data-animation="none"]) .ff-card-interactive:hover,
+[data-design-style="gradient3d"]:not([data-animation="none"]) .ff-btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+/* 9. MATERIAL DESIGN: tonal elevation & Material 3 pills */
+[data-design-style="material"] .ff-btn-primary,
+[data-design-style="material"] .ff-btn-secondary {
+  border-radius: 9999px;
+}
+[data-design-style="material"] .ff-segmented {
+  border-radius: 9999px;
+  padding: 0.25rem;
+}
+[data-design-style="material"] .ff-segmented-item {
+  border-radius: 9999px;
+}
+[data-design-style="material"] .ff-segmented-item[data-active="true"] {
+  background: var(--ff-accent-soft);
+  color: var(--ff-accent-text);
+  box-shadow: none;
+}
+
+/* 10. FLAT DESIGN: pure 2D blocks, zero shadows, crisp contrast */
+[data-design-style="flat"] .ff-card,
+[data-design-style="flat"] .ff-card-elevated,
+[data-design-style="flat"] .ff-hero-banner,
+[data-design-style="flat"] .ff-btn,
+[data-design-style="flat"] .ff-segmented {
+  box-shadow: none !important;
+}
+[data-design-style="flat"][data-theme-mode="light"] .ff-sidebar {
+  color: #ecf0f1;
+  border-right-color: #1e2b38;
+}
+[data-design-style="flat"][data-theme-mode="light"] .ff-sidebar .ff-sidebar-muted {
+  color: #cbd5e1;
+}
+[data-design-style="flat"][data-theme-mode="light"] .ff-sidebar .ff-sidebar-item:not([data-active="true"]) {
+  color: #dce4ec;
+}
+[data-design-style="flat"][data-theme-mode="light"] .ff-sidebar .ff-sidebar-item:not([data-active="true"]):hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+[data-design-style="flat"] .ff-segmented-item[data-active="true"] {
+  background: var(--ff-accent);
+  color: var(--ff-accent-contrast);
+}
+
+/* 11. FLUENT DESIGN: acrylic blur, fine stroke & signature accent indicator pill */
+[data-design-style="fluent"] .ff-sidebar-item[data-active="true"]::before,
+[data-design-style="fluent"] .ff-segmented-item[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  background: var(--ff-accent);
+  border-radius: 9999px;
+}
+[data-design-style="fluent"] .ff-sidebar-item[data-active="true"]::before {
+  left: 2px;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+}
+[data-design-style="fluent"] .ff-segmented-item[data-active="true"]::after {
+  left: 24%;
+  right: 24%;
+  bottom: 2px;
+  height: 2.5px;
+}
+
+/* 12. EDITORIAL DESIGN: broadsheet rules, masthead double border, serif cadence */
+[data-design-style="editorial"] .ff-hero-banner {
+  border: 1px solid var(--ff-border-strong);
+  outline: 1px solid var(--ff-border-color);
+  outline-offset: -6px;
+}
+[data-design-style="editorial"] .ff-card {
+  border-top: 2px solid var(--ff-border-strong);
+}
+[data-design-style="editorial"] .ff-segmented-item[data-active="true"] {
+  background: var(--ff-text-primary);
+  color: var(--ff-bg-canvas);
+}
+
+/* 13. RETRO / VINTAGE: analog stamp & warm print border */
+[data-design-style="retro"] .ff-btn-primary {
+  border: 2px solid var(--ff-border-strong);
+  box-shadow: var(--ff-shadow-button);
+}
+[data-design-style="retro"] .ff-btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+[data-design-style="retro"] .ff-segmented-item[data-active="true"] {
+  background: var(--ff-accent);
+  color: var(--ff-accent-contrast);
+  border: 1px solid var(--ff-border-strong);
+}
+
+/* 14. OLED DARK: pixel-off pitch black, ultra-crisp dividers */
+[data-design-style="oled"][data-theme-mode="dark"] .ff-card,
+[data-design-style="oled"][data-theme-mode="dark"] .ff-sidebar,
+[data-design-style="oled"][data-theme-mode="dark"] .ff-header {
+  backdrop-filter: none;
+}
+[data-design-style="oled"] .ff-segmented-item[data-active="true"] {
+  border: 1px solid var(--ff-accent);
+  color: var(--ff-accent-text);
+}
+
+/* 15. SOFT PASTEL: dreamy rounded macaron pills */
+[data-design-style="pastel"] .ff-segmented-item[data-active="true"] {
+  background: var(--ff-accent);
+  color: var(--ff-accent-contrast);
+}
+
+/* 16. AURORA / AMBIENT: drifting Northern Lights mesh */
+@keyframes ff-aurora-drift {
+  0% {
+    transform: translate3d(-4%, -3%, 0) scale(1) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(5%, 4%, 0) scale(1.08) rotate(8deg);
+  }
+  100% {
+    transform: translate3d(-4%, -3%, 0) scale(1) rotate(0deg);
+  }
+}
+
+[data-design-style="aurora"] .ff-ambient-layer::before {
+  content: "";
+  position: absolute;
+  inset: -25%;
+  background:
+    radial-gradient(circle at 24% 28%, rgba(16, 185, 129, 0.22), transparent 38%),
+    radial-gradient(circle at 75% 22%, rgba(99, 102, 241, 0.22), transparent 40%),
+    radial-gradient(circle at 52% 76%, rgba(168, 85, 247, 0.18), transparent 42%);
+  filter: blur(48px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-design-style="aurora"]:not([data-animation="none"]) .ff-ambient-layer::before {
+    animation: ff-aurora-drift 18s ease-in-out infinite;
+  }
+  [data-design-style="aurora"][data-animation="subtle"] .ff-ambient-layer::before {
+    animation-duration: 32s;
+  }
+  [data-design-style="aurora"][data-animation="expressive"] .ff-ambient-layer::before {
+    animation-duration: 11s;
+  }
+}
+
+/* Glassmorphism floating ambient orbs inside ambient layer so backdrop-filter blurs rich depth */
+[data-design-style="glassmorphism"] .ff-ambient-layer::before,
+[data-design-style="glassmorphism"] .ff-ambient-layer::after {
+  content: "";
+  position: absolute;
+  border-radius: 9999px;
+  pointer-events: none;
+  filter: blur(60px);
+}
+[data-design-style="glassmorphism"] .ff-ambient-layer::before {
+  width: 42vw;
+  height: 42vw;
+  max-width: 520px;
+  max-height: 520px;
+  top: -8%;
+  right: 8%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--ff-accent) 48%, transparent), transparent 70%);
+}
+[data-design-style="glassmorphism"] .ff-ambient-layer::after {
+  width: 38vw;
+  height: 38vw;
+  max-width: 480px;
+  max-height: 480px;
+  bottom: -10%;
+  left: 14%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--ff-accent-secondary) 44%, transparent), transparent 70%);
+}
+
+/* ==========================================================================
+   Reduced Motion & Animation Intensity Controls
+   ========================================================================== */
+[data-animation="none"] .ff-card,
+[data-animation="none"] .ff-btn,
+[data-animation="none"] .ff-segmented-item,
+[data-animation="none"] .ff-ambient-layer::before {
+  transform: none;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ff-card,
+  .ff-btn,
+  .ff-segmented-item {
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   Forced Colors Mode (Windows High Contrast) Safeguards
+   ========================================================================== */
+@media (forced-colors: active) {
+  .ff-card,
+  .ff-card-elevated,
+  .ff-card-inset,
+  .ff-hero-banner,
+  .ff-btn,
+  .ff-input,
+  .ff-segmented,
+  .ff-badge {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .ff-btn-primary,
+  .ff-segmented-item[data-active="true"] {
+    background: Highlight;
+    color: HighlightText;
+  }
+  :where(a:any-link, button, input, select, textarea):focus-visible {
+    outline: 3px solid Highlight;
+  }
+}
+} /* end @layer components */

@@ -1,9 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { User, UserSettings, Task, CurrencyCode } from '../types/index.ts';
+import {
+  User,
+  UserSettings,
+  Task,
+  CurrencyCode,
+  ThemeConfig,
+  SavedCustomTheme,
+} from '../types/index.ts';
 import { api } from '../lib/api.ts';
 import { playFocusCompleteSound, playBreakEndSound, playClickSound } from '../lib/sound.ts';
 import {
-  auth,
   signInWithGoogle as fbSignInWithGoogle,
   signOut as fbSignOut,
   initAuthListener,
@@ -13,6 +19,14 @@ import {
 import { User as FirebaseUser } from 'firebase/auth';
 import { googleSheetsService } from '../lib/googleSheetsService.ts';
 import { firestoreService } from '../lib/firestoreService.ts';
+import { DEFAULT_THEME_CONFIG } from '../theme/stylesRegistry.ts';
+import {
+  THEME_CACHE_KEY,
+  applyThemeToDocument,
+  getSystemColorMode,
+  resolveColorMode,
+  sanitizeThemeConfig,
+} from '../theme/themeEngine.ts';
 
 export type NavTab =
   | 'dashboard'
@@ -28,10 +42,27 @@ export type TimerMode = 'work' | 'short_break' | 'long_break';
 
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
 
+export type ThemeSyncState = 'local' | 'syncing' | 'cloud-synced' | 'offline';
+
 export interface ToastItem {
   id: string;
   message: string;
   type: 'success' | 'error' | 'info';
+}
+
+function readCachedThemeConfig(): ThemeConfig {
+  try {
+    const raw = localStorage.getItem(THEME_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.config) {
+        return sanitizeThemeConfig(parsed.config);
+      }
+    }
+  } catch {
+    // ignore storage parse failures
+  }
+  return { ...DEFAULT_THEME_CONFIG };
 }
 
 interface AppContextType {
@@ -44,6 +75,32 @@ interface AppContextType {
   theme: 'light' | 'dark';
   toggleTheme: () => void;
   reseedData: () => Promise<void>;
+
+  // Advanced Design System & Theme Studio
+  themeConfig: ThemeConfig;
+  effectiveThemeConfig: ThemeConfig;
+  previewThemeConfig: ThemeConfig | null;
+  isFullAppPreview: boolean;
+  resolvedThemeMode: 'light' | 'dark';
+  systemColorMode: 'light' | 'dark';
+  savedThemes: SavedCustomTheme[];
+  activeSavedThemeId: string | null;
+  themeSyncState: ThemeSyncState;
+  applyThemeConfig: (
+    nextConfig: ThemeConfig,
+    savedThemeId?: string | null,
+    silentToast?: boolean
+  ) => Promise<void>;
+  startFullAppPreview: (config: ThemeConfig) => void;
+  stopFullAppPreview: () => void;
+  saveCustomTheme: (
+    name: string,
+    config: ThemeConfig,
+    description?: string
+  ) => Promise<SavedCustomTheme>;
+  applySavedTheme: (themeId: string) => Promise<void>;
+  deleteSavedTheme: (themeId: string) => Promise<void>;
+  resetThemeToDefault: () => Promise<void>;
 
   // Firebase Auth
   firebaseUser: FirebaseUser | null;
@@ -90,9 +147,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  // Theme Engine state
+  const [themeConfig, setThemeConfig] = useState<ThemeConfig>(() => readCachedThemeConfig());
+  const [previewThemeConfig, setPreviewThemeConfig] = useState<ThemeConfig | null>(null);
+  const [savedThemes, setSavedThemes] = useState<SavedCustomTheme[]>([]);
+  const [activeSavedThemeId, setActiveSavedThemeId] = useState<string | null>(null);
+  const [systemColorMode, setSystemColorMode] = useState<'light' | 'dark'>(() =>
+    getSystemColorMode()
+  );
+  const [themeSyncState, setThemeSyncState] = useState<ThemeSyncState>('local');
+
+  // Track hydration so refreshes don't clobber active theme changes
+  const initialThemeLoadedRef = useRef(false);
+  const restoredFirebaseUidRef = useRef<string | null>(null);
 
   // Firebase Auth state
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -115,6 +185,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const sessionStartTimeRef = useRef<string | null>(null);
 
+  const isFullAppPreview = previewThemeConfig !== null;
+  const effectiveThemeConfig = previewThemeConfig ?? themeConfig;
+  const resolvedThemeMode: 'light' | 'dark' =
+    effectiveThemeConfig.colorMode === 'system'
+      ? systemColorMode
+      : effectiveThemeConfig.colorMode;
+
   const triggerRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setSyncQueueCount(googleSheetsService.getQueueLength());
@@ -132,25 +209,176 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Theme application
+  // Listen to OS prefers-color-scheme changes
   useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-  }, [theme]);
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      setSystemColorMode(e.matches ? 'dark' : 'light');
+    };
+    setSystemColorMode(mq.matches ? 'dark' : 'light');
+    mq.addEventListener('change', handleChange);
+    return () => mq.removeEventListener('change', handleChange);
+  }, []);
+
+  // Sync theme changes across browser tabs via localStorage storage events
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === THEME_CACHE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed?.config) {
+            setThemeConfig(sanitizeThemeConfig(parsed.config));
+          }
+        } catch {
+          // ignore
+        }
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // Apply effective theme tokens to document root
+  useEffect(() => {
+    applyThemeToDocument(effectiveThemeConfig, resolvedThemeMode, !isFullAppPreview);
+  }, [effectiveThemeConfig, resolvedThemeMode, isFullAppPreview]);
+
+  // Persist theme payload helper (local API + Firestore)
+  const persistThemeState = useCallback(
+    async (
+      nextConfig: ThemeConfig,
+      nextSavedThemes: SavedCustomTheme[],
+      nextActiveSavedId: string | null,
+      targetFbUser: FirebaseUser | null
+    ) => {
+      const payload: Partial<UserSettings> = {
+        theme: nextConfig.colorMode,
+        themeConfig: nextConfig,
+        savedThemes: nextSavedThemes,
+        activeSavedThemeId: nextActiveSavedId,
+      };
+
+      try {
+        const res = await api.updateSettings(payload);
+        setSettings(res.settings);
+      } catch (err) {
+        console.error('Failed to persist theme to local API:', err);
+      }
+
+      if (targetFbUser) {
+        setThemeSyncState('syncing');
+        try {
+          await firestoreService.saveSettings(targetFbUser.uid, payload);
+          setThemeSyncState('cloud-synced');
+        } catch (err) {
+          console.warn('Firestore theme sync deferred/offline:', err);
+          setThemeSyncState('offline');
+        }
+      } else {
+        setThemeSyncState('local');
+      }
+    },
+    []
+  );
+
+  const applyThemeConfig = useCallback(
+    async (
+      nextConfig: ThemeConfig,
+      savedThemeId: string | null = null,
+      silentToast = false
+    ) => {
+      const sanitized = sanitizeThemeConfig(nextConfig);
+      setPreviewThemeConfig(null);
+      setThemeConfig(sanitized);
+      setActiveSavedThemeId(savedThemeId);
+      await persistThemeState(sanitized, savedThemes, savedThemeId, firebaseUser);
+      if (!silentToast) {
+        showToast('Theme applied', 'success');
+      }
+    },
+    [savedThemes, firebaseUser, persistThemeState, showToast]
+  );
+
+  const startFullAppPreview = useCallback((config: ThemeConfig) => {
+    setPreviewThemeConfig(sanitizeThemeConfig(config));
+  }, []);
+
+  const stopFullAppPreview = useCallback(() => {
+    setPreviewThemeConfig(null);
+  }, []);
+
+  const saveCustomTheme = useCallback(
+    async (name: string, config: ThemeConfig, description?: string): Promise<SavedCustomTheme> => {
+      const trimmedName = name.trim() || 'Custom Theme';
+      const now = new Date().toISOString();
+      const sanitized = sanitizeThemeConfig(config);
+      const newTheme: SavedCustomTheme = {
+        id: `thm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name: trimmedName,
+        description: description?.trim() || undefined,
+        config: sanitized,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const nextList = [newTheme, ...savedThemes];
+      setSavedThemes(nextList);
+      setPreviewThemeConfig(null);
+      setThemeConfig(sanitized);
+      setActiveSavedThemeId(newTheme.id);
+      await persistThemeState(sanitized, nextList, newTheme.id, firebaseUser);
+      showToast(`Saved custom theme "${trimmedName}"`, 'success');
+      return newTheme;
+    },
+    [savedThemes, firebaseUser, persistThemeState, showToast]
+  );
+
+  const applySavedTheme = useCallback(
+    async (themeId: string) => {
+      const found = savedThemes.find((t) => t.id === themeId);
+      if (!found) return;
+      const sanitized = sanitizeThemeConfig(found.config);
+      setPreviewThemeConfig(null);
+      setThemeConfig(sanitized);
+      setActiveSavedThemeId(found.id);
+      await persistThemeState(sanitized, savedThemes, found.id, firebaseUser);
+      showToast(`Applied "${found.name}"`, 'success');
+    },
+    [savedThemes, firebaseUser, persistThemeState, showToast]
+  );
+
+  const deleteSavedTheme = useCallback(
+    async (themeId: string) => {
+      const target = savedThemes.find((t) => t.id === themeId);
+      const nextList = savedThemes.filter((t) => t.id !== themeId);
+      const nextActiveId = activeSavedThemeId === themeId ? null : activeSavedThemeId;
+      setSavedThemes(nextList);
+      setActiveSavedThemeId(nextActiveId);
+      await persistThemeState(themeConfig, nextList, nextActiveId, firebaseUser);
+      if (target) {
+        showToast(`Deleted "${target.name}"`, 'info');
+      }
+    },
+    [savedThemes, activeSavedThemeId, themeConfig, firebaseUser, persistThemeState, showToast]
+  );
+
+  const resetThemeToDefault = useCallback(async () => {
+    const freshDefault: ThemeConfig = { ...DEFAULT_THEME_CONFIG };
+    setPreviewThemeConfig(null);
+    setThemeConfig(freshDefault);
+    setActiveSavedThemeId(null);
+    await persistThemeState(freshDefault, savedThemes, null, firebaseUser);
+    showToast('Theme reset to default', 'info');
+  }, [savedThemes, firebaseUser, persistThemeState, showToast]);
 
   const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      if (settings) {
-        api.updateSettings({ theme: next }).catch(console.error);
-      }
-      return next;
-    });
-  }, [settings]);
+    const nextColorMode: 'light' | 'dark' = resolvedThemeMode === 'dark' ? 'light' : 'dark';
+    const nextConfig: ThemeConfig = {
+      ...themeConfig,
+      colorMode: nextColorMode,
+    };
+    void applyThemeConfig(nextConfig, activeSavedThemeId, true);
+  }, [resolvedThemeMode, themeConfig, activeSavedThemeId, applyThemeConfig]);
 
   // Load user & settings from API & check Firebase test connection
   useEffect(() => {
@@ -159,11 +387,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     api
       .getMe()
       .then(({ user: u, settings: s }) => {
-        setUser(u);
+        setUser((prev) => prev || u);
         setSettings(s);
-        if (s.theme === 'light' || s.theme === 'dark') {
-          setTheme(s.theme);
+
+        if (!initialThemeLoadedRef.current) {
+          initialThemeLoadedRef.current = true;
+          if (s.themeConfig) {
+            setThemeConfig(sanitizeThemeConfig(s.themeConfig));
+          } else if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'system') {
+            setThemeConfig((prev) => ({ ...prev, colorMode: s.theme }));
+          }
+          if (Array.isArray(s.savedThemes)) {
+            setSavedThemes(s.savedThemes);
+          }
+          if (s.activeSavedThemeId !== undefined) {
+            setActiveSavedThemeId(s.activeSavedThemeId ?? null);
+          }
         }
+
         if (s.googleSpreadsheetId) {
           setGoogleSpreadsheetId(s.googleSpreadsheetId);
         }
@@ -171,22 +412,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setLastSyncedAt(s.lastSyncedAt);
         }
         const initialSecs = (s.pomodoroWorkDuration || 25) * 60;
-        setTimeLeft(initialSecs);
-        setTotalDuration(initialSecs);
+        setTimeLeft((prev) => (isRunning ? prev : initialSecs));
+        setTotalDuration((prev) => (isRunning ? prev : initialSecs));
       })
       .catch((err) => {
         console.error('Failed to load user info:', err);
       });
   }, [refreshKey]);
 
-  // Listen to Firebase Auth state
+  // Listen to Firebase Auth state & restore user's last selected theme on login
   useEffect(() => {
     const unsubscribe = initAuthListener(
-      (fbUser, token) => {
+      async (fbUser, token) => {
         setFirebaseUser(fbUser);
         if (token) setGoogleAccessToken(token);
 
-        // Update user state with Google profile details
         setUser({
           id: fbUser.uid,
           email: fbUser.email || 'user@gmail.com',
@@ -194,10 +434,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           avatarUrl: fbUser.photoURL || '',
           createdAt: new Date().toISOString(),
         });
+
+        if (restoredFirebaseUidRef.current !== fbUser.uid) {
+          restoredFirebaseUidRef.current = fbUser.uid;
+          setThemeSyncState('syncing');
+          try {
+            const remoteSettings = await firestoreService.getSettings(fbUser.uid);
+            if (remoteSettings && (remoteSettings.themeConfig || remoteSettings.savedThemes || remoteSettings.theme)) {
+              const restoredConfig = remoteSettings.themeConfig
+                ? sanitizeThemeConfig(remoteSettings.themeConfig)
+                : sanitizeThemeConfig({
+                    ...DEFAULT_THEME_CONFIG,
+                    colorMode: remoteSettings.theme || 'dark',
+                  });
+
+              const restoredSaved = Array.isArray(remoteSettings.savedThemes)
+                ? remoteSettings.savedThemes
+                : [];
+              const restoredActiveId = remoteSettings.activeSavedThemeId ?? null;
+
+              setThemeConfig(restoredConfig);
+              setSavedThemes(restoredSaved);
+              setActiveSavedThemeId(restoredActiveId);
+              setThemeSyncState('cloud-synced');
+
+              // Mirror restored cloud theme into local API & settings state
+              api
+                .updateSettings({
+                  theme: restoredConfig.colorMode,
+                  themeConfig: restoredConfig,
+                  savedThemes: restoredSaved,
+                  activeSavedThemeId: restoredActiveId,
+                })
+                .then((res) => setSettings(res.settings))
+                .catch(console.error);
+            } else {
+              // First login for this user: back up current active theme config to Firestore
+              const current = readCachedThemeConfig();
+              await firestoreService.saveSettings(fbUser.uid, {
+                userId: fbUser.uid,
+                theme: current.colorMode,
+                themeConfig: current,
+                savedThemes,
+                activeSavedThemeId,
+              });
+              setThemeSyncState('cloud-synced');
+            }
+          } catch (err) {
+            console.warn('Could not restore theme from Firestore (offline or unavailable):', err);
+            setThemeSyncState('offline');
+          }
+        }
       },
       () => {
         setFirebaseUser(null);
         setGoogleAccessToken(null);
+        restoredFirebaseUidRef.current = null;
+        setThemeSyncState('local');
       }
     );
 
@@ -218,12 +511,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const res = await api.updateSettings(newSettings);
       setSettings(res.settings);
-      if (newSettings.theme) setTheme(newSettings.theme as 'light' | 'dark');
+      if (newSettings.themeConfig) {
+        setThemeConfig(sanitizeThemeConfig(newSettings.themeConfig));
+      } else if (newSettings.theme) {
+        setThemeConfig((prev) => ({ ...prev, colorMode: newSettings.theme! }));
+      }
       if (newSettings.googleSpreadsheetId) setGoogleSpreadsheetId(newSettings.googleSpreadsheetId);
       if (newSettings.lastSyncedAt) setLastSyncedAt(newSettings.lastSyncedAt);
 
       if (firebaseUser) {
-        await firestoreService.saveSettings(firebaseUser.uid, newSettings);
+        firestoreService.saveSettings(firebaseUser.uid, newSettings).catch(console.error);
       }
 
       showToast('Settings saved successfully', 'success');
@@ -262,6 +559,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await fbSignOut();
       setFirebaseUser(null);
       setGoogleAccessToken(null);
+      restoredFirebaseUidRef.current = null;
+      setThemeSyncState('local');
       showToast('Signed out of Google account', 'info');
       triggerRefresh();
     } catch {
@@ -294,7 +593,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastSyncedAt: new Date().toISOString(),
       });
 
-      // Perform initial full sync into the newly created sheets
       await syncNowToGoogleSheets(spreadsheetId, token);
 
       showToast('Master Google Sheets workbook initialized with all 12 tabs!', 'success');
@@ -347,7 +645,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         financeSummary,
       });
 
-      // Flush any queued mutations
       await googleSheetsService.flushQueue(sId, token);
 
       const nowIso = new Date().toISOString();
@@ -437,7 +734,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const endedAt = new Date().toISOString();
         const durationMin = Math.round(totalDuration / 60);
 
-        // Record focus session to API
         api
           .createFocusSession({
             taskId: activeTaskId,
@@ -449,12 +745,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             endedAt,
           })
           .then((newSession) => {
-            // Also save to Firestore if user is authenticated
             if (firebaseUser) {
               firestoreService.saveFocusSession(firebaseUser.uid, newSession).catch(console.error);
             }
 
-            // Enqueue real-time mutation for Google Sheets
             googleSheetsService.enqueueMutation('Focus_Sessions', [
               newSession.id,
               newSession.startedAt.split('T')[0],
@@ -466,7 +760,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               newSession.endedAt,
             ]);
 
-            // Attempt immediate real-time sync if connected
             if (googleSpreadsheetId && googleAccessToken) {
               googleSheetsService
                 .flushQueue(googleSpreadsheetId, googleAccessToken)
@@ -514,6 +807,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const currency = settings?.currency || 'INR';
 
+  // Ensure initial resolved mode resolves cleanly even on SSR/test
+  void resolveColorMode;
+
   return (
     <AppContext.Provider
       value={{
@@ -523,9 +819,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         settings,
         currency,
         updateSettings,
-        theme,
+        theme: resolvedThemeMode,
         toggleTheme,
         reseedData,
+
+        // Theme Studio
+        themeConfig,
+        effectiveThemeConfig,
+        previewThemeConfig,
+        isFullAppPreview,
+        resolvedThemeMode,
+        systemColorMode,
+        savedThemes,
+        activeSavedThemeId,
+        themeSyncState,
+        applyThemeConfig,
+        startFullAppPreview,
+        stopFullAppPreview,
+        saveCustomTheme,
+        applySavedTheme,
+        deleteSavedTheme,
+        resetThemeToDefault,
 
         // Firebase Auth
         firebaseUser,

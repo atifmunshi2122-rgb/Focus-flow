@@ -3,17 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FocusFlow & Finance</title>
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        var cachedScheme = localStorage.getItem("color-scheme");
+        if (cachedScheme) {
+          document.querySelector('meta[name="color-scheme"]').content = cachedScheme;
+        }
+        var rawCache = localStorage.getItem("ff_theme_cache_v1");
+        if (rawCache) {
+          var parsed = JSON.parse(rawCache);
+          var root = document.documentElement;
+          if (parsed && parsed.config) {
+            if (parsed.config.styleId) root.setAttribute("data-design-style", parsed.config.styleId);
+            if (parsed.config.density) root.setAttribute("data-density", parsed.config.density);
+            if (parsed.config.animationIntensity) root.setAttribute("data-animation", parsed.config.animationIntensity);
+          }
+          var mode = parsed && parsed.resolvedMode ? parsed.resolvedMode : (cachedScheme === "light" ? "light" : "dark");
+          root.setAttribute("data-theme-mode", mode);
+          if (mode === "dark") root.classList.add("dark");
+          else root.classList.remove("dark");
+        }
+      } catch (e) {}
+    </script>
+    <title>FocusFlow &amp; Finance</title>
     <meta name="description" content="Unified personal productivity and finance command center featuring Pomodoro focus tracking, task workflows, recurring bill automation, variable expense ledgers, and financial intelligence." />
     <meta property="og:title" content="FocusFlow & Finance" />
     <meta property="og:description" content="Unified personal productivity and finance command center featuring Pomodoro focus tracking, task workflows, recurring bill automation, variable expense ledgers, and financial intelligence." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;0,900;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Source+Serif+4:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Work+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-indigo-500 selection:text-white dark:bg-slate-950 dark:text-slate-100 min-h-screen">
+  <body class="antialiased min-h-screen">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

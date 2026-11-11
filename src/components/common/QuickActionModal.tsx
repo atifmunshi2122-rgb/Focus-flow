@@ -4,7 +4,6 @@ import { api } from '../../lib/api.ts';
 import { toPaise } from '../../lib/currency.ts';
 import { playCashSound } from '../../lib/sound.ts';
 import {
-  X,
   Timer,
   PlusCircle,
   Receipt,
@@ -13,6 +12,14 @@ import {
 } from 'lucide-react';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
 import { firestoreService } from '../../lib/firestoreService.ts';
+import {
+  ThemeButton,
+  ThemeCard,
+  ThemeInput,
+  ThemeModal,
+  ThemeSegmentedControl,
+  ThemeSelect,
+} from '../ui/ThemePrimitives.tsx';
 
 interface QuickActionModalProps {
   isOpen: boolean;
@@ -40,13 +47,11 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
   // Form states
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('');
+  const [category] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'debit_card' | 'upi_bank' | 'cash'>('upi_bank');
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [estimatedPomodoros, setEstimatedPomodoros] = useState('2');
-
-  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,14 +154,12 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
         showToast('Bill registered to tracker & synchronized', 'success');
       }
 
-      // If connected to Google Sheets, flush queue immediately
       if (googleSpreadsheetId && googleAccessToken) {
         googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
       }
 
       triggerRefresh();
       onClose();
-      // Reset form
       setAmount('');
       setDescription('');
     } catch (err: unknown) {
@@ -174,92 +177,49 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-      <div className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="text-base font-bold text-slate-900 dark:text-white">Quick Action</h3>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
+    <ThemeModal isOpen={isOpen} onClose={onClose} title="Quick Action">
+      <div className="space-y-4">
         {/* Action Type Tabs */}
-        <div className="grid grid-cols-4 gap-1.5 p-1 my-4 bg-slate-100 dark:bg-slate-800 rounded-xl">
-          <button
-            type="button"
-            onClick={() => setActiveType('expense')}
-            className={`py-2 text-xs font-semibold rounded-lg transition-all flex flex-col items-center gap-1 ${
-              activeType === 'expense'
-                ? 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Receipt className="w-4 h-4" />
-            <span>Expense</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveType('income')}
-            className={`py-2 text-xs font-semibold rounded-lg transition-all flex flex-col items-center gap-1 ${
-              activeType === 'income'
-                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>Income</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveType('bill')}
-            className={`py-2 text-xs font-semibold rounded-lg transition-all flex flex-col items-center gap-1 ${
-              activeType === 'bill'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Bill</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveType('task')}
-            className={`py-2 text-xs font-semibold rounded-lg transition-all flex flex-col items-center gap-1 ${
-              activeType === 'task'
-                ? 'bg-white dark:bg-slate-900 text-violet-600 dark:text-violet-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <CheckSquare className="w-4 h-4" />
-            <span>Task</span>
-          </button>
-        </div>
+        <ThemeSegmentedControl<ActionType>
+          fullWidth
+          ariaLabel="Quick action entry type"
+          value={activeType}
+          onChange={setActiveType}
+          options={[
+            { id: 'expense', label: 'Expense', icon: <Receipt className="w-3.5 h-3.5" /> },
+            { id: 'income', label: 'Income', icon: <PlusCircle className="w-3.5 h-3.5" /> },
+            { id: 'bill', label: 'Bill', icon: <CreditCard className="w-3.5 h-3.5" /> },
+            { id: 'task', label: 'Task', icon: <CheckSquare className="w-3.5 h-3.5" /> },
+          ]}
+        />
 
         {/* Quick Pomodoro Launcher shortcut */}
-        <div className="mb-4 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between">
+        <ThemeCard
+          variant="inset"
+          className="p-3 flex items-center justify-between gap-2"
+          style={{
+            background: 'var(--ff-accent-soft)',
+            borderColor: 'var(--ff-accent-border)',
+          }}
+        >
           <div className="flex items-center gap-2">
-            <Timer className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <span className="text-xs font-medium text-indigo-900 dark:text-indigo-200">
+            <Timer className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
+            <span className="text-xs font-medium text-[var(--ff-text-primary)]">
               Need to focus right now?
             </span>
           </div>
-          <button
-            type="button"
-            onClick={handleStartQuickFocus}
-            className="px-2.5 py-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
-          >
+          <ThemeButton variant="primary" size="xs" onClick={handleStartQuickFocus}>
             Start 25m Timer
-          </button>
-        </div>
+          </ThemeButton>
+        </ThemeCard>
 
         {/* Dynamic Form */}
         <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
-            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <label
+              htmlFor="quick-action-title"
+              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+            >
               {activeType === 'task'
                 ? 'Task Title'
                 : activeType === 'income'
@@ -268,9 +228,11 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
                 ? 'Bill Name'
                 : 'Description'}
             </label>
-            <input
+            <ThemeInput
+              id="quick-action-title"
               type="text"
               required
+              autoFocus
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={
@@ -282,112 +244,118 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
                   ? 'e.g., Electricity Bill, Wi-Fi'
                   : 'e.g., Complete UI Mockup'
               }
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
           {activeType !== 'task' && (
             <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label
+                htmlFor="quick-action-amount"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
                 Amount ({currency})
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+              <ThemeInput
+                id="quick-action-amount"
+                type="number"
+                step="0.01"
+                required
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="font-mono tabular-nums"
+              />
             </div>
           )}
 
           {activeType === 'bill' && (
             <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label
+                htmlFor="quick-action-due"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
                 Due Date
               </label>
-              <input
+              <ThemeInput
+                id="quick-action-due"
                 type="date"
                 required
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
           )}
 
           {activeType === 'expense' && (
             <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label
+                htmlFor="quick-action-method"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
                 Payment Method
               </label>
-              <select
+              <ThemeSelect
+                id="quick-action-method"
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="upi_bank">UPI / Bank Transfer</option>
                 <option value="credit_card">Credit Card</option>
                 <option value="debit_card">Debit Card</option>
                 <option value="cash">Cash</option>
-              </select>
+              </ThemeSelect>
             </div>
           )}
 
           {activeType === 'task' && (
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label
+                  htmlFor="quick-action-priority"
+                  className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+                >
                   Priority
                 </label>
-                <select
+                <ThemeSelect
+                  id="quick-action-priority"
                   value={priority}
                   onChange={(e) => setPriority(e.target.value as typeof priority)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="high">High Priority</option>
                   <option value="medium">Medium Priority</option>
                   <option value="low">Low Priority</option>
-                </select>
+                </ThemeSelect>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label
+                  htmlFor="quick-action-poms"
+                  className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+                >
                   Est. Pomodoros
                 </label>
-                <input
+                <ThemeInput
+                  id="quick-action-poms"
                   type="number"
                   min="1"
                   max="20"
                   value={estimatedPomodoros}
                   onChange={(e) => setEstimatedPomodoros(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="font-mono tabular-nums"
                 />
               </div>
             </div>
           )}
 
           <div className="pt-2 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg transition-colors"
-            >
+            <ThemeButton variant="ghost" size="sm" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors disabled:opacity-50"
-            >
+            </ThemeButton>
+            <ThemeButton type="submit" variant="primary" size="sm" disabled={loading}>
               {loading ? 'Saving...' : 'Save & Record'}
-            </button>
+            </ThemeButton>
           </div>
         </form>
       </div>
-    </div>
+    </ThemeModal>
   );
 };

@@ -38,7 +38,20 @@ apiRouter.put('/settings', (req: Request, res: Response) => {
     db.userSettings.push(settings);
   }
 
-  const { currency, pomodoroWorkDuration, shortBreakDuration, longBreakDuration, autoSwitchSessions, soundEnabled, theme } = req.body;
+  const {
+    currency,
+    pomodoroWorkDuration,
+    shortBreakDuration,
+    longBreakDuration,
+    autoSwitchSessions,
+    soundEnabled,
+    theme,
+    themeConfig,
+    savedThemes,
+    activeSavedThemeId,
+    googleSpreadsheetId,
+    lastSyncedAt,
+  } = req.body;
   if (currency) settings.currency = currency;
   if (pomodoroWorkDuration !== undefined) settings.pomodoroWorkDuration = Number(pomodoroWorkDuration);
   if (shortBreakDuration !== undefined) settings.shortBreakDuration = Number(shortBreakDuration);
@@ -46,6 +59,11 @@ apiRouter.put('/settings', (req: Request, res: Response) => {
   if (autoSwitchSessions !== undefined) settings.autoSwitchSessions = Boolean(autoSwitchSessions);
   if (soundEnabled !== undefined) settings.soundEnabled = Boolean(soundEnabled);
   if (theme) settings.theme = theme;
+  if (themeConfig !== undefined) settings.themeConfig = themeConfig;
+  if (savedThemes !== undefined) settings.savedThemes = savedThemes;
+  if (activeSavedThemeId !== undefined) settings.activeSavedThemeId = activeSavedThemeId;
+  if (googleSpreadsheetId !== undefined) settings.googleSpreadsheetId = googleSpreadsheetId;
+  if (lastSyncedAt !== undefined) settings.lastSyncedAt = lastSyncedAt;
 
   dbService.save();
   res.json({ success: true, settings });

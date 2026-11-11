@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { FocusSession, FocusStatsData } from '../../types/index.ts';
+import { ThemeCard } from '../ui/ThemePrimitives.tsx';
 import { Clock, CheckCircle2, Flame, Calendar, History, Sparkles } from 'lucide-react';
 
 export const FocusAnalytics: React.FC = () => {
@@ -23,7 +24,9 @@ export const FocusAnalytics: React.FC = () => {
 
   if (loading && !stats) {
     return (
-      <div className="p-8 text-center text-xs text-slate-400">Loading focus analytics...</div>
+      <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
+        Loading focus analytics...
+      </div>
     );
   }
 
@@ -31,110 +34,119 @@ export const FocusAnalytics: React.FC = () => {
   const chartHeight = 130;
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col" style={{ gap: 'var(--ff-grid-gap)' }}>
       {/* KPI Cards Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+      <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 'var(--ff-grid-gap)' }}>
+        <ThemeCard variant="interactive">
+          <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
             <span className="text-xs font-medium">Monthly Focus</span>
-            <Clock className="w-4 h-4 text-indigo-500" />
+            <Clock className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
           </div>
-          <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
-            {stats?.monthMinutes ? Math.floor(stats.monthMinutes / 60) : 0}h {((stats?.monthMinutes || 0) % 60)}m
+          <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+            {stats?.monthMinutes ? Math.floor(stats.monthMinutes / 60) : 0}h{' '}
+            {(stats?.monthMinutes || 0) % 60}m
           </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
+          <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
             {stats?.monthSessionsCount || 0} completed sessions
           </span>
-        </div>
+        </ThemeCard>
 
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+        <ThemeCard variant="interactive">
+          <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
             <span className="text-xs font-medium">Lifetime Focus</span>
-            <Sparkles className="w-4 h-4 text-emerald-500" />
+            <Sparkles className="w-4 h-4" style={{ color: 'var(--ff-success)' }} />
           </div>
-          <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+          <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
             {stats?.totalMinutes ? (stats.totalMinutes / 60).toFixed(1) : 0}h
           </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
+          <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
             All-time deep work logged
           </span>
-        </div>
+        </ThemeCard>
 
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+        <ThemeCard variant="interactive">
+          <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
             <span className="text-xs font-medium">Work Sessions</span>
-            <CheckCircle2 className="w-4 h-4 text-cyan-500" />
+            <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--ff-info)' }} />
           </div>
-          <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+          <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
             {stats?.totalCompletedSessions || 0}
           </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
+          <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
             Pomodoro cycles finished
           </span>
-        </div>
+        </ThemeCard>
 
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+        <ThemeCard variant="interactive">
+          <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
             <span className="text-xs font-medium">Weekly Target</span>
-            <Flame className="w-4 h-4 text-amber-500" />
+            <Flame className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
           </div>
-          <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+          <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
             85%
           </div>
-          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 block">
+          <span className="text-[11px] font-semibold mt-1 block" style={{ color: 'var(--ff-success)' }}>
             Consistent progress
           </span>
-        </div>
+        </ThemeCard>
       </div>
 
       {/* Weekly Focus Progress Bar Chart */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+      <ThemeCard>
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white">Last 7 Days Focus Distribution</h4>
-            <span className="text-xs text-slate-500 dark:text-slate-400">Daily focus minutes completed</span>
+            <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+              Last 7 Days Focus Distribution
+            </h3>
+            <span className="text-xs text-[var(--ff-text-muted)]">
+              Daily focus minutes completed
+            </span>
           </div>
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-500">
+          <div className="flex items-center gap-2 text-xs font-mono text-[var(--ff-text-muted)]">
             <Calendar className="w-3.5 h-3.5" />
             <span>Weekly History</span>
           </div>
         </div>
 
         {/* Bar chart */}
-        <div className="flex items-end justify-between gap-2 sm:gap-4 h-44 pt-4 px-2 border-b border-slate-100 dark:border-slate-800">
+        <div
+          className="flex items-end justify-between gap-2 sm:gap-4 h-44 pt-4 px-2 border-b"
+          style={{ borderColor: 'var(--ff-border-color)' }}
+        >
           {stats?.last7Days.map((day) => {
-            const heightPercent = maxMinutesInWeek > 0 ? (day.minutes / maxMinutesInWeek) * chartHeight : 8;
+            const heightPercent =
+              maxMinutesInWeek > 0 ? (day.minutes / maxMinutesInWeek) * chartHeight : 8;
             const isToday = day.date === new Date().toISOString().split('T')[0];
 
             return (
               <div key={day.date} className="flex-1 flex flex-col items-center gap-2 group">
-                {/* Tooltip on hover */}
-                <span className="text-[10px] font-mono tabular-nums text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="text-[10px] font-mono tabular-nums text-[var(--ff-text-muted)] opacity-0 group-hover:opacity-100 transition-opacity">
                   {day.minutes}m
                 </span>
 
-                {/* Animated Bar */}
                 <div
-                  className="w-full max-w-[42px] rounded-t-lg transition-all duration-300 relative overflow-hidden"
+                  className="w-full max-w-[42px] transition-all duration-300 relative overflow-hidden"
                   style={{
                     height: `${Math.max(12, heightPercent)}px`,
-                    backgroundColor: isToday ? '#6366f1' : '#cbd5e1',
+                    borderTopLeftRadius: 'var(--ff-radius-badge)',
+                    borderTopRightRadius: 'var(--ff-radius-badge)',
+                    background: isToday
+                      ? 'linear-gradient(180deg, var(--ff-accent), var(--ff-accent-secondary))'
+                      : 'var(--ff-surface-muted)',
+                    border: '1px solid var(--ff-border-color)',
                   }}
-                >
-                  <div
-                    className={`absolute inset-0 ${
-                      isToday
-                        ? 'bg-gradient-to-t from-indigo-700 to-indigo-500'
-                        : 'dark:bg-slate-700 bg-slate-300'
-                    }`}
-                  />
-                </div>
+                />
 
                 <div className="text-center">
-                  <span className={`text-[11px] font-semibold block ${isToday ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>
+                  <span
+                    className="text-[11px] font-semibold block"
+                    style={{
+                      color: isToday ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
+                    }}
+                  >
                     {day.dayName}
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono tabular-nums block">
+                  <span className="text-[10px] text-[var(--ff-text-muted)] font-mono tabular-nums block">
                     {day.sessionsCount} sess
                   </span>
                 </div>
@@ -142,26 +154,26 @@ export const FocusAnalytics: React.FC = () => {
             );
           })}
         </div>
-      </div>
+      </ThemeCard>
 
       {/* Focus Session History Log */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+      <ThemeCard>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <History className="w-4 h-4 text-indigo-500" />
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white">Session History Log</h4>
+            <History className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
+            <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">Session History Log</h3>
           </div>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
+          <span className="text-xs text-[var(--ff-text-muted)]">
             {sessions.length} total recorded
           </span>
         </div>
 
         {sessions.length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-400">
+          <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
             No completed sessions yet. Start your first Pomodoro session above!
           </div>
         ) : (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+          <div className="divide-y ff-divider">
             {sessions.slice(0, 8).map((s) => {
               const startDate = new Date(s.startedAt);
               const formattedDate = startDate.toLocaleDateString(undefined, {
@@ -177,21 +189,29 @@ export const FocusAnalytics: React.FC = () => {
                 <div key={s.id} className="py-3 flex items-center justify-between gap-4 text-xs">
                   <div className="flex items-center gap-3 min-w-0">
                     <div
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                        s.mode === 'work'
-                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
-                          : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
-                      }`}
+                      className="w-7 h-7 flex items-center justify-center shrink-0"
+                      style={{
+                        borderRadius: 'var(--ff-radius-badge)',
+                        background:
+                          s.mode === 'work' ? 'var(--ff-accent-soft)' : 'var(--ff-success-soft)',
+                        color: s.mode === 'work' ? 'var(--ff-accent-text)' : 'var(--ff-success)',
+                      }}
                     >
-                      {s.mode === 'work' ? <Clock className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      {s.mode === 'work' ? (
+                        <Clock className="w-3.5 h-3.5" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5" />
+                      )}
                     </div>
 
                     <div className="truncate">
-                      <p className="font-semibold text-slate-900 dark:text-white truncate">
+                      <p className="font-semibold text-[var(--ff-text-primary)] truncate">
                         {s.taskTitle || (s.mode === 'work' ? 'Deep Work Session' : 'Rest Break')}
                       </p>
-                      <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-[11px]">
-                        <span>{formattedDate} at {formattedTime}</span>
+                      <div className="flex items-center gap-1.5 text-[var(--ff-text-muted)] text-[11px]">
+                        <span>
+                          {formattedDate} at {formattedTime}
+                        </span>
                         <span aria-hidden="true">·</span>
                         <span className="capitalize">{s.mode.replace('_', ' ')}</span>
                       </div>
@@ -199,10 +219,13 @@ export const FocusAnalytics: React.FC = () => {
                   </div>
 
                   <div className="text-right shrink-0">
-                    <span className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
+                    <span className="font-mono tabular-nums font-semibold text-[var(--ff-text-primary)]">
                       {s.durationMinutes} min
                     </span>
-                    <span className="block text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                    <span
+                      className="block text-[10px] font-medium"
+                      style={{ color: 'var(--ff-success)' }}
+                    >
                       Completed
                     </span>
                   </div>
@@ -211,7 +234,7 @@ export const FocusAnalytics: React.FC = () => {
             })}
           </div>
         )}
-      </div>
+      </ThemeCard>
     </div>
   );
 };

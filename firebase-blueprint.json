@@ -26,6 +26,9 @@
         "autoSwitchSessions": { "type": "boolean" },
         "soundEnabled": { "type": "boolean" },
         "theme": { "type": "string", "enum": ["light", "dark", "system"] },
+        "themeConfig": { "type": "object" },
+        "savedThemes": { "type": "array" },
+        "activeSavedThemeId": { "type": "string" },
         "googleSpreadsheetId": { "type": "string", "maxLength": 256 },
         "lastSyncedAt": { "type": "string" }
       },

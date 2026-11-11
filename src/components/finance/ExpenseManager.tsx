@@ -4,7 +4,15 @@ import { api } from '../../lib/api.ts';
 import { ExpenseTransaction, RecurringExpense, ExpenseCategory } from '../../types/index.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
 import {
-  Layers,
+  ThemeBadge,
+  ThemeButton,
+  ThemeCard,
+  ThemeInput,
+  ThemeModal,
+  ThemeSegmentedControl,
+  ThemeSelect,
+} from '../ui/ThemePrimitives.tsx';
+import {
   Repeat,
   Plus,
   Trash2,
@@ -35,7 +43,6 @@ export const ExpenseManager: React.FC = () => {
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Variable Expense Form Modal
   const [varModalOpen, setVarModalOpen] = useState(false);
   const [editingVar, setEditingVar] = useState<ExpenseTransaction | null>(null);
   const [varDesc, setVarDesc] = useState('');
@@ -45,7 +52,6 @@ export const ExpenseManager: React.FC = () => {
   const [varMethod, setVarMethod] = useState<'credit_card' | 'debit_card' | 'upi_bank' | 'cash'>('credit_card');
   const [varNotes, setVarNotes] = useState('');
 
-  // Recurring Fixed Expense Form Modal
   const [recModalOpen, setRecModalOpen] = useState(false);
   const [editingRec, setEditingRec] = useState<RecurringExpense | null>(null);
   const [recName, setRecName] = useState('');
@@ -75,7 +81,6 @@ export const ExpenseManager: React.FC = () => {
     loadData();
   }, [refreshKey]);
 
-  // Handlers for Variable Expenses
   const openVarCreate = () => {
     setEditingVar(null);
     setVarDesc('');
@@ -156,7 +161,6 @@ export const ExpenseManager: React.FC = () => {
     }
   };
 
-  // Handlers for Recurring Fixed Expenses
   const openRecCreate = () => {
     setEditingRec(null);
     setRecName('');
@@ -263,107 +267,119 @@ export const ExpenseManager: React.FC = () => {
   const totalRecurring = recurring.filter((r) => r.isActive).reduce((s, r) => s + r.amountPaise, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
       {/* Top Header & Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        {/* Sub-module switcher */}
-        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
-          <button
-            onClick={() => setActiveTab('variable')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all ${
-              activeTab === 'variable'
-                ? 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <TrendingDown className="w-4 h-4" />
-            <span>Variable Daily Expenses ({variableExpenses.length})</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('recurring')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all ${
-              activeTab === 'recurring'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Repeat className="w-4 h-4" />
-            <span>Fixed Recurring Plans ({recurring.length})</span>
-          </button>
-        </div>
+        <ThemeSegmentedControl<'variable' | 'recurring'>
+          ariaLabel="Expense view mode"
+          value={activeTab}
+          onChange={setActiveTab}
+          options={[
+            {
+              id: 'variable',
+              label: `Variable Daily Expenses (${variableExpenses.length})`,
+              icon: <TrendingDown className="w-4 h-4" />,
+            },
+            {
+              id: 'recurring',
+              label: `Fixed Recurring Plans (${recurring.length})`,
+              icon: <Repeat className="w-4 h-4" />,
+            },
+          ]}
+        />
 
-        <button
+        <ThemeButton
+          variant="primary"
+          size="md"
           onClick={activeTab === 'variable' ? openVarCreate : openRecCreate}
-          className="flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors shrink-0"
+          className="shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span>{activeTab === 'variable' ? 'Add Variable Expense' : 'Add Recurring Plan'}</span>
-        </button>
+        </ThemeButton>
       </div>
 
       {/* SUMMARY BANNER */}
-      <div className="p-4 rounded-xl bg-slate-100/70 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-xs">
+      <ThemeCard variant="inset" className="p-4 flex items-center justify-between text-xs">
         {activeTab === 'variable' ? (
           <div>
-            <span className="text-slate-500">Current Variable Spend: </span>
-            <strong className="font-mono text-slate-900 dark:text-white text-sm">
+            <span className="text-[var(--ff-text-muted)]">Current Variable Spend: </span>
+            <strong className="font-mono text-[var(--ff-text-primary)] text-sm">
               {formatCurrency(totalVariable, currency)}
             </strong>
-            <span className="text-slate-400 ml-2">(Food, shopping, transit, entertainment, etc.)</span>
+            <span className="text-[var(--ff-text-muted)] ml-2">
+              (Food, shopping, transit, entertainment, etc.)
+            </span>
           </div>
         ) : (
           <div>
-            <span className="text-slate-500">Active Monthly Fixed Commitments: </span>
-            <strong className="font-mono text-indigo-600 dark:text-indigo-400 text-sm">
+            <span className="text-[var(--ff-text-muted)]">Active Monthly Fixed Commitments: </span>
+            <strong className="font-mono text-sm" style={{ color: 'var(--ff-accent-text)' }}>
               {formatCurrency(totalRecurring, currency)}
             </strong>
-            <span className="text-slate-400 ml-2">(Rent, internet, subscriptions, insurance, etc.)</span>
+            <span className="text-[var(--ff-text-muted)] ml-2">
+              (Rent, internet, subscriptions, insurance, etc.)
+            </span>
           </div>
         )}
-      </div>
+      </ThemeCard>
 
       {/* SECTION 1: VARIABLE EXPENSES LIST */}
       {activeTab === 'variable' && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+        <ThemeCard noPadding>
           {loading ? (
-            <div className="p-8 text-center text-xs text-slate-400">Loading variable expenses...</div>
+            <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
+              Loading variable expenses...
+            </div>
           ) : variableExpenses.length === 0 ? (
             <div className="p-12 text-center">
-              <TrendingDown className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-              <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">No variable expenses recorded</h4>
-              <p className="text-xs text-slate-500 mt-1">Log day-to-day shopping, food, and transit purchases above.</p>
+              <TrendingDown className="w-8 h-8 text-[var(--ff-text-muted)] mx-auto mb-2 opacity-50" />
+              <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">
+                No variable expenses recorded
+              </h3>
+              <p className="text-xs text-[var(--ff-text-muted)] mt-1">
+                Log day-to-day shopping, food, and transit purchases above.
+              </p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+            <div className="divide-y ff-divider">
               {variableExpenses.map((exp) => (
                 <div
                   key={exp.id}
-                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
+                  className="ff-row-hover flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  style={{ padding: 'var(--ff-row-pad)' }}
                 >
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                    <div
+                      className="w-9 h-9 flex items-center justify-center shrink-0"
+                      style={{
+                        borderRadius: 'var(--ff-radius-button)',
+                        background: 'var(--ff-danger-soft)',
+                        color: 'var(--ff-danger)',
+                      }}
+                    >
                       <CreditCard className="w-4 h-4" />
                     </div>
 
                     <div className="min-w-0">
-                      <h5 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                      <h4 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
                         {exp.description}
-                      </h5>
+                      </h4>
 
                       {exp.notes && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
+                        <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
                           {exp.notes}
                         </p>
                       )}
 
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
                         <div className="flex items-center gap-1">
-                          <Tag className="w-3 h-3 text-slate-400" />
+                          <Tag className="w-3 h-3" />
                           <span>{exp.categoryName || 'General'}</span>
                         </div>
                         <span aria-hidden="true">·</span>
                         <div className="flex items-center gap-1 font-mono">
-                          <Calendar className="w-3 h-3 text-slate-400" />
+                          <Calendar className="w-3 h-3" />
                           <span>{exp.date}</span>
                         </div>
                         <span aria-hidden="true">·</span>
@@ -375,14 +391,16 @@ export const ExpenseManager: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-                    <span className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+                    <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
                       -{formatCurrency(exp.amountPaise, currency)}
                     </span>
 
                     <button
-                      onClick={() => handleDeleteVar(exp.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 transition-colors"
+                      type="button"
+                      onClick={() => void handleDeleteVar(exp.id)}
+                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
                       title="Delete expense"
+                      aria-label={`Delete ${exp.description}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -391,59 +409,76 @@ export const ExpenseManager: React.FC = () => {
               ))}
             </div>
           )}
-        </div>
+        </ThemeCard>
       )}
 
       {/* SECTION 2: FIXED RECURRING EXPENSES LIST */}
       {activeTab === 'recurring' && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+        <ThemeCard noPadding>
           {loading ? (
-            <div className="p-8 text-center text-xs text-slate-400">Loading recurring plans...</div>
+            <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
+              Loading recurring plans...
+            </div>
           ) : recurring.length === 0 ? (
             <div className="p-12 text-center">
-              <Repeat className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-              <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">No recurring plans set up</h4>
-              <p className="text-xs text-slate-500 mt-1">Set up monthly internet, rent, subscriptions, and recurring bills above.</p>
+              <Repeat className="w-8 h-8 text-[var(--ff-text-muted)] mx-auto mb-2 opacity-50" />
+              <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">
+                No recurring plans set up
+              </h3>
+              <p className="text-xs text-[var(--ff-text-muted)] mt-1">
+                Set up monthly internet, rent, subscriptions, and recurring bills above.
+              </p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+            <div className="divide-y ff-divider">
               {recurring.map((rec) => (
                 <div
                   key={rec.id}
-                  className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${
-                    !rec.isActive ? 'opacity-50 bg-slate-50/40 dark:bg-slate-900/40' : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
+                  className={`ff-row-hover flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                    !rec.isActive ? 'opacity-55' : ''
                   }`}
+                  style={{ padding: 'var(--ff-row-pad)' }}
                 >
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                    <div
+                      className="w-9 h-9 flex items-center justify-center shrink-0"
+                      style={{
+                        borderRadius: 'var(--ff-radius-button)',
+                        background: 'var(--ff-accent-soft)',
+                        color: 'var(--ff-accent-text)',
+                      }}
+                    >
                       <Repeat className="w-4 h-4" />
                     </div>
 
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <h5 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                        <h4 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
                           {rec.name}
-                        </h5>
-                        <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900">
-                          {rec.recurrence}
-                        </span>
+                        </h4>
+                        <ThemeBadge tone="accent">{rec.recurrence}</ThemeBadge>
                       </div>
 
                       {rec.notes && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
+                        <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
                           {rec.notes}
                         </p>
                       )}
 
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
                         <div className="flex items-center gap-1">
-                          <Tag className="w-3 h-3 text-slate-400" />
+                          <Tag className="w-3 h-3" />
                           <span>{rec.categoryName || 'Fixed'}</span>
                         </div>
                         <span aria-hidden="true">·</span>
                         <span>Due Day: {rec.dueDay} of each cycle</span>
                         <span aria-hidden="true">·</span>
-                        <span className={rec.isActive ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-slate-400'}>
+                        <span
+                          className="font-semibold"
+                          style={{
+                            color: rec.isActive ? 'var(--ff-success)' : 'var(--ff-text-muted)',
+                          }}
+                        >
                           {rec.isActive ? 'Active Auto-Bill' : 'Deactivated'}
                         </span>
                       </div>
@@ -451,34 +486,40 @@ export const ExpenseManager: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-                    <span className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+                    <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
                       {formatCurrency(rec.amountPaise, currency)}
                     </span>
 
                     <button
-                      onClick={() => handleToggleRecActive(rec)}
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors"
+                      type="button"
+                      onClick={() => void handleToggleRecActive(rec)}
+                      className="p-1.5 text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] transition-colors"
                       title={rec.isActive ? 'Deactivate recurring plan' : 'Activate recurring plan'}
+                      aria-label={rec.isActive ? 'Deactivate recurring plan' : 'Activate recurring plan'}
                     >
                       {rec.isActive ? (
-                        <ToggleRight className="w-6 h-6 text-indigo-600" />
+                        <ToggleRight className="w-6 h-6" style={{ color: 'var(--ff-accent-text)' }} />
                       ) : (
-                        <ToggleLeft className="w-6 h-6 text-slate-400" />
+                        <ToggleLeft className="w-6 h-6" />
                       )}
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => openRecEdit(rec)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors"
                       title="Edit recurring plan"
+                      aria-label={`Edit ${rec.name}`}
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
 
                     <button
-                      onClick={() => handleDeleteRec(rec.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 transition-colors"
+                      type="button"
+                      onClick={() => void handleDeleteRec(rec.id)}
+                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
                       title="Delete recurring plan"
+                      aria-label={`Delete ${rec.name}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -487,251 +528,270 @@ export const ExpenseManager: React.FC = () => {
               ))}
             </div>
           )}
-        </div>
+        </ThemeCard>
       )}
 
       {/* Modal: Add/Edit Variable Expense */}
-      {varModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-6 w-full max-w-md">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">
-              {editingVar ? 'Edit Variable Expense' : 'Log Variable Expense'}
-            </h3>
-
-            <form onSubmit={handleSaveVar} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Description / Merchant
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={varDesc}
-                  onChange={(e) => setVarDesc(e.target.value)}
-                  placeholder="e.g., Weekly Groceries, Fuel, Cafe"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Amount ({currency})
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={varAmount}
-                    onChange={(e) => setVarAmount(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={varDate}
-                    onChange={(e) => setVarDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={varCategory}
-                    onChange={(e) => setVarCategory(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Payment Method
-                  </label>
-                  <select
-                    value={varMethod}
-                    onChange={(e) => setVarMethod(e.target.value as typeof varMethod)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="upi_bank">UPI / Bank Transfer</option>
-                    <option value="credit_card">Credit Card</option>
-                    <option value="debit_card">Debit Card</option>
-                    <option value="cash">Cash</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Notes (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={varNotes}
-                  onChange={(e) => setVarNotes(e.target.value)}
-                  placeholder="Additional context..."
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setVarModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm"
-                >
-                  Save Expense
-                </button>
-              </div>
-            </form>
+      <ThemeModal
+        isOpen={varModalOpen}
+        onClose={() => setVarModalOpen(false)}
+        title={editingVar ? 'Edit Variable Expense' : 'Log Variable Expense'}
+      >
+        <form onSubmit={handleSaveVar} className="space-y-3.5">
+          <div>
+            <label
+              htmlFor="var-exp-desc"
+              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+            >
+              Description / Merchant
+            </label>
+            <ThemeInput
+              id="var-exp-desc"
+              type="text"
+              required
+              autoFocus
+              value={varDesc}
+              onChange={(e) => setVarDesc(e.target.value)}
+              placeholder="e.g., Weekly Groceries, Fuel, Cafe"
+            />
           </div>
-        </div>
-      )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="var-exp-amount"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Amount ({currency})
+              </label>
+              <ThemeInput
+                id="var-exp-amount"
+                type="number"
+                step="0.01"
+                required
+                value={varAmount}
+                onChange={(e) => setVarAmount(e.target.value)}
+                placeholder="0.00"
+                className="font-mono tabular-nums"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="var-exp-date"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Date
+              </label>
+              <ThemeInput
+                id="var-exp-date"
+                type="date"
+                required
+                value={varDate}
+                onChange={(e) => setVarDate(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="var-exp-cat"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Category
+              </label>
+              <ThemeSelect
+                id="var-exp-cat"
+                value={varCategory}
+                onChange={(e) => setVarCategory(e.target.value)}
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </ThemeSelect>
+            </div>
+
+            <div>
+              <label
+                htmlFor="var-exp-method"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Payment Method
+              </label>
+              <ThemeSelect
+                id="var-exp-method"
+                value={varMethod}
+                onChange={(e) => setVarMethod(e.target.value as typeof varMethod)}
+              >
+                <option value="upi_bank">UPI / Bank Transfer</option>
+                <option value="credit_card">Credit Card</option>
+                <option value="debit_card">Debit Card</option>
+                <option value="cash">Cash</option>
+              </ThemeSelect>
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="var-exp-notes"
+              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+            >
+              Notes (Optional)
+            </label>
+            <ThemeInput
+              id="var-exp-notes"
+              type="text"
+              value={varNotes}
+              onChange={(e) => setVarNotes(e.target.value)}
+              placeholder="Additional context..."
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-2">
+            <ThemeButton variant="ghost" size="sm" onClick={() => setVarModalOpen(false)}>
+              Cancel
+            </ThemeButton>
+            <ThemeButton type="submit" variant="primary" size="sm">
+              Save Expense
+            </ThemeButton>
+          </div>
+        </form>
+      </ThemeModal>
 
       {/* Modal: Add/Edit Fixed Recurring Plan */}
-      {recModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-6 w-full max-w-md">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">
-              {editingRec ? 'Edit Recurring Expense Plan' : 'Create Recurring Fixed Plan'}
-            </h3>
-
-            <form onSubmit={handleSaveRec} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Plan Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={recName}
-                  onChange={(e) => setRecName(e.target.value)}
-                  placeholder="e.g., Fiber Internet, Apartment Lease, Spotify"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Amount ({currency})
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={recAmount}
-                    onChange={(e) => setRecAmount(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Recurrence
-                  </label>
-                  <select
-                    value={recRecurrence}
-                    onChange={(e) => setRecRecurrence(e.target.value as typeof recRecurrence)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="monthly">Monthly</option>
-                    <option value="quarterly">Quarterly</option>
-                    <option value="yearly">Yearly</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Due Day of Month
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="31"
-                    required
-                    value={recDueDay}
-                    onChange={(e) => setRecDueDay(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={recCategory}
-                    onChange={(e) => setRecCategory(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Notes / Terms (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={recNotes}
-                  onChange={(e) => setRecNotes(e.target.value)}
-                  placeholder="e.g., Annual contract, renewal in Dec"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRecModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm"
-                >
-                  Save Recurring Plan
-                </button>
-              </div>
-            </form>
+      <ThemeModal
+        isOpen={recModalOpen}
+        onClose={() => setRecModalOpen(false)}
+        title={editingRec ? 'Edit Recurring Expense Plan' : 'Create Recurring Fixed Plan'}
+      >
+        <form onSubmit={handleSaveRec} className="space-y-3.5">
+          <div>
+            <label
+              htmlFor="rec-plan-name"
+              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+            >
+              Plan Name
+            </label>
+            <ThemeInput
+              id="rec-plan-name"
+              type="text"
+              required
+              autoFocus
+              value={recName}
+              onChange={(e) => setRecName(e.target.value)}
+              placeholder="e.g., Fiber Internet, Apartment Lease, Spotify"
+            />
           </div>
-        </div>
-      )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="rec-plan-amount"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Amount ({currency})
+              </label>
+              <ThemeInput
+                id="rec-plan-amount"
+                type="number"
+                step="0.01"
+                required
+                value={recAmount}
+                onChange={(e) => setRecAmount(e.target.value)}
+                placeholder="0.00"
+                className="font-mono tabular-nums"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="rec-plan-freq"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Recurrence
+              </label>
+              <ThemeSelect
+                id="rec-plan-freq"
+                value={recRecurrence}
+                onChange={(e) => setRecRecurrence(e.target.value as typeof recRecurrence)}
+              >
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+              </ThemeSelect>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="rec-plan-day"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Due Day of Month
+              </label>
+              <ThemeInput
+                id="rec-plan-day"
+                type="number"
+                min="1"
+                max="31"
+                required
+                value={recDueDay}
+                onChange={(e) => setRecDueDay(e.target.value)}
+                className="font-mono tabular-nums"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="rec-plan-cat"
+                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+              >
+                Category
+              </label>
+              <ThemeSelect
+                id="rec-plan-cat"
+                value={recCategory}
+                onChange={(e) => setRecCategory(e.target.value)}
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </ThemeSelect>
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="rec-plan-notes"
+              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+            >
+              Notes / Terms (Optional)
+            </label>
+            <ThemeInput
+              id="rec-plan-notes"
+              type="text"
+              value={recNotes}
+              onChange={(e) => setRecNotes(e.target.value)}
+              placeholder="e.g., Annual contract, renewal in Dec"
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-2">
+            <ThemeButton variant="ghost" size="sm" onClick={() => setRecModalOpen(false)}>
+              Cancel
+            </ThemeButton>
+            <ThemeButton type="submit" variant="primary" size="sm">
+              Save Recurring Plan
+            </ThemeButton>
+          </div>
+        </form>
+      </ThemeModal>
     </div>
   );
 };

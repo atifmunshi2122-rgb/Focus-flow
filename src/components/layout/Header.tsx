@@ -1,5 +1,7 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext.tsx';
+import { getStyleDefinition } from '../../theme/stylesRegistry.ts';
+import { ThemeButton } from '../ui/ThemePrimitives.tsx';
 import {
   Menu,
   Play,
@@ -9,11 +11,8 @@ import {
   Sun,
   Moon,
   FileSpreadsheet,
-  ExternalLink,
-  Check,
-  AlertCircle,
-  LogIn,
   LogOut,
+  Palette,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -32,7 +31,6 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     pauseTimer,
     theme,
     toggleTheme,
-    triggerRefresh,
     firebaseUser,
     isAuthenticated,
     signInWithGoogle,
@@ -40,7 +38,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     googleSpreadsheetId,
     syncStatus,
     syncNowToGoogleSheets,
+    effectiveThemeConfig,
   } = useApp();
+
+  const activeStyle = getStyleDefinition(effectiveThemeConfig.styleId);
 
   const tabLabels: Record<string, string> = {
     dashboard: 'Executive Dashboard',
@@ -50,7 +51,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     transactions: 'Transaction Ledger',
     bills: 'Bills & Payments Tracker',
     analytics: 'Visual Intelligence & Reports',
-    settings: 'System & User Preferences',
+    settings: 'Settings & Theme Studio',
   };
 
   const formatTimerMinSec = (seconds: number) => {
@@ -60,89 +61,109 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
   };
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between gap-8 h-16 px-4 md:px-8 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
-      {/* Zone 1: Single text element wordmark or contextual section breadcrumb */}
+    <header className="ff-header sticky top-0 z-30 flex items-center justify-between gap-4 md:gap-8 h-16 px-4 md:px-8">
+      {/* Zone 1: Mobile Menu Trigger + Section Heading */}
       <div className="flex items-center gap-3 shrink-0">
         <button
+          type="button"
           onClick={onOpenMobileMenu}
-          className="lg:hidden p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="lg:hidden p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
           aria-label="Open navigation menu"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2">
-          <span className="text-base md:text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
+        <div className="flex items-center gap-2.5">
+          <span className="ff-heading text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap">
             {tabLabels[currentTab] || 'Dashboard'}
           </span>
         </div>
       </div>
 
-      {/* Zone 2: 4-5 clean single-line text links / status indicator */}
-      <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-400">
-        <button
-          onClick={() => setCurrentTab('dashboard')}
-          className={`transition-colors whitespace-nowrap shrink-0 hover:text-slate-900 dark:hover:text-white ${
-            currentTab === 'dashboard' ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : ''
-          }`}
-        >
-          Overview
-        </button>
-        <button
-          onClick={() => setCurrentTab('focus')}
-          className={`transition-colors whitespace-nowrap shrink-0 hover:text-slate-900 dark:hover:text-white ${
-            currentTab === 'focus' ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : ''
-          }`}
-        >
-          Focus
-        </button>
-        <button
-          onClick={() => setCurrentTab('finance')}
-          className={`transition-colors whitespace-nowrap shrink-0 hover:text-slate-900 dark:hover:text-white ${
-            currentTab === 'finance' ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : ''
-          }`}
-        >
-          Finance
-        </button>
-        <button
-          onClick={() => setCurrentTab('bills')}
-          className={`transition-colors whitespace-nowrap shrink-0 hover:text-slate-900 dark:hover:text-white ${
-            currentTab === 'bills' ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : ''
-          }`}
-        >
-          Bills
-        </button>
-        <button
-          onClick={() => setCurrentTab('analytics')}
-          className={`transition-colors whitespace-nowrap shrink-0 hover:text-slate-900 dark:hover:text-white ${
-            currentTab === 'analytics' ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : ''
-          }`}
-        >
-          Analytics
-        </button>
+      {/* Zone 2: Quick Navigation Links */}
+      <nav aria-label="Header Quick Links" className="hidden md:flex items-center gap-6 text-sm font-medium">
+        {[
+          { id: 'dashboard', label: 'Overview' },
+          { id: 'focus', label: 'Focus' },
+          { id: 'finance', label: 'Finance' },
+          { id: 'bills', label: 'Bills' },
+          { id: 'analytics', label: 'Analytics' },
+        ].map((item) => {
+          const isActive = currentTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setCurrentTab(item.id as typeof currentTab)}
+              className="transition-colors whitespace-nowrap shrink-0"
+              style={{
+                color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
+                fontWeight: isActive ? 700 : 500,
+              }}
+            >
+              {item.label}
+            </button>
+          );
+        })}
       </nav>
 
-      {/* Zone 3: 1 primary action cluster */}
+      {/* Zone 3: Primary Action Cluster */}
       <div className="flex items-center gap-2.5 shrink-0">
         {/* Floating Mini Timer Indicator */}
-        <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-mono font-medium text-slate-700 dark:text-slate-300">
+        <div
+          className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border"
+          style={{
+            borderRadius: 'var(--ff-radius-button)',
+            background: 'var(--ff-surface-muted)',
+            borderColor: 'var(--ff-border-color)',
+            color: 'var(--ff-text-primary)',
+          }}
+        >
           <span className="tabular-nums font-semibold">{formatTimerMinSec(timeLeft)}</span>
-          <span className="text-[10px] uppercase font-sans text-slate-500 dark:text-slate-400">
+          <span className="text-[10px] uppercase font-sans text-[var(--ff-text-muted)]">
             {timerMode === 'work' ? 'Work' : 'Break'}
           </span>
           <button
+            type="button"
             onClick={isRunning ? pauseTimer : startTimer}
-            className="p-1 rounded text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400"
+            className="p-1 rounded hover:bg-[var(--ff-surface-hover)]"
+            style={{ color: 'var(--ff-accent-text)' }}
             title={isRunning ? 'Pause timer' : 'Start timer'}
+            aria-label={isRunning ? 'Pause timer' : 'Start timer'}
           >
             {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
         </div>
 
+        {/* Theme Studio Quick Pill */}
+        <button
+          type="button"
+          onClick={() => setCurrentTab('settings')}
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border transition-colors"
+          style={{
+            borderRadius: 'var(--ff-radius-button)',
+            background: 'var(--ff-accent-soft)',
+            borderColor: 'var(--ff-accent-border)',
+            color: 'var(--ff-accent-text)',
+          }}
+          title="Customize design style in Theme Studio"
+        >
+          <Palette className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden lg:inline">{activeStyle.name}</span>
+        </button>
+
         {/* Google Sheets Sync Pill */}
         {googleSpreadsheetId ? (
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs">
-            <FileSpreadsheet className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border"
+            style={{
+              borderRadius: 'var(--ff-radius-button)',
+              background: 'var(--ff-success-soft)',
+              borderColor: 'color-mix(in oklab, var(--ff-success) 35%, transparent)',
+              color: 'var(--ff-success)',
+            }}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
             <a
               href={`https://docs.google.com/spreadsheets/d/${googleSpreadsheetId}`}
               target="_blank"
@@ -153,33 +174,38 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               Sheets Synced
             </a>
             <button
-              onClick={() => syncNowToGoogleSheets()}
+              type="button"
+              onClick={() => void syncNowToGoogleSheets()}
               disabled={syncStatus === 'syncing'}
-              className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors"
+              className="p-1 rounded hover:opacity-80 transition-opacity"
               title="Force sync to Google Sheets now"
+              aria-label="Sync to Google Sheets now"
             >
               <RefreshCw className={`w-3 h-3 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
             </button>
           </div>
         ) : (
           <button
+            type="button"
             onClick={() => setCurrentTab('settings')}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+            style={{ borderRadius: 'var(--ff-radius-button)' }}
             title="Connect Google Sheets in Settings"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
+            <FileSpreadsheet className="w-3.5 h-3.5 text-[var(--ff-text-muted)]" />
             <span>Connect Sheets</span>
           </button>
         )}
 
         {/* Google Sign-in / Profile */}
         {!isAuthenticated ? (
-          <button
+          <ThemeButton
+            variant="secondary"
+            size="sm"
             onClick={signInWithGoogle}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-xs transition-colors"
             title="Sign in with Google"
           >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" aria-hidden="true">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -198,11 +224,11 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               />
             </svg>
             <span className="hidden sm:inline">Sign in</span>
-          </button>
+          </ThemeButton>
         ) : (
           <div className="flex items-center gap-1.5">
             <div
-              className="w-7 h-7 rounded-full overflow-hidden border border-slate-300 dark:border-slate-700 bg-slate-200 shrink-0"
+              className="w-7 h-7 rounded-full overflow-hidden border border-[var(--ff-border-color)] shrink-0"
               title={`Logged in as ${firebaseUser?.displayName || firebaseUser?.email}`}
             >
               {firebaseUser?.photoURL ? (
@@ -212,15 +238,23 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center font-bold text-xs bg-indigo-600 text-white">
+                <div
+                  className="w-full h-full flex items-center justify-center font-bold text-xs"
+                  style={{
+                    background: 'var(--ff-accent)',
+                    color: 'var(--ff-accent-contrast)',
+                  }}
+                >
                   {(firebaseUser?.displayName || 'U')[0].toUpperCase()}
                 </div>
               )}
             </div>
             <button
+              type="button"
               onClick={signOutGoogle}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+              className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors"
               title="Sign out of Google"
+              aria-label="Sign out of Google"
             >
               <LogOut className="w-3.5 h-3.5" />
             </button>
@@ -229,22 +263,29 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
 
         {/* Mobile Theme Toggle */}
         <button
+          type="button"
           onClick={toggleTheme}
-          className="lg:hidden p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          aria-label="Toggle theme"
+          className="lg:hidden p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+          aria-label="Toggle light or dark mode"
         >
-          {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+          {theme === 'dark' ? (
+            <Sun className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
+          ) : (
+            <Moon className="w-4 h-4" />
+          )}
         </button>
 
         {/* Primary Action Button */}
-        <button
+        <ThemeButton
+          variant="primary"
+          size="sm"
           onClick={onOpenQuickAction}
-          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-all whitespace-nowrap shrink-0 active:scale-95"
+          className="whitespace-nowrap shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span className="hidden sm:inline">Quick Action</span>
           <span className="sm:hidden">Action</span>
-        </button>
+        </ThemeButton>
       </div>
     </header>
   );

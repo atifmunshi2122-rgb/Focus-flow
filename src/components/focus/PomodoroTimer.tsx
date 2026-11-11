@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { useApp, TimerMode } from '../../context/AppContext.tsx';
 import {
+  ThemeButton,
+  ThemeCard,
+  ThemeInput,
+  ThemeModal,
+  ThemeSegmentedControl,
+} from '../ui/ThemePrimitives.tsx';
+import {
   Play,
   Pause,
   RotateCcw,
@@ -32,12 +39,10 @@ export const PomodoroTimer: React.FC = () => {
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customInputMinutes, setCustomInputMinutes] = useState('25');
 
-  // Format MM:SS
   const mins = Math.floor(timeLeft / 60);
   const secs = timeLeft % 60;
   const timeFormatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 
-  // SVG Circular progress math
   const size = 280;
   const strokeWidth = 10;
   const radius = (size - strokeWidth * 2) / 2;
@@ -45,28 +50,22 @@ export const PomodoroTimer: React.FC = () => {
   const progressRatio = totalDuration > 0 ? (totalDuration - timeLeft) / totalDuration : 0;
   const strokeDashoffset = circumference - progressRatio * circumference;
 
-  const modeColors: Record<TimerMode, { ring: string; glow: string; text: string; bg: string }> = {
+  const modeTokenColors: Record<TimerMode, { ring: string; text: string }> = {
     work: {
-      ring: '#6366f1', // Indigo
-      glow: 'rgba(99, 102, 241, 0.25)',
-      text: 'text-indigo-600 dark:text-indigo-400',
-      bg: 'from-indigo-500/10 to-violet-500/10',
+      ring: 'var(--ff-accent)',
+      text: 'var(--ff-accent-text)',
     },
     short_break: {
-      ring: '#10b981', // Emerald
-      glow: 'rgba(16, 185, 129, 0.25)',
-      text: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'from-emerald-500/10 to-teal-500/10',
+      ring: 'var(--ff-success)',
+      text: 'var(--ff-success)',
     },
     long_break: {
-      ring: '#06b6d4', // Cyan
-      glow: 'rgba(6, 182, 212, 0.25)',
-      text: 'text-cyan-600 dark:text-cyan-400',
-      bg: 'from-cyan-500/10 to-blue-500/10',
+      ring: 'var(--ff-info)',
+      text: 'var(--ff-info)',
     },
   };
 
-  const currentTheme = modeColors[timerMode];
+  const currentModeColors = modeTokenColors[timerMode];
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,68 +78,59 @@ export const PomodoroTimer: React.FC = () => {
 
   const toggleSound = () => {
     if (settings) {
-      updateSettings({ soundEnabled: !settings.soundEnabled });
+      void updateSettings({ soundEnabled: !settings.soundEnabled });
     }
   };
 
   const toggleAutoSwitch = () => {
     if (settings) {
-      updateSettings({ autoSwitchSessions: !settings.autoSwitchSessions });
+      void updateSettings({ autoSwitchSessions: !settings.autoSwitchSessions });
     }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center p-6 sm:p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
+    <ThemeCard className="flex flex-col items-center justify-center p-6 sm:p-8">
       {/* Mode Switcher Segmented Tabs */}
-      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl mb-8">
-        <button
-          onClick={() => switchTimerMode('work')}
-          className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-            timerMode === 'work'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          Focus (25m)
-        </button>
-        <button
-          onClick={() => switchTimerMode('short_break')}
-          className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-            timerMode === 'short_break'
-              ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          Short Break (5m)
-        </button>
-        <button
-          onClick={() => switchTimerMode('long_break')}
-          className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-            timerMode === 'long_break'
-              ? 'bg-white dark:bg-slate-900 text-cyan-600 dark:text-cyan-400 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          Long Break (15m)
-        </button>
+      <div className="mb-8">
+        <ThemeSegmentedControl<TimerMode>
+          ariaLabel="Pomodoro timer mode"
+          value={timerMode}
+          onChange={(mode) => switchTimerMode(mode)}
+          options={[
+            { id: 'work', label: `Focus (${settings?.pomodoroWorkDuration || 25}m)` },
+            { id: 'short_break', label: `Short Break (${settings?.shortBreakDuration || 5}m)` },
+            { id: 'long_break', label: `Long Break (${settings?.longBreakDuration || 15}m)` },
+          ]}
+        />
       </div>
 
       {/* Linked Task Indicator */}
       {activeTask ? (
-        <div className="mb-6 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 max-w-sm truncate border border-slate-200 dark:border-slate-700">
-          <Target className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-          <span className="truncate">Focusing on: <strong>{activeTask.title}</strong></span>
+        <div
+          className="mb-6 flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-sm truncate border"
+          style={{
+            background: 'var(--ff-surface-muted)',
+            borderColor: 'var(--ff-border-color)',
+            color: 'var(--ff-text-primary)',
+          }}
+        >
+          <Target className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
+          <span className="truncate">
+            Focusing on: <strong>{activeTask.title}</strong>
+          </span>
           <button
+            type="button"
             onClick={() => setActiveTaskId(null)}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1 text-xs"
+            className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] ml-1 text-xs"
             title="Unlink task"
+            aria-label="Unlink task"
           >
             ×
           </button>
         </div>
       ) : (
-        <div className="mb-6 flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
-          <Sparkles className="w-3.5 h-3.5 text-slate-400" />
+        <div className="mb-6 flex items-center gap-2 text-xs text-[var(--ff-text-muted)]">
+          <Sparkles className="w-3.5 h-3.5" />
           <span>Independent Session (No task linked)</span>
         </div>
       )}
@@ -150,10 +140,13 @@ export const PomodoroTimer: React.FC = () => {
         <svg
           width={size}
           height={size}
-          className="transform -rotate-90 drop-shadow-md"
+          className="transform -rotate-90"
           style={{
-            filter: isRunning ? `drop-shadow(0 0 16px ${currentTheme.glow})` : undefined,
+            filter: isRunning
+              ? 'drop-shadow(0 0 14px color-mix(in oklab, var(--ff-accent) 35%, transparent))'
+              : undefined,
           }}
+          aria-hidden="true"
         >
           {/* Background Track */}
           <circle
@@ -161,8 +154,7 @@ export const PomodoroTimer: React.FC = () => {
             cy={size / 2}
             r={radius}
             strokeWidth={strokeWidth}
-            stroke="currentColor"
-            className="text-slate-100 dark:text-slate-800"
+            stroke="var(--ff-surface-muted)"
             fill="transparent"
           />
 
@@ -172,7 +164,7 @@ export const PomodoroTimer: React.FC = () => {
             cy={size / 2}
             r={radius}
             strokeWidth={strokeWidth}
-            stroke={currentTheme.ring}
+            stroke={currentModeColors.ring}
             fill="transparent"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
@@ -183,13 +175,20 @@ export const PomodoroTimer: React.FC = () => {
 
         {/* Center Countdown Display */}
         <div className="absolute flex flex-col items-center justify-center text-center">
-          <span className="text-5xl font-extrabold tracking-tight font-mono tabular-nums text-slate-900 dark:text-white">
+          <span className="text-5xl font-extrabold font-mono tabular-nums text-[var(--ff-text-primary)]">
             {timeFormatted}
           </span>
-          <span className={`text-xs font-semibold uppercase tracking-wider mt-1.5 ${currentTheme.text}`}>
-            {timerMode === 'work' ? 'Deep Focus' : timerMode === 'short_break' ? 'Short Pause' : 'Rest & Recharge'}
+          <span
+            className="text-xs font-semibold uppercase tracking-wider mt-1.5"
+            style={{ color: currentModeColors.text }}
+          >
+            {timerMode === 'work'
+              ? 'Deep Focus'
+              : timerMode === 'short_break'
+              ? 'Short Pause'
+              : 'Rest & Recharge'}
           </span>
-          <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+          <span className="text-[11px] text-[var(--ff-text-muted)] mt-1">
             {isRunning ? 'Session in progress' : 'Ready to start'}
           </span>
         </div>
@@ -197,22 +196,31 @@ export const PomodoroTimer: React.FC = () => {
 
       {/* Main Action Controls */}
       <div className="flex items-center gap-4 mt-8">
-        <button
+        <ThemeButton
+          variant="secondary"
+          size="md"
           onClick={resetTimer}
-          className="p-3 rounded-full text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="p-3 rounded-full"
           title="Reset timer"
           aria-label="Reset timer"
         >
           <RotateCcw className="w-5 h-5" />
-        </button>
+        </ThemeButton>
 
-        <button
+        <ThemeButton
+          variant={isRunning ? 'secondary' : 'primary'}
+          size="lg"
           onClick={isRunning ? pauseTimer : startTimer}
-          className={`px-8 py-3.5 rounded-full font-bold text-sm text-white shadow-lg transition-all transform active:scale-95 flex items-center gap-2.5 ${
+          className="px-8 py-3.5 font-bold"
+          style={
             isRunning
-              ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/20'
-              : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/25'
-          }`}
+              ? {
+                  background: 'var(--ff-warning)',
+                  color: '#09090b',
+                  borderColor: 'transparent',
+                }
+              : undefined
+          }
         >
           {isRunning ? (
             <>
@@ -225,81 +233,80 @@ export const PomodoroTimer: React.FC = () => {
               <span>{timeLeft < totalDuration ? 'Resume' : 'Start Focus'}</span>
             </>
           )}
-        </button>
+        </ThemeButton>
 
-        <button
+        <ThemeButton
+          variant="secondary"
+          size="md"
           onClick={() => setShowCustomModal(true)}
-          className="p-3 rounded-full text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="p-3 rounded-full"
           title="Set custom duration"
           aria-label="Custom duration"
         >
           <Sliders className="w-5 h-5" />
-        </button>
+        </ThemeButton>
       </div>
 
       {/* Quick Settings Toggles */}
-      <div className="flex items-center gap-6 mt-8 pt-6 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-600 dark:text-slate-400">
+      <div className="flex items-center gap-6 mt-8 pt-6 border-t border-[var(--ff-border-color)] text-xs text-[var(--ff-text-muted)]">
         <button
+          type="button"
           onClick={toggleSound}
-          className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition-colors"
+          className="flex items-center gap-1.5 hover:text-[var(--ff-text-primary)] transition-colors"
         >
           {settings?.soundEnabled ? (
-            <Volume2 className="w-4 h-4 text-indigo-500" />
+            <Volume2 className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
           ) : (
-            <VolumeX className="w-4 h-4 text-slate-400" />
+            <VolumeX className="w-4 h-4" />
           )}
           <span>Sound {settings?.soundEnabled ? 'Enabled' : 'Muted'}</span>
         </button>
 
         <button
+          type="button"
           onClick={toggleAutoSwitch}
-          className="flex items-center gap-1.5 hover:text-slate-900 dark:hover:text-white transition-colors"
+          className="flex items-center gap-1.5 hover:text-[var(--ff-text-primary)] transition-colors"
         >
           <CheckCircle2
-            className={`w-4 h-4 ${
-              settings?.autoSwitchSessions ? 'text-indigo-500' : 'text-slate-400'
-            }`}
+            className="w-4 h-4"
+            style={{
+              color: settings?.autoSwitchSessions
+                ? 'var(--ff-accent-text)'
+                : 'var(--ff-text-muted)',
+            }}
           />
           <span>Auto-Switch {settings?.autoSwitchSessions ? 'On' : 'Off'}</span>
         </button>
       </div>
 
       {/* Custom Duration Modal */}
-      {showCustomModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-6 w-full max-w-xs">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Custom Duration</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              Enter target duration in minutes (1 - 180 min)
-            </p>
-            <form onSubmit={handleCustomSubmit}>
-              <input
-                type="number"
-                min="1"
-                max="180"
-                value={customInputMinutes}
-                onChange={(e) => setCustomInputMinutes(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCustomModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm"
-                >
-                  Set Duration
-                </button>
-              </div>
-            </form>
+      <ThemeModal
+        isOpen={showCustomModal}
+        onClose={() => setShowCustomModal(false)}
+        title="Custom Duration"
+        subtitle="Enter target duration in minutes (1 - 180 min)"
+        maxWidthClass="max-w-xs"
+      >
+        <form onSubmit={handleCustomSubmit} className="space-y-4">
+          <ThemeInput
+            type="number"
+            min="1"
+            max="180"
+            autoFocus
+            value={customInputMinutes}
+            onChange={(e) => setCustomInputMinutes(e.target.value)}
+            className="font-mono tabular-nums"
+          />
+          <div className="flex items-center justify-end gap-2">
+            <ThemeButton variant="ghost" size="sm" onClick={() => setShowCustomModal(false)}>
+              Cancel
+            </ThemeButton>
+            <ThemeButton type="submit" variant="primary" size="sm">
+              Set Duration
+            </ThemeButton>
           </div>
-        </div>
-      )}
-    </div>
+        </form>
+      </ThemeModal>
+    </ThemeCard>
   );
 };

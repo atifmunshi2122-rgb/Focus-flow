@@ -14,19 +14,35 @@ import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
 import { FocusAnalytics } from './components/focus/FocusAnalytics.tsx';
 import { TaskManager } from './components/tasks/TaskManager.tsx';
 import { FinanceOverview } from './components/finance/FinanceOverview.tsx';
-import { ExpenseManager } from './components/finance/ExpenseManager.tsx';
 import { BillsTracker } from './components/finance/BillsTracker.tsx';
 import { TransactionsLedger } from './components/finance/TransactionsLedger.tsx';
 import { SettingsView } from './components/settings/SettingsView.tsx';
+import { getStyleDefinition } from './theme/stylesRegistry.ts';
+import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
+import { Check, Eye, X } from 'lucide-react';
 
 const MainContent: React.FC = () => {
-  const { currentTab } = useApp();
+  const {
+    currentTab,
+    isFullAppPreview,
+    previewThemeConfig,
+    applyThemeConfig,
+    stopFullAppPreview,
+    resolvedThemeMode,
+  } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [quickActionOpen, setQuickActionOpen] = useState(false);
 
+  const previewStyleName = previewThemeConfig
+    ? getStyleDefinition(previewThemeConfig.styleId).name
+    : '';
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col lg:flex-row font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="ff-app-shell flex flex-col lg:flex-row">
+      {/* Ambient / Atmospheric Layer for Glassmorphism, Cyberpunk & Aurora */}
+      <div className="ff-ambient-layer" aria-hidden="true" />
+
       {/* Sidebar */}
       <Sidebar
         collapsed={collapsed}
@@ -36,7 +52,7 @@ const MainContent: React.FC = () => {
       />
 
       {/* Main Viewport */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
+      <div className="relative z-10 flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
         {/* Top Header */}
         <Header
           onOpenMobileMenu={() => setMobileOpen(true)}
@@ -44,7 +60,10 @@ const MainContent: React.FC = () => {
         />
 
         {/* Viewport Content Area */}
-        <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+        <main
+          className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto"
+          style={{ paddingBottom: isFullAppPreview ? '6rem' : undefined }}
+        >
           {currentTab === 'dashboard' && (
             <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
           )}
@@ -52,7 +71,7 @@ const MainContent: React.FC = () => {
           {currentTab === 'focus' && (
             <div className="space-y-8">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <div className="lg:col-span-5 sticky top-24">
+                <div className="lg:col-span-5 lg:sticky lg:top-24">
                   <PomodoroTimer />
                 </div>
                 <div className="lg:col-span-7">
@@ -81,6 +100,36 @@ const MainContent: React.FC = () => {
           {currentTab === 'settings' && <SettingsView />}
         </main>
       </div>
+
+      {/* Full-App Live Preview Floating Banner */}
+      {isFullAppPreview && previewThemeConfig && (
+        <div
+          role="region"
+          aria-label="Live theme preview controls"
+          className="ff-card-elevated fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 flex flex-wrap items-center gap-3 max-w-[calc(100vw-2rem)]"
+        >
+          <div className="flex items-center gap-2 text-xs">
+            <Eye className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
+            <span className="font-semibold text-[var(--ff-text-primary)]">
+              Previewing <strong>{previewStyleName}</strong> ({resolvedThemeMode})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <ThemeButton
+              variant="primary"
+              size="xs"
+              onClick={() => void applyThemeConfig(previewThemeConfig, null)}
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Apply Theme</span>
+            </ThemeButton>
+            <ThemeButton variant="secondary" size="xs" onClick={stopFullAppPreview}>
+              <X className="w-3.5 h-3.5" />
+              <span>Exit Preview</span>
+            </ThemeButton>
+          </div>
+        </div>
+      )}
 
       {/* Quick Action Global Modal */}
       <QuickActionModal
