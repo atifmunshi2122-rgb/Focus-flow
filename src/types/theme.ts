@@ -47,6 +47,113 @@ export type AnimationIntensity = 'none' | 'subtle' | 'standard' | 'expressive';
 
 export type InterfaceDensity = 'compact' | 'comfortable' | 'spacious';
 
+export type ColorPaletteCategory =
+  | 'dark-luxury'
+  | 'light-minimal'
+  | 'pastel'
+  | 'neon'
+  | 'cyberpunk'
+  | 'glassmorphism'
+  | 'claymorphism'
+  | 'neumorphism'
+  | 'skeuomorphism'
+  | 'aurora'
+  | 'gradient'
+  | '3d-metallic'
+  | 'royal'
+  | 'corporate'
+  | 'nature'
+  | 'ocean'
+  | 'sunset'
+  | 'monochrome'
+  | 'warm-neutral'
+  | 'cool-neutral';
+
+export type HarmonyType =
+  | 'complementary'
+  | 'analogous'
+  | 'triadic'
+  | 'split-complementary'
+  | 'tetradic'
+  | 'monochromatic';
+
+export type GradientType =
+  | 'linear'
+  | 'radial'
+  | 'conic'
+  | 'mesh'
+  | 'aurora'
+  | 'metallic'
+  | 'animated';
+
+export interface GradientStop {
+  id?: string;
+  color: string;
+  position: number; // 0 to 100
+}
+
+export interface GradientConfig {
+  name?: string;
+  type: GradientType;
+  angle: number; // 0 to 360
+  stops: GradientStop[]; // 2 to 5 stops
+  animated?: boolean;
+  speedSeconds?: number;
+}
+
+export interface PaletteTokens {
+  primary: string;
+  secondary: string;
+  accent: string;
+  bgCanvas: string;
+  bgBackdrop: string;
+  surfaceCard: string;
+  surfaceElevated: string;
+  surfaceMuted: string;
+  surfaceInset: string;
+  borderColor: string;
+  borderGlow: string;
+  textPrimary: string;
+  textSecondary: string;
+  textMuted: string;
+  ambientLight: string;
+  shadowTint: string;
+  glassTint: string;
+  highlight: string;
+  success: string;
+  warning: string;
+  danger: string;
+  info: string;
+}
+
+export interface CuratedPalette {
+  id: string;
+  name: string;
+  category: ColorPaletteCategory;
+  categoryLabel: string;
+  description: string;
+  isDark: boolean;
+  tags: string[];
+  tokens: PaletteTokens;
+  gradientStops: Array<{ color: string; position: number }>;
+  recommendedStyleId?: DesignStyleId;
+}
+
+export interface ThreeDLightingConfig {
+  ambientLightColor?: string;
+  ambientLightIntensity?: number; // 0 to 100
+  shadowColor?: string;
+  shadowIntensity?: number; // 0 to 100
+  glassTint?: string;
+  glassOpacity?: number; // 0 to 100
+  glassBlur?: number; // 0 to 40
+  glowColor?: string;
+  glowIntensity?: number; // 0 to 100
+  highlightColor?: string;
+  cardElevation?: number; // 0 to 32
+  depthIntensity?: number; // 0 to 100
+}
+
 export interface ThemeConfig {
   styleId: DesignStyleId;
   colorMode: ColorModePreference;
@@ -60,6 +167,12 @@ export interface ThemeConfig {
   customGradient: string | null;
   animationIntensity: AnimationIntensity;
   density: InterfaceDensity;
+
+  // Complete Color Ecosystem & 3D Customization Tokens
+  activePaletteId?: string | null;
+  customPalette?: Partial<PaletteTokens> | null;
+  gradientConfig?: GradientConfig | null;
+  threeDLighting?: Partial<ThreeDLightingConfig> | null;
 }
 
 export interface SavedCustomTheme {

@@ -16,6 +16,8 @@ import {
   mixColors,
   normalizeHex,
 } from './colorUtils.ts';
+import { getPaletteById } from './palettes100.ts';
+import { generateGradientCss } from './gradientEngine.ts';
 
 export const THEME_CACHE_KEY = 'ff_theme_cache_v1';
 
@@ -48,6 +50,10 @@ export function sanitizeThemeConfig(partial?: Partial<ThemeConfig> | null): Them
     customGradient: partial.customGradient ?? null,
     animationIntensity: partial.animationIntensity || 'standard',
     density: partial.density || 'comfortable',
+    activePaletteId: partial.activePaletteId ?? null,
+    customPalette: partial.customPalette ?? null,
+    gradientConfig: partial.gradientConfig ?? null,
+    threeDLighting: partial.threeDLighting ?? null,
   };
 }
 
@@ -83,8 +89,34 @@ export function buildThemeCssVariables(
   resolvedMode: 'light' | 'dark'
 ): Record<string, string> {
   const styleDef = getStyleDefinition(config.styleId);
-  const palette = resolvedMode === 'dark' ? styleDef.dark : styleDef.light;
+  const basePalette = resolvedMode === 'dark' ? styleDef.dark : styleDef.light;
   const isDark = resolvedMode === 'dark';
+
+  // Check for active curated palette or custom palette overrides
+  const curatedPal = config.activePaletteId ? getPaletteById(config.activePaletteId) : null;
+  const palTokens = config.customPalette || curatedPal?.tokens || null;
+
+  // Resolved palette
+  const palette = {
+    ...basePalette,
+    bgCanvas: palTokens?.bgCanvas || basePalette.bgCanvas,
+    bgBackdrop: palTokens?.bgBackdrop || basePalette.bgBackdrop,
+    surfaceCard: palTokens?.surfaceCard || basePalette.surfaceCard,
+    surfaceElevated: palTokens?.surfaceElevated || basePalette.surfaceElevated,
+    surfaceMuted: palTokens?.surfaceMuted || basePalette.surfaceMuted,
+    surfaceInset: palTokens?.surfaceInset || basePalette.surfaceInset,
+    borderColor: palTokens?.borderColor || basePalette.borderColor,
+    borderStrong: palTokens?.borderGlow || basePalette.borderStrong,
+    textPrimary: palTokens?.textPrimary || basePalette.textPrimary,
+    textSecondary: palTokens?.textSecondary || basePalette.textSecondary,
+    textMuted: palTokens?.textMuted || basePalette.textMuted,
+    accentDefault: palTokens?.accent || basePalette.accentDefault,
+    secondaryDefault: palTokens?.secondary || basePalette.secondaryDefault,
+    success: palTokens?.success || basePalette.success,
+    warning: palTokens?.warning || basePalette.warning,
+    danger: palTokens?.danger || basePalette.danger,
+    info: palTokens?.info || basePalette.info,
+  };
 
   // Typography
   const fontPairingId =
@@ -94,11 +126,22 @@ export function buildThemeCssVariables(
     config.fontScale === 'compact' ? '0.93' : config.fontScale === 'large' ? '1.07' : '1';
 
   // Colors & Contrast
-  const accent = normalizeHex(config.accentColor || '') || palette.accentDefault;
-  const secondary = normalizeHex(config.secondaryAccentColor || '') || palette.secondaryDefault;
+  const accent: string =
+    normalizeHex(config.accentColor || '') ||
+    (palTokens?.accent ? normalizeHex(palTokens.accent) : null) ||
+    palette.accentDefault ||
+    '#6366f1';
+  const secondary: string =
+    normalizeHex(config.secondaryAccentColor || '') ||
+    (palTokens?.secondary ? normalizeHex(palTokens.secondary) : null) ||
+    palette.secondaryDefault ||
+    '#8b5cf6';
   const accentContrast = getAccessibleContrastText(accent);
 
-  const surfaceSampleHex = normalizeHex(palette.surfaceCard) || normalizeHex(palette.bgCanvas) || (isDark ? '#111827' : '#ffffff');
+  const surfaceSampleHex =
+    normalizeHex(palette.surfaceCard) ||
+    normalizeHex(palette.bgCanvas) ||
+    (isDark ? '#111827' : '#ffffff');
   const accentText = ensureReadableAccentOnSurface(accent, surfaceSampleHex, 4.5);
   const accentHover = mixColors(accent, isDark ? '#ffffff' : '#000000', 0.85);
   const accentSoft = hexToRgba(accent, isDark ? 0.18 : 0.11);
@@ -173,7 +216,9 @@ export function buildThemeCssVariables(
 
   // Backdrop / Custom gradient
   let bgBackdrop = palette.bgBackdrop;
-  if (config.customGradient && config.customGradient !== 'auto') {
+  if (config.gradientConfig) {
+    bgBackdrop = generateGradientCss(config.gradientConfig);
+  } else if (config.customGradient && config.customGradient !== 'auto') {
     const preset = BACKGROUND_GRADIENT_PRESETS.find((g) => g.id === config.customGradient);
     if (preset) {
       bgBackdrop = isDark ? preset.darkCss : preset.lightCss;
@@ -190,6 +235,33 @@ export function buildThemeCssVariables(
       palette.bgBackdrop
     );
   }
+
+  // 3D Lighting & Depth tokens
+  const threeD = config.threeDLighting || {};
+  const ambientLight =
+    threeD.ambientLightColor ||
+    palTokens?.ambientLight ||
+    hexToRgba(accent, isDark ? 0.28 : 0.20);
+  const shadowTint =
+    threeD.shadowColor ||
+    palTokens?.shadowTint ||
+    hexToRgba(isDark ? '#000000' : '#0f172a', isDark ? 0.70 : 0.16);
+  const glassTint =
+    threeD.glassTint || palTokens?.glassTint || hexToRgba(palette.surfaceCard, 0.75);
+  const glowColor =
+    threeD.glowColor || palTokens?.borderGlow || hexToRgba(accent, 0.50);
+  const highlightColor =
+    threeD.highlightColor ||
+    palTokens?.highlight ||
+    hexToRgba('#ffffff', isDark ? 0.18 : 0.35);
+  const cardElevation =
+    threeD.cardElevation !== undefined ? `${threeD.cardElevation}px` : '12px';
+  const depthIntensity =
+    threeD.depthIntensity !== undefined ? `${threeD.depthIntensity}%` : '100%';
+  const glassBlur =
+    threeD.glassBlur !== undefined ? `${threeD.glassBlur}px` : styleDef.backdropBlur;
+  const glassOpacity =
+    threeD.glassOpacity !== undefined ? `${threeD.glassOpacity}` : '0.85';
 
   // Density
   const densityMap = {
@@ -270,13 +342,22 @@ export function buildThemeCssVariables(
     '--ff-border-strong': palette.borderStrong,
     '--ff-border-highlight': palette.borderHighlight,
     '--ff-border-width': styleDef.borderWidth,
-    '--ff-backdrop-blur': styleDef.backdropBlur,
+    '--ff-backdrop-blur': glassBlur,
     '--ff-shadow-card': shadowCard,
     '--ff-shadow-elevated': shadowElevated,
     '--ff-shadow-button': shadowButton,
-    '--ff-shadow-inset': palette.shadowInset,
+    '--ff-shadow-inset': palette.shadowInset || 'none',
     '--ff-neu-light': palette.neuLight,
     '--ff-neu-dark': palette.neuDark,
+    '--ff-ambient-light': ambientLight,
+    '--ff-shadow-tint': shadowTint,
+    '--ff-glass-tint': glassTint,
+    '--ff-glow-color': glowColor,
+    '--ff-highlight-color': highlightColor,
+    '--ff-card-elevation': cardElevation,
+    '--ff-depth-intensity': depthIntensity,
+    '--ff-glass-blur': glassBlur,
+    '--ff-glass-opacity': glassOpacity,
     '--ff-accent': accent,
     '--ff-accent-secondary': secondary,
     '--ff-accent-hover': accentHover,

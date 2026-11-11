@@ -30,6 +30,7 @@ import {
   ThemeProgressBar,
   ThemeSegmentedControl,
 } from '../ui/ThemePrimitives.tsx';
+import { ColorEcosystemStudio } from './ColorEcosystemStudio.tsx';
 import {
   BookmarkPlus,
   Check,
@@ -89,6 +90,7 @@ export const ThemeStudio: React.FC = () => {
 
   // Draft config lets users explore & preview customizations before applying
   const [draftConfig, setDraftConfig] = useState<ThemeConfig>(themeConfig);
+  const [studioTab, setStudioTab] = useState<'palettes' | 'design-styles' | 'tokens'>('palettes');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<DesignStyleCategory>('all');
   const [customThemeName, setCustomThemeName] = useState('');
@@ -396,10 +398,70 @@ export const ThemeStudio: React.FC = () => {
         </div>
       </ThemeCard>
 
-      {/* SECTION 1: LIVE INTERACTIVE SANDBOX PREVIEW + APPLY BAR */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-        {/* Left/Top: Live Interactive Preview Canvas */}
-        <div className="xl:col-span-7 space-y-3">
+      {/* Studio Mode Selector */}
+      <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
+        <button
+          type="button"
+          onClick={() => setStudioTab('palettes')}
+          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all"
+          style={{
+            background: studioTab === 'palettes' ? 'var(--ff-accent)' : 'transparent',
+            color: studioTab === 'palettes' ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
+          }}
+        >
+          <Palette className="w-4 h-4" />
+          <span>100+ Color Ecosystem &amp; 3D Generator</span>
+          <ThemeBadge tone={studioTab === 'palettes' ? 'neutral' : 'accent'}>100 Palettes</ThemeBadge>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStudioTab('design-styles')}
+          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all"
+          style={{
+            background: studioTab === 'design-styles' ? 'var(--ff-accent)' : 'transparent',
+            color: studioTab === 'design-styles' ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
+          }}
+        >
+          <Layers className="w-4 h-4" />
+          <span>16 Design Systems &amp; Sandbox</span>
+          <ThemeBadge tone={studioTab === 'design-styles' ? 'neutral' : 'accent'}>16 Styles</ThemeBadge>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStudioTab('tokens')}
+          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all"
+          style={{
+            background: studioTab === 'tokens' ? 'var(--ff-accent)' : 'transparent',
+            color: studioTab === 'tokens' ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
+          }}
+        >
+          <Sliders className="w-4 h-4" />
+          <span>Tokens, Shapes &amp; Typography</span>
+        </button>
+      </div>
+
+      {/* TAB 1: 100+ COLOR ECOSYSTEM, HARMONY GENERATOR & 3D GRADIENTS */}
+      {studioTab === 'palettes' && (
+        <ColorEcosystemStudio
+          draftConfig={draftConfig}
+          updateDraft={updateDraft}
+          onApplyConfig={(cfg) => applyThemeConfig(cfg, null)}
+          isFullAppPreview={isFullAppPreview}
+          startFullAppPreview={startFullAppPreview}
+          stopFullAppPreview={stopFullAppPreview}
+          showToast={showToast}
+        />
+      )}
+
+      {/* TAB 2: 16 DESIGN SYSTEMS GALLERY & LIVE SANDBOX */}
+      {studioTab === 'design-styles' && (
+        <>
+          {/* SECTION 1: LIVE INTERACTIVE SANDBOX PREVIEW + APPLY BAR */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+            {/* Left/Top: Live Interactive Preview Canvas */}
+            <div className="xl:col-span-7 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Eye className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
@@ -1092,9 +1154,12 @@ export const ThemeStudio: React.FC = () => {
           })}
         </div>
       </ThemeCard>
+      </>
+      )}
 
-      {/* SECTION 3: TOKEN CUSTOMIZATION ENGINE (ACCENT, TYPOGRAPHY, SHAPE, BACKDROP, MOTION, DENSITY) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* TAB 3: TOKEN CUSTOMIZATION ENGINE (ACCENT, TYPOGRAPHY, SHAPE, BACKDROP, MOTION, DENSITY) */}
+      {studioTab === 'tokens' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Accent & Color Palette Studio */}
         <ThemeCard className="space-y-4">
           <div className="flex items-center justify-between">
@@ -1543,6 +1608,7 @@ export const ThemeStudio: React.FC = () => {
           </div>
         </ThemeCard>
       </div>
+      )}
 
       {/* Accessibility Readability Verification Strip */}
       <ThemeCard variant="inset" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
