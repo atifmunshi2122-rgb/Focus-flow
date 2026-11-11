@@ -35,8 +35,11 @@ import {
   Check,
   Cloud,
   CloudOff,
+  Copy,
+  Download,
   Eye,
   EyeOff,
+  FileCode,
   Layers,
   Monitor,
   Moon,
@@ -48,6 +51,7 @@ import {
   Sun,
   Trash2,
   Type,
+  Upload,
   Wand2,
   Zap,
 } from 'lucide-react';
@@ -80,6 +84,7 @@ export const ThemeStudio: React.FC = () => {
     applySavedTheme,
     deleteSavedTheme,
     resetThemeToDefault,
+    showToast,
   } = useApp();
 
   // Draft config lets users explore & preview customizations before applying
@@ -93,6 +98,12 @@ export const ThemeStudio: React.FC = () => {
   const [gradStart, setGradStart] = useState('#0f172a');
   const [gradEnd, setGradEnd] = useState('#1e1b4b');
   const [gradAngle, setGradAngle] = useState('135');
+
+  // JSON Export / Import state
+  const [jsonDialogMode, setJsonDialogMode] = useState<'export' | 'import' | null>(null);
+  const [importJsonText, setImportJsonText] = useState('');
+  const [importJsonError, setImportJsonError] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Keep draft synchronized when an external saved theme / reset / login restore occurs
   React.useEffect(() => {
@@ -226,6 +237,94 @@ export const ThemeStudio: React.FC = () => {
     stopFullAppPreview();
     setDraftConfig({ ...DEFAULT_THEME_CONFIG });
     await resetThemeToDefault();
+  };
+
+  const exportPayload = useMemo(() => {
+    return {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      generator: 'FocusFlow & Finance Theme Studio',
+      activeStyle: draftStyleDef.name,
+      config: draftConfig,
+      savedThemesCount: savedThemes.length,
+      savedThemes,
+    };
+  }, [draftStyleDef, draftConfig, savedThemes]);
+
+  const handleCopyJson = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(exportPayload, null, 2));
+      setCopiedCode(true);
+      showToast('Theme JSON copied to clipboard', 'success');
+      setTimeout(() => setCopiedCode(false), 2000);
+    } catch {
+      showToast('Could not copy to clipboard', 'error');
+    }
+  };
+
+  const handleDownloadJson = () => {
+    const dataStr =
+      'data:text/json;charset=utf-8,' +
+      encodeURIComponent(JSON.stringify(exportPayload, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute(
+      'download',
+      `focusflow-theme-${draftConfig.styleId}-${Date.now()}.json`
+    );
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    showToast('Theme JSON file downloaded', 'success');
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setImportJsonText(content);
+      setImportJsonError(null);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleProcessImport = async (saveAsPreset = false) => {
+    if (!importJsonText.trim()) {
+      setImportJsonError('Please paste valid JSON or choose a JSON file.');
+      return;
+    }
+    try {
+      const parsed = JSON.parse(importJsonText);
+      const targetConfigRaw = parsed.config || parsed.themeConfig || parsed;
+      const sanitized = sanitizeThemeConfig(targetConfigRaw);
+
+      setDraftConfig(sanitized);
+      if (isFullAppPreview) {
+        startFullAppPreview(sanitized);
+      }
+
+      if (saveAsPreset) {
+        const themeName =
+          parsed.name || `${getStyleDefinition(sanitized.styleId).name} (Imported)`;
+        await saveCustomTheme(themeName, sanitized, 'Imported from Theme Studio JSON');
+      } else {
+        await applyThemeConfig(sanitized, null);
+      }
+
+      setJsonDialogMode(null);
+      setImportJsonText('');
+      setImportJsonError(null);
+      showToast(
+        saveAsPreset
+          ? 'Theme imported and saved to presets'
+          : 'Theme imported and applied',
+        'success'
+      );
+    } catch (err: unknown) {
+      setImportJsonError(err instanceof Error ? err.message : 'Invalid JSON format');
+    }
   };
 
   const effectiveRadiusValue =
@@ -603,7 +702,131 @@ export const ThemeStudio: React.FC = () => {
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
                   Saved Custom Themes ({savedThemes.length})
                 </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setJsonDialogMode('export')}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md border border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+                    title="Export theme configuration as JSON"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Export</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportJsonError(null);
+                      setImportJsonText('');
+                      setJsonDialogMode('import');
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md border border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+                    title="Import theme configuration from JSON"
+                  >
+                    <Upload className="w-3 h-3" />
+                    <span>Import</span>
+                  </button>
+                </div>
               </div>
+
+              {/* JSON Export Panel */}
+              {jsonDialogMode === 'export' && (
+                <div className="p-3.5 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                      <FileCode className="w-3.5 h-3.5" style={{ color: 'var(--ff-accent-text)' }} />
+                      <span>Export Theme JSON</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setJsonDialogMode(null)}
+                      className="text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-[var(--ff-text-muted)]">
+                    Share or backup your current theme tokens, color mode, typography, and saved presets.
+                  </p>
+                  <pre className="p-2.5 rounded-lg bg-[var(--ff-surface-inset)] border border-[var(--ff-border-color)] text-[10px] font-mono overflow-x-auto max-h-36 text-[var(--ff-text-secondary)] select-all">
+                    {JSON.stringify(exportPayload, null, 2)}
+                  </pre>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <ThemeButton variant="secondary" size="xs" onClick={handleCopyJson}>
+                      {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedCode ? 'Copied!' : 'Copy JSON'}</span>
+                    </ThemeButton>
+                    <ThemeButton variant="primary" size="xs" onClick={handleDownloadJson}>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download .json</span>
+                    </ThemeButton>
+                  </div>
+                </div>
+              )}
+
+              {/* JSON Import Panel */}
+              {jsonDialogMode === 'import' && (
+                <div className="p-3.5 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                      <Upload className="w-3.5 h-3.5" style={{ color: 'var(--ff-accent-text)' }} />
+                      <span>Import Theme JSON</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setJsonDialogMode(null)}
+                      className="text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-[var(--ff-text-muted)]">
+                    Paste theme JSON exported from Theme Studio or upload a valid <code>.json</code> file.
+                  </p>
+                  <textarea
+                    rows={4}
+                    value={importJsonText}
+                    onChange={(e) => {
+                      setImportJsonText(e.target.value);
+                      setImportJsonError(null);
+                    }}
+                    placeholder='Paste theme JSON here, e.g. { "config": { "styleId": "cyberpunk", ... } }'
+                    className="ff-input p-2.5 text-xs font-mono"
+                  />
+                  {importJsonError && (
+                    <p className="text-[11px] font-semibold" style={{ color: 'var(--ff-danger)' }}>
+                      {importJsonError}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ff-accent-text)] hover:underline">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload .json File</span>
+                      <input
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <ThemeButton
+                        variant="secondary"
+                        size="xs"
+                        onClick={() => void handleProcessImport(false)}
+                      >
+                        <span>Apply Directly</span>
+                      </ThemeButton>
+                      <ThemeButton
+                        variant="primary"
+                        size="xs"
+                        onClick={() => void handleProcessImport(true)}
+                      >
+                        <span>Import &amp; Save</span>
+                      </ThemeButton>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {savedThemes.length === 0 ? (
                 <p className="text-xs text-[var(--ff-text-muted)] py-2">

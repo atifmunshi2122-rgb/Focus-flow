@@ -17,7 +17,23 @@
       "longBreakDuration": 15,
       "autoSwitchSessions": false,
       "soundEnabled": true,
-      "theme": "dark"
+      "theme": "dark",
+      "themeConfig": {
+        "styleId": "claymorphism",
+        "colorMode": "dark",
+        "accentColor": null,
+        "secondaryAccentColor": null,
+        "fontPairing": "auto",
+        "fontScale": "default",
+        "cardRadius": null,
+        "shadowIntensity": "auto",
+        "backgroundMode": "auto",
+        "customGradient": null,
+        "animationIntensity": "standard",
+        "density": "comfortable"
+      },
+      "savedThemes": [],
+      "activeSavedThemeId": null
     }
   ],
   "tasks": [
