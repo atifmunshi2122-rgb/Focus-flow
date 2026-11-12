@@ -34,6 +34,7 @@ import {
   ThemeSegmentedControl,
 } from '../ui/ThemePrimitives.tsx';
 import { ColorEcosystemStudio } from './ColorEcosystemStudio.tsx';
+import { StyleFusionMixer } from './StyleFusionMixer.tsx';
 import {
   BookmarkPlus,
   Check,
@@ -62,7 +63,8 @@ import {
 } from 'lucide-react';
 
 const CATEGORY_OPTIONS: Array<{ id: DesignStyleCategory; label: string }> = [
-  { id: 'all', label: 'All (16)' },
+  { id: 'all', label: 'All (19)' },
+  { id: 'hybrid', label: 'Hybrids & Fusions (3)' },
   { id: 'modern', label: 'Modern & Glass' },
   { id: 'tactile', label: 'Tactile & 3D' },
   { id: 'high-contrast', label: 'High Contrast' },
@@ -100,7 +102,7 @@ export const ThemeStudio: React.FC = () => {
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
   const [draftConfig, setDraftConfig] = useState<ThemeConfig>(themeConfig);
-  const [studioTab, setStudioTab] = useState<'palettes' | 'design-styles' | 'tokens'>('palettes');
+  const [studioTab, setStudioTab] = useState<'palettes' | 'design-styles' | 'fusion' | 'tokens'>('palettes');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<DesignStyleCategory>('all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -366,10 +368,10 @@ export const ThemeStudio: React.FC = () => {
             <h2 className="text-lg font-bold text-[var(--ff-text-primary)]">
               Design System &amp; Theme Studio
             </h2>
-            <ThemeBadge tone="accent">16 Design Systems</ThemeBadge>
+            <ThemeBadge tone="accent">19 Design Systems (Inc. Hybrids)</ThemeBadge>
           </div>
           <p className="text-xs text-[var(--ff-text-muted)] max-w-2xl">
-            Browse 16 distinct UI architectures, customize tokens live, preview before applying across all modules, and sync custom themes to Firebase.
+            Browse 19 distinct UI architectures including curated hybrids (Glazed Clay, Cyber Glass, Soft Glass) and custom Style Fusion mixing.
           </p>
         </div>
 
@@ -439,8 +441,22 @@ export const ThemeStudio: React.FC = () => {
           }}
         >
           <Layers className="w-4 h-4" />
-          <span>16 Design Systems &amp; Sandbox</span>
-          <ThemeBadge tone={studioTab === 'design-styles' ? 'neutral' : 'accent'}>16 Styles</ThemeBadge>
+          <span>19 Design Systems &amp; Hybrids</span>
+          <ThemeBadge tone={studioTab === 'design-styles' ? 'neutral' : 'accent'}>19 Styles</ThemeBadge>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStudioTab('fusion')}
+          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all"
+          style={{
+            background: studioTab === 'fusion' ? 'var(--ff-accent)' : 'transparent',
+            color: studioTab === 'fusion' ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
+          }}
+        >
+          <Wand2 className="w-4 h-4" />
+          <span>Style Fusion Mixer (Glass + Clay)</span>
+          <ThemeBadge tone={studioTab === 'fusion' ? 'neutral' : 'accent'}>Hybrid Mixer</ThemeBadge>
         </button>
 
         <button
@@ -1031,7 +1047,7 @@ export const ThemeStudio: React.FC = () => {
               Design Styles Gallery
             </h3>
             <p className="text-xs text-[var(--ff-text-muted)]">
-              16 distinct UI design systems with independent surface physics, borders, depth, and typography.
+              19 distinct UI design systems with independent surface physics, borders, depth, and curated hybrid fusions (Glazed Clay, Cyber Glass, Soft Glass).
             </p>
           </div>
 
@@ -1236,6 +1252,20 @@ export const ThemeStudio: React.FC = () => {
         </div>
       </ThemeCard>
       </>
+      )}
+
+      {/* TAB: STYLE FUSION MIXER (HYBRID BLENDING ENGINE: GLASS + CLAY, ETC.) */}
+      {studioTab === 'fusion' && (
+        <StyleFusionMixer
+          draftConfig={draftConfig}
+          updateDraft={updateDraft}
+          onApplyConfig={(cfg) => applyThemeConfig(cfg, null)}
+          onSaveCustomTheme={(name, cfg, desc) => saveCustomTheme(name, cfg, desc)}
+          isFullAppPreview={isFullAppPreview}
+          startFullAppPreview={startFullAppPreview}
+          stopFullAppPreview={stopFullAppPreview}
+          showToast={showToast}
+        />
       )}
 
       {/* TAB 3: TOKEN CUSTOMIZATION ENGINE (ACCENT, TYPOGRAPHY, SHAPE, BACKDROP, MOTION, DENSITY) */}

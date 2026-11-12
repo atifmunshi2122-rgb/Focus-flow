@@ -8,7 +8,11 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  // Port resolution: CLI flag --port, DEFAULT_APP_PORT, or fallback to 3000 (avoid nginx port 8080)
+  const portArgIndex = process.argv.indexOf('--port');
+  const cliPort = portArgIndex !== -1 ? parseInt(process.argv[portArgIndex + 1], 10) : null;
+  const envPort = process.env.DEFAULT_APP_PORT || (process.env.PORT && process.env.PORT !== '8080' ? process.env.PORT : null);
+  const port = cliPort || (envPort ? parseInt(envPort, 10) : 3000);
   const isProd = process.env.NODE_ENV === 'production';
 
   app.use(express.json());

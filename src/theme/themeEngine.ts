@@ -18,6 +18,7 @@ import {
 } from './colorUtils.ts';
 import { getPaletteById } from './palettes100.ts';
 import { generateGradientCss } from './gradientEngine.ts';
+import { computeFusedTokens } from './styleFusionEngine.ts';
 
 export const THEME_CACHE_KEY = 'ff_theme_cache_v1';
 
@@ -54,6 +55,19 @@ export function sanitizeThemeConfig(partial?: Partial<ThemeConfig> | null): Them
     customPalette: partial.customPalette ?? null,
     gradientConfig: partial.gradientConfig ?? null,
     threeDLighting: partial.threeDLighting ?? null,
+    fusionConfig: partial.fusionConfig
+      ? {
+          primaryStyleId: partial.fusionConfig.primaryStyleId || 'claymorphism',
+          secondaryStyleId: partial.fusionConfig.secondaryStyleId || 'glassmorphism',
+          blendRatio: Math.max(0, Math.min(100, partial.fusionConfig.blendRatio ?? 50)),
+          translucency: Math.max(0, Math.min(100, partial.fusionConfig.translucency ?? 65)),
+          inflation: Math.max(0, Math.min(100, partial.fusionConfig.inflation ?? 75)),
+          blur: Math.max(0, Math.min(32, partial.fusionConfig.blur ?? 18)),
+          borderSpecularity: Math.max(0, Math.min(100, partial.fusionConfig.borderSpecularity ?? 80)),
+          shadowWeight: Math.max(0, Math.min(100, partial.fusionConfig.shadowWeight ?? 60)),
+          springFactor: Math.max(0, Math.min(100, partial.fusionConfig.springFactor ?? 85)),
+        }
+      : null,
   };
 }
 
@@ -96,17 +110,24 @@ export function buildThemeCssVariables(
   const curatedPal = config.activePaletteId ? getPaletteById(config.activePaletteId) : null;
   const palTokens = config.customPalette || curatedPal?.tokens || null;
 
+  // Check for dynamic style fusion configuration
+  const fusedTokens = config.fusionConfig
+    ? computeFusedTokens(config.fusionConfig, resolvedMode)
+    : null;
+
   // Resolved palette
   const palette = {
     ...basePalette,
     bgCanvas: palTokens?.bgCanvas || basePalette.bgCanvas,
     bgBackdrop: palTokens?.bgBackdrop || basePalette.bgBackdrop,
-    surfaceCard: palTokens?.surfaceCard || basePalette.surfaceCard,
-    surfaceElevated: palTokens?.surfaceElevated || basePalette.surfaceElevated,
+    surfaceCard: palTokens?.surfaceCard || fusedTokens?.surfaceCard || basePalette.surfaceCard,
+    surfaceElevated:
+      palTokens?.surfaceElevated || fusedTokens?.surfaceElevated || basePalette.surfaceElevated,
     surfaceMuted: palTokens?.surfaceMuted || basePalette.surfaceMuted,
     surfaceInset: palTokens?.surfaceInset || basePalette.surfaceInset,
-    borderColor: palTokens?.borderColor || basePalette.borderColor,
-    borderStrong: palTokens?.borderGlow || basePalette.borderStrong,
+    borderColor: palTokens?.borderColor || fusedTokens?.borderColor || basePalette.borderColor,
+    borderStrong:
+      palTokens?.borderGlow || fusedTokens?.borderStrong || basePalette.borderStrong,
     textPrimary: palTokens?.textPrimary || basePalette.textPrimary,
     textSecondary: palTokens?.textSecondary || basePalette.textSecondary,
     textMuted: palTokens?.textMuted || basePalette.textMuted,
@@ -151,7 +172,7 @@ export function buildThemeCssVariables(
   const effectiveRadius =
     config.cardRadius !== null && config.cardRadius !== undefined
       ? config.cardRadius
-      : styleDef.defaultRadius;
+      : fusedTokens?.defaultRadius ?? styleDef.defaultRadius;
 
   const buttonRadius =
     config.cardRadius !== null
@@ -173,8 +194,8 @@ export function buildThemeCssVariables(
       : `${Math.max(3, Math.round(effectiveRadius * 0.45))}px`;
 
   // Shadows
-  let shadowCard = palette.shadowCard;
-  let shadowElevated = palette.shadowElevated;
+  let shadowCard = fusedTokens?.shadowCard || palette.shadowCard;
+  let shadowElevated = fusedTokens?.shadowElevated || palette.shadowElevated;
   let shadowButton = palette.shadowButton;
 
   if (config.shadowIntensity !== 'auto') {
@@ -259,7 +280,9 @@ export function buildThemeCssVariables(
   const depthIntensity =
     threeD.depthIntensity !== undefined ? `${threeD.depthIntensity}%` : '100%';
   const glassBlur =
-    threeD.glassBlur !== undefined ? `${threeD.glassBlur}px` : styleDef.backdropBlur;
+    threeD.glassBlur !== undefined
+      ? `${threeD.glassBlur}px`
+      : fusedTokens?.backdropBlur || styleDef.backdropBlur;
   const glassOpacity =
     threeD.glassOpacity !== undefined ? `${threeD.glassOpacity}` : '0.85';
 
@@ -341,7 +364,7 @@ export function buildThemeCssVariables(
     '--ff-border-color': palette.borderColor,
     '--ff-border-strong': palette.borderStrong,
     '--ff-border-highlight': palette.borderHighlight,
-    '--ff-border-width': styleDef.borderWidth,
+    '--ff-border-width': fusedTokens?.borderWidth || styleDef.borderWidth,
     '--ff-backdrop-blur': glassBlur,
     '--ff-shadow-card': shadowCard,
     '--ff-shadow-elevated': shadowElevated,

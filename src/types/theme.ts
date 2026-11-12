@@ -14,10 +14,14 @@ export type DesignStyleId =
   | 'retro'
   | 'oled'
   | 'pastel'
-  | 'aurora';
+  | 'aurora'
+  | 'glazed_clay'
+  | 'cyber_glass'
+  | 'soft_glass';
 
 export type DesignStyleCategory =
   | 'all'
+  | 'hybrid'
   | 'tactile'
   | 'modern'
   | 'high-contrast'
@@ -154,6 +158,18 @@ export interface ThreeDLightingConfig {
   depthIntensity?: number; // 0 to 100
 }
 
+export interface StyleFusionConfig {
+  primaryStyleId: DesignStyleId;
+  secondaryStyleId: DesignStyleId;
+  blendRatio: number; // 0 to 100
+  translucency: number; // 0 to 100
+  inflation: number; // 0 to 100
+  blur: number; // 0 to 32
+  borderSpecularity: number; // 0 to 100
+  shadowWeight: number; // 0 to 100
+  springFactor: number; // 0 to 100
+}
+
 export interface ThemeConfig {
   styleId: DesignStyleId;
   colorMode: ColorModePreference;
@@ -173,6 +189,7 @@ export interface ThemeConfig {
   customPalette?: Partial<PaletteTokens> | null;
   gradientConfig?: GradientConfig | null;
   threeDLighting?: Partial<ThreeDLightingConfig> | null;
+  fusionConfig?: StyleFusionConfig | null;
 }
 
 export interface SavedCustomTheme {
