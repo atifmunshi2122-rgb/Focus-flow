@@ -108,8 +108,8 @@ test('Theme Studio — Registry Token Resolution and Contrast Guidelines', () =>
   assert.equal(minimalStyle.name, 'Minimalism');
   assert.ok(minimalStyle.light.bgCanvas && minimalStyle.dark.bgCanvas);
 
-  // Verify all 16 design styles exist and have light/dark tokens
-  assert.equal(DESIGN_STYLES.length, 16);
+  // Verify all 19 design styles exist and have light/dark tokens
+  assert.equal(DESIGN_STYLES.length, 19);
   for (const style of DESIGN_STYLES) {
     assert.ok(style.id && style.id.length > 0);
     assert.ok(style.name && style.name.length > 0);

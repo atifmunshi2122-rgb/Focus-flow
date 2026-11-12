@@ -152,7 +152,7 @@ test('Failure & Recovery — Input Validation & Malicious Payload Rejection', ()
   assert.equal(parsePositiveInt(0), null, 'Zero paise must be rejected for positive requirement');
   assert.equal(parsePositiveInt(15.75), null, 'Floating point paise must be rejected');
   assert.equal(parsePositiveInt('not_a_number'), null, 'Non-numeric string must be rejected');
-  assert.equal(parsePositiveInt(1000000000001, 1000000000000), null, 'Value exceeding upper boundary must be rejected');
+  assert.equal(parsePositiveInt(1000000000001, 1, 1000000000000), null, 'Value exceeding upper boundary must be rejected');
 
   // Test non-negative integer
   assert.equal(parseNonNegativeInt(0), 0, 'Zero must be accepted for non-negative');
