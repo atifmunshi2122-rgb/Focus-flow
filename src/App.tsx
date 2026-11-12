@@ -19,11 +19,15 @@ import { TransactionsLedger } from './components/finance/TransactionsLedger.tsx'
 import { SettingsView } from './components/settings/SettingsView.tsx';
 import { getStyleDefinition } from './theme/stylesRegistry.ts';
 import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
+import { MotionPage } from './components/ui/MotionPrimitives.tsx';
+import { MOTION_EASING, MOTION_DURATION, getIntensityFactor } from './theme/motionTokens.ts';
+import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { Check, Eye, X } from 'lucide-react';
 
 const MainContent: React.FC = () => {
   const {
     currentTab,
+    effectiveThemeConfig,
     isFullAppPreview,
     previewThemeConfig,
     applyThemeConfig,
@@ -37,9 +41,11 @@ const MainContent: React.FC = () => {
   const previewStyleName = previewThemeConfig
     ? getStyleDefinition(previewThemeConfig.styleId).name
     : '';
+  const motionFactor = getIntensityFactor(effectiveThemeConfig.animationIntensity);
 
   return (
-    <div className="ff-app-shell flex flex-col lg:flex-row">
+    <MotionConfig reducedMotion={effectiveThemeConfig.animationIntensity === 'none' ? 'always' : 'user'}>
+      <div className="ff-app-shell flex flex-col lg:flex-row">
       {/* Ambient / Atmospheric Layer for Glassmorphism, Cyberpunk & Aurora */}
       <div className="ff-ambient-layer" aria-hidden="true" />
 
@@ -64,72 +70,86 @@ const MainContent: React.FC = () => {
           className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto"
           style={{ paddingBottom: isFullAppPreview ? '6rem' : undefined }}
         >
-          {currentTab === 'dashboard' && (
-            <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
-          )}
+          <MotionPage routeKey={currentTab}>
+            {currentTab === 'dashboard' && (
+              <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
+            )}
 
-          {currentTab === 'focus' && (
-            <div className="space-y-8">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <div className="lg:col-span-5 lg:sticky lg:top-24">
-                  <PomodoroTimer />
-                </div>
-                <div className="lg:col-span-7">
-                  <FocusAnalytics />
+            {currentTab === 'focus' && (
+              <div className="space-y-8">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                  <div className="lg:col-span-5 lg:sticky lg:top-24">
+                    <PomodoroTimer />
+                  </div>
+                  <div className="lg:col-span-7">
+                    <FocusAnalytics />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {currentTab === 'tasks' && <TaskManager />}
+            {currentTab === 'tasks' && <TaskManager />}
 
-          {currentTab === 'finance' && (
-            <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
-          )}
-
-          {currentTab === 'transactions' && <TransactionsLedger />}
-
-          {currentTab === 'bills' && <BillsTracker />}
-
-          {currentTab === 'analytics' && (
-            <div className="space-y-6">
+            {currentTab === 'finance' && (
               <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
-            </div>
-          )}
+            )}
 
-          {currentTab === 'settings' && <SettingsView />}
+            {currentTab === 'transactions' && <TransactionsLedger />}
+
+            {currentTab === 'bills' && <BillsTracker />}
+
+            {currentTab === 'analytics' && (
+              <div className="space-y-6">
+                <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
+              </div>
+            )}
+
+            {currentTab === 'settings' && <SettingsView />}
+          </MotionPage>
         </main>
       </div>
 
       {/* Full-App Live Preview Floating Banner */}
-      {isFullAppPreview && previewThemeConfig && (
-        <div
-          role="region"
-          aria-label="Live theme preview controls"
-          className="ff-card-elevated fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 flex flex-wrap items-center gap-3 max-w-[calc(100vw-2rem)]"
-        >
-          <div className="flex items-center gap-2 text-xs">
-            <Eye className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
-            <span className="font-semibold text-[var(--ff-text-primary)]">
-              Previewing <strong>{previewStyleName}</strong> ({resolvedThemeMode})
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ThemeButton
-              variant="primary"
-              size="xs"
-              onClick={() => void applyThemeConfig(previewThemeConfig, null)}
+      <AnimatePresence>
+        {isFullAppPreview && previewThemeConfig && (
+          <div className="fixed bottom-5 inset-x-0 z-50 flex justify-center px-4 pointer-events-none">
+            <motion.div
+              key="full-app-preview-banner"
+              role="region"
+              aria-label="Live theme preview controls"
+              initial={motionFactor === 0 ? false : { opacity: 0, y: 18, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={motionFactor === 0 ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.96 }}
+              transition={{
+                duration: MOTION_DURATION.card * Math.max(0.6, motionFactor || 0.01),
+                ease: MOTION_EASING.decelerate,
+              }}
+              className="ff-card-elevated pointer-events-auto px-4 py-2.5 flex flex-wrap items-center gap-3 max-w-full"
             >
-              <Check className="w-3.5 h-3.5" />
-              <span>Apply Theme</span>
-            </ThemeButton>
-            <ThemeButton variant="secondary" size="xs" onClick={stopFullAppPreview}>
-              <X className="w-3.5 h-3.5" />
-              <span>Exit Preview</span>
-            </ThemeButton>
+              <div className="flex items-center gap-2 text-xs">
+                <Eye className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
+                <span className="font-semibold text-[var(--ff-text-primary)]">
+                  Previewing <strong>{previewStyleName}</strong> ({resolvedThemeMode})
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <ThemeButton
+                  variant="primary"
+                  size="xs"
+                  onClick={() => void applyThemeConfig(previewThemeConfig, null)}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Apply Theme</span>
+                </ThemeButton>
+                <ThemeButton variant="secondary" size="xs" onClick={stopFullAppPreview}>
+                  <X className="w-3.5 h-3.5" />
+                  <span>Exit Preview</span>
+                </ThemeButton>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Quick Action Global Modal */}
       <QuickActionModal
@@ -140,6 +160,7 @@ const MainContent: React.FC = () => {
       {/* Notification Toast Container */}
       <ToastContainer />
     </div>
+    </MotionConfig>
   );
 };
 

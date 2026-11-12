@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { toPaise } from '../../lib/currency.ts';
@@ -20,6 +21,8 @@ import {
   ThemeSegmentedControl,
   ThemeSelect,
 } from '../ui/ThemePrimitives.tsx';
+import { ValidationMessage, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 
 interface QuickActionModalProps {
   isOpen: boolean;
@@ -43,6 +46,9 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
   } = useApp();
   const [activeType, setActiveType] = useState<ActionType>('expense');
   const [loading, setLoading] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const { isDisabled } = useMotionPreferences();
 
   // Form states
   const [amount, setAmount] = useState('');
@@ -53,14 +59,21 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [estimatedPomodoros, setEstimatedPomodoros] = useState('2');
 
+  const handleTabChange = (nextType: ActionType) => {
+    setActiveType(nextType);
+    setFormError(null);
+    setSubmitSuccess(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     setLoading(true);
 
     try {
       if (activeType === 'expense') {
-        if (!description || !amount) {
-          showToast('Please provide description and amount', 'error');
+        if (!description.trim() || !amount || Number(amount) <= 0) {
+          setFormError('Please provide a description and valid positive amount.');
           setLoading(false);
           return;
         }
@@ -86,8 +99,8 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
         showToast('Expense logged & synchronized', 'success');
         playCashSound(settings?.soundEnabled);
       } else if (activeType === 'income') {
-        if (!description || !amount) {
-          showToast('Please provide source and amount', 'error');
+        if (!description.trim() || !amount || Number(amount) <= 0) {
+          setFormError('Please provide a payer source and valid positive amount.');
           setLoading(false);
           return;
         }
@@ -111,8 +124,8 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
         showToast('Income recorded & synchronized', 'success');
         playCashSound(settings?.soundEnabled);
       } else if (activeType === 'task') {
-        if (!description) {
-          showToast('Please enter task title', 'error');
+        if (!description.trim()) {
+          setFormError('Please enter a task title.');
           setLoading(false);
           return;
         }
@@ -127,8 +140,8 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
         }
         showToast('Task added to backlog', 'success');
       } else if (activeType === 'bill') {
-        if (!description || !amount || !dueDate) {
-          showToast('Please complete all bill fields', 'error');
+        if (!description.trim() || !amount || Number(amount) <= 0 || !dueDate) {
+          setFormError('Please complete bill name, amount, and due date.');
           setLoading(false);
           return;
         }
@@ -159,12 +172,19 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
       }
 
       triggerRefresh();
-      onClose();
-      setAmount('');
-      setDescription('');
+      setLoading(false);
+      setSubmitSuccess(true);
+      setTimeout(() => {
+        setSubmitSuccess(false);
+        onClose();
+        setAmount('');
+        setDescription('');
+        setFormError(null);
+      }, isDisabled ? 60 : 260);
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Action failed', 'error');
-    } finally {
+      const msg = err instanceof Error ? err.message : 'Action failed';
+      setFormError(msg);
+      showToast(msg, 'error');
       setLoading(false);
     }
   };
@@ -184,7 +204,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
           fullWidth
           ariaLabel="Quick action entry type"
           value={activeType}
-          onChange={setActiveType}
+          onChange={handleTabChange}
           options={[
             { id: 'expense', label: 'Expense', icon: <Receipt className="w-3.5 h-3.5" /> },
             { id: 'income', label: 'Income', icon: <PlusCircle className="w-3.5 h-3.5" /> },
@@ -214,7 +234,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
         </ThemeCard>
 
         {/* Dynamic Form */}
-        <form onSubmit={handleSubmit} className="space-y-3.5">
+        <form onSubmit={handleSubmit} noValidate className="space-y-3.5">
           <div>
             <label
               htmlFor="quick-action-title"
@@ -234,7 +254,10 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
               required
               autoFocus
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (formError) setFormError(null);
+              }}
               placeholder={
                 activeType === 'expense'
                   ? 'e.g., Grocery shopping, Team lunch'
@@ -247,111 +270,150 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
             />
           </div>
 
-          {activeType !== 'task' && (
-            <div>
-              <label
-                htmlFor="quick-action-amount"
-                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+          <AnimatePresence mode="popLayout" initial={false}>
+            {activeType !== 'task' && (
+              <motion.div
+                key="quick-field-amount"
+                initial={isDisabled ? false : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
               >
-                Amount ({currency})
-              </label>
-              <ThemeInput
-                id="quick-action-amount"
-                type="number"
-                step="0.01"
-                required
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
-                className="font-mono tabular-nums"
-              />
-            </div>
-          )}
-
-          {activeType === 'bill' && (
-            <div>
-              <label
-                htmlFor="quick-action-due"
-                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
-              >
-                Due Date
-              </label>
-              <ThemeInput
-                id="quick-action-due"
-                type="date"
-                required
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-              />
-            </div>
-          )}
-
-          {activeType === 'expense' && (
-            <div>
-              <label
-                htmlFor="quick-action-method"
-                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
-              >
-                Payment Method
-              </label>
-              <ThemeSelect
-                id="quick-action-method"
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
-              >
-                <option value="upi_bank">UPI / Bank Transfer</option>
-                <option value="credit_card">Credit Card</option>
-                <option value="debit_card">Debit Card</option>
-                <option value="cash">Cash</option>
-              </ThemeSelect>
-            </div>
-          )}
-
-          {activeType === 'task' && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
                 <label
-                  htmlFor="quick-action-priority"
+                  htmlFor="quick-action-amount"
                   className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
                 >
-                  Priority
-                </label>
-                <ThemeSelect
-                  id="quick-action-priority"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as typeof priority)}
-                >
-                  <option value="high">High Priority</option>
-                  <option value="medium">Medium Priority</option>
-                  <option value="low">Low Priority</option>
-                </ThemeSelect>
-              </div>
-              <div>
-                <label
-                  htmlFor="quick-action-poms"
-                  className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
-                >
-                  Est. Pomodoros
+                  Amount ({currency})
                 </label>
                 <ThemeInput
-                  id="quick-action-poms"
+                  id="quick-action-amount"
                   type="number"
-                  min="1"
-                  max="20"
-                  value={estimatedPomodoros}
-                  onChange={(e) => setEstimatedPomodoros(e.target.value)}
+                  step="0.01"
+                  required
+                  value={amount}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    if (formError) setFormError(null);
+                  }}
+                  placeholder="0.00"
                   className="font-mono tabular-nums"
                 />
-              </div>
-            </div>
-          )}
+              </motion.div>
+            )}
+
+            {activeType === 'bill' && (
+              <motion.div
+                key="quick-field-bill"
+                initial={isDisabled ? false : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
+              >
+                <label
+                  htmlFor="quick-action-due"
+                  className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+                >
+                  Due Date
+                </label>
+                <ThemeInput
+                  id="quick-action-due"
+                  type="date"
+                  required
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                />
+              </motion.div>
+            )}
+
+            {activeType === 'expense' && (
+              <motion.div
+                key="quick-field-expense"
+                initial={isDisabled ? false : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
+              >
+                <label
+                  htmlFor="quick-action-method"
+                  className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+                >
+                  Payment Method
+                </label>
+                <ThemeSelect
+                  id="quick-action-method"
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
+                >
+                  <option value="upi_bank">UPI / Bank Transfer</option>
+                  <option value="credit_card">Credit Card</option>
+                  <option value="debit_card">Debit Card</option>
+                  <option value="cash">Cash</option>
+                </ThemeSelect>
+              </motion.div>
+            )}
+
+            {activeType === 'task' && (
+              <motion.div
+                key="quick-field-task"
+                initial={isDisabled ? false : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
+                className="grid grid-cols-2 gap-3"
+              >
+                <div>
+                  <label
+                    htmlFor="quick-action-priority"
+                    className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+                  >
+                    Priority
+                  </label>
+                  <ThemeSelect
+                    id="quick-action-priority"
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as typeof priority)}
+                  >
+                    <option value="high">High Priority</option>
+                    <option value="medium">Medium Priority</option>
+                    <option value="low">Low Priority</option>
+                  </ThemeSelect>
+                </div>
+                <div>
+                  <label
+                    htmlFor="quick-action-poms"
+                    className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+                  >
+                    Est. Pomodoros
+                  </label>
+                  <ThemeInput
+                    id="quick-action-poms"
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={estimatedPomodoros}
+                    onChange={(e) => setEstimatedPomodoros(e.target.value)}
+                    className="font-mono tabular-nums"
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <ValidationMessage message={formError} tone="error" />
 
           <div className="pt-2 flex items-center justify-end gap-2">
             <ThemeButton variant="ghost" size="sm" onClick={onClose}>
               Cancel
             </ThemeButton>
-            <ThemeButton type="submit" variant="primary" size="sm" disabled={loading}>
-              {loading ? 'Saving...' : 'Save & Record'}
+            <ThemeButton
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={loading}
+              success={submitSuccess}
+              loadingText="Saving..."
+            >
+              {submitSuccess ? 'Saved!' : 'Save & Record'}
             </ThemeButton>
           </div>
         </form>

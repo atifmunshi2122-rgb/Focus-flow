@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { CurrencyCode } from '../../types/index.ts';
 import { ThemeStudio } from './ThemeStudio.tsx';
@@ -10,6 +11,8 @@ import {
   ThemeSegmentedControl,
   ThemeSelect,
 } from '../ui/ThemePrimitives.tsx';
+import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
   DollarSign,
   ExternalLink,
@@ -52,7 +55,10 @@ export const SettingsView: React.FC = () => {
   const [autoSwitch, setAutoSwitch] = useState(settings?.autoSwitchSessions || false);
   const [sound, setSound] = useState(settings?.soundEnabled ?? true);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [isInitializingSheets, setIsInitializingSheets] = useState(false);
+  const { isDisabled, intensity } = useMotionPreferences();
+  const factor = getIntensityFactor(intensity);
 
   useEffect(() => {
     if (settings) {
@@ -65,18 +71,33 @@ export const SettingsView: React.FC = () => {
     }
   }, [settings]);
 
+  const clampInt = (raw: string, fallback: number, min: number, max: number) => {
+    const n = Number(raw);
+    if (!raw.trim() || !Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(n)));
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setSaveSuccess(false);
     try {
+      const nextWork = clampInt(workDuration, 25, 1, 120);
+      const nextShort = clampInt(shortBreak, 5, 1, 30);
+      const nextLong = clampInt(longBreak, 15, 1, 60);
+      setWorkDuration(String(nextWork));
+      setShortBreak(String(nextShort));
+      setLongBreak(String(nextLong));
       await updateSettings({
         currency,
-        pomodoroWorkDuration: Number(workDuration) || 25,
-        shortBreakDuration: Number(shortBreak) || 5,
-        longBreakDuration: Number(longBreak) || 15,
+        pomodoroWorkDuration: nextWork,
+        shortBreakDuration: nextShort,
+        longBreakDuration: nextLong,
         autoSwitchSessions: autoSwitch,
         soundEnabled: sound,
       });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 1600);
     } finally {
       setSaving(false);
     }
@@ -133,10 +154,32 @@ export const SettingsView: React.FC = () => {
         />
       </div>
 
-      {activeSection === 'studio' ? (
-        <ThemeStudio />
-      ) : (
-        <div className="max-w-3xl space-y-6">
+      <AnimatePresence mode="wait" initial={false}>
+        {activeSection === 'studio' ? (
+          <motion.div
+            key="settings-section-studio"
+            initial={isDisabled ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -6 }}
+            transition={{
+              duration: MOTION_DURATION.card * Math.max(0.55, factor || 0.01),
+              ease: MOTION_EASING.decelerate,
+            }}
+          >
+            <ThemeStudio />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="settings-section-system"
+            initial={isDisabled ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -6 }}
+            transition={{
+              duration: MOTION_DURATION.card * Math.max(0.55, factor || 0.01),
+              ease: MOTION_EASING.decelerate,
+            }}
+            className="max-w-3xl space-y-6"
+          >
           {/* SECTION: GOOGLE SHEETS & FIREBASE REPORTING INTEGRATION */}
           <ThemeCard className="space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -263,11 +306,12 @@ export const SettingsView: React.FC = () => {
                   variant="success"
                   size="sm"
                   onClick={handleCreateWorkbook}
-                  disabled={isInitializingSheets}
+                  loading={isInitializingSheets}
+                  loadingText="Creating 12 Tabs..."
                   className="shrink-0"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>{isInitializingSheets ? 'Creating 12 Tabs...' : 'Create Master Workbook'}</span>
+                  <span>Create Master Workbook</span>
                 </ThemeButton>
               </ThemeCard>
             )}
@@ -516,13 +560,21 @@ export const SettingsView: React.FC = () => {
                 <span>Reset Demo Data</span>
               </ThemeButton>
 
-              <ThemeButton type="submit" variant="primary" size="md" disabled={saving}>
-                {saving ? 'Saving...' : 'Save Preferences'}
+              <ThemeButton
+                type="submit"
+                variant="primary"
+                size="md"
+                loading={saving}
+                success={saveSuccess}
+                loadingText="Saving..."
+              >
+                {saveSuccess ? 'Saved!' : 'Save Preferences'}
               </ThemeButton>
             </div>
           </form>
-        </div>
-      )}
+        </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

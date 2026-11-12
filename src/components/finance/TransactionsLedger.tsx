@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency } from '../../lib/currency.ts';
@@ -7,6 +8,12 @@ import {
   ThemeInput,
   ThemeSegmentedControl,
 } from '../ui/ThemePrimitives.tsx';
+import {
+  EmptyStateIllustration,
+  SkeletonList,
+  useMotionPreferences,
+} from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
   ReceiptText,
   Search,
@@ -30,6 +37,8 @@ interface UnifiedTransaction {
 
 export const TransactionsLedger: React.FC = () => {
   const { currency, refreshKey } = useApp();
+  const { isDisabled, intensity } = useMotionPreferences();
+  const factor = getIntensityFactor(intensity);
   const [transactions, setTransactions] = useState<UnifiedTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -113,102 +122,110 @@ export const TransactionsLedger: React.FC = () => {
 
       {/* Ledger Table */}
       <ThemeCard noPadding>
-        {loading ? (
-          <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
-            Loading ledger records...
-          </div>
+        {loading && transactions.length === 0 ? (
+          <SkeletonList rows={5} />
         ) : filtered.length === 0 ? (
-          <div className="p-12 text-center">
-            <ReceiptText className="w-8 h-8 text-[var(--ff-text-muted)] mx-auto mb-2 opacity-50" />
-            <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">
-              No transactions match your search
-            </h3>
-            <p className="text-xs text-[var(--ff-text-muted)] mt-1">
-              Try adjusting your filters or search keywords.
-            </p>
-          </div>
+          <EmptyStateIllustration
+            icon={<ReceiptText className="w-6 h-6" />}
+            title="No transactions match your search"
+            description="Try adjusting your filters or search keywords."
+          />
         ) : (
           <div className="divide-y ff-divider">
-            {filtered.map((t) => {
-              const isIncome = t.type === 'income';
-              const isFixed = t.type === 'fixed';
+            <AnimatePresence initial={false}>
+              {filtered.map((t) => {
+                const isIncome = t.type === 'income';
+                const isFixed = t.type === 'fixed';
 
-              return (
-                <div
-                  key={t.id}
-                  className="ff-row-hover flex items-center justify-between gap-4"
-                  style={{ padding: 'var(--ff-row-pad)' }}
-                >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div
-                      className="w-9 h-9 flex items-center justify-center shrink-0"
-                      style={{
-                        borderRadius: 'var(--ff-radius-button)',
-                        background: isIncome
-                          ? 'var(--ff-success-soft)'
-                          : isFixed
-                          ? 'var(--ff-accent-soft)'
-                          : 'var(--ff-danger-soft)',
-                        color: isIncome
-                          ? 'var(--ff-success)'
-                          : isFixed
-                          ? 'var(--ff-accent-text)'
-                          : 'var(--ff-danger)',
-                      }}
-                    >
-                      {isIncome ? (
-                        <TrendingUp className="w-4 h-4" />
-                      ) : isFixed ? (
-                        <Repeat className="w-4 h-4" />
-                      ) : (
-                        <TrendingDown className="w-4 h-4" />
-                      )}
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
-                        {t.name}
-                      </p>
-
-                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[var(--ff-text-muted)]">
-                        <div className="flex items-center gap-1">
-                          <Tag className="w-3 h-3" />
-                          <span>{t.category}</span>
-                        </div>
-                        <span aria-hidden="true">·</span>
-                        <div className="flex items-center gap-1 font-mono">
-                          <Calendar className="w-3 h-3" />
-                          <span>{t.date}</span>
-                        </div>
-                        {t.paymentMethod && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span className="uppercase text-[10px] font-medium">
-                              {t.paymentMethod.replace('_', ' ')}
-                            </span>
-                          </>
+                return (
+                  <motion.div
+                    key={t.id}
+                    layout={isDisabled ? false : 'position'}
+                    initial={isDisabled ? false : { opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={
+                      isDisabled
+                        ? { opacity: 0 }
+                        : { opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden' }
+                    }
+                    transition={{
+                      duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01),
+                      ease: MOTION_EASING.decelerate,
+                    }}
+                    className="ff-row-hover flex items-center justify-between gap-4"
+                    style={{ padding: 'var(--ff-row-pad)' }}
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div
+                        className="w-9 h-9 flex items-center justify-center shrink-0"
+                        style={{
+                          borderRadius: 'var(--ff-radius-button)',
+                          background: isIncome
+                            ? 'var(--ff-success-soft)'
+                            : isFixed
+                            ? 'var(--ff-accent-soft)'
+                            : 'var(--ff-danger-soft)',
+                          color: isIncome
+                            ? 'var(--ff-success)'
+                            : isFixed
+                            ? 'var(--ff-accent-text)'
+                            : 'var(--ff-danger)',
+                        }}
+                      >
+                        {isIncome ? (
+                          <TrendingUp className="w-4 h-4" />
+                        ) : isFixed ? (
+                          <Repeat className="w-4 h-4" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4" />
                         )}
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="text-right shrink-0">
-                    <span
-                      className="text-base font-bold font-mono tabular-nums"
-                      style={{
-                        color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
-                      }}
-                    >
-                      {isIncome ? '+' : '-'}
-                      {formatCurrency(t.amountPaise, currency)}
-                    </span>
-                    <span className="block text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
-                      {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
+                          {t.name}
+                        </p>
+
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[var(--ff-text-muted)]">
+                          <div className="flex items-center gap-1">
+                            <Tag className="w-3 h-3" />
+                            <span>{t.category}</span>
+                          </div>
+                          <span aria-hidden="true">·</span>
+                          <div className="flex items-center gap-1 font-mono">
+                            <Calendar className="w-3 h-3" />
+                            <span>{t.date}</span>
+                          </div>
+                          {t.paymentMethod && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="uppercase text-[10px] font-medium">
+                                {t.paymentMethod.replace('_', ' ')}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span
+                        className="text-base font-bold font-mono tabular-nums"
+                        style={{
+                          color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
+                        }}
+                      >
+                        {isIncome ? '+' : '-'}
+                        {formatCurrency(t.amountPaise, currency)}
+                      </span>
+                      <span className="block text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
+                        {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
+                      </span>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
       </ThemeCard>

@@ -141,3 +141,37 @@ export const initAuthListener = (
     }
   });
 };
+
+let initialAuthPromise: Promise<User | null> | null = null;
+
+/**
+ * Resolves once Firebase Auth has restored persisted login state on boot.
+ */
+export function waitForInitialAuth(): Promise<User | null> {
+  if (auth.currentUser) {
+    return Promise.resolve(auth.currentUser);
+  }
+  if (!initialAuthPromise) {
+    initialAuthPromise = new Promise<User | null>((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(auth.currentUser);
+      }, 1500);
+      const unsub = onAuthStateChanged(auth, (user) => {
+        clearTimeout(timeout);
+        unsub();
+        resolve(user);
+      });
+    });
+  }
+  return initialAuthPromise;
+}
+
+export async function getFirebaseIdToken(): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  try {
+    return await user.getIdToken();
+  } catch {
+    return null;
+  }
+}

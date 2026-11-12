@@ -3,16 +3,45 @@
 
 let audioCtx: AudioContext | null = null;
 
+function createAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  if (!audioCtx) {
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return null;
+    audioCtx = new AudioContextClass();
+  }
+  return audioCtx;
+}
+
+/**
+ * Unlock / resume Web Audio API inside a direct user gesture (e.g., Start/Pause click)
+ * so later background timer completion chimes can play reliably without autoplay errors.
+ */
+export function unlockAudioContext(): void {
+  try {
+    const ctx = createAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {
+        // Ignore browser autoplay policy rejection if not triggered by user gesture
+      });
+    }
+  } catch {
+    // Ignore AudioContext initialization failures in restricted environments
+  }
+}
+
 function getAudioContext(): AudioContext | null {
   try {
-    if (!audioCtx) {
-      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      audioCtx = new AudioContextClass();
+    const ctx = createAudioContext();
+    if (!ctx) return null;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {
+        // Ignore autoplay resume rejection when called from background timer callback
+      });
     }
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
-    return audioCtx;
+    return ctx;
   } catch {
     return null;
   }

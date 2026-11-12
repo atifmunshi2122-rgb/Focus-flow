@@ -1,6 +1,9 @@
 import React from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp, NavTab } from '../../context/AppContext.tsx';
 import { getStyleDefinition } from '../../theme/stylesRegistry.ts';
+import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
   LayoutDashboard,
   Timer,
@@ -11,7 +14,6 @@ import {
   BarChart3,
   Settings,
   ChevronLeft,
-  ChevronRight,
   Flame,
   Sun,
   Moon,
@@ -50,7 +52,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     effectiveThemeConfig,
   } = useApp();
 
+  const { isDisabled, intensity } = useMotionPreferences();
   const activeStyle = getStyleDefinition(effectiveThemeConfig.styleId);
+  const factor = getIntensityFactor(intensity);
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -71,17 +75,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Mobile Backdrop */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 lg:hidden"
-          onClick={() => setMobileOpen(false)}
-          aria-hidden="true"
-        />
-      )}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            key="sidebar-mobile-backdrop"
+            initial={isDisabled ? { opacity: 1 } : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0 }}
+            transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.standard }}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 lg:hidden"
+            onClick={() => setMobileOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+      </AnimatePresence>
 
       {/* Sidebar Container */}
       <aside
-        className={`ff-sidebar fixed lg:sticky top-0 left-0 z-50 h-screen flex flex-col justify-between select-none ${
+        className={`ff-sidebar fixed lg:sticky top-0 left-0 z-50 h-screen flex flex-col justify-between select-none transition-[transform,width] duration-300 ease-out ${
           collapsed ? 'w-20' : 'w-64'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
@@ -91,7 +102,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           style={{ borderColor: 'var(--ff-border-color)' }}
         >
           <div className="flex items-center gap-3 overflow-hidden">
-            <div
+            <motion.div
+              whileHover={isDisabled ? undefined : { scale: 1.05, rotate: -4 }}
+              whileTap={isDisabled ? undefined : { scale: 0.95 }}
+              transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
               className="w-9 h-9 flex items-center justify-center font-bold shrink-0"
               style={{
                 borderRadius: 'var(--ff-radius-button)',
@@ -101,7 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
             >
               <Zap className="w-5 h-5 fill-current" />
-            </div>
+            </motion.div>
             {!collapsed && (
               <div className="flex flex-col min-w-0">
                 <span className="ff-heading font-bold text-base truncate">
@@ -122,36 +136,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-label="Toggle sidebar collapse"
           >
-            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            <motion.span
+              animate={{ rotate: collapsed ? 180 : 0 }}
+              transition={{ duration: isDisabled ? 0.01 : MOTION_DURATION.control, ease: MOTION_EASING.standard }}
+              className="inline-flex"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </motion.span>
           </button>
         </div>
 
         {/* Live Timer Pill in Sidebar when running */}
-        {isRunning && (
-          <div className="px-3 pt-3">
-            <button
-              type="button"
-              onClick={() => handleNavClick('focus')}
-              className="w-full text-left p-2.5 transition-all flex items-center gap-2.5 border"
-              style={{
-                borderRadius: 'var(--ff-radius-button)',
-                background: timerMode === 'work' ? 'var(--ff-accent-soft)' : 'var(--ff-success-soft)',
-                borderColor: timerMode === 'work' ? 'var(--ff-accent-border)' : 'var(--ff-success)',
-                color: timerMode === 'work' ? 'var(--ff-accent-text)' : 'var(--ff-success)',
-              }}
+        <AnimatePresence initial={false}>
+          {isRunning && (
+            <motion.div
+              key="sidebar-live-timer"
+              initial={isDisabled ? false : { opacity: 0, height: 0, y: -6 }}
+              animate={{ opacity: 1, height: 'auto', y: 0 }}
+              exit={isDisabled ? { opacity: 0 } : { opacity: 0, height: 0, y: -6 }}
+              transition={{ duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01), ease: MOTION_EASING.decelerate }}
+              className="px-3 pt-3 overflow-hidden"
             >
-              <Timer className="w-4 h-4 shrink-0 animate-spin" style={{ animationDuration: '4s' }} />
-              {!collapsed && (
-                <div className="flex-1 truncate">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider">
-                    {timerMode === 'work' ? 'Focusing' : 'On Break'}
+              <button
+                type="button"
+                onClick={() => handleNavClick('focus')}
+                className="w-full text-left p-2.5 transition-all flex items-center gap-2.5 border hover:brightness-105"
+                style={{
+                  borderRadius: 'var(--ff-radius-button)',
+                  background: timerMode === 'work' ? 'var(--ff-accent-soft)' : 'var(--ff-success-soft)',
+                  borderColor: timerMode === 'work' ? 'var(--ff-accent-border)' : 'var(--ff-success)',
+                  color: timerMode === 'work' ? 'var(--ff-accent-text)' : 'var(--ff-success)',
+                }}
+              >
+                <Timer
+                  className={`w-4 h-4 shrink-0 ${isDisabled ? '' : 'animate-spin'}`}
+                  style={{ animationDuration: '4s' }}
+                />
+                {!collapsed && (
+                  <div className="flex-1 truncate">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider">
+                      {timerMode === 'work' ? 'Focusing' : 'On Break'}
+                    </div>
+                    <div className="text-xs font-mono font-medium opacity-80">Timer Running</div>
                   </div>
-                  <div className="text-xs font-mono font-medium opacity-80">Timer Running</div>
-                </div>
-              )}
-            </button>
-          </div>
-        )}
+                )}
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Nav Items List */}
         <nav aria-label="Primary Sidebar" className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
@@ -160,33 +192,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const isActive = currentTab === item.id;
 
             return (
-              <button
+              <motion.button
                 key={item.id}
                 type="button"
                 data-active={isActive ? 'true' : 'false'}
                 onClick={() => handleNavClick(item.id)}
-                className="ff-sidebar-item relative w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-all"
+                whileHover={isDisabled ? undefined : { x: collapsed || isActive ? 0 : 3 }}
+                whileTap={isDisabled ? undefined : { scale: 0.98 }}
+                transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
+                className="ff-sidebar-item relative w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-colors"
                 style={{
                   borderRadius: 'var(--ff-radius-button)',
-                  background: isActive ? 'var(--ff-accent-soft)' : 'transparent',
                   color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
                   fontWeight: isActive ? 700 : 500,
-                  border: isActive
-                    ? '1px solid var(--ff-accent-border)'
-                    : '1px solid transparent',
                 }}
                 title={collapsed ? item.label : undefined}
               >
-                <Icon className="w-5 h-5 shrink-0" />
+                {isActive && (
+                  <motion.span
+                    layoutId="sidebar-nav-active-pill"
+                    aria-hidden="true"
+                    transition={
+                      isDisabled
+                        ? { duration: 0.01 }
+                        : { type: 'spring', stiffness: 420, damping: 34 }
+                    }
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      borderRadius: 'var(--ff-radius-button)',
+                      background: 'var(--ff-accent-soft)',
+                      border: '1px solid var(--ff-accent-border)',
+                    }}
+                  />
+                )}
+                <Icon className="relative z-10 w-5 h-5 shrink-0" />
                 {!collapsed && (
-                  <span className="flex-1 text-left truncate whitespace-nowrap">{item.label}</span>
+                  <span className="relative z-10 flex-1 text-left truncate whitespace-nowrap">
+                    {item.label}
+                  </span>
                 )}
                 {!collapsed && item.tag && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider">
+                  <span className="relative z-10 text-[10px] font-bold uppercase tracking-wider">
                     {item.tag}
                   </span>
                 )}
-              </button>
+              </motion.button>
             );
           })}
         </nav>
@@ -227,11 +277,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
             style={{ borderRadius: 'var(--ff-radius-button)' }}
             title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
           >
-            {theme === 'dark' ? (
-              <Sun className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-warning)' }} />
-            ) : (
-              <Moon className="w-4 h-4 shrink-0" />
-            )}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={theme}
+                initial={isDisabled ? false : { rotate: -35, scale: 0.7, opacity: 0 }}
+                animate={{ rotate: 0, scale: 1, opacity: 1 }}
+                exit={isDisabled ? { opacity: 0 } : { rotate: 35, scale: 0.7, opacity: 0 }}
+                transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
+                className="inline-flex shrink-0"
+              >
+                {theme === 'dark' ? (
+                  <Sun className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
+                ) : (
+                  <Moon className="w-4 h-4" />
+                )}
+              </motion.span>
+            </AnimatePresence>
             {!collapsed && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
           </button>
 

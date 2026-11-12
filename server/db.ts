@@ -1,8 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 
-// Store paths
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+// Local JSON fallback store paths (supports DATA_DIR volume mounts for self-hosted deployments;
+// primary persistence for signed-in users lives in Cloud Firestore).
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.resolve(process.cwd(), 'data');
 const DB_FILE = path.resolve(DATA_DIR, 'database.json');
 
 export interface User {
@@ -176,6 +179,9 @@ class DatabaseService {
     expenseTransactions: [],
   };
 
+  private writeQueue: Promise<void> = Promise.resolve();
+  private saveScheduled = false;
+
   constructor() {
     this.ensureDataDir();
     this.load();
@@ -201,62 +207,188 @@ class DatabaseService {
   }
 
   public save() {
-    try {
-      this.ensureDataDir();
-      const tempPath = `${DB_FILE}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify(this.db, null, 2), 'utf-8');
-      fs.renameSync(tempPath, DB_FILE);
-    } catch (err) {
-      console.error('Failed to save database file:', err);
-    }
+    if (this.saveScheduled) return;
+    this.saveScheduled = true;
+    const snapshot = JSON.stringify(this.db, null, 2);
+
+    this.writeQueue = this.writeQueue
+      .then(async () => {
+        this.saveScheduled = false;
+        await fs.promises.mkdir(DATA_DIR, { recursive: true });
+        const tempPath = `${DB_FILE}.${process.pid}.tmp`;
+        await fs.promises.writeFile(tempPath, snapshot, 'utf-8');
+        await fs.promises.rename(tempPath, DB_FILE);
+      })
+      .catch((err) => {
+        this.saveScheduled = false;
+        console.error('Failed to save database file:', err);
+      });
   }
 
   public getRaw(): DatabaseSchema {
     return this.db;
   }
 
-  public reseed() {
-    this.db = {
-      users: [],
-      userSettings: [],
-      tasks: [],
-      focusSessions: [],
-      categories: [],
-      recurringExpenses: [],
-      bills: [],
-      paymentHistory: [],
-      incomeTransactions: [],
-      expenseTransactions: [],
-    };
-    this.ensureSeedData(true);
-    this.checkRecurringBills();
+  /**
+   * Ensure a user or isolated guest session has its own settings & categories workspace.
+   */
+  public ensureUserWorkspace(
+    userId: string,
+    profile?: { email?: string; name?: string; avatarUrl?: string; isGuest?: boolean }
+  ): { user: User; settings: UserSettings } {
+    if (userId === 'usr_atif_default') {
+      this.ensureSeedData(false);
+    } else if (profile?.isGuest && !this.db.users.some((u) => u.id === userId)) {
+      this.ensureSeedDataForUser(userId, false);
+    }
+
+    let user = this.db.users.find((u) => u.id === userId);
+    let mutated = false;
+
+    if (!user) {
+      user = {
+        id: userId,
+        email: profile?.email || (profile?.isGuest ? 'guest@focusflow.local' : 'user@focusflow.local'),
+        name: profile?.name || (profile?.isGuest ? 'Guest Workspace' : 'Focus User'),
+        avatarUrl: profile?.avatarUrl || '',
+        createdAt: new Date().toISOString(),
+      };
+      this.db.users.push(user);
+      mutated = true;
+    } else if (profile && !profile.isGuest) {
+      if (profile.email && user.email !== profile.email) {
+        user.email = profile.email;
+        mutated = true;
+      }
+      if (profile.name && user.name !== profile.name) {
+        user.name = profile.name;
+        mutated = true;
+      }
+      if (profile.avatarUrl !== undefined && user.avatarUrl !== profile.avatarUrl) {
+        user.avatarUrl = profile.avatarUrl;
+        mutated = true;
+      }
+    }
+
+    let settings = this.db.userSettings.find((s) => s.userId === userId);
+    if (!settings) {
+      settings = {
+        userId,
+        currency: 'INR',
+        pomodoroWorkDuration: 25,
+        shortBreakDuration: 5,
+        longBreakDuration: 15,
+        autoSwitchSessions: false,
+        soundEnabled: true,
+        theme: 'dark',
+      };
+      this.db.userSettings.push(settings);
+      mutated = true;
+    }
+
+    const userHasCategories = this.db.categories.some((c) => c.userId === userId);
+    if (!userHasCategories) {
+      const userCats: ExpenseCategory[] = DEFAULT_CATEGORIES.map((cat, idx) => ({
+        id: userId === 'usr_atif_default' ? `cat_${idx + 1}` : `cat_${userId}_${idx + 1}`,
+        userId,
+        ...cat,
+      }));
+      this.db.categories.push(...userCats);
+      mutated = true;
+    }
+
+    if (mutated) {
+      this.save();
+    }
+
+    return { user, settings };
+  }
+
+  public getFallbackCategoryId(userId: string): string {
+    const userCat = this.db.categories.find((c) => c.userId === userId || c.userId === 'system');
+    if (userCat) return userCat.id;
+    const { user } = this.ensureUserWorkspace(userId);
+    const created = this.db.categories.find((c) => c.userId === user.id);
+    return created ? created.id : 'cat_1';
+  }
+
+  public reseed(targetUserId?: string) {
+    if (!targetUserId || targetUserId === 'usr_atif_default') {
+      const preservedUsers = this.db.users.filter((u) => u.id !== 'usr_atif_default');
+      const preservedSettings = this.db.userSettings.filter((s) => s.userId !== 'usr_atif_default');
+      const preservedTasks = this.db.tasks.filter((t) => t.userId !== 'usr_atif_default');
+      const preservedSessions = this.db.focusSessions.filter((s) => s.userId !== 'usr_atif_default');
+      const preservedCats = this.db.categories.filter((c) => c.userId !== 'usr_atif_default');
+      const preservedRec = this.db.recurringExpenses.filter((r) => r.userId !== 'usr_atif_default');
+      const preservedBills = this.db.bills.filter((b) => b.userId !== 'usr_atif_default');
+      const preservedHistory = this.db.paymentHistory.filter((p) => p.userId !== 'usr_atif_default');
+      const preservedIncome = this.db.incomeTransactions.filter((i) => i.userId !== 'usr_atif_default');
+      const preservedExp = this.db.expenseTransactions.filter((e) => e.userId !== 'usr_atif_default');
+
+      this.db = {
+        users: preservedUsers,
+        userSettings: preservedSettings,
+        tasks: preservedTasks,
+        focusSessions: preservedSessions,
+        categories: preservedCats,
+        recurringExpenses: preservedRec,
+        bills: preservedBills,
+        paymentHistory: preservedHistory,
+        incomeTransactions: preservedIncome,
+        expenseTransactions: preservedExp,
+      };
+      this.ensureSeedDataForUser('usr_atif_default', true);
+      this.checkRecurringBills('usr_atif_default');
+      this.save();
+      return;
+    }
+
+    // Scoped reseed: wipe only the caller's isolated workspace and re-initialize starter state
+    this.db.tasks = this.db.tasks.filter((t) => t.userId !== targetUserId);
+    this.db.focusSessions = this.db.focusSessions.filter((s) => s.userId !== targetUserId);
+    this.db.categories = this.db.categories.filter((c) => c.userId !== targetUserId);
+    this.db.recurringExpenses = this.db.recurringExpenses.filter((r) => r.userId !== targetUserId);
+    this.db.bills = this.db.bills.filter((b) => b.userId !== targetUserId);
+    this.db.paymentHistory = this.db.paymentHistory.filter((p) => p.userId !== targetUserId);
+    this.db.incomeTransactions = this.db.incomeTransactions.filter((i) => i.userId !== targetUserId);
+    this.db.expenseTransactions = this.db.expenseTransactions.filter((e) => e.userId !== targetUserId);
+    this.ensureSeedDataForUser(targetUserId, false);
+    this.checkRecurringBills(targetUserId);
     this.save();
   }
 
   private ensureSeedData(force = false) {
-    if (this.db.users.length > 0 && !force) {
+    if (this.db.users.some((u) => u.id === 'usr_atif_default') && !force) {
+      return;
+    }
+    this.ensureSeedDataForUser('usr_atif_default', force);
+  }
+
+  private ensureSeedDataForUser(defaultUserId: string, force = false) {
+    if (!force && this.db.tasks.some((t) => t.userId === defaultUserId)) {
       return;
     }
 
-    const defaultUserId = 'usr_atif_default';
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
     const todayStr = `${currentYear}-${currentMonth}-${String(now.getDate()).padStart(2, '0')}`;
 
     // 1. User
-    const user: User = {
-      id: defaultUserId,
-      email: 'atifmunshi2122@gmail.com',
-      name: 'Atif Munshi',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      createdAt: new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString(),
-    };
-    this.db.users = [user];
+    if (!this.db.users.some((u) => u.id === defaultUserId)) {
+      const user: User = {
+        id: defaultUserId,
+        email: defaultUserId === 'usr_atif_default' ? 'atifmunshi2122@gmail.com' : 'guest@focusflow.local',
+        name: defaultUserId === 'usr_atif_default' ? 'Atif Munshi' : 'Guest Workspace',
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        createdAt: new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString(),
+      };
+      this.db.users.push(user);
+    }
 
     // 2. Settings
-    this.db.userSettings = [
-      {
+    if (!this.db.userSettings.some((s) => s.userId === defaultUserId)) {
+      this.db.userSettings.push({
         userId: defaultUserId,
         currency: 'INR',
         pomodoroWorkDuration: 25,
@@ -265,26 +397,34 @@ class DatabaseService {
         autoSwitchSessions: false,
         soundEnabled: true,
         theme: 'dark',
-      },
-    ];
+      });
+    }
 
     // 3. Categories
-    this.db.categories = DEFAULT_CATEGORIES.map((cat, idx) => ({
-      id: `cat_${idx + 1}`,
-      userId: defaultUserId,
-      ...cat,
-    }));
+    if (!this.db.categories.some((c) => c.userId === defaultUserId)) {
+      const catPrefix = defaultUserId === 'usr_atif_default' ? 'cat' : `cat_${defaultUserId}`;
+      this.db.categories.push(
+        ...DEFAULT_CATEGORIES.map((cat, idx) => ({
+          id: `${catPrefix}_${idx + 1}`,
+          userId: defaultUserId,
+          ...cat,
+        }))
+      );
+    }
+
+    const idSuffix = defaultUserId === 'usr_atif_default' ? '' : `_${defaultUserId}`;
 
     // Helper to find category id by name
     const getCatId = (name: string) => {
-      const found = this.db.categories.find((c) => c.name.toLowerCase().includes(name.toLowerCase()));
-      return found ? found.id : this.db.categories[0].id;
+      const userCats = this.db.categories.filter((c) => c.userId === defaultUserId);
+      const found = userCats.find((c) => c.name.toLowerCase().includes(name.toLowerCase()));
+      return found ? found.id : userCats[0]?.id || 'cat_1';
     };
 
     // 4. Tasks
     const sampleTasks: Task[] = [
       {
-        id: 'tsk_1',
+        id: `tsk_1${idSuffix}`,
         userId: defaultUserId,
         title: 'Architect Personal Finance & Focus App',
         description: 'Implement full-stack relational persistence, unified dashboard, and dual-theme UI',
@@ -297,7 +437,7 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'tsk_2',
+        id: `tsk_2${idSuffix}`,
         userId: defaultUserId,
         title: 'Review Monthly Budget & Recurring Bills',
         description: 'Verify quarterly subscriptions and update payment schedules',
@@ -310,7 +450,7 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'tsk_3',
+        id: `tsk_3${idSuffix}`,
         userId: defaultUserId,
         title: 'Refactor Core Database Transactions',
         description: 'Audit foreign key integrity and payment undo workflows',
@@ -323,7 +463,7 @@ class DatabaseService {
         updatedAt: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString(),
       },
       {
-        id: 'tsk_4',
+        id: `tsk_4${idSuffix}`,
         userId: defaultUserId,
         title: 'Deep Work: Read System Architecture Papers',
         description: 'Study state synchronization patterns and local-first offline databases',
@@ -336,7 +476,7 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
     ];
-    this.db.tasks = sampleTasks;
+    this.db.tasks.push(...sampleTasks);
 
     // 5. Focus Sessions (Last 7 days to give great weekly charts & streak)
     const sessions: FocusSession[] = [];
@@ -347,9 +487,9 @@ class DatabaseService {
         const start = new Date(sessionDate.getTime() + s * 45 * 60 * 1000);
         const end = new Date(start.getTime() + 25 * 60 * 1000);
         sessions.push({
-          id: `foc_${dayOffset}_${s}`,
+          id: `foc_${dayOffset}_${s}${idSuffix}`,
           userId: defaultUserId,
-          taskId: s % 2 === 0 ? 'tsk_1' : 'tsk_3',
+          taskId: s % 2 === 0 ? `tsk_1${idSuffix}` : `tsk_3${idSuffix}`,
           taskTitle: s % 2 === 0 ? 'Architect Personal Finance & Focus App' : 'Refactor Core Database Transactions',
           mode: 'work',
           durationMinutes: 25,
@@ -360,13 +500,13 @@ class DatabaseService {
         });
       }
     }
-    this.db.focusSessions = sessions;
+    this.db.focusSessions.push(...sessions);
 
     // 6. Recurring Expenses (Fixed)
     // All amounts in paise (100 paise = 1 INR)
     const recurring: RecurringExpense[] = [
       {
-        id: 'rec_1',
+        id: `rec_1${idSuffix}`,
         userId: defaultUserId,
         name: 'Apartment Rent',
         amountPaise: 2500000, // ₹25,000.00
@@ -379,7 +519,7 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'rec_2',
+        id: `rec_2${idSuffix}`,
         userId: defaultUserId,
         name: 'High-Speed Fiber Internet',
         amountPaise: 129900, // ₹1,299.00
@@ -392,7 +532,7 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'rec_3',
+        id: `rec_3${idSuffix}`,
         userId: defaultUserId,
         name: 'Premium Cloud Hosting & VPS',
         amountPaise: 240000, // ₹2,400.00
@@ -405,7 +545,7 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'rec_4',
+        id: `rec_4${idSuffix}`,
         userId: defaultUserId,
         name: 'Gym & Fitness Membership',
         amountPaise: 350000, // ₹3,500.00
@@ -418,7 +558,7 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'rec_5',
+        id: `rec_5${idSuffix}`,
         userId: defaultUserId,
         name: 'Health Insurance Premium',
         amountPaise: 450000, // ₹4,500.00
@@ -431,15 +571,15 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
     ];
-    this.db.recurringExpenses = recurring;
+    this.db.recurringExpenses.push(...recurring);
 
     // 7. Bills for the current month
     const periodKey = `${currentYear}-${currentMonth}`;
     const bills: Bill[] = [
       {
-        id: 'bill_cur_1',
+        id: `bill_cur_1${idSuffix}`,
         userId: defaultUserId,
-        recurringExpenseId: 'rec_1',
+        recurringExpenseId: `rec_1${idSuffix}`,
         name: 'Apartment Rent',
         amountPaise: 2500000,
         categoryId: getCatId('Housing'),
@@ -452,9 +592,9 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'bill_cur_2',
+        id: `bill_cur_2${idSuffix}`,
         userId: defaultUserId,
-        recurringExpenseId: 'rec_2',
+        recurringExpenseId: `rec_2${idSuffix}`,
         name: 'High-Speed Fiber Internet',
         amountPaise: 129900,
         categoryId: getCatId('Internet'),
@@ -467,9 +607,9 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'bill_cur_3',
+        id: `bill_cur_3${idSuffix}`,
         userId: defaultUserId,
-        recurringExpenseId: 'rec_3',
+        recurringExpenseId: `rec_3${idSuffix}`,
         name: 'Premium Cloud Hosting & VPS',
         amountPaise: 240000,
         categoryId: getCatId('Subscriptions'),
@@ -482,9 +622,9 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'bill_cur_4',
+        id: `bill_cur_4${idSuffix}`,
         userId: defaultUserId,
-        recurringExpenseId: 'rec_4',
+        recurringExpenseId: `rec_4${idSuffix}`,
         name: 'Gym & Fitness Membership',
         amountPaise: 350000,
         categoryId: getCatId('Personal'),
@@ -497,9 +637,9 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'bill_cur_5',
+        id: `bill_cur_5${idSuffix}`,
         userId: defaultUserId,
-        recurringExpenseId: 'rec_5',
+        recurringExpenseId: `rec_5${idSuffix}`,
         name: 'Health Insurance Premium',
         amountPaise: 450000,
         categoryId: getCatId('Insurance'),
@@ -512,14 +652,14 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       },
     ];
-    this.db.bills = bills;
+    this.db.bills.push(...bills);
 
     // 8. Payment History for paid bills
-    this.db.paymentHistory = [
+    this.db.paymentHistory.push(
       {
-        id: 'pay_hist_1',
+        id: `pay_hist_1${idSuffix}`,
         userId: defaultUserId,
-        billId: 'bill_cur_1',
+        billId: `bill_cur_1${idSuffix}`,
         billName: 'Apartment Rent',
         amountPaise: 2500000,
         paidDate: `${currentYear}-${currentMonth}-04`,
@@ -529,9 +669,9 @@ class DatabaseService {
         createdAt: new Date().toISOString(),
       },
       {
-        id: 'pay_hist_2',
+        id: `pay_hist_2${idSuffix}`,
         userId: defaultUserId,
-        billId: 'bill_cur_2',
+        billId: `bill_cur_2${idSuffix}`,
         billName: 'High-Speed Fiber Internet',
         amountPaise: 129900,
         paidDate: `${currentYear}-${currentMonth}-09`,
@@ -539,13 +679,13 @@ class DatabaseService {
         transactionRef: 'CC-NET-29831',
         notes: 'Monthly auto-bill settled',
         createdAt: new Date().toISOString(),
-      },
-    ];
+      }
+    );
 
     // 9. Income Transactions
-    this.db.incomeTransactions = [
+    this.db.incomeTransactions.push(
       {
-        id: 'inc_1',
+        id: `inc_1${idSuffix}`,
         userId: defaultUserId,
         source: 'Engineering Salary',
         amountPaise: 14500000, // ₹145,000.00
@@ -555,7 +695,7 @@ class DatabaseService {
         createdAt: new Date().toISOString(),
       },
       {
-        id: 'inc_2',
+        id: `inc_2${idSuffix}`,
         userId: defaultUserId,
         source: 'Full-Stack Consulting Project',
         amountPaise: 4000000, // ₹40,000.00
@@ -565,7 +705,7 @@ class DatabaseService {
         createdAt: new Date().toISOString(),
       },
       {
-        id: 'inc_3',
+        id: `inc_3${idSuffix}`,
         userId: defaultUserId,
         source: 'Mutual Fund Dividend',
         amountPaise: 450000, // ₹4,500.00
@@ -573,16 +713,16 @@ class DatabaseService {
         category: 'Investments',
         notes: 'Quarterly reinvested dividend',
         createdAt: new Date().toISOString(),
-      },
-    ];
+      }
+    );
 
     // 10. Expense Transactions (Fixed paid bills + Variable expenses)
-    this.db.expenseTransactions = [
+    this.db.expenseTransactions.push(
       // Paid fixed bills logged as expenses
       {
-        id: 'exp_fix_1',
+        id: `exp_fix_1${idSuffix}`,
         userId: defaultUserId,
-        billId: 'bill_cur_1',
+        billId: `bill_cur_1${idSuffix}`,
         type: 'fixed',
         categoryId: getCatId('Housing'),
         amountPaise: 2500000,
@@ -593,9 +733,9 @@ class DatabaseService {
         createdAt: new Date().toISOString(),
       },
       {
-        id: 'exp_fix_2',
+        id: `exp_fix_2${idSuffix}`,
         userId: defaultUserId,
-        billId: 'bill_cur_2',
+        billId: `bill_cur_2${idSuffix}`,
         type: 'fixed',
         categoryId: getCatId('Internet'),
         amountPaise: 129900,
@@ -608,7 +748,7 @@ class DatabaseService {
 
       // Variable Expenses
       {
-        id: 'exp_var_1',
+        id: `exp_var_1${idSuffix}`,
         userId: defaultUserId,
         billId: null,
         type: 'variable',
@@ -621,7 +761,7 @@ class DatabaseService {
         createdAt: new Date().toISOString(),
       },
       {
-        id: 'exp_var_2',
+        id: `exp_var_2${idSuffix}`,
         userId: defaultUserId,
         billId: null,
         type: 'variable',
@@ -634,7 +774,7 @@ class DatabaseService {
         createdAt: new Date().toISOString(),
       },
       {
-        id: 'exp_var_3',
+        id: `exp_var_3${idSuffix}`,
         userId: defaultUserId,
         billId: null,
         type: 'variable',
@@ -647,7 +787,7 @@ class DatabaseService {
         createdAt: new Date().toISOString(),
       },
       {
-        id: 'exp_var_4',
+        id: `exp_var_4${idSuffix}`,
         userId: defaultUserId,
         billId: null,
         type: 'variable',
@@ -660,7 +800,7 @@ class DatabaseService {
         createdAt: new Date().toISOString(),
       },
       {
-        id: 'exp_var_5',
+        id: `exp_var_5${idSuffix}`,
         userId: defaultUserId,
         billId: null,
         type: 'variable',
@@ -671,8 +811,8 @@ class DatabaseService {
         paymentMethod: 'upi_bank',
         notes: 'Focus brew beans',
         createdAt: new Date().toISOString(),
-      },
-    ];
+      }
+    );
 
     this.save();
   }
@@ -686,18 +826,19 @@ class DatabaseService {
     const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
     const todayStr = `${currentYear}-${currentMonth}-${String(now.getDate()).padStart(2, '0')}`;
     const periodKey = `${currentYear}-${currentMonth}`;
+    let changed = false;
 
     // 1. Generate bills for active recurring expenses
     const recurringList = this.db.recurringExpenses.filter((r) => r.userId === userId && r.isActive);
 
     for (const rec of recurringList) {
-      // Check if bill already exists for this period
       const existing = this.db.bills.find(
         (b) => b.userId === userId && b.recurringExpenseId === rec.id && b.periodKey === periodKey
       );
 
       if (!existing) {
-        const dueDayStr = String(Math.min(rec.dueDay, 28)).padStart(2, '0');
+        const clampedDay = Number.isFinite(rec.dueDay) ? Math.min(Math.max(Math.round(rec.dueDay), 1), 28) : 1;
+        const dueDayStr = String(clampedDay).padStart(2, '0');
         const dueDate = `${currentYear}-${currentMonth}-${dueDayStr}`;
         const isPastDue = dueDate < todayStr;
 
@@ -717,6 +858,7 @@ class DatabaseService {
           updatedAt: new Date().toISOString(),
         };
         this.db.bills.push(newBill);
+        changed = true;
       }
     }
 
@@ -725,10 +867,13 @@ class DatabaseService {
       if (bill.userId === userId && bill.status === 'UNPAID' && bill.dueDate < todayStr) {
         bill.status = 'OVERDUE';
         bill.updatedAt = new Date().toISOString();
+        changed = true;
       }
     }
 
-    this.save();
+    if (changed) {
+      this.save();
+    }
   }
 
   // Transaction support: Mark bill as paid

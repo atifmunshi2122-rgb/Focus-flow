@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
+import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
   AnimationIntensity,
   BackgroundMode,
@@ -89,6 +92,8 @@ export const ThemeStudio: React.FC = () => {
   } = useApp();
 
   // Draft config lets users explore & preview customizations before applying
+  const { isDisabled, intensity } = useMotionPreferences();
+  const factor = getIntensityFactor(intensity);
   const [draftConfig, setDraftConfig] = useState<ThemeConfig>(themeConfig);
   const [studioTab, setStudioTab] = useState<'palettes' | 'design-styles' | 'tokens'>('palettes');
   const [searchQuery, setSearchQuery] = useState('');
@@ -509,7 +514,7 @@ export const ThemeStudio: React.FC = () => {
               borderRadius: 'var(--ff-radius-card)',
               border: 'var(--ff-border-width) solid var(--ff-border-color)',
             }}
-            className="relative overflow-hidden p-5 sm:p-6 transition-all"
+            className="relative overflow-hidden p-5 sm:p-6 transition-[background-color,color,border-color,border-radius,box-shadow] duration-300 ease-out"
           >
             {/* Preview Style Banner Header */}
             <div
@@ -723,40 +728,50 @@ export const ThemeStudio: React.FC = () => {
               </ThemeButton>
             </div>
 
-            {showSaveForm && (
-              <form
-                onSubmit={handleSaveCustomTheme}
-                className="p-3.5 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] space-y-2.5"
-              >
-                <label htmlFor="custom-theme-name" className="block text-xs font-semibold">
-                  Save Current Configuration as Custom Theme
-                </label>
-                <ThemeInput
-                  id="custom-theme-name"
-                  required
-                  placeholder="e.g., Midnight Cyber Cyan"
-                  value={customThemeName}
-                  onChange={(e) => setCustomThemeName(e.target.value)}
-                />
-                <ThemeInput
-                  placeholder="Optional short note (e.g., Late night OLED focus)"
-                  value={customThemeDesc}
-                  onChange={(e) => setCustomThemeDesc(e.target.value)}
-                />
-                <div className="flex justify-end gap-2">
-                  <ThemeButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowSaveForm(false)}
-                  >
-                    Cancel
-                  </ThemeButton>
-                  <ThemeButton type="submit" variant="primary" size="sm">
-                    Save Theme
-                  </ThemeButton>
-                </div>
-              </form>
-            )}
+            <AnimatePresence initial={false}>
+              {showSaveForm && (
+                <motion.form
+                  key="theme-save-custom-form"
+                  initial={isDisabled ? false : { opacity: 0, height: 0, y: -4 }}
+                  animate={{ opacity: 1, height: 'auto', y: 0 }}
+                  exit={isDisabled ? { opacity: 0 } : { opacity: 0, height: 0, y: -4 }}
+                  transition={{
+                    duration: MOTION_DURATION.card * Math.max(0.55, factor || 0.01),
+                    ease: MOTION_EASING.decelerate,
+                  }}
+                  onSubmit={handleSaveCustomTheme}
+                  className="p-3.5 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] space-y-2.5 overflow-hidden"
+                >
+                  <label htmlFor="custom-theme-name" className="block text-xs font-semibold">
+                    Save Current Configuration as Custom Theme
+                  </label>
+                  <ThemeInput
+                    id="custom-theme-name"
+                    required
+                    placeholder="e.g., Midnight Cyber Cyan"
+                    value={customThemeName}
+                    onChange={(e) => setCustomThemeName(e.target.value)}
+                  />
+                  <ThemeInput
+                    placeholder="Optional short note (e.g., Late night OLED focus)"
+                    value={customThemeDesc}
+                    onChange={(e) => setCustomThemeDesc(e.target.value)}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <ThemeButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowSaveForm(false)}
+                    >
+                      Cancel
+                    </ThemeButton>
+                    <ThemeButton type="submit" variant="primary" size="sm">
+                      Save Theme
+                    </ThemeButton>
+                  </div>
+                </motion.form>
+              )}
+            </AnimatePresence>
 
             {/* Saved Custom Themes Switcher */}
             <div className="pt-2 border-t border-[var(--ff-border-color)] space-y-2.5">
@@ -1035,9 +1050,11 @@ export const ThemeStudio: React.FC = () => {
               FONT_PAIRINGS.find((f) => f.id === styleDef.defaultFontPairing) || FONT_PAIRINGS[0];
 
             return (
-              <div
+              <motion.div
                 key={styleDef.id}
-                className="flex flex-col justify-between p-3.5 rounded-2xl border transition-all"
+                whileHover={isDisabled ? undefined : { y: -3, scale: 1.01 }}
+                transition={{ duration: MOTION_DURATION.control, ease: MOTION_EASING.standard }}
+                className="flex flex-col justify-between p-3.5 rounded-2xl border transition-[background-color,border-color,box-shadow] duration-200"
                 style={{
                   background: isDrafted ? 'var(--ff-accent-soft)' : 'var(--ff-surface-elevated)',
                   borderColor: isDrafted ? 'var(--ff-accent)' : 'var(--ff-border-color)',
@@ -1149,7 +1166,7 @@ export const ThemeStudio: React.FC = () => {
                     </ThemeButton>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
@@ -1557,17 +1574,22 @@ export const ThemeStudio: React.FC = () => {
         {/* Animation Intensity & Interface Density */}
         <ThemeCard className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
                 <h3 className="text-sm font-bold">Animation Intensity</h3>
               </div>
-              {osReducedMotion && (
-                <ThemeBadge tone="warning">OS Reduced Motion Active</ThemeBadge>
-              )}
+              <div className="flex items-center gap-1.5">
+                {draftConfig.animationIntensity === 'none' && (
+                  <ThemeBadge tone="neutral">Reduced Motion Active</ThemeBadge>
+                )}
+                {osReducedMotion && (
+                  <ThemeBadge tone="warning">OS Reduced Motion Active</ThemeBadge>
+                )}
+              </div>
             </div>
             <p className="text-xs text-[var(--ff-text-muted)]">
-              Control micro-interaction easing, hover lifts, and ambient canvas motion. Automatically honors OS reduced-motion accessibility settings.
+              Control micro-interaction easing, hover lifts, and ambient canvas motion. Select &ldquo;None&rdquo; for in-app Reduced Motion mode; OS reduced-motion preferences are also honored automatically.
             </p>
             <ThemeSegmentedControl<AnimationIntensity>
               fullWidth

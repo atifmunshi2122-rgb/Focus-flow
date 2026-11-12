@@ -1,7 +1,10 @@
 import React from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { getStyleDefinition } from '../../theme/stylesRegistry.ts';
 import { ThemeButton } from '../ui/ThemePrimitives.tsx';
+import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 import {
   Menu,
   Play,
@@ -41,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     effectiveThemeConfig,
   } = useApp();
 
+  const { isDisabled } = useMotionPreferences();
   const activeStyle = getStyleDefinition(effectiveThemeConfig.styleId);
 
   const tabLabels: Record<string, string> = {
@@ -55,8 +59,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
   };
 
   const formatTimerMinSec = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const safeSecs = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+    const mins = Math.floor(safeSecs / 60);
+    const secs = safeSecs % 60;
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
@@ -73,10 +78,19 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2.5">
-          <span className="ff-heading text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap">
-            {tabLabels[currentTab] || 'Dashboard'}
-          </span>
+        <div className="flex items-center gap-2.5 overflow-hidden">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={currentTab}
+              initial={isDisabled ? false : { opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -5 }}
+              transition={{ duration: MOTION_DURATION.dropdown * 0.8, ease: MOTION_EASING.decelerate }}
+              className="ff-heading text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap inline-block"
+            >
+              {tabLabels[currentTab] || 'Dashboard'}
+            </motion.span>
+          </AnimatePresence>
         </div>
       </div>
 
@@ -95,13 +109,25 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               key={item.id}
               type="button"
               onClick={() => setCurrentTab(item.id as typeof currentTab)}
-              className="transition-colors whitespace-nowrap shrink-0"
+              className="relative py-1 transition-colors whitespace-nowrap shrink-0 hover:text-[var(--ff-text-primary)]"
               style={{
                 color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
                 fontWeight: isActive ? 700 : 500,
               }}
             >
               {item.label}
+              {isActive && (
+                <motion.span
+                  layoutId="header-quick-nav-underline"
+                  transition={
+                    isDisabled
+                      ? { duration: 0.01 }
+                      : { type: 'spring', stiffness: 460, damping: 34 }
+                  }
+                  className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
+                  style={{ background: 'var(--ff-accent)' }}
+                />
+              )}
             </button>
           );
         })}
@@ -111,14 +137,23 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
       <div className="flex items-center gap-2.5 shrink-0">
         {/* Floating Mini Timer Indicator */}
         <div
-          className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border"
+          className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border transition-colors"
           style={{
             borderRadius: 'var(--ff-radius-button)',
-            background: 'var(--ff-surface-muted)',
-            borderColor: 'var(--ff-border-color)',
+            background: isRunning ? 'var(--ff-accent-soft)' : 'var(--ff-surface-muted)',
+            borderColor: isRunning ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
             color: 'var(--ff-text-primary)',
           }}
         >
+          {isRunning && (
+            <motion.span
+              aria-hidden="true"
+              animate={isDisabled ? undefined : { scale: [1, 1.35, 1], opacity: [0.65, 1, 0.65] }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ backgroundColor: timerMode === 'work' ? 'var(--ff-accent)' : 'var(--ff-success)' }}
+            />
+          )}
           <span className="tabular-nums font-semibold">{formatTimerMinSec(timeLeft)}</span>
           <span className="text-[10px] uppercase font-sans text-[var(--ff-text-muted)]">
             {timerMode === 'work' ? 'Work' : 'Break'}
@@ -126,12 +161,23 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           <button
             type="button"
             onClick={isRunning ? pauseTimer : startTimer}
-            className="p-1 rounded hover:bg-[var(--ff-surface-hover)]"
+            className="p-1 rounded hover:bg-[var(--ff-surface-hover)] transition-transform active:scale-90"
             style={{ color: 'var(--ff-accent-text)' }}
             title={isRunning ? 'Pause timer' : 'Start timer'}
             aria-label={isRunning ? 'Pause timer' : 'Start timer'}
           >
-            {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={isRunning ? 'pause' : 'play'}
+                initial={isDisabled ? false : { scale: 0.7, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={isDisabled ? { opacity: 0 } : { scale: 0.7, opacity: 0 }}
+                transition={{ duration: MOTION_DURATION.micro }}
+                className="inline-flex"
+              >
+                {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+              </motion.span>
+            </AnimatePresence>
           </button>
         </div>
 
@@ -268,11 +314,22 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           className="lg:hidden p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
           aria-label="Toggle light or dark mode"
         >
-          {theme === 'dark' ? (
-            <Sun className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
-          ) : (
-            <Moon className="w-4 h-4" />
-          )}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={theme}
+              initial={isDisabled ? false : { rotate: -35, scale: 0.7, opacity: 0 }}
+              animate={{ rotate: 0, scale: 1, opacity: 1 }}
+              exit={isDisabled ? { opacity: 0 } : { rotate: 35, scale: 0.7, opacity: 0 }}
+              transition={{ duration: MOTION_DURATION.micro }}
+              className="inline-flex"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
+            </motion.span>
+          </AnimatePresence>
         </button>
 
         {/* Primary Action Button */}

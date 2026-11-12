@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { ExpenseTransaction, RecurringExpense, ExpenseCategory } from '../../types/index.ts';
@@ -13,6 +14,14 @@ import {
   ThemeSelect,
 } from '../ui/ThemePrimitives.tsx';
 import {
+  AnimatedNumber,
+  EmptyStateIllustration,
+  SkeletonList,
+  ValidationMessage,
+  useMotionPreferences,
+} from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
+import {
   Repeat,
   Plus,
   Trash2,
@@ -20,8 +29,6 @@ import {
   Calendar,
   CreditCard,
   Tag,
-  ToggleLeft,
-  ToggleRight,
   TrendingDown,
 } from 'lucide-react';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
@@ -61,6 +68,12 @@ export const ExpenseManager: React.FC = () => {
   const [recDueDay, setRecDueDay] = useState('5');
   const [recNotes, setRecNotes] = useState('');
 
+  const [saving, setSaving] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const { isDisabled, intensity } = useMotionPreferences();
+  const factor = getIntensityFactor(intensity);
+
   const loadData = () => {
     setLoading(true);
     Promise.all([api.getExpenses(), api.getRecurringExpenses(), api.getCategories()])
@@ -89,20 +102,24 @@ export const ExpenseManager: React.FC = () => {
     setVarCategory(categories[0]?.id || '');
     setVarMethod('upi_bank');
     setVarNotes('');
+    setFormError(null);
+    setSubmitSuccess(false);
     setVarModalOpen(true);
   };
 
   const handleSaveVar = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!varDesc.trim() || !varAmount) {
-      showToast('Description and amount are required', 'error');
+    setFormError(null);
+    if (!varDesc.trim() || !varAmount || Number(varAmount) <= 0) {
+      setFormError('Please enter a valid expense description and positive amount.');
       return;
     }
 
+    setSaving(true);
     try {
       if (editingVar) {
         const updated = await api.updateExpense(editingVar.id, {
-          description: varDesc,
+          description: varDesc.trim(),
           amountPaise: toPaise(varAmount),
           date: varDate,
           categoryId: varCategory,
@@ -116,7 +133,7 @@ export const ExpenseManager: React.FC = () => {
         showToast('Expense updated', 'success');
       } else {
         const created = await api.createExpense({
-          description: varDesc,
+          description: varDesc.trim(),
           amountPaise: toPaise(varAmount),
           date: varDate,
           categoryId: varCategory,
@@ -141,10 +158,17 @@ export const ExpenseManager: React.FC = () => {
         }
         showToast('Variable expense logged & synchronized', 'success');
       }
-      setVarModalOpen(false);
+      setSaving(false);
+      setSubmitSuccess(true);
       triggerRefresh();
       loadData();
+      setTimeout(() => {
+        setSubmitSuccess(false);
+        setVarModalOpen(false);
+      }, isDisabled ? 50 : 220);
     } catch {
+      setSaving(false);
+      setFormError('Failed to save expense. Please try again.');
       showToast('Failed to save expense', 'error');
     }
   };
@@ -169,6 +193,8 @@ export const ExpenseManager: React.FC = () => {
     setRecRecurrence('monthly');
     setRecDueDay('5');
     setRecNotes('');
+    setFormError(null);
+    setSubmitSuccess(false);
     setRecModalOpen(true);
   };
 
@@ -180,20 +206,24 @@ export const ExpenseManager: React.FC = () => {
     setRecRecurrence(rec.recurrence);
     setRecDueDay(String(rec.dueDay));
     setRecNotes(rec.notes);
+    setFormError(null);
+    setSubmitSuccess(false);
     setRecModalOpen(true);
   };
 
   const handleSaveRec = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recName.trim() || !recAmount) {
-      showToast('Expense name and amount are required', 'error');
+    setFormError(null);
+    if (!recName.trim() || !recAmount || Number(recAmount) <= 0) {
+      setFormError('Please enter a recurring plan name and positive amount.');
       return;
     }
 
+    setSaving(true);
     try {
       if (editingRec) {
         const updated = await api.updateRecurringExpense(editingRec.id, {
-          name: recName,
+          name: recName.trim(),
           amountPaise: toPaise(recAmount),
           categoryId: recCategory,
           recurrence: recRecurrence,
@@ -206,7 +236,7 @@ export const ExpenseManager: React.FC = () => {
         showToast('Recurring expense updated', 'success');
       } else {
         const created = await api.createRecurringExpense({
-          name: recName,
+          name: recName.trim(),
           amountPaise: toPaise(recAmount),
           categoryId: recCategory,
           recurrence: recRecurrence,
@@ -231,10 +261,17 @@ export const ExpenseManager: React.FC = () => {
         }
         showToast('Recurring plan registered; automatic bills created & synced!', 'success');
       }
-      setRecModalOpen(false);
+      setSaving(false);
+      setSubmitSuccess(true);
       triggerRefresh();
       loadData();
+      setTimeout(() => {
+        setSubmitSuccess(false);
+        setRecModalOpen(false);
+      }, isDisabled ? 50 : 220);
     } catch {
+      setSaving(false);
+      setFormError('Failed to save recurring expense. Please try again.');
       showToast('Failed to save recurring expense', 'error');
     }
   };
@@ -305,7 +342,10 @@ export const ExpenseManager: React.FC = () => {
           <div>
             <span className="text-[var(--ff-text-muted)]">Current Variable Spend: </span>
             <strong className="font-mono text-[var(--ff-text-primary)] text-sm">
-              {formatCurrency(totalVariable, currency)}
+              <AnimatedNumber
+                value={totalVariable}
+                format={(paise) => formatCurrency(Math.round(paise), currency)}
+              />
             </strong>
             <span className="text-[var(--ff-text-muted)] ml-2">
               (Food, shopping, transit, entertainment, etc.)
@@ -315,7 +355,10 @@ export const ExpenseManager: React.FC = () => {
           <div>
             <span className="text-[var(--ff-text-muted)]">Active Monthly Fixed Commitments: </span>
             <strong className="font-mono text-sm" style={{ color: 'var(--ff-accent-text)' }}>
-              {formatCurrency(totalRecurring, currency)}
+              <AnimatedNumber
+                value={totalRecurring}
+                format={(paise) => formatCurrency(Math.round(paise), currency)}
+              />
             </strong>
             <span className="text-[var(--ff-text-muted)] ml-2">
               (Rent, internet, subscriptions, insurance, etc.)
@@ -324,212 +367,276 @@ export const ExpenseManager: React.FC = () => {
         )}
       </ThemeCard>
 
-      {/* SECTION 1: VARIABLE EXPENSES LIST */}
-      {activeTab === 'variable' && (
-        <ThemeCard noPadding>
-          {loading ? (
-            <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
-              Loading variable expenses...
-            </div>
-          ) : variableExpenses.length === 0 ? (
-            <div className="p-12 text-center">
-              <TrendingDown className="w-8 h-8 text-[var(--ff-text-muted)] mx-auto mb-2 opacity-50" />
-              <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                No variable expenses recorded
-              </h3>
-              <p className="text-xs text-[var(--ff-text-muted)] mt-1">
-                Log day-to-day shopping, food, and transit purchases above.
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y ff-divider">
-              {variableExpenses.map((exp) => (
-                <div
-                  key={exp.id}
-                  className="ff-row-hover flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                  style={{ padding: 'var(--ff-row-pad)' }}
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div
-                      className="w-9 h-9 flex items-center justify-center shrink-0"
-                      style={{
-                        borderRadius: 'var(--ff-radius-button)',
-                        background: 'var(--ff-danger-soft)',
-                        color: 'var(--ff-danger)',
-                      }}
-                    >
-                      <CreditCard className="w-4 h-4" />
-                    </div>
+      <AnimatePresence mode="wait" initial={false}>
+        {/* SECTION 1: VARIABLE EXPENSES LIST */}
+        {activeTab === 'variable' ? (
+          <motion.div
+            key="expense-tab-variable"
+            initial={isDisabled ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -6 }}
+            transition={{
+              duration: MOTION_DURATION.card * Math.max(0.55, factor || 0.01),
+              ease: MOTION_EASING.decelerate,
+            }}
+          >
+            <ThemeCard noPadding>
+              {loading && expenses.length === 0 ? (
+                <SkeletonList rows={4} />
+              ) : variableExpenses.length === 0 ? (
+                <EmptyStateIllustration
+                  icon={<TrendingDown className="w-6 h-6" />}
+                  title="No variable expenses recorded"
+                  description="Log day-to-day shopping, food, and transit purchases above."
+                  action={
+                    <ThemeButton variant="primary" size="sm" onClick={openVarCreate}>
+                      <Plus className="w-4 h-4" />
+                      <span>Add Variable Expense</span>
+                    </ThemeButton>
+                  }
+                />
+              ) : (
+                <div className="divide-y ff-divider">
+                  <AnimatePresence initial={false}>
+                    {variableExpenses.map((exp) => (
+                      <motion.div
+                        key={exp.id}
+                        layout={isDisabled ? false : 'position'}
+                        initial={isDisabled ? false : { opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={
+                          isDisabled
+                            ? { opacity: 0 }
+                            : { opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden' }
+                        }
+                        transition={{
+                          duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01),
+                          ease: MOTION_EASING.decelerate,
+                        }}
+                        className="ff-row-hover flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                        style={{ padding: 'var(--ff-row-pad)' }}
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div
+                            className="w-9 h-9 flex items-center justify-center shrink-0"
+                            style={{
+                              borderRadius: 'var(--ff-radius-button)',
+                              background: 'var(--ff-danger-soft)',
+                              color: 'var(--ff-danger)',
+                            }}
+                          >
+                            <CreditCard className="w-4 h-4" />
+                          </div>
 
-                    <div className="min-w-0">
-                      <h4 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
-                        {exp.description}
-                      </h4>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
+                              {exp.description}
+                            </h4>
 
-                      {exp.notes && (
-                        <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
-                          {exp.notes}
-                        </p>
-                      )}
+                            {exp.notes && (
+                              <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
+                                {exp.notes}
+                              </p>
+                            )}
 
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
-                        <div className="flex items-center gap-1">
-                          <Tag className="w-3 h-3" />
-                          <span>{exp.categoryName || 'General'}</span>
+                            <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
+                              <div className="flex items-center gap-1">
+                                <Tag className="w-3 h-3" />
+                                <span>{exp.categoryName || 'General'}</span>
+                              </div>
+                              <span aria-hidden="true">·</span>
+                              <div className="flex items-center gap-1 font-mono">
+                                <Calendar className="w-3 h-3" />
+                                <span>{exp.date}</span>
+                              </div>
+                              <span aria-hidden="true">·</span>
+                              <span className="uppercase text-[10px] font-medium">
+                                {exp.paymentMethod.replace('_', ' ')}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <span aria-hidden="true">·</span>
-                        <div className="flex items-center gap-1 font-mono">
-                          <Calendar className="w-3 h-3" />
-                          <span>{exp.date}</span>
+
+                        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                          <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+                            -{formatCurrency(exp.amountPaise, currency)}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteVar(exp.id)}
+                            className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
+                            title="Delete expense"
+                            aria-label={`Delete ${exp.description}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                        <span aria-hidden="true">·</span>
-                        <span className="uppercase text-[10px] font-medium">
-                          {exp.paymentMethod.replace('_', ' ')}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-                    <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-                      -{formatCurrency(exp.amountPaise, currency)}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteVar(exp.id)}
-                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
-                      title="Delete expense"
-                      aria-label={`Delete ${exp.description}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
-              ))}
-            </div>
-          )}
-        </ThemeCard>
-      )}
+              )}
+            </ThemeCard>
+          </motion.div>
+        ) : (
+          /* SECTION 2: FIXED RECURRING EXPENSES LIST */
+          <motion.div
+            key="expense-tab-recurring"
+            initial={isDisabled ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -6 }}
+            transition={{
+              duration: MOTION_DURATION.card * Math.max(0.55, factor || 0.01),
+              ease: MOTION_EASING.decelerate,
+            }}
+          >
+            <ThemeCard noPadding>
+              {loading && recurring.length === 0 ? (
+                <SkeletonList rows={4} />
+              ) : recurring.length === 0 ? (
+                <EmptyStateIllustration
+                  icon={<Repeat className="w-6 h-6" />}
+                  title="No recurring plans set up"
+                  description="Set up monthly internet, rent, subscriptions, and recurring bills above."
+                  action={
+                    <ThemeButton variant="primary" size="sm" onClick={openRecCreate}>
+                      <Plus className="w-4 h-4" />
+                      <span>Add Recurring Plan</span>
+                    </ThemeButton>
+                  }
+                />
+              ) : (
+                <div className="divide-y ff-divider">
+                  <AnimatePresence initial={false}>
+                    {recurring.map((rec) => (
+                      <motion.div
+                        key={rec.id}
+                        layout={isDisabled ? false : 'position'}
+                        initial={isDisabled ? false : { opacity: 0, y: 8 }}
+                        animate={{ opacity: rec.isActive ? 1 : 0.62, y: 0 }}
+                        exit={
+                          isDisabled
+                            ? { opacity: 0 }
+                            : { opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden' }
+                        }
+                        transition={{
+                          duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01),
+                          ease: MOTION_EASING.decelerate,
+                        }}
+                        className="ff-row-hover flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                        style={{ padding: 'var(--ff-row-pad)' }}
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div
+                            className="w-9 h-9 flex items-center justify-center shrink-0"
+                            style={{
+                              borderRadius: 'var(--ff-radius-button)',
+                              background: 'var(--ff-accent-soft)',
+                              color: 'var(--ff-accent-text)',
+                            }}
+                          >
+                            <Repeat className="w-4 h-4" />
+                          </div>
 
-      {/* SECTION 2: FIXED RECURRING EXPENSES LIST */}
-      {activeTab === 'recurring' && (
-        <ThemeCard noPadding>
-          {loading ? (
-            <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
-              Loading recurring plans...
-            </div>
-          ) : recurring.length === 0 ? (
-            <div className="p-12 text-center">
-              <Repeat className="w-8 h-8 text-[var(--ff-text-muted)] mx-auto mb-2 opacity-50" />
-              <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                No recurring plans set up
-              </h3>
-              <p className="text-xs text-[var(--ff-text-muted)] mt-1">
-                Set up monthly internet, rent, subscriptions, and recurring bills above.
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y ff-divider">
-              {recurring.map((rec) => (
-                <div
-                  key={rec.id}
-                  className={`ff-row-hover flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                    !rec.isActive ? 'opacity-55' : ''
-                  }`}
-                  style={{ padding: 'var(--ff-row-pad)' }}
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div
-                      className="w-9 h-9 flex items-center justify-center shrink-0"
-                      style={{
-                        borderRadius: 'var(--ff-radius-button)',
-                        background: 'var(--ff-accent-soft)',
-                        color: 'var(--ff-accent-text)',
-                      }}
-                    >
-                      <Repeat className="w-4 h-4" />
-                    </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
+                                {rec.name}
+                              </h4>
+                              <ThemeBadge tone="accent">{rec.recurrence}</ThemeBadge>
+                            </div>
 
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
-                          {rec.name}
-                        </h4>
-                        <ThemeBadge tone="accent">{rec.recurrence}</ThemeBadge>
-                      </div>
+                            {rec.notes && (
+                              <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
+                                {rec.notes}
+                              </p>
+                            )}
 
-                      {rec.notes && (
-                        <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
-                          {rec.notes}
-                        </p>
-                      )}
-
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
-                        <div className="flex items-center gap-1">
-                          <Tag className="w-3 h-3" />
-                          <span>{rec.categoryName || 'Fixed'}</span>
+                            <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
+                              <div className="flex items-center gap-1">
+                                <Tag className="w-3 h-3" />
+                                <span>{rec.categoryName || 'Fixed'}</span>
+                              </div>
+                              <span aria-hidden="true">·</span>
+                              <span>Due Day: {rec.dueDay} of each cycle</span>
+                              <span aria-hidden="true">·</span>
+                              <span
+                                className="font-semibold transition-colors"
+                                style={{
+                                  color: rec.isActive ? 'var(--ff-success)' : 'var(--ff-text-muted)',
+                                }}
+                              >
+                                {rec.isActive ? 'Active Auto-Bill' : 'Deactivated'}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <span aria-hidden="true">·</span>
-                        <span>Due Day: {rec.dueDay} of each cycle</span>
-                        <span aria-hidden="true">·</span>
-                        <span
-                          className="font-semibold"
-                          style={{
-                            color: rec.isActive ? 'var(--ff-success)' : 'var(--ff-text-muted)',
-                          }}
-                        >
-                          {rec.isActive ? 'Active Auto-Bill' : 'Deactivated'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-                    <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-                      {formatCurrency(rec.amountPaise, currency)}
-                    </span>
+                        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                          <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+                            {formatCurrency(rec.amountPaise, currency)}
+                          </span>
 
-                    <button
-                      type="button"
-                      onClick={() => void handleToggleRecActive(rec)}
-                      className="p-1.5 text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] transition-colors"
-                      title={rec.isActive ? 'Deactivate recurring plan' : 'Activate recurring plan'}
-                      aria-label={rec.isActive ? 'Deactivate recurring plan' : 'Activate recurring plan'}
-                    >
-                      {rec.isActive ? (
-                        <ToggleRight className="w-6 h-6" style={{ color: 'var(--ff-accent-text)' }} />
-                      ) : (
-                        <ToggleLeft className="w-6 h-6" />
-                      )}
-                    </button>
+                          {/* Animated Accessible Switch */}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={rec.isActive}
+                            onClick={() => void handleToggleRecActive(rec)}
+                            className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors"
+                            style={{
+                              backgroundColor: rec.isActive ? 'var(--ff-accent)' : 'var(--ff-surface-muted)',
+                              borderColor: rec.isActive ? 'var(--ff-accent)' : 'var(--ff-border-color)',
+                            }}
+                            title={rec.isActive ? 'Deactivate recurring plan' : 'Activate recurring plan'}
+                            aria-label={rec.isActive ? `Deactivate ${rec.name}` : `Activate ${rec.name}`}
+                          >
+                            <motion.span
+                              animate={{ x: rec.isActive ? 17 : 2 }}
+                              transition={
+                                isDisabled
+                                  ? { duration: 0.01 }
+                                  : { type: 'spring', stiffness: 500, damping: 32 }
+                              }
+                              className="inline-block h-3.5 w-3.5 rounded-full shadow-xs"
+                              style={{
+                                backgroundColor: rec.isActive
+                                  ? 'var(--ff-accent-contrast)'
+                                  : 'var(--ff-text-muted)',
+                              }}
+                            />
+                          </button>
 
-                    <button
-                      type="button"
-                      onClick={() => openRecEdit(rec)}
-                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors"
-                      title="Edit recurring plan"
-                      aria-label={`Edit ${rec.name}`}
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
+                          <button
+                            type="button"
+                            onClick={() => openRecEdit(rec)}
+                            className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors"
+                            title="Edit recurring plan"
+                            aria-label={`Edit ${rec.name}`}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
 
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteRec(rec.id)}
-                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
-                      title="Delete recurring plan"
-                      aria-label={`Delete ${rec.name}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteRec(rec.id)}
+                            className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
+                            title="Delete recurring plan"
+                            aria-label={`Delete ${rec.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
-              ))}
-            </div>
-          )}
-        </ThemeCard>
-      )}
+              )}
+            </ThemeCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Modal: Add/Edit Variable Expense */}
       <ThemeModal
@@ -537,7 +644,7 @@ export const ExpenseManager: React.FC = () => {
         onClose={() => setVarModalOpen(false)}
         title={editingVar ? 'Edit Variable Expense' : 'Log Variable Expense'}
       >
-        <form onSubmit={handleSaveVar} className="space-y-3.5">
+        <form onSubmit={handleSaveVar} noValidate className="space-y-3.5">
           <div>
             <label
               htmlFor="var-exp-desc"
@@ -551,7 +658,10 @@ export const ExpenseManager: React.FC = () => {
               required
               autoFocus
               value={varDesc}
-              onChange={(e) => setVarDesc(e.target.value)}
+              onChange={(e) => {
+                setVarDesc(e.target.value);
+                if (formError) setFormError(null);
+              }}
               placeholder="e.g., Weekly Groceries, Fuel, Cafe"
             />
           </div>
@@ -570,7 +680,10 @@ export const ExpenseManager: React.FC = () => {
                 step="0.01"
                 required
                 value={varAmount}
-                onChange={(e) => setVarAmount(e.target.value)}
+                onChange={(e) => {
+                  setVarAmount(e.target.value);
+                  if (formError) setFormError(null);
+                }}
                 placeholder="0.00"
                 className="font-mono tabular-nums"
               />
@@ -650,11 +763,20 @@ export const ExpenseManager: React.FC = () => {
             />
           </div>
 
+          <ValidationMessage message={formError} tone="error" />
+
           <div className="pt-2 flex items-center justify-end gap-2">
             <ThemeButton variant="ghost" size="sm" onClick={() => setVarModalOpen(false)}>
               Cancel
             </ThemeButton>
-            <ThemeButton type="submit" variant="primary" size="sm">
+            <ThemeButton
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={saving}
+              success={submitSuccess}
+              loadingText="Saving..."
+            >
               Save Expense
             </ThemeButton>
           </div>
@@ -667,7 +789,7 @@ export const ExpenseManager: React.FC = () => {
         onClose={() => setRecModalOpen(false)}
         title={editingRec ? 'Edit Recurring Expense Plan' : 'Create Recurring Fixed Plan'}
       >
-        <form onSubmit={handleSaveRec} className="space-y-3.5">
+        <form onSubmit={handleSaveRec} noValidate className="space-y-3.5">
           <div>
             <label
               htmlFor="rec-plan-name"
@@ -681,7 +803,10 @@ export const ExpenseManager: React.FC = () => {
               required
               autoFocus
               value={recName}
-              onChange={(e) => setRecName(e.target.value)}
+              onChange={(e) => {
+                setRecName(e.target.value);
+                if (formError) setFormError(null);
+              }}
               placeholder="e.g., Fiber Internet, Apartment Lease, Spotify"
             />
           </div>
@@ -700,7 +825,10 @@ export const ExpenseManager: React.FC = () => {
                 step="0.01"
                 required
                 value={recAmount}
-                onChange={(e) => setRecAmount(e.target.value)}
+                onChange={(e) => {
+                  setRecAmount(e.target.value);
+                  if (formError) setFormError(null);
+                }}
                 placeholder="0.00"
                 className="font-mono tabular-nums"
               />
@@ -782,11 +910,20 @@ export const ExpenseManager: React.FC = () => {
             />
           </div>
 
+          <ValidationMessage message={formError} tone="error" />
+
           <div className="pt-2 flex items-center justify-end gap-2">
             <ThemeButton variant="ghost" size="sm" onClick={() => setRecModalOpen(false)}>
               Cancel
             </ThemeButton>
-            <ThemeButton type="submit" variant="primary" size="sm">
+            <ThemeButton
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={saving}
+              success={submitSuccess}
+              loadingText="Saving..."
+            >
               Save Recurring Plan
             </ThemeButton>
           </div>

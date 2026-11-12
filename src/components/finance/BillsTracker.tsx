@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { Bill, PaymentHistory, ExpenseCategory } from '../../types/index.ts';
@@ -13,6 +14,17 @@ import {
   ThemeSegmentedControl,
   ThemeSelect,
 } from '../ui/ThemePrimitives.tsx';
+import {
+  AnimatedNumber,
+  ConfirmationBurst,
+  EmptyStateIllustration,
+  MotionStaggerGrid,
+  MotionStaggerItem,
+  SkeletonList,
+  ValidationMessage,
+  useMotionPreferences,
+} from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
   CreditCard,
   CheckCircle2,
@@ -52,11 +64,20 @@ export const BillsTracker: React.FC = () => {
   const [categoryId, setCategoryId] = useState('');
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+  const [creatingBill, setCreatingBill] = useState(false);
+  const [createSuccess, setCreateSuccess] = useState(false);
+  const [billFormError, setBillFormError] = useState<string | null>(null);
 
   const [payingBill, setPayingBill] = useState<Bill | null>(null);
   const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'debit_card' | 'upi_bank' | 'cash'>('upi_bank');
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [paying, setPaying] = useState(false);
+  const [paySuccess, setPaySuccess] = useState(false);
+  const [recentlyPaidBillId, setRecentlyPaidBillId] = useState<string | null>(null);
+
+  const { isDisabled, intensity } = useMotionPreferences();
+  const factor = getIntensityFactor(intensity);
 
   const loadData = () => {
     setLoading(true);
@@ -79,27 +100,36 @@ export const BillsTracker: React.FC = () => {
 
   const handleCreateBill = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !amount || !dueDate) {
-      showToast('Please fill in all required bill fields', 'error');
+    setBillFormError(null);
+    if (!name.trim() || !amount || Number(amount) <= 0 || !dueDate) {
+      setBillFormError('Please provide a bill name, positive amount, and due date.');
       return;
     }
 
+    setCreatingBill(true);
     try {
       await api.createBill({
-        name,
+        name: name.trim(),
         amountPaise: toPaise(amount),
         categoryId: categoryId || (categories[0]?.id ?? 'cat_1'),
         dueDate,
         notes,
       });
       showToast('Bill registered to schedule', 'success');
-      setAddBillModal(false);
-      setName('');
-      setAmount('');
-      setNotes('');
+      setCreatingBill(false);
+      setCreateSuccess(true);
       triggerRefresh();
       loadData();
+      setTimeout(() => {
+        setCreateSuccess(false);
+        setAddBillModal(false);
+        setName('');
+        setAmount('');
+        setNotes('');
+      }, isDisabled ? 50 : 220);
     } catch {
+      setCreatingBill(false);
+      setBillFormError('Failed to register bill. Please try again.');
       showToast('Failed to register bill', 'error');
     }
   };
@@ -108,8 +138,10 @@ export const BillsTracker: React.FC = () => {
     e.preventDefault();
     if (!payingBill) return;
 
+    setPaying(true);
+    const paidBillId = payingBill.id;
     try {
-      const res = await api.payBill(payingBill.id, payDate, paymentMethod, paymentNotes);
+      const res = await api.payBill(paidBillId, payDate, paymentMethod, paymentNotes);
       playCashSound(settings?.soundEnabled);
       showToast(`Payment of ${formatCurrency(payingBill.amountPaise, currency)} recorded!`, 'success');
 
@@ -133,10 +165,20 @@ export const BillsTracker: React.FC = () => {
         googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
       }
 
-      setPayingBill(null);
+      setPaying(false);
+      setPaySuccess(true);
+      setRecentlyPaidBillId(paidBillId);
       triggerRefresh();
       loadData();
+      setTimeout(() => {
+        setPaySuccess(false);
+        setPayingBill(null);
+      }, isDisabled ? 50 : 240);
+      setTimeout(() => {
+        setRecentlyPaidBillId((curr) => (curr === paidBillId ? null : curr));
+      }, 2000);
     } catch (err: unknown) {
+      setPaying(false);
       showToast(err instanceof Error ? err.message : 'Failed to record payment', 'error');
     }
   };
@@ -181,68 +223,84 @@ export const BillsTracker: React.FC = () => {
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
       {/* Top Action & KPI strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3" style={{ gap: 'var(--ff-grid-gap)' }}>
-        <ThemeCard variant="interactive">
-          <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-1">
-            <span className="text-xs font-medium">Pending &amp; Overdue</span>
-            <AlertTriangle className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
-          </div>
-          <div className="text-xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-            {formatCurrency(totalUnpaidAmount, currency)}
-          </div>
-          <div className="flex items-center gap-1.5 mt-1 text-[11px] text-[var(--ff-text-muted)]">
-            <span>{unpaidCount} bills due</span>
-            {overdueCount > 0 && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="font-bold" style={{ color: 'var(--ff-danger)' }}>
-                  {overdueCount} Overdue!
-                </span>
-              </>
-            )}
-          </div>
-        </ThemeCard>
+      <MotionStaggerGrid className="grid grid-cols-1 sm:grid-cols-3" style={{ gap: 'var(--ff-grid-gap)' }}>
+        <MotionStaggerItem>
+          <ThemeCard variant="interactive" className="h-full">
+            <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-1">
+              <span className="text-xs font-medium">Pending &amp; Overdue</span>
+              <AlertTriangle className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
+            </div>
+            <div className="text-xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+              <AnimatedNumber
+                value={totalUnpaidAmount}
+                format={(paise) => formatCurrency(Math.round(paise), currency)}
+              />
+            </div>
+            <div className="flex items-center gap-1.5 mt-1 text-[11px] text-[var(--ff-text-muted)]">
+              <span>{unpaidCount} bills due</span>
+              {overdueCount > 0 && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-bold" style={{ color: 'var(--ff-danger)' }}>
+                    {overdueCount} Overdue!
+                  </span>
+                </>
+              )}
+            </div>
+          </ThemeCard>
+        </MotionStaggerItem>
 
-        <ThemeCard variant="interactive">
-          <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-1">
-            <span className="text-xs font-medium">Settled Payments</span>
-            <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--ff-success)' }} />
-          </div>
-          <div className="text-xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-            {formatCurrency(totalPaidAmount, currency)}
-          </div>
-          <span className="text-[11px] font-semibold mt-1 block" style={{ color: 'var(--ff-success)' }}>
-            {paidCount} bills paid this period
-          </span>
-        </ThemeCard>
+        <MotionStaggerItem>
+          <ThemeCard variant="interactive" className="h-full">
+            <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-1">
+              <span className="text-xs font-medium">Settled Payments</span>
+              <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--ff-success)' }} />
+            </div>
+            <div className="text-xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+              <AnimatedNumber
+                value={totalPaidAmount}
+                format={(paise) => formatCurrency(Math.round(paise), currency)}
+              />
+            </div>
+            <span className="text-[11px] font-semibold mt-1 block" style={{ color: 'var(--ff-success)' }}>
+              {paidCount} bills paid this period
+            </span>
+          </ThemeCard>
+        </MotionStaggerItem>
 
-        <ThemeCard className="flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-[var(--ff-text-muted)]">Bills Overview</span>
-            <CreditCard className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
-          </div>
-          <div className="flex items-center gap-2 mt-2">
-            <ThemeButton
-              variant="primary"
-              size="sm"
-              onClick={() => setAddBillModal(true)}
-              className="flex-1"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Bill</span>
-            </ThemeButton>
-            <ThemeButton
-              variant={showHistory ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => setShowHistory(!showHistory)}
-              title="Payment Audit History"
-              aria-label="Toggle payment audit history"
-            >
-              <History className="w-4 h-4" />
-            </ThemeButton>
-          </div>
-        </ThemeCard>
-      </div>
+        <MotionStaggerItem>
+          <ThemeCard className="flex flex-col justify-between h-full">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-[var(--ff-text-muted)]">Bills Overview</span>
+              <CreditCard className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <ThemeButton
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setBillFormError(null);
+                  setAddBillModal(true);
+                }}
+                className="flex-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Bill</span>
+              </ThemeButton>
+              <ThemeButton
+                variant={showHistory ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setShowHistory(!showHistory)}
+                title="Payment Audit History"
+                aria-label="Toggle payment audit history"
+                aria-expanded={showHistory}
+              >
+                <History className="w-4 h-4" />
+              </ThemeButton>
+            </div>
+          </ThemeCard>
+        </MotionStaggerItem>
+      </MotionStaggerGrid>
 
       {/* Filter Tabs */}
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -264,196 +322,227 @@ export const BillsTracker: React.FC = () => {
       </div>
 
       {/* Payment Audit History Drawer */}
-      {showHistory && (
-        <ThemeCard
-          variant="inset"
-          style={{
-            background: 'var(--ff-accent-soft)',
-            borderColor: 'var(--ff-accent-border)',
-          }}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <History className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
-              <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                Payment Audit History
-              </h3>
-            </div>
-            <ThemeButton variant="ghost" size="xs" onClick={() => setShowHistory(false)}>
-              Close History
-            </ThemeButton>
-          </div>
-
-          {paymentHistory.length === 0 ? (
-            <div className="p-4 text-center text-xs text-[var(--ff-text-muted)]">
-              No payment logs recorded yet.
-            </div>
-          ) : (
-            <div className="divide-y ff-divider text-xs">
-              {paymentHistory.map((hist) => (
-                <div key={hist.id} className="py-2.5 flex items-center justify-between">
-                  <div>
-                    <span className="font-semibold text-[var(--ff-text-primary)]">
-                      {hist.billName || 'Bill Payment'}
-                    </span>
-                    <div className="flex items-center gap-1.5 text-[11px] text-[var(--ff-text-muted)]">
-                      <span>Paid on {hist.paidDate}</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="uppercase">{hist.paymentMethod.replace('_', ' ')}</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono">{hist.transactionRef}</span>
-                    </div>
-                  </div>
-                  <span
-                    className="font-mono tabular-nums font-bold"
-                    style={{ color: 'var(--ff-success)' }}
-                  >
-                    {formatCurrency(hist.amountPaise, currency)}
-                  </span>
+      <AnimatePresence initial={false}>
+        {showHistory && (
+          <motion.div
+            key="bills-audit-drawer"
+            initial={isDisabled ? false : { opacity: 0, height: 0, y: -6 }}
+            animate={{ opacity: 1, height: 'auto', y: 0 }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0, height: 0, y: -6 }}
+            transition={{
+              duration: MOTION_DURATION.card * Math.max(0.55, factor || 0.01),
+              ease: MOTION_EASING.decelerate,
+            }}
+            className="overflow-hidden"
+          >
+            <ThemeCard
+              variant="inset"
+              style={{
+                background: 'var(--ff-accent-soft)',
+                borderColor: 'var(--ff-accent-border)',
+              }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
+                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                    Payment Audit History
+                  </h3>
                 </div>
-              ))}
-            </div>
-          )}
-        </ThemeCard>
-      )}
+                <ThemeButton variant="ghost" size="xs" onClick={() => setShowHistory(false)}>
+                  Close History
+                </ThemeButton>
+              </div>
+
+              {paymentHistory.length === 0 ? (
+                <div className="p-4 text-center text-xs text-[var(--ff-text-muted)]">
+                  No payment logs recorded yet.
+                </div>
+              ) : (
+                <div className="divide-y ff-divider text-xs">
+                  {paymentHistory.map((hist) => (
+                    <div key={hist.id} className="py-2.5 flex items-center justify-between">
+                      <div>
+                        <span className="font-semibold text-[var(--ff-text-primary)]">
+                          {hist.billName || 'Bill Payment'}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-[11px] text-[var(--ff-text-muted)]">
+                          <span>Paid on {hist.paidDate}</span>
+                          <span aria-hidden="true">·</span>
+                          <span className="uppercase">{hist.paymentMethod.replace('_', ' ')}</span>
+                          <span aria-hidden="true">·</span>
+                          <span className="font-mono">{hist.transactionRef}</span>
+                        </div>
+                      </div>
+                      <span
+                        className="font-mono tabular-nums font-bold"
+                        style={{ color: 'var(--ff-success)' }}
+                      >
+                        {formatCurrency(hist.amountPaise, currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ThemeCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Bills Ledger Table */}
       <ThemeCard noPadding>
-        {loading ? (
-          <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
-            Loading bills...
-          </div>
+        {loading && bills.length === 0 ? (
+          <SkeletonList rows={4} />
         ) : bills.length === 0 ? (
-          <div className="p-12 text-center">
-            <CreditCard className="w-8 h-8 text-[var(--ff-text-muted)] mx-auto mb-2 opacity-50" />
-            <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">
-              No bills match your criteria
-            </h3>
-            <p className="text-xs text-[var(--ff-text-muted)] mt-1">
-              Add recurring expenses or log a new bill above.
-            </p>
-          </div>
+          <EmptyStateIllustration
+            icon={<CreditCard className="w-6 h-6" />}
+            title="No bills match your criteria"
+            description="Add recurring obligations or register a scheduled bill above."
+            action={
+              <ThemeButton variant="primary" size="sm" onClick={() => setAddBillModal(true)}>
+                <Plus className="w-4 h-4" />
+                <span>Add Bill</span>
+              </ThemeButton>
+            }
+          />
         ) : (
           <div className="divide-y ff-divider">
-            {bills.map((bill) => {
-              const isPaid = bill.status === 'PAID';
-              const isOverdue = bill.status === 'OVERDUE';
+            <AnimatePresence initial={false}>
+              {bills.map((bill) => {
+                const isPaid = bill.status === 'PAID';
+                const isOverdue = bill.status === 'OVERDUE';
 
-              return (
-                <div
-                  key={bill.id}
-                  className={`ff-row-hover flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                    isPaid ? 'opacity-75' : ''
-                  }`}
-                  style={{ padding: 'var(--ff-row-pad)' }}
-                >
-                  <div className="flex items-start gap-3.5 min-w-0">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        isPaid ? void handleUndoPayment(bill.id, bill.name) : setPayingBill(bill)
-                      }
-                      className="mt-1 w-6 h-6 flex items-center justify-center transition-all shrink-0 border-2"
-                      style={{
-                        borderRadius: 'var(--ff-radius-badge)',
-                        background: isPaid ? 'var(--ff-success)' : 'transparent',
-                        borderColor: isPaid ? 'var(--ff-success)' : 'var(--ff-border-strong)',
-                        color: '#ffffff',
-                      }}
-                      title={isPaid ? 'Click to undo payment' : 'Click to mark as paid'}
-                      aria-label={isPaid ? 'Undo payment' : 'Mark as paid'}
-                    >
-                      {isPaid && <Check className="w-4 h-4 stroke-[3]" />}
-                    </button>
-
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-[var(--ff-text-primary)]">
-                          {bill.name}
-                        </span>
-
-                        <ThemeBadge
-                          tone={isPaid ? 'success' : isOverdue ? 'danger' : 'warning'}
-                        >
-                          {isPaid ? 'PAID' : isOverdue ? 'OVERDUE' : 'UNPAID'}
-                        </ThemeBadge>
-
-                        {bill.recurringExpenseId && (
-                          <ThemeBadge tone="accent">Recurring</ThemeBadge>
-                        )}
-                      </div>
-
-                      {bill.notes && (
-                        <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
-                          {bill.notes}
-                        </p>
-                      )}
-
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
-                        <div className="flex items-center gap-1">
-                          <Tag className="w-3 h-3" />
-                          <span>{bill.categoryName || 'General'}</span>
-                        </div>
-                        <span aria-hidden="true">·</span>
-                        <div className="flex items-center gap-1 font-mono">
-                          <Calendar className="w-3 h-3" />
-                          <span>Due {bill.dueDate}</span>
-                        </div>
-                        {isPaid && bill.paymentDate && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span className="font-medium" style={{ color: 'var(--ff-success)' }}>
-                              Paid {bill.paymentDate}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 self-end md:self-center shrink-0">
-                    <div className="text-right">
-                      <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)] block">
-                        {formatCurrency(bill.amountPaise, currency)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {!isPaid ? (
-                        <ThemeButton
-                          variant="success"
-                          size="xs"
-                          onClick={() => setPayingBill(bill)}
-                          className="whitespace-nowrap"
-                        >
-                          Mark as Paid
-                        </ThemeButton>
-                      ) : (
-                        <ThemeButton
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => void handleUndoPayment(bill.id, bill.name)}
-                          title="Undo payment"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          <span>Undo</span>
-                        </ThemeButton>
-                      )}
-
-                      <button
+                return (
+                  <motion.div
+                    key={bill.id}
+                    layout={isDisabled ? false : 'position'}
+                    initial={isDisabled ? false : { opacity: 0, y: 8 }}
+                    animate={{ opacity: isPaid ? 0.78 : 1, y: 0 }}
+                    exit={
+                      isDisabled
+                        ? { opacity: 0 }
+                        : { opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden' }
+                    }
+                    transition={{
+                      duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01),
+                      ease: MOTION_EASING.decelerate,
+                    }}
+                    className="ff-row-hover relative flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    style={{ padding: 'var(--ff-row-pad)' }}
+                  >
+                    <div className="flex items-start gap-3.5 min-w-0">
+                      <motion.button
                         type="button"
-                        onClick={() => void handleDeleteBill(bill.id)}
-                        className="p-1.5 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] rounded-lg transition-colors"
-                        title="Delete bill"
-                        aria-label={`Delete ${bill.name}`}
+                        onClick={() =>
+                          isPaid ? void handleUndoPayment(bill.id, bill.name) : setPayingBill(bill)
+                        }
+                        whileTap={isDisabled ? undefined : { scale: 0.85 }}
+                        animate={{ scale: isPaid && !isDisabled ? [1, 1.15, 1] : 1 }}
+                        transition={{ duration: MOTION_DURATION.control }}
+                        className="mt-1 w-6 h-6 flex items-center justify-center transition-colors shrink-0 border-2"
+                        style={{
+                          borderRadius: 'var(--ff-radius-badge)',
+                          background: isPaid ? 'var(--ff-success)' : 'transparent',
+                          borderColor: isPaid ? 'var(--ff-success)' : 'var(--ff-border-strong)',
+                          color: '#ffffff',
+                        }}
+                        title={isPaid ? 'Click to undo payment' : 'Click to mark as paid'}
+                        aria-label={isPaid ? 'Undo payment' : 'Mark as paid'}
                       >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                        {isPaid && <Check className="w-4 h-4 stroke-[3]" />}
+                      </motion.button>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold text-[var(--ff-text-primary)]">
+                            {bill.name}
+                          </span>
+
+                          <ThemeBadge
+                            tone={isPaid ? 'success' : isOverdue ? 'danger' : 'warning'}
+                          >
+                            {isPaid ? 'PAID' : isOverdue ? 'OVERDUE' : 'UNPAID'}
+                          </ThemeBadge>
+
+                          {bill.recurringExpenseId && (
+                            <ThemeBadge tone="accent">Recurring</ThemeBadge>
+                          )}
+
+                          <ConfirmationBurst show={recentlyPaidBillId === bill.id} label="Paid!" />
+                        </div>
+
+                        {bill.notes && (
+                          <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
+                            {bill.notes}
+                          </p>
+                        )}
+
+                        <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
+                          <div className="flex items-center gap-1">
+                            <Tag className="w-3 h-3" />
+                            <span>{bill.categoryName || 'General'}</span>
+                          </div>
+                          <span aria-hidden="true">·</span>
+                          <div className="flex items-center gap-1 font-mono">
+                            <Calendar className="w-3 h-3" />
+                            <span>Due {bill.dueDate}</span>
+                          </div>
+                          {isPaid && bill.paymentDate && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="font-medium" style={{ color: 'var(--ff-success)' }}>
+                                Paid {bill.paymentDate}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
+
+                    <div className="flex items-center gap-4 self-end md:self-center shrink-0">
+                      <div className="text-right">
+                        <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)] block">
+                          {formatCurrency(bill.amountPaise, currency)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {!isPaid ? (
+                          <ThemeButton
+                            variant="success"
+                            size="xs"
+                            onClick={() => setPayingBill(bill)}
+                            className="whitespace-nowrap"
+                          >
+                            Mark as Paid
+                          </ThemeButton>
+                        ) : (
+                          <ThemeButton
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => void handleUndoPayment(bill.id, bill.name)}
+                            title="Undo payment"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Undo</span>
+                          </ThemeButton>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteBill(bill.id)}
+                          className="p-1.5 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] rounded-lg transition-colors"
+                          title="Delete bill"
+                          aria-label={`Delete ${bill.name}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
       </ThemeCard>
@@ -526,8 +615,15 @@ export const BillsTracker: React.FC = () => {
             <ThemeButton variant="ghost" size="sm" onClick={() => setPayingBill(null)}>
               Cancel
             </ThemeButton>
-            <ThemeButton type="submit" variant="success" size="sm">
-              Confirm Payment
+            <ThemeButton
+              type="submit"
+              variant="success"
+              size="sm"
+              loading={paying}
+              success={paySuccess}
+              loadingText="Recording..."
+            >
+              {paySuccess ? 'Paid!' : 'Confirm Payment'}
             </ThemeButton>
           </div>
         </form>
@@ -539,7 +635,7 @@ export const BillsTracker: React.FC = () => {
         onClose={() => setAddBillModal(false)}
         title="Add New Bill"
       >
-        <form onSubmit={handleCreateBill} className="space-y-3.5">
+        <form onSubmit={handleCreateBill} noValidate className="space-y-3.5">
           <div>
             <label
               htmlFor="new-bill-name"
@@ -553,7 +649,10 @@ export const BillsTracker: React.FC = () => {
               required
               autoFocus
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (billFormError) setBillFormError(null);
+              }}
               placeholder="e.g., Electricity Bill, Mobile Postpaid"
             />
           </div>
@@ -572,7 +671,10 @@ export const BillsTracker: React.FC = () => {
                 step="0.01"
                 required
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  if (billFormError) setBillFormError(null);
+                }}
                 placeholder="0.00"
                 className="font-mono tabular-nums"
               />
@@ -631,12 +733,21 @@ export const BillsTracker: React.FC = () => {
             />
           </div>
 
+          <ValidationMessage message={billFormError} tone="error" />
+
           <div className="pt-2 flex items-center justify-end gap-2">
             <ThemeButton variant="ghost" size="sm" onClick={() => setAddBillModal(false)}>
               Cancel
             </ThemeButton>
-            <ThemeButton type="submit" variant="primary" size="sm">
-              Save Bill
+            <ThemeButton
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={creatingBill}
+              success={createSuccess}
+              loadingText="Saving..."
+            >
+              {createSuccess ? 'Saved!' : 'Save Bill'}
             </ThemeButton>
           </div>
         </form>

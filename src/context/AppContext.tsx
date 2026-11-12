@@ -8,7 +8,7 @@ import {
   SavedCustomTheme,
 } from '../types/index.ts';
 import { api } from '../lib/api.ts';
-import { playFocusCompleteSound, playBreakEndSound, playClickSound } from '../lib/sound.ts';
+import { playFocusCompleteSound, playBreakEndSound, playClickSound, unlockAudioContext } from '../lib/sound.ts';
 import {
   signInWithGoogle as fbSignInWithGoogle,
   signOut as fbSignOut,
@@ -184,6 +184,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [totalDuration, setTotalDuration] = useState<number>(25 * 60);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const sessionStartTimeRef = useRef<string | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoSwitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const targetEndTimeMsRef = useRef<number | null>(null);
+  const completionHandledRef = useRef<boolean>(false);
+  const timerModifiedByUserRef = useRef<boolean>(false);
+  const timeLeftRef = useRef<number>(timeLeft);
+  const totalDurationRef = useRef<number>(totalDuration);
+  timeLeftRef.current = timeLeft;
+  totalDurationRef.current = totalDuration;
 
   const isFullAppPreview = previewThemeConfig !== null;
   const effectiveThemeConfig = previewThemeConfig ?? themeConfig;
@@ -411,9 +420,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (s.lastSyncedAt) {
           setLastSyncedAt(s.lastSyncedAt);
         }
-        const initialSecs = (s.pomodoroWorkDuration || 25) * 60;
-        setTimeLeft((prev) => (isRunning ? prev : initialSecs));
-        setTotalDuration((prev) => (isRunning ? prev : initialSecs));
+        const rawWorkMin = Number(s.pomodoroWorkDuration);
+        const safeWorkMin =
+          Number.isFinite(rawWorkMin) && rawWorkMin >= 1 ? Math.min(180, Math.round(rawWorkMin)) : 25;
+        const initialSecs = safeWorkMin * 60;
+        if (!isRunning && !timerModifiedByUserRef.current) {
+          setTimeLeft(initialSecs);
+          setTotalDuration(initialSecs);
+        }
       })
       .catch((err) => {
         console.error('Failed to load user info:', err);
@@ -484,13 +498,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             console.warn('Could not restore theme from Firestore (offline or unavailable):', err);
             setThemeSyncState('offline');
           }
+          triggerRefresh();
         }
       },
       () => {
+        const hadFbUser = restoredFirebaseUidRef.current !== null;
         setFirebaseUser(null);
         setGoogleAccessToken(null);
         restoredFirebaseUidRef.current = null;
         setThemeSyncState('local');
+        if (hadFbUser) {
+          setUser(null);
+          triggerRefresh();
+        }
       }
     );
 
@@ -660,93 +680,209 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const clearTimerHandles = useCallback(() => {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (autoSwitchTimeoutRef.current !== null) {
+      clearTimeout(autoSwitchTimeoutRef.current);
+      autoSwitchTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Cleanup active timer handles on unmount
+  useEffect(() => {
+    return () => clearTimerHandles();
+  }, [clearTimerHandles]);
+
   // Timer controls
   const switchTimerMode = useCallback(
     (mode: TimerMode, durationMinutes?: number) => {
+      clearTimerHandles();
+      targetEndTimeMsRef.current = null;
+      completionHandledRef.current = false;
+      timerModifiedByUserRef.current = true;
       setIsRunning(false);
       setTimerMode(mode);
 
-      let minutes = 25;
-      if (durationMinutes) {
-        minutes = durationMinutes;
+      let rawMinutes = 25;
+      if (durationMinutes !== undefined) {
+        rawMinutes = durationMinutes;
       } else if (settings) {
-        if (mode === 'work') minutes = settings.pomodoroWorkDuration || 25;
-        else if (mode === 'short_break') minutes = settings.shortBreakDuration || 5;
-        else if (mode === 'long_break') minutes = settings.longBreakDuration || 15;
+        if (mode === 'work') rawMinutes = settings.pomodoroWorkDuration || 25;
+        else if (mode === 'short_break') rawMinutes = settings.shortBreakDuration || 5;
+        else if (mode === 'long_break') rawMinutes = settings.longBreakDuration || 15;
       } else {
-        if (mode === 'work') minutes = 25;
-        else if (mode === 'short_break') minutes = 5;
-        else if (mode === 'long_break') minutes = 15;
+        if (mode === 'work') rawMinutes = 25;
+        else if (mode === 'short_break') rawMinutes = 5;
+        else if (mode === 'long_break') rawMinutes = 15;
       }
 
-      const totalSec = minutes * 60;
+      const clampedMinutes = Number.isFinite(rawMinutes)
+        ? Math.max(1, Math.min(180, Math.round(rawMinutes)))
+        : mode === 'work'
+        ? 25
+        : mode === 'short_break'
+        ? 5
+        : 15;
+
+      const totalSec = clampedMinutes * 60;
       setTimeLeft(totalSec);
       setTotalDuration(totalSec);
       sessionStartTimeRef.current = null;
     },
-    [settings]
+    [settings, clearTimerHandles]
   );
 
-  const setCustomDuration = useCallback((minutes: number) => {
-    setIsRunning(false);
-    const secs = Math.max(1, minutes) * 60;
-    setTimeLeft(secs);
-    setTotalDuration(secs);
-  }, []);
+  const setCustomDuration = useCallback(
+    (minutes: number) => {
+      clearTimerHandles();
+      targetEndTimeMsRef.current = null;
+      completionHandledRef.current = false;
+      timerModifiedByUserRef.current = true;
+      setIsRunning(false);
+      const safeMinutes = Number.isFinite(minutes)
+        ? Math.max(1, Math.min(180, Math.round(minutes)))
+        : 25;
+      const secs = safeMinutes * 60;
+      setTimeLeft(secs);
+      setTotalDuration(secs);
+      sessionStartTimeRef.current = null;
+    },
+    [clearTimerHandles]
+  );
 
   const startTimer = useCallback(() => {
+    clearTimerHandles();
+    unlockAudioContext();
+    timerModifiedByUserRef.current = true;
+    completionHandledRef.current = false;
+
+    const currentRemaining = Math.max(0, Math.floor(timeLeftRef.current));
+    const effectiveSecs =
+      currentRemaining > 0 ? currentRemaining : Math.max(60, Math.floor(totalDurationRef.current) || 1500);
+    if (currentRemaining <= 0) {
+      setTimeLeft(effectiveSecs);
+    }
+    targetEndTimeMsRef.current = Date.now() + effectiveSecs * 1000;
+
     if (!sessionStartTimeRef.current) {
       sessionStartTimeRef.current = new Date().toISOString();
     }
     setIsRunning(true);
     playClickSound(settings?.soundEnabled ?? true);
-  }, [settings]);
+  }, [settings, clearTimerHandles]);
 
   const pauseTimer = useCallback(() => {
+    clearTimerHandles();
+    unlockAudioContext();
+    timerModifiedByUserRef.current = true;
+    if (targetEndTimeMsRef.current !== null) {
+      const remaining = Math.max(0, Math.ceil((targetEndTimeMsRef.current - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      targetEndTimeMsRef.current = null;
+    }
     setIsRunning(false);
     playClickSound(settings?.soundEnabled ?? true);
-  }, [settings]);
+  }, [settings, clearTimerHandles]);
 
   const resetTimer = useCallback(() => {
+    clearTimerHandles();
+    unlockAudioContext();
+    targetEndTimeMsRef.current = null;
+    completionHandledRef.current = false;
+    timerModifiedByUserRef.current = true;
+    const safeTotal = Math.max(60, Math.floor(totalDurationRef.current) || 1500);
     setIsRunning(false);
-    setTimeLeft(totalDuration);
+    setTimeLeft(safeTotal);
     sessionStartTimeRef.current = null;
     playClickSound(settings?.soundEnabled ?? true);
-  }, [totalDuration, settings]);
+  }, [settings, clearTimerHandles]);
 
-  // Timer countdown hook
+  const latestTimerDepsRef = useRef({
+    timerMode,
+    totalDuration,
+    activeTaskId,
+    settings,
+    firebaseUser,
+    googleSpreadsheetId,
+    googleAccessToken,
+    showToast,
+    switchTimerMode,
+    triggerRefresh,
+  });
+  latestTimerDepsRef.current = {
+    timerMode,
+    totalDuration,
+    activeTaskId,
+    settings,
+    firebaseUser,
+    googleSpreadsheetId,
+    googleAccessToken,
+    showToast,
+    switchTimerMode,
+    triggerRefresh,
+  };
+
+  // Timestamp-based countdown loop (drift-free across background tabs & avoids interval stacking)
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    if (!isRunning) {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
 
-    if (isRunning && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-    } else if (isRunning && timeLeft <= 0) {
+    if (targetEndTimeMsRef.current === null) {
+      const baseSecs = Math.max(1, Math.floor(timeLeftRef.current) || 1);
+      targetEndTimeMsRef.current = Date.now() + baseSecs * 1000;
+    }
+
+    const handleCompletion = () => {
+      if (completionHandledRef.current) return;
+      completionHandledRef.current = true;
+      clearTimerHandles();
+      targetEndTimeMsRef.current = null;
       setIsRunning(false);
 
-      const isSound = settings?.soundEnabled ?? true;
-      if (timerMode === 'work') {
+      const {
+        timerMode: modeNow,
+        totalDuration: durationNow,
+        activeTaskId: taskNow,
+        settings: settingsNow,
+        firebaseUser: fbUserNow,
+        googleSpreadsheetId: sheetIdNow,
+        googleAccessToken: tokenNow,
+        showToast: toastNow,
+        switchTimerMode: switchModeNow,
+        triggerRefresh: refreshNow,
+      } = latestTimerDepsRef.current;
+
+      const isSound = settingsNow?.soundEnabled ?? true;
+      if (modeNow === 'work') {
         playFocusCompleteSound(isSound);
-        showToast('Focus session complete! Great work!', 'success');
+        toastNow('Focus session complete! Great work!', 'success');
 
         const startedAt = sessionStartTimeRef.current || new Date().toISOString();
         const endedAt = new Date().toISOString();
-        const durationMin = Math.round(totalDuration / 60);
+        const safeDurationSecs = Math.max(60, Math.round(durationNow || 1500));
+        const durationMin = Math.max(1, Math.round(safeDurationSecs / 60));
 
         api
           .createFocusSession({
-            taskId: activeTaskId,
+            taskId: taskNow,
             mode: 'work',
             durationMinutes: durationMin,
-            durationSeconds: totalDuration,
+            durationSeconds: safeDurationSecs,
             completed: true,
             startedAt,
             endedAt,
           })
           .then((newSession) => {
-            if (firebaseUser) {
-              firestoreService.saveFocusSession(firebaseUser.uid, newSession).catch(console.error);
+            if (fbUserNow) {
+              firestoreService.saveFocusSession(fbUserNow.uid, newSession).catch(console.error);
             }
 
             googleSheetsService.enqueueMutation('Focus_Sessions', [
@@ -760,50 +896,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               newSession.endedAt,
             ]);
 
-            if (googleSpreadsheetId && googleAccessToken) {
+            if (sheetIdNow && tokenNow) {
               googleSheetsService
-                .flushQueue(googleSpreadsheetId, googleAccessToken)
+                .flushQueue(sheetIdNow, tokenNow)
                 .then(() => setSyncStatus('synced'))
                 .catch(() => setSyncStatus('error'));
             }
 
-            triggerRefresh();
+            refreshNow();
           })
           .catch(console.error);
 
-        if (settings?.autoSwitchSessions) {
-          switchTimerMode('short_break');
-          setTimeout(() => setIsRunning(true), 1000);
-        } else {
-          switchTimerMode('short_break');
+        switchModeNow('short_break');
+        if (settingsNow?.autoSwitchSessions) {
+          const breakMinutes = Math.max(
+            1,
+            Math.min(180, Math.round(settingsNow.shortBreakDuration || 5))
+          );
+          autoSwitchTimeoutRef.current = setTimeout(() => {
+            autoSwitchTimeoutRef.current = null;
+            completionHandledRef.current = false;
+            targetEndTimeMsRef.current = Date.now() + breakMinutes * 60 * 1000;
+            sessionStartTimeRef.current = new Date().toISOString();
+            setIsRunning(true);
+          }, 1000);
         }
       } else {
         playBreakEndSound(isSound);
-        showToast('Break finished! Ready to focus?', 'info');
-        switchTimerMode('work');
-        if (settings?.autoSwitchSessions) {
-          setTimeout(() => setIsRunning(true), 1000);
+        toastNow('Break finished! Ready to focus?', 'info');
+        switchModeNow('work');
+        if (settingsNow?.autoSwitchSessions) {
+          const workMinutes = Math.max(
+            1,
+            Math.min(180, Math.round(settingsNow.pomodoroWorkDuration || 25))
+          );
+          autoSwitchTimeoutRef.current = setTimeout(() => {
+            autoSwitchTimeoutRef.current = null;
+            completionHandledRef.current = false;
+            targetEndTimeMsRef.current = Date.now() + workMinutes * 60 * 1000;
+            sessionStartTimeRef.current = new Date().toISOString();
+            setIsRunning(true);
+          }, 1000);
         }
       }
-    }
+    };
+
+    const syncClock = () => {
+      if (targetEndTimeMsRef.current === null) return;
+      const remaining = Math.max(0, Math.ceil((targetEndTimeMsRef.current - Date.now()) / 1000));
+      setTimeLeft((prev) => (prev === remaining ? prev : remaining));
+      if (remaining <= 0) {
+        handleCompletion();
+      }
+    };
+
+    syncClock();
+    intervalRef.current = setInterval(syncClock, 250);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncClock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      if (interval) clearInterval(interval);
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [
-    isRunning,
-    timeLeft,
-    timerMode,
-    totalDuration,
-    activeTaskId,
-    settings,
-    firebaseUser,
-    googleSpreadsheetId,
-    googleAccessToken,
-    showToast,
-    switchTimerMode,
-    triggerRefresh,
-  ]);
+  }, [isRunning, clearTimerHandles]);
 
   const currency = settings?.currency || 'INR';
 

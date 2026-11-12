@@ -1,8 +1,11 @@
 import React from 'react';
+import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { FinanceSummaryData } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeCard, ThemeProgressBar } from '../ui/ThemePrimitives.tsx';
+import { EmptyStateIllustration, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import { BarChart2, PieChart, Layers } from 'lucide-react';
 
 interface AnalyticsChartsProps {
@@ -11,6 +14,8 @@ interface AnalyticsChartsProps {
 
 export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({ data }) => {
   const { currency } = useApp();
+  const { isDisabled, intensity } = useMotionPreferences();
+  const factor = getIntensityFactor(intensity);
 
   const totalFlow = (data.totalIncomePaise || 0) + (data.totalExpensePaise || 0);
   const incomeRatio = totalFlow > 0 ? (data.totalIncomePaise / totalFlow) * 100 : 50;
@@ -46,14 +51,26 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({ data }) => {
 
           <div className="space-y-3 pt-2">
             <div className="ff-progress-track h-4 w-full flex">
-              <div
-                className="transition-all duration-500 h-full"
-                style={{ width: `${incomeRatio}%`, backgroundColor: 'var(--ff-success)' }}
+              <motion.div
+                className="h-full"
+                initial={isDisabled ? false : { width: '0%' }}
+                animate={{ width: `${incomeRatio}%` }}
+                transition={{
+                  duration: MOTION_DURATION.card * 1.15 * Math.max(0.5, factor || 0.01),
+                  ease: MOTION_EASING.decelerate,
+                }}
+                style={{ backgroundColor: 'var(--ff-success)' }}
                 title={`Income: ${incomeRatio.toFixed(1)}%`}
               />
-              <div
-                className="transition-all duration-500 h-full"
-                style={{ width: `${expenseRatio}%`, backgroundColor: 'var(--ff-danger)' }}
+              <motion.div
+                className="h-full"
+                initial={isDisabled ? false : { width: '0%' }}
+                animate={{ width: `${expenseRatio}%` }}
+                transition={{
+                  duration: MOTION_DURATION.card * 1.15 * Math.max(0.5, factor || 0.01),
+                  ease: MOTION_EASING.decelerate,
+                }}
+                style={{ backgroundColor: 'var(--ff-danger)' }}
                 title={`Expenses: ${expenseRatio.toFixed(1)}%`}
               />
             </div>
@@ -121,14 +138,26 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({ data }) => {
 
           <div className="space-y-3 pt-2">
             <div className="ff-progress-track h-4 w-full flex">
-              <div
-                className="transition-all duration-500 h-full"
-                style={{ width: `${fixedRatio}%`, backgroundColor: 'var(--ff-accent)' }}
+              <motion.div
+                className="h-full"
+                initial={isDisabled ? false : { width: '0%' }}
+                animate={{ width: `${fixedRatio}%` }}
+                transition={{
+                  duration: MOTION_DURATION.card * 1.15 * Math.max(0.5, factor || 0.01),
+                  ease: MOTION_EASING.decelerate,
+                }}
+                style={{ backgroundColor: 'var(--ff-accent)' }}
                 title={`Fixed: ${fixedRatio.toFixed(1)}%`}
               />
-              <div
-                className="transition-all duration-500 h-full"
-                style={{ width: `${variableRatio}%`, backgroundColor: 'var(--ff-warning)' }}
+              <motion.div
+                className="h-full"
+                initial={isDisabled ? false : { width: '0%' }}
+                animate={{ width: `${variableRatio}%` }}
+                transition={{
+                  duration: MOTION_DURATION.card * 1.15 * Math.max(0.5, factor || 0.01),
+                  ease: MOTION_EASING.decelerate,
+                }}
+                style={{ backgroundColor: 'var(--ff-warning)' }}
                 title={`Variable: ${variableRatio.toFixed(1)}%`}
               />
             </div>
@@ -188,9 +217,11 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({ data }) => {
         </div>
 
         {data.categoryBreakdown.length === 0 ? (
-          <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">
-            No expense transactions found for the selected period.
-          </div>
+          <EmptyStateIllustration
+            icon={<PieChart className="w-6 h-6" />}
+            title="No expenses in selected range"
+            description="No expense transactions found for the selected period."
+          />
         ) : (
           <div className="space-y-3.5">
             {data.categoryBreakdown.map((cat) => {
@@ -267,27 +298,41 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({ data }) => {
           className="flex items-end justify-between gap-3 sm:gap-6 h-48 pt-6 px-2 border-b"
           style={{ borderColor: 'var(--ff-border-color)' }}
         >
-          {data.monthlyTrend.map((m) => {
-            const incHeight = maxTrend > 0 ? (m.incomePaise / maxTrend) * 140 : 4;
-            const expHeight = maxTrend > 0 ? (m.expensePaise / maxTrend) * 140 : 4;
+          {data.monthlyTrend.map((m, idx) => {
+            const incHeight = Math.max(4, Math.round(maxTrend > 0 ? (m.incomePaise / maxTrend) * 140 : 4));
+            const expHeight = Math.max(4, Math.round(maxTrend > 0 ? (m.expensePaise / maxTrend) * 140 : 4));
 
             return (
               <div key={m.month} className="flex-1 flex flex-col items-center gap-2 group">
                 <div className="flex items-end gap-1.5 h-[140px]">
-                  <div
-                    className="w-3.5 sm:w-5 transition-all duration-300 relative"
+                  <motion.div
+                    initial={isDisabled ? { height: incHeight } : { height: 0 }}
+                    animate={{ height: incHeight }}
+                    transition={{
+                      duration: MOTION_DURATION.card * 1.15 * Math.max(0.5, factor || 0.01),
+                      delay: isDisabled ? 0 : idx * 0.04,
+                      ease: MOTION_EASING.decelerate,
+                    }}
+                    whileHover={isDisabled ? undefined : { scaleY: 1.05 }}
+                    className="w-3.5 sm:w-5 relative origin-bottom"
                     style={{
-                      height: `${Math.max(4, incHeight)}px`,
                       backgroundColor: 'var(--ff-success)',
                       borderTopLeftRadius: 'var(--ff-radius-badge)',
                       borderTopRightRadius: 'var(--ff-radius-badge)',
                     }}
                     title={`Income: ${formatCurrency(m.incomePaise, currency)}`}
                   />
-                  <div
-                    className="w-3.5 sm:w-5 transition-all duration-300 relative"
+                  <motion.div
+                    initial={isDisabled ? { height: expHeight } : { height: 0 }}
+                    animate={{ height: expHeight }}
+                    transition={{
+                      duration: MOTION_DURATION.card * 1.15 * Math.max(0.5, factor || 0.01),
+                      delay: isDisabled ? 0 : idx * 0.04 + 0.03,
+                      ease: MOTION_EASING.decelerate,
+                    }}
+                    whileHover={isDisabled ? undefined : { scaleY: 1.05 }}
+                    className="w-3.5 sm:w-5 relative origin-bottom"
                     style={{
-                      height: `${Math.max(4, expHeight)}px`,
                       backgroundColor: 'var(--ff-danger)',
                       borderTopLeftRadius: 'var(--ff-radius-badge)',
                       borderTopRightRadius: 'var(--ff-radius-badge)',
