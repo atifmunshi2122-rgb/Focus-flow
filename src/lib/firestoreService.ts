@@ -24,6 +24,12 @@ import {
   DashboardData,
   FinanceSummaryData,
   FocusStatsData,
+  SubtaskItem,
+  TaskRecurrence,
+  SavingsGoal,
+  TrashRecord,
+  NotificationPreferences,
+  DashboardLayoutConfig,
 } from '../types/index.ts';
 
 const DEFAULT_CATEGORY_TEMPLATES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -51,6 +57,35 @@ function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
   return out as T;
 }
 
+const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
+  enabled: true,
+  taskDeadlines: true,
+  upcomingBills: true,
+  billLeadDays: 3,
+  overdueBills: true,
+  focusCompletion: true,
+  dailyFocusGoal: true,
+  budgetWarnings: true,
+  budgetWarningPercent: 80,
+  syncFailures: true,
+};
+
+const DEFAULT_DASHBOARD_LAYOUT: DashboardLayoutConfig = {
+  preset: 'executive',
+  widgetOrder: [
+    'clock_greeting',
+    'hero',
+    'focus_kpis',
+    'finance_kpis',
+    'productivity_goals',
+    'gamification',
+    'upcoming_bills',
+    'recent_transactions',
+  ],
+  hiddenWidgets: [],
+  widgetSizes: {},
+};
+
 function defaultSettingsForUser(userId: string): UserSettings {
   return {
     userId,
@@ -61,6 +96,15 @@ function defaultSettingsForUser(userId: string): UserSettings {
     autoSwitchSessions: false,
     soundEnabled: true,
     theme: 'dark',
+    dailyFocusGoalMinutes: 100,
+    weeklyFocusGoalMinutes: 500,
+    monthlyBudgetPaise: 5000000,
+    categoryBudgets: {},
+    dashboardLayout: DEFAULT_DASHBOARD_LAYOUT,
+    notificationPrefs: DEFAULT_NOTIFICATION_PREFS,
+    favoriteStyleIds: [],
+    favoriteThemeIds: [],
+    keyboardShortcutsEnabled: true,
   };
 }
 
@@ -68,6 +112,67 @@ function isIsoDate(val: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return false;
   const parsed = new Date(`${val}T00:00:00.000Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === val;
+}
+
+function parseSubtasks(raw: unknown): SubtaskItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: SubtaskItem[] = [];
+  for (let i = 0; i < Math.min(raw.length, 30); i++) {
+    const entry = raw[i];
+    if (!entry || typeof entry !== 'object') continue;
+    const obj = entry as Record<string, unknown>;
+    const title = typeof obj.title === 'string' ? obj.title.trim().slice(0, 200) : '';
+    if (!title) continue;
+    items.push({
+      id: typeof obj.id === 'string' && obj.id.trim() ? obj.id.trim() : `sub_${Date.now()}_${i}`,
+      title,
+      done: Boolean(obj.done),
+    });
+  }
+  return items;
+}
+
+function computeNextRecurrenceDueDate(
+  currentDueDate: string | null | undefined,
+  recurrence: TaskRecurrence
+): string | null {
+  if (recurrence === 'none') return null;
+  const baseStr =
+    currentDueDate && isIsoDate(currentDueDate)
+      ? currentDueDate
+      : new Date().toISOString().slice(0, 10);
+  const d = new Date(`${baseStr}T00:00:00.000Z`);
+  if (recurrence === 'daily') d.setUTCDate(d.getUTCDate() + 1);
+  else if (recurrence === 'weekly') d.setUTCDate(d.getUTCDate() + 7);
+  else if (recurrence === 'monthly') d.setUTCMonth(d.getUTCMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function computeBestStreakDays(sessions: FocusSession[]): number {
+  const dates = Array.from(
+    new Set(
+      sessions
+        .filter((s) => s && s.completed && s.mode === 'work' && typeof s.startedAt === 'string')
+        .map((s) => s.startedAt.slice(0, 10))
+        .filter((d) => isIsoDate(d))
+    )
+  ).sort();
+  if (dates.length === 0) return 0;
+
+  let best = 1;
+  let current = 1;
+  for (let i = 1; i < dates.length; i++) {
+    const prev = new Date(`${dates[i - 1]}T00:00:00.000Z`);
+    const next = new Date(`${dates[i]}T00:00:00.000Z`);
+    const diffDays = Math.round((next.getTime() - prev.getTime()) / 86400000);
+    if (diffDays === 1) {
+      current++;
+      if (current > best) best = current;
+    } else if (diffDays > 1) {
+      current = 1;
+    }
+  }
+  return best;
 }
 
 function calculateBoundedStreakDays(sessions: FocusSession[], referenceDate = new Date()): number {
@@ -196,6 +301,27 @@ export const firestoreService = {
         }
         sanitized.longBreakDuration = Math.round(n);
       }
+      if (sanitized.dailyFocusGoalMinutes !== undefined) {
+        const n = Number(sanitized.dailyFocusGoalMinutes);
+        if (!Number.isFinite(n) || n < 5 || n > 720) {
+          throw new Error('dailyFocusGoalMinutes must be between 5 and 720');
+        }
+        sanitized.dailyFocusGoalMinutes = Math.round(n);
+      }
+      if (sanitized.weeklyFocusGoalMinutes !== undefined) {
+        const n = Number(sanitized.weeklyFocusGoalMinutes);
+        if (!Number.isFinite(n) || n < 15 || n > 5000) {
+          throw new Error('weeklyFocusGoalMinutes must be between 15 and 5000');
+        }
+        sanitized.weeklyFocusGoalMinutes = Math.round(n);
+      }
+      if (sanitized.monthlyBudgetPaise !== undefined) {
+        const n = Number(sanitized.monthlyBudgetPaise);
+        if (!Number.isFinite(n) || n < 0 || n > 1_000_000_000) {
+          throw new Error('monthlyBudgetPaise must be a valid non-negative integer');
+        }
+        sanitized.monthlyBudgetPaise = Math.round(n);
+      }
 
       await setDoc(doc(db, path), stripUndefined({ ...sanitized }), { merge: true });
       const snap = await getDoc(doc(db, path));
@@ -217,7 +343,7 @@ export const firestoreService = {
         return defaultSnap.data() as Partial<UserSettings>;
       }
       const snap = await getDocs(collection(db, `users/${userId}/settings`));
-      const nonCat = snap.docs.find((d) => d.id !== 'categories');
+      const nonCat = snap.docs.find((d) => d.id !== 'categories' && d.id !== 'savings_goals');
       if (nonCat) {
         return nonCat.data() as Partial<UserSettings>;
       }
@@ -373,9 +499,27 @@ export const firestoreService = {
     );
     const totalMinutes = Math.round(sessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60);
     const totalCompletedSessions = sessions.filter((s) => s.mode === 'work').length;
+    const weeklyMinutes = last7Days.reduce((acc, d) => acc + d.minutes, 0);
+
+    const dailyHeatmap: FocusStatsData['dailyHeatmap'] = [];
+    for (let i = 83; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const dayWorkSessions = sessions.filter(
+        (s) => s.startedAt.startsWith(dateStr) && s.mode === 'work'
+      );
+      dailyHeatmap.push({
+        date: dateStr,
+        minutes: Math.round(dayWorkSessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60),
+        sessionsCount: dayWorkSessions.length,
+      });
+    }
 
     return {
       last7Days,
+      dailyHeatmap,
+      weeklyMinutes,
       monthMinutes,
       monthSessionsCount: monthSessions.length,
       totalMinutes,
@@ -400,13 +544,26 @@ export const firestoreService = {
   // Tasks
   async getTasks(userId: string): Promise<Task[]> {
     const list = await listSubcollection<Task>(`users/${userId}/tasks`);
-    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return list
+      .filter((t) => !t.deletedAt)
+      .sort((a, b) => {
+        const orderA = Number.isFinite(a.order) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
+        const orderB = Number.isFinite(b.order) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
+        if (orderA !== orderB) return orderA - orderB;
+        return b.createdAt.localeCompare(a.createdAt);
+      });
   },
 
   async createTask(userId: string, input: Partial<Task>): Promise<Task> {
     const title = typeof input.title === 'string' ? input.title.trim() : '';
     if (!title) throw new Error('Title is required');
     const est = Number(input.estimatedPomodoros);
+    const recurrence: TaskRecurrence =
+      input.recurrence === 'daily' ||
+      input.recurrence === 'weekly' ||
+      input.recurrence === 'monthly'
+        ? input.recurrence
+        : 'none';
     const now = new Date().toISOString();
     const created: Task = {
       id: `tsk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -415,10 +572,17 @@ export const firestoreService = {
       description: (input.description || '').trim(),
       priority:
         input.priority === 'low' || input.priority === 'high' ? input.priority : 'medium',
-      status: 'todo',
+      status:
+        input.status === 'in_progress' || input.status === 'completed' ? input.status : 'todo',
+      category: (input.category || 'General').trim() || 'General',
+      subtasks: parseSubtasks(input.subtasks),
+      recurrence,
+      order: Number.isFinite(Number(input.order)) ? Number(input.order) : 0,
       estimatedPomodoros: Number.isFinite(est) && est >= 1 ? Math.min(100, Math.round(est)) : 1,
       completedPomodoros: 0,
       dueDate: input.dueDate || null,
+      completedAt: null,
+      deletedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -432,6 +596,16 @@ export const firestoreService = {
       const snap = await getDoc(doc(db, path));
       if (!snap.exists()) throw new Error('Task not found');
       const existing = snap.data() as Task;
+      const prevStatus = existing.status;
+      const nowIso = new Date().toISOString();
+      const nextStatus = updates.status || existing.status;
+      const completedAt =
+        nextStatus === 'completed' && prevStatus !== 'completed'
+          ? nowIso
+          : nextStatus !== 'completed'
+            ? null
+            : existing.completedAt || null;
+
       const next: Task = {
         ...existing,
         ...updates,
@@ -440,10 +614,37 @@ export const firestoreService = {
         title: updates.title !== undefined ? updates.title.trim() : existing.title,
         description:
           updates.description !== undefined ? updates.description.trim() : existing.description,
-        updatedAt: new Date().toISOString(),
+        category:
+          updates.category !== undefined ? updates.category.trim() || 'General' : existing.category,
+        subtasks:
+          updates.subtasks !== undefined ? parseSubtasks(updates.subtasks) : existing.subtasks,
+        completedAt,
+        updatedAt: nowIso,
       };
       if (!next.title) throw new Error('Title is required');
       await setDoc(doc(db, path), stripUndefined({ ...next }), { merge: true });
+
+      const rec = next.recurrence || 'none';
+      if (prevStatus !== 'completed' && next.status === 'completed' && rec !== 'none') {
+        const nextDue = computeNextRecurrenceDueDate(next.dueDate, rec);
+        const clonedSubtasks = (next.subtasks || []).map((s, idx) => ({
+          id: `sub_${Date.now()}_${idx}`,
+          title: s.title,
+          done: false,
+        }));
+        await this.createTask(userId, {
+          title: next.title,
+          description: next.description,
+          priority: next.priority,
+          status: 'todo',
+          category: next.category || 'General',
+          subtasks: clonedSubtasks,
+          recurrence: rec,
+          estimatedPomodoros: next.estimatedPomodoros,
+          dueDate: nextDue,
+        });
+      }
+
       return next;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, path);
@@ -462,9 +663,10 @@ export const firestoreService = {
   async deleteTask(userId: string, taskId: string): Promise<void> {
     const path = `users/${userId}/tasks/${taskId}`;
     try {
-      await deleteDoc(doc(db, path));
+      const nowIso = new Date().toISOString();
+      await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, path);
+      handleFirestoreError(err, OperationType.WRITE, path);
     }
   },
 
@@ -473,7 +675,9 @@ export const firestoreService = {
     return onSnapshot(
       collection(db, path),
       (snapshot) => {
-        const list = snapshot.docs.map((d) => d.data() as Task);
+        const list = snapshot.docs
+          .map((d) => d.data() as Task)
+          .filter((t) => !t.deletedAt);
         onUpdate(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       },
       (err) => {
@@ -485,7 +689,7 @@ export const firestoreService = {
   // Income
   async getIncomes(userId: string): Promise<IncomeTransaction[]> {
     const list = await listSubcollection<IncomeTransaction>(`users/${userId}/income`);
-    return list.sort((a, b) => b.date.localeCompare(a.date));
+    return list.filter((i) => !i.deletedAt).sort((a, b) => b.date.localeCompare(a.date));
   },
 
   async createIncome(userId: string, input: Partial<IncomeTransaction>): Promise<IncomeTransaction> {
@@ -552,9 +756,9 @@ export const firestoreService = {
   async deleteIncome(userId: string, id: string): Promise<void> {
     const path = `users/${userId}/income/${id}`;
     try {
-      await deleteDoc(doc(db, path));
+      await setDoc(doc(db, path), { deletedAt: new Date().toISOString() }, { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, path);
+      handleFirestoreError(err, OperationType.WRITE, path);
     }
   },
 
@@ -676,7 +880,8 @@ export const firestoreService = {
       listSubcollection<ExpenseTransaction>(`users/${userId}/expenses`),
       this.getCategories(userId),
     ]);
-    const filtered = type ? all.filter((e) => e.type === type) : all;
+    const active = all.filter((e) => !e.deletedAt);
+    const filtered = type ? active.filter((e) => e.type === type) : active;
     return filtered
       .map((e) => ({
         ...e,
@@ -765,9 +970,9 @@ export const firestoreService = {
   async deleteExpense(userId: string, id: string): Promise<void> {
     const path = `users/${userId}/expenses/${id}`;
     try {
-      await deleteDoc(doc(db, path));
+      await setDoc(doc(db, path), { deletedAt: new Date().toISOString() }, { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, path);
+      handleFirestoreError(err, OperationType.WRITE, path);
     }
   },
 
@@ -814,7 +1019,7 @@ export const firestoreService = {
     }
 
     for (const bill of bills) {
-      if (bill.status === 'UNPAID' && bill.dueDate < todayStr) {
+      if (!bill.deletedAt && bill.status === 'UNPAID' && bill.dueDate < todayStr) {
         bill.status = 'OVERDUE';
         bill.updatedAt = new Date().toISOString();
         writes.push(this.saveBill(userId, bill));
@@ -824,7 +1029,7 @@ export const firestoreService = {
     if (writes.length > 0) {
       await Promise.all(writes);
     }
-    return bills;
+    return bills.filter((b) => !b.deletedAt);
   },
 
   async getBills(userId: string, status?: string): Promise<Bill[]> {
@@ -996,14 +1201,13 @@ export const firestoreService = {
   },
 
   async deleteBill(userId: string, billId: string): Promise<void> {
-    const historyItems = await this.getPaymentHistory(userId);
-    const linkedPayments = historyItems.filter((p) => p.billId === billId);
+    const nowIso = new Date().toISOString();
+    const expSnap = await getDoc(doc(db, `users/${userId}/expenses/exp_bill_${billId}`)).catch(() => null);
     await Promise.all([
-      deleteDoc(doc(db, `users/${userId}/bills/${billId}`)),
-      deleteDoc(doc(db, `users/${userId}/expenses/exp_bill_${billId}`)).catch(() => {}),
-      ...linkedPayments.map((p) =>
-        deleteDoc(doc(db, `users/${userId}/payment_history/${p.id}`)).catch(() => {})
-      ),
+      setDoc(doc(db, `users/${userId}/bills/${billId}`), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true }),
+      expSnap && expSnap.exists()
+        ? setDoc(doc(db, `users/${userId}/expenses/exp_bill_${billId}`), { deletedAt: nowIso }, { merge: true })
+        : Promise.resolve(),
     ]);
   },
 
@@ -1023,8 +1227,9 @@ export const firestoreService = {
 
   // Aggregated Dashboard & Finance Summary
   async getDashboard(userId: string): Promise<DashboardData> {
-    const [sessions, incomes, expenses, bills, cats] = await Promise.all([
+    const [sessions, tasks, incomes, expenses, bills, cats] = await Promise.all([
       this.getFocusSessions(userId),
+      this.getTasks(userId),
       this.getIncomes(userId),
       this.getExpenses(userId),
       this.getBills(userId),
@@ -1035,10 +1240,30 @@ export const firestoreService = {
     const todayStr = now.toISOString().split('T')[0];
     const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
+    const day = now.getDay();
+    const diffToMonday = (day + 6) % 7;
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - diffToMonday);
+    const weekStartStr = startOfWeek.toISOString().split('T')[0];
+
     const todaySessions = sessions.filter((s) => s.startedAt.startsWith(todayStr) && s.completed);
     const todayFocusSeconds = todaySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
+    const weeklyFocusSeconds = sessions
+      .filter((s) => s.mode === 'work' && s.completed && s.startedAt.slice(0, 10) >= weekStartStr)
+      .reduce((acc, s) => acc + s.durationSeconds, 0);
     const completedPomodoroSessions = todaySessions.filter((s) => s.mode === 'work').length;
     const focusStreakDays = calculateBoundedStreakDays(sessions, now);
+    const bestStreakDays = computeBestStreakDays(sessions);
+
+    const completedTasksCount = tasks.filter((t) => t.status === 'completed').length;
+    const pendingTasksCount = tasks.filter((t) => t.status !== 'completed').length;
+
+    const todayIncomePaise = incomes
+      .filter((inc) => inc.date === todayStr)
+      .reduce((acc, inc) => acc + inc.amountPaise, 0);
+    const todayExpensesPaise = expenses
+      .filter((exp) => exp.date === todayStr)
+      .reduce((acc, exp) => acc + exp.amountPaise, 0);
 
     const currentIncomes = incomes.filter((inc) => inc.date.startsWith(currentMonthKey));
     const monthlyIncomePaise = currentIncomes.reduce((acc, inc) => acc + inc.amountPaise, 0);
@@ -1101,8 +1326,14 @@ export const firestoreService = {
 
     return {
       todayFocusMinutes: Math.round(todayFocusSeconds / 60),
+      weeklyFocusMinutes: Math.round(weeklyFocusSeconds / 60),
       completedPomodoroSessions,
       focusStreakDays,
+      bestStreakDays,
+      completedTasksCount,
+      pendingTasksCount,
+      todayIncomePaise,
+      todayExpensesPaise,
       monthlyIncomePaise,
       monthlyExpensesPaise,
       fixedExpensesPaise,
@@ -1174,12 +1405,16 @@ export const firestoreService = {
     const paidBills = bills.filter((b) => b.status === 'PAID');
     const unpaidBills = bills.filter((b) => b.status === 'UNPAID' || b.status === 'OVERDUE');
 
-    const categoryMap: Record<string, { name: string; color: string; amountPaise: number }> = {};
+    const categoryMap: Record<
+      string,
+      { categoryId: string; name: string; color: string; amountPaise: number }
+    > = {};
     for (const exp of expenses) {
       const cat = cats.find((c) => c.id === exp.categoryId);
       const key = exp.categoryId || 'other';
       if (!categoryMap[key]) {
         categoryMap[key] = {
+          categoryId: key,
           name: cat?.name || (exp.type === 'fixed' ? 'Fixed Expense' : 'Variable Expense'),
           color: cat?.color || '#94a3b8',
           amountPaise: 0,
@@ -1221,6 +1456,197 @@ export const firestoreService = {
       categoryBreakdown: Object.values(categoryMap).sort((a, b) => b.amountPaise - a.amountPaise),
       monthlyTrend,
     };
+  },
+
+  // Savings Goals (stored under users/{uid}/settings/savings_goals, covered by firestore.rules)
+  async getSavingsGoals(userId: string): Promise<SavingsGoal[]> {
+    const path = `users/${userId}/settings/savings_goals`;
+    try {
+      const snap = await getDoc(doc(db, path));
+      if (snap.exists()) {
+        const items = (snap.data() as { items?: SavingsGoal[] }).items;
+        if (Array.isArray(items)) return items;
+      }
+      return [];
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, path);
+    }
+  },
+
+  async saveSavingsGoalsList(userId: string, items: SavingsGoal[]): Promise<void> {
+    const path = `users/${userId}/settings/savings_goals`;
+    try {
+      await setDoc(doc(db, path), { items }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  },
+
+  async createSavingsGoal(userId: string, input: Partial<SavingsGoal>): Promise<SavingsGoal> {
+    const title = typeof input.title === 'string' ? input.title.trim() : '';
+    const target = Number(input.targetPaise);
+    const saved = input.savedPaise !== undefined ? Number(input.savedPaise) : 0;
+    if (!title) throw new Error('Goal title is required');
+    if (!Number.isFinite(target) || target <= 0) throw new Error('Target amount must be positive');
+    const items = await this.getSavingsGoals(userId);
+    const now = new Date().toISOString();
+    const created: SavingsGoal = {
+      id: `svg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      userId,
+      title,
+      targetPaise: Math.round(target),
+      savedPaise: Number.isFinite(saved) && saved >= 0 ? Math.round(saved) : 0,
+      targetDate: input.targetDate && isIsoDate(input.targetDate) ? input.targetDate : null,
+      color: typeof input.color === 'string' && input.color.trim() ? input.color.trim() : '#10b981',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.saveSavingsGoalsList(userId, [created, ...items]);
+    return created;
+  },
+
+  async updateSavingsGoal(
+    userId: string,
+    id: string,
+    updates: Partial<SavingsGoal>
+  ): Promise<SavingsGoal> {
+    const items = await this.getSavingsGoals(userId);
+    const idx = items.findIndex((g) => g.id === id);
+    if (idx === -1) throw new Error('Savings goal not found');
+    const cur = items[idx];
+    const next: SavingsGoal = {
+      ...cur,
+      title: updates.title !== undefined ? updates.title.trim() || cur.title : cur.title,
+      targetPaise:
+        updates.targetPaise !== undefined && Number.isFinite(Number(updates.targetPaise)) && Number(updates.targetPaise) > 0
+          ? Math.round(Number(updates.targetPaise))
+          : cur.targetPaise,
+      savedPaise:
+        updates.savedPaise !== undefined && Number.isFinite(Number(updates.savedPaise)) && Number(updates.savedPaise) >= 0
+          ? Math.round(Number(updates.savedPaise))
+          : cur.savedPaise,
+      targetDate: updates.targetDate !== undefined ? updates.targetDate : cur.targetDate,
+      color: updates.color !== undefined ? updates.color : cur.color,
+      updatedAt: new Date().toISOString(),
+    };
+    items[idx] = next;
+    await this.saveSavingsGoalsList(userId, items);
+    return next;
+  },
+
+  async contributeSavingsGoal(
+    userId: string,
+    id: string,
+    deltaPaise: number
+  ): Promise<SavingsGoal> {
+    if (!Number.isFinite(deltaPaise) || deltaPaise === 0) {
+      throw new Error('Non-zero contribution amount is required');
+    }
+    const items = await this.getSavingsGoals(userId);
+    const idx = items.findIndex((g) => g.id === id);
+    if (idx === -1) throw new Error('Savings goal not found');
+    const cur = items[idx];
+    const nextSaved = cur.savedPaise + Math.round(deltaPaise);
+    if (nextSaved < 0) throw new Error('Cannot withdraw more than current saved amount');
+    items[idx] = { ...cur, savedPaise: nextSaved, updatedAt: new Date().toISOString() };
+    await this.saveSavingsGoalsList(userId, items);
+    return items[idx];
+  },
+
+  async deleteSavingsGoal(userId: string, id: string): Promise<void> {
+    const items = await this.getSavingsGoals(userId);
+    await this.saveSavingsGoalsList(
+      userId,
+      items.filter((g) => g.id !== id)
+    );
+  },
+
+  // Trash & Restore
+  async getTrashItems(userId: string): Promise<TrashRecord[]> {
+    const [tasks, incomes, expenses, bills] = await Promise.all([
+      listSubcollection<Task>(`users/${userId}/tasks`),
+      listSubcollection<IncomeTransaction>(`users/${userId}/income`),
+      listSubcollection<ExpenseTransaction>(`users/${userId}/expenses`),
+      listSubcollection<Bill>(`users/${userId}/bills`),
+    ]);
+
+    const records: TrashRecord[] = [
+      ...tasks
+        .filter((t) => Boolean(t.deletedAt))
+        .map((t) => ({
+          id: t.id,
+          entityType: 'task' as const,
+          title: t.title,
+          subtitle: `Task • ${t.priority}`,
+          deletedAt: t.deletedAt!,
+        })),
+      ...incomes
+        .filter((i) => Boolean(i.deletedAt))
+        .map((i) => ({
+          id: i.id,
+          entityType: 'income' as const,
+          title: i.source,
+          subtitle: `Income • ${i.date}`,
+          amountPaise: i.amountPaise,
+          deletedAt: i.deletedAt!,
+        })),
+      ...expenses
+        .filter((e) => Boolean(e.deletedAt))
+        .map((e) => ({
+          id: e.id,
+          entityType: 'expense' as const,
+          title: e.description,
+          subtitle: `Expense • ${e.date}`,
+          amountPaise: e.amountPaise,
+          deletedAt: e.deletedAt!,
+        })),
+      ...bills
+        .filter((b) => Boolean(b.deletedAt))
+        .map((b) => ({
+          id: b.id,
+          entityType: 'bill' as const,
+          title: b.name,
+          subtitle: `Bill • Due ${b.dueDate}`,
+          amountPaise: b.amountPaise,
+          deletedAt: b.deletedAt!,
+        })),
+    ];
+
+    return records.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
+  },
+
+  async restoreTrashItem(userId: string, entityType: TrashRecord['entityType'], id: string): Promise<void> {
+    const colMap: Record<TrashRecord['entityType'], string> = {
+      task: 'tasks',
+      income: 'income',
+      expense: 'expenses',
+      bill: 'bills',
+    };
+    const path = `users/${userId}/${colMap[entityType]}/${id}`;
+    await setDoc(doc(db, path), { deletedAt: null }, { merge: true });
+    if (entityType === 'bill') {
+      const expSnap = await getDoc(doc(db, `users/${userId}/expenses/exp_bill_${id}`)).catch(() => null);
+      if (expSnap && expSnap.exists()) {
+        await setDoc(doc(db, `users/${userId}/expenses/exp_bill_${id}`), { deletedAt: null }, { merge: true });
+      }
+    }
+  },
+
+  async permanentlyDeleteTrashItem(
+    userId: string,
+    entityType: TrashRecord['entityType'],
+    id: string
+  ): Promise<void> {
+    const colMap: Record<TrashRecord['entityType'], string> = {
+      task: 'tasks',
+      income: 'income',
+      expense: 'expenses',
+      bill: 'bills',
+    };
+    await deleteDoc(doc(db, `users/${userId}/${colMap[entityType]}/${id}`));
+    if (entityType === 'bill') {
+      await deleteDoc(doc(db, `users/${userId}/expenses/exp_bill_${id}`)).catch(() => {});
+    }
   },
 
   async reseedWorkspace(userId: string): Promise<void> {

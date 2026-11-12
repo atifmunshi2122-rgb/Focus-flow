@@ -11,6 +11,39 @@ export interface User {
   createdAt: string;
 }
 
+export type DashboardWidgetId =
+  | 'hero'
+  | 'clock_greeting'
+  | 'focus_kpis'
+  | 'finance_kpis'
+  | 'productivity_goals'
+  | 'gamification'
+  | 'upcoming_bills'
+  | 'recent_transactions';
+
+export type DashboardWidgetSize = 'compact' | 'standard' | 'wide';
+export type DashboardLayoutPreset = 'executive' | 'focus_first' | 'finance_pulse' | 'minimal';
+
+export interface DashboardLayoutConfig {
+  preset: DashboardLayoutPreset;
+  widgetOrder: DashboardWidgetId[];
+  hiddenWidgets: DashboardWidgetId[];
+  widgetSizes: Partial<Record<DashboardWidgetId, DashboardWidgetSize>>;
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  taskDeadlines: boolean;
+  upcomingBills: boolean;
+  billLeadDays: number;
+  overdueBills: boolean;
+  focusCompletion: boolean;
+  dailyFocusGoal: boolean;
+  budgetWarnings: boolean;
+  budgetWarningPercent: number;
+  syncFailures: boolean;
+}
+
 export interface UserSettings {
   userId: string;
   currency: CurrencyCode;
@@ -25,7 +58,24 @@ export interface UserSettings {
   activeSavedThemeId?: string | null;
   googleSpreadsheetId?: string;
   lastSyncedAt?: string;
+  dailyFocusGoalMinutes?: number;
+  weeklyFocusGoalMinutes?: number;
+  monthlyBudgetPaise?: number;
+  categoryBudgets?: Record<string, number>;
+  dashboardLayout?: DashboardLayoutConfig;
+  notificationPrefs?: NotificationPreferences;
+  favoriteStyleIds?: string[];
+  favoriteThemeIds?: string[];
+  keyboardShortcutsEnabled?: boolean;
 }
+
+export interface SubtaskItem {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
+export type TaskRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
 
 export interface Task {
   id: string;
@@ -34,9 +84,15 @@ export interface Task {
   description: string;
   priority: 'low' | 'medium' | 'high';
   status: 'todo' | 'in_progress' | 'completed';
+  category?: string;
+  subtasks?: SubtaskItem[];
+  recurrence?: TaskRecurrence;
+  order?: number;
   estimatedPomodoros: number;
   completedPomodoros: number;
   dueDate: string | null;
+  completedAt?: string | null;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -92,6 +148,7 @@ export interface Bill {
   paymentDate: string | null;
   notes: string;
   periodKey: string;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -117,6 +174,7 @@ export interface IncomeTransaction {
   date: string;
   category: string;
   notes: string;
+  deletedAt?: string | null;
   createdAt: string;
 }
 
@@ -133,13 +191,41 @@ export interface ExpenseTransaction {
   description: string;
   paymentMethod: 'credit_card' | 'debit_card' | 'upi_bank' | 'cash' | 'other';
   notes: string;
+  deletedAt?: string | null;
   createdAt: string;
+}
+
+export interface SavingsGoal {
+  id: string;
+  userId: string;
+  title: string;
+  targetPaise: number;
+  savedPaise: number;
+  targetDate: string | null;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TrashRecord {
+  id: string;
+  entityType: 'task' | 'income' | 'expense' | 'bill';
+  title: string;
+  subtitle: string;
+  amountPaise?: number;
+  deletedAt: string;
 }
 
 export interface DashboardData {
   todayFocusMinutes: number;
+  weeklyFocusMinutes?: number;
   completedPomodoroSessions: number;
   focusStreakDays: number;
+  bestStreakDays?: number;
+  completedTasksCount?: number;
+  pendingTasksCount?: number;
+  todayIncomePaise?: number;
+  todayExpensesPaise?: number;
   monthlyIncomePaise: number;
   monthlyExpensesPaise: number;
   fixedExpensesPaise: number;
@@ -176,6 +262,7 @@ export interface FinanceSummaryData {
   paidBillsCount: number;
   unpaidBillsCount: number;
   categoryBreakdown: Array<{
+    categoryId?: string;
     name: string;
     color: string;
     amountPaise: number;
@@ -194,6 +281,12 @@ export interface FocusStatsData {
     minutes: number;
     sessionsCount: number;
   }>;
+  dailyHeatmap?: Array<{
+    date: string;
+    minutes: number;
+    sessionsCount: number;
+  }>;
+  weeklyMinutes?: number;
   monthMinutes: number;
   monthSessionsCount: number;
   totalMinutes: number;

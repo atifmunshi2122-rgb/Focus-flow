@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
-import { CurrencyCode } from '../../types/index.ts';
+import { api } from '../../lib/api.ts';
+import { CurrencyCode, NotificationPreferences } from '../../types/index.ts';
 import { ThemeStudio } from './ThemeStudio.tsx';
 import {
   ThemeBadge,
@@ -14,9 +15,12 @@ import {
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
+  Bell,
   DollarSign,
+  Download,
   ExternalLink,
   FileSpreadsheet,
+  Keyboard,
   Moon,
   Palette,
   RefreshCw,
@@ -24,6 +28,8 @@ import {
   ShieldCheck,
   Sliders,
   Sun,
+  Target,
+  Trash2,
   User,
 } from 'lucide-react';
 
@@ -44,6 +50,8 @@ export const SettingsView: React.FC = () => {
     lastSyncedAt,
     createOrConnectSpreadsheet,
     syncNowToGoogleSheets,
+    setTrashModalOpen,
+    showToast,
   } = useApp();
 
   const [activeSection, setActiveSection] = useState<'studio' | 'system'>('studio');
@@ -52,6 +60,23 @@ export const SettingsView: React.FC = () => {
   const [workDuration, setWorkDuration] = useState(String(settings?.pomodoroWorkDuration || 25));
   const [shortBreak, setShortBreak] = useState(String(settings?.shortBreakDuration || 5));
   const [longBreak, setLongBreak] = useState(String(settings?.longBreakDuration || 15));
+  const [dailyGoalMin, setDailyGoalMin] = useState(String(settings?.dailyFocusGoalMinutes || 100));
+  const [weeklyGoalMin, setWeeklyGoalMin] = useState(String(settings?.weeklyFocusGoalMinutes || 500));
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(settings?.keyboardShortcutsEnabled ?? true);
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>(
+    settings?.notificationPrefs || {
+      enabled: true,
+      taskDeadlines: true,
+      upcomingBills: true,
+      billLeadDays: 3,
+      overdueBills: true,
+      focusCompletion: true,
+      dailyFocusGoal: true,
+      budgetWarnings: true,
+      budgetWarningPercent: 80,
+      syncFailures: true,
+    }
+  );
   const [autoSwitch, setAutoSwitch] = useState(settings?.autoSwitchSessions || false);
   const [sound, setSound] = useState(settings?.soundEnabled ?? true);
   const [saving, setSaving] = useState(false);
@@ -66,6 +91,10 @@ export const SettingsView: React.FC = () => {
       setWorkDuration(String(settings.pomodoroWorkDuration || 25));
       setShortBreak(String(settings.shortBreakDuration || 5));
       setLongBreak(String(settings.longBreakDuration || 15));
+      setDailyGoalMin(String(settings.dailyFocusGoalMinutes || 100));
+      setWeeklyGoalMin(String(settings.weeklyFocusGoalMinutes || 500));
+      setShortcutsEnabled(settings.keyboardShortcutsEnabled ?? true);
+      if (settings.notificationPrefs) setNotifPrefs(settings.notificationPrefs);
       setAutoSwitch(Boolean(settings.autoSwitchSessions));
       setSound(settings.soundEnabled ?? true);
     }
@@ -85,14 +114,22 @@ export const SettingsView: React.FC = () => {
       const nextWork = clampInt(workDuration, 25, 1, 120);
       const nextShort = clampInt(shortBreak, 5, 1, 30);
       const nextLong = clampInt(longBreak, 15, 1, 60);
+      const nextDaily = clampInt(dailyGoalMin, 100, 5, 720);
+      const nextWeekly = clampInt(weeklyGoalMin, 500, 15, 5000);
       setWorkDuration(String(nextWork));
       setShortBreak(String(nextShort));
       setLongBreak(String(nextLong));
+      setDailyGoalMin(String(nextDaily));
+      setWeeklyGoalMin(String(nextWeekly));
       await updateSettings({
         currency,
         pomodoroWorkDuration: nextWork,
         shortBreakDuration: nextShort,
         longBreakDuration: nextLong,
+        dailyFocusGoalMinutes: nextDaily,
+        weeklyFocusGoalMinutes: nextWeekly,
+        keyboardShortcutsEnabled: shortcutsEnabled,
+        notificationPrefs: notifPrefs,
         autoSwitchSessions: autoSwitch,
         soundEnabled: sound,
       });
@@ -510,6 +547,188 @@ export const SettingsView: React.FC = () => {
                     Synthesized audio alerts (Web Audio API focus completion and break chimes)
                   </span>
                 </label>
+              </div>
+            </ThemeCard>
+
+            {/* Focus Goals & Keyboard Shortcuts */}
+            <ThemeCard>
+              <div className="flex items-center gap-2 mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                <Target className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                <span>Productivity Targets &amp; Navigation Shortcuts</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
+                    Daily Focus Goal (minutes)
+                  </label>
+                  <ThemeInput
+                    type="number"
+                    min="5"
+                    max="720"
+                    value={dailyGoalMin}
+                    onChange={(e) => setDailyGoalMin(e.target.value)}
+                    className="font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
+                    Weekly Focus Goal (minutes)
+                  </label>
+                  <ThemeInput
+                    type="number"
+                    min="15"
+                    max="5000"
+                    value={weeklyGoalMin}
+                    onChange={(e) => setWeeklyGoalMin(e.target.value)}
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-[var(--ff-border-color)] flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shortcutsEnabled}
+                    onChange={(e) => setShortcutsEnabled(e.target.checked)}
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-xs text-[var(--ff-text-secondary)] font-medium flex items-center gap-1.5">
+                    <Keyboard className="w-3.5 h-3.5" /> Enable Global Shortcuts (Cmd/Ctrl+K, Alt+1..8)
+                  </span>
+                </label>
+              </div>
+            </ThemeCard>
+
+            {/* Deterministic Notification Rules */}
+            <ThemeCard className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                  <Bell className="w-4 h-4 text-[var(--ff-warning)]" />
+                  <span>Rule-Based Notifications</span>
+                </div>
+                <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.enabled}
+                    onChange={(e) => setNotifPrefs((p) => ({ ...p, enabled: e.target.checked }))}
+                  />
+                  <span>Active</span>
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {(
+                  [
+                    ['taskDeadlines', 'Task due & overdue alerts'],
+                    ['upcomingBills', 'Upcoming bill due reminders'],
+                    ['overdueBills', 'Overdue bill urgent warnings'],
+                    ['dailyFocusGoal', 'Daily focus goal milestone notice'],
+                    ['budgetWarnings', 'Budget threshold warnings'],
+                    ['syncFailures', 'Google Sheets sync error alerts'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(notifPrefs[key])}
+                      onChange={(e) =>
+                        setNotifPrefs((p) => ({ ...p, [key]: e.target.checked }))
+                      }
+                    />
+                    <span className="text-[var(--ff-text-secondary)]">{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-[var(--ff-border-color)]">
+                <div>
+                  <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">
+                    Bill Reminder Lead Days (1–14)
+                  </label>
+                  <ThemeInput
+                    type="number"
+                    min="1"
+                    max="14"
+                    value={String(notifPrefs.billLeadDays)}
+                    onChange={(e) =>
+                      setNotifPrefs((p) => ({
+                        ...p,
+                        billLeadDays: Math.min(14, Math.max(1, Number(e.target.value) || 3)),
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">
+                    Budget Warning Percent (50–100%)
+                  </label>
+                  <ThemeInput
+                    type="number"
+                    min="50"
+                    max="100"
+                    value={String(notifPrefs.budgetWarningPercent)}
+                    onChange={(e) =>
+                      setNotifPrefs((p) => ({
+                        ...p,
+                        budgetWarningPercent: Math.min(100, Math.max(50, Number(e.target.value) || 80)),
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            </ThemeCard>
+
+            {/* Data Safety, Trash & JSON Backup */}
+            <ThemeCard className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                  Data Backup &amp; Soft-Deleted Trash
+                </h2>
+                <p className="text-xs text-[var(--ff-text-muted)]">
+                  Export a full JSON archive of your workspace or recover deleted records.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <ThemeButton
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setTrashModalOpen(true)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Open Trash Bin
+                </ThemeButton>
+                <ThemeButton
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const [tasks, sessions, incomes, expenses, bills, goals] = await Promise.all([
+                        api.getTasks(),
+                        api.getFocusSessions(),
+                        api.getIncomes(),
+                        api.getExpenses(),
+                        api.getBills(),
+                        api.getSavingsGoals(),
+                      ]);
+                      const payload = JSON.stringify(
+                        { exportedAt: new Date().toISOString(), settings, tasks, sessions, incomes, expenses, bills, savingsGoals: goals },
+                        null,
+                        2
+                      );
+                      const blob = new Blob([payload], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `focusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                      a.click();
+                      setTimeout(() => URL.revokeObjectURL(url), 1000);
+                      showToast('Workspace JSON backup downloaded', 'success');
+                    } catch {
+                      showToast('Failed to create JSON backup', 'error');
+                    }
+                  }}
+                >
+                  <Download className="w-3.5 h-3.5" /> Backup JSON
+                </ThemeButton>
               </div>
             </ThemeCard>
 

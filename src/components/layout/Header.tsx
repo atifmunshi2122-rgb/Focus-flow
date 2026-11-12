@@ -5,6 +5,7 @@ import { getStyleDefinition } from '../../theme/stylesRegistry.ts';
 import { ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
+import { NotificationCenter } from '../common/NotificationCenter.tsx';
 import {
   Menu,
   Play,
@@ -16,6 +17,8 @@ import {
   FileSpreadsheet,
   LogOut,
   Palette,
+  Search,
+  WifiOff,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -29,6 +32,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     setCurrentTab,
     isRunning,
     timeLeft,
+    stopwatchElapsed,
+    timerEngine,
     timerMode,
     startTimer,
     pauseTimer,
@@ -42,6 +47,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     syncStatus,
     syncNowToGoogleSheets,
     effectiveThemeConfig,
+    setCommandCenterOpen,
+    isOnline,
   } = useApp();
 
   const { isDisabled } = useMotionPreferences();
@@ -134,7 +141,36 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
       </nav>
 
       {/* Zone 3: Primary Action Cluster */}
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
+        {!isOnline && (
+          <span
+            className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold border border-[var(--ff-warning)]/40 bg-[var(--ff-warning-soft)] text-[var(--ff-warning)]"
+            style={{ borderRadius: 'var(--ff-radius-button)' }}
+            title="Offline mode: changes queue locally until back online"
+          >
+            <WifiOff className="w-3 h-3" /> Offline
+          </span>
+        )}
+
+        {/* Universal Command Center Trigger */}
+        <button
+          type="button"
+          onClick={() => setCommandCenterOpen(true)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+          style={{ borderRadius: 'var(--ff-radius-button)' }}
+          title="Open Command Center (Cmd/Ctrl + K)"
+          aria-label="Open Command Center"
+        >
+          <Search className="w-3.5 h-3.5" />
+          <span className="hidden lg:inline">Search</span>
+          <kbd className="hidden xl:inline text-[10px] font-bold px-1 py-0.2 rounded bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
+            ⌘K
+          </kbd>
+        </button>
+
+        {/* Rule-Based Notifications Bell */}
+        <NotificationCenter />
+
         {/* Floating Mini Timer Indicator */}
         <div
           className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border transition-colors"
@@ -154,9 +190,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               style={{ backgroundColor: timerMode === 'work' ? 'var(--ff-accent)' : 'var(--ff-success)' }}
             />
           )}
-          <span className="tabular-nums font-semibold">{formatTimerMinSec(timeLeft)}</span>
+          <span className="tabular-nums font-semibold">
+            {formatTimerMinSec(timerEngine === 'stopwatch' ? stopwatchElapsed : timeLeft)}
+          </span>
           <span className="text-[10px] uppercase font-sans text-[var(--ff-text-muted)]">
-            {timerMode === 'work' ? 'Work' : 'Break'}
+            {timerEngine === 'stopwatch'
+              ? 'SW'
+              : timerEngine === 'countdown'
+                ? 'CD'
+                : timerMode === 'work'
+                  ? 'Work'
+                  : 'Break'}
           </span>
           <button
             type="button"

@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { Task } from '../../types/index.ts';
+import { SubtaskItem, Task, TaskRecurrence } from '../../types/index.ts';
 import {
   ThemeBadge,
   ThemeButton,
@@ -10,7 +9,6 @@ import {
   ThemeInput,
   ThemeModal,
   ThemeProgressBar,
-  ThemeSegmentedControl,
   ThemeSelect,
   ThemeTextarea,
 } from '../ui/ThemePrimitives.tsx';
@@ -18,9 +16,7 @@ import {
   EmptyStateIllustration,
   SkeletonList,
   ValidationMessage,
-  useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
-import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
   CheckCircle2,
   Circle,
@@ -31,8 +27,27 @@ import {
   Calendar,
   Flame,
   CheckSquare,
-  ChevronDown,
+  Search,
+  Repeat,
+  GripVertical,
+  Columns,
+  List,
+  Clock,
+  CalendarDays,
+  History,
+  X,
 } from 'lucide-react';
+
+type TaskViewMode =
+  | 'list'
+  | 'kanban'
+  | 'calendar'
+  | 'timeline'
+  | 'today'
+  | 'upcoming'
+  | 'completed';
+
+const CATEGORIES = ['General', 'Engineering', 'Finance', 'Personal', 'Design', 'Learning'];
 
 export const TaskManager: React.FC = () => {
   const {
@@ -43,28 +58,31 @@ export const TaskManager: React.FC = () => {
     switchTimerMode,
     startTimer,
     setCurrentTab,
+    setTrashModalOpen,
   } = useApp();
-  const { isDisabled, intensity } = useMotionPreferences();
-  const factor = getIntensityFactor(intensity);
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
-  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<TaskViewMode>('list');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [priorityFilter, setPriorityFilter] = useState<'all' | Task['priority']>('all');
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [priority, setPriority] = useState<Task['priority']>('medium');
+  const [status, setStatus] = useState<Task['status']>('todo');
+  const [category, setCategory] = useState('General');
+  const [recurrence, setRecurrence] = useState<TaskRecurrence>('none');
   const [estimatedPomodoros, setEstimatedPomodoros] = useState('2');
   const [dueDate, setDueDate] = useState('');
+  const [subtasks, setSubtasks] = useState<SubtaskItem[]>([]);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [saving, setSaving] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const toggleExpanded = (id: string) => {
-    setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
 
   const loadTasks = () => {
     setLoading(true);
@@ -84,10 +102,14 @@ export const TaskManager: React.FC = () => {
     setTitle('');
     setDescription('');
     setPriority('medium');
+    setStatus('todo');
+    setCategory('General');
+    setRecurrence('none');
     setEstimatedPomodoros('2');
     setDueDate(new Date().toISOString().split('T')[0]);
+    setSubtasks([]);
+    setNewSubtaskTitle('');
     setFormError(null);
-    setSubmitSuccess(false);
     setModalOpen(true);
   };
 
@@ -96,11 +118,25 @@ export const TaskManager: React.FC = () => {
     setTitle(task.title);
     setDescription(task.description);
     setPriority(task.priority);
+    setStatus(task.status);
+    setCategory(task.category || 'General');
+    setRecurrence(task.recurrence || 'none');
     setEstimatedPomodoros(String(task.estimatedPomodoros));
     setDueDate(task.dueDate || '');
+    setSubtasks(task.subtasks ? [...task.subtasks] : []);
+    setNewSubtaskTitle('');
     setFormError(null);
-    setSubmitSuccess(false);
     setModalOpen(true);
+  };
+
+  const addDraftSubtask = () => {
+    const t = newSubtaskTitle.trim();
+    if (!t) return;
+    setSubtasks((prev) => [
+      ...prev,
+      { id: `sub_${Date.now()}_${prev.length}`, title: t, done: false },
+    ]);
+    setNewSubtaskTitle('');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -112,58 +148,72 @@ export const TaskManager: React.FC = () => {
     }
 
     setSaving(true);
+    const payload: Partial<Task> = {
+      title: title.trim(),
+      description,
+      priority,
+      status,
+      category,
+      recurrence,
+      subtasks,
+      estimatedPomodoros: Math.max(1, Number(estimatedPomodoros) || 1),
+      dueDate: dueDate || null,
+    };
+
     try {
       if (editingTask) {
-        await api.updateTask(editingTask.id, {
-          title: title.trim(),
-          description,
-          priority,
-          estimatedPomodoros: Number(estimatedPomodoros) || 1,
-          dueDate: dueDate || null,
-        });
+        await api.updateTask(editingTask.id, payload);
         showToast('Task updated successfully', 'success');
       } else {
-        await api.createTask({
-          title: title.trim(),
-          description,
-          priority,
-          estimatedPomodoros: Number(estimatedPomodoros) || 1,
-          dueDate: dueDate || null,
-        });
+        await api.createTask(payload);
         showToast('Task created successfully', 'success');
       }
-      setSaving(false);
-      setSubmitSuccess(true);
+      setModalOpen(false);
       triggerRefresh();
       loadTasks();
-      setTimeout(() => {
-        setSubmitSuccess(false);
-        setModalOpen(false);
-      }, isDisabled ? 50 : 220);
     } catch {
-      setSaving(false);
       setFormError('Failed to save task. Please try again.');
       showToast('Failed to save task', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const toggleTaskStatus = async (task: Task) => {
-    const nextStatus = task.status === 'completed' ? 'todo' : 'completed';
+  const toggleTaskStatus = async (task: Task, targetStatus?: Task['status']) => {
+    const nextStatus = targetStatus || (task.status === 'completed' ? 'todo' : 'completed');
     try {
       await api.updateTask(task.id, { status: nextStatus });
       triggerRefresh();
       loadTasks();
-      showToast(nextStatus === 'completed' ? 'Task marked as completed!' : 'Task reopened', 'info');
+      showToast(
+        nextStatus === 'completed'
+          ? task.recurrence && task.recurrence !== 'none'
+            ? `Completed! Next ${task.recurrence} task scheduled.`
+            : 'Task marked as completed!'
+          : `Moved to ${nextStatus.replace('_', ' ')}`,
+        'info'
+      );
     } catch {
       showToast('Failed to update task status', 'error');
     }
   };
 
+  const toggleSubtaskInline = async (task: Task, subId: string) => {
+    const updatedSubs = (task.subtasks || []).map((s) =>
+      s.id === subId ? { ...s, done: !s.done } : s
+    );
+    try {
+      await api.updateTask(task.id, { subtasks: updatedSubs });
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, subtasks: updatedSubs } : t)));
+    } catch {
+      showToast('Failed to update subtask', 'error');
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this task?')) return;
     try {
       await api.deleteTask(id);
-      showToast('Task deleted', 'info');
+      showToast('Moved task to Trash', 'info');
       triggerRefresh();
       loadTasks();
     } catch {
@@ -179,11 +229,62 @@ export const TaskManager: React.FC = () => {
     showToast(`Focus session started for: ${task.title}`, 'success');
   };
 
-  const filteredTasks = tasks.filter((t) => {
-    if (filter === 'active') return t.status !== 'completed';
-    if (filter === 'completed') return t.status === 'completed';
-    return true;
-  });
+  const handleReorderListDrop = async (targetTaskId: string) => {
+    if (!draggedTaskId || draggedTaskId === targetTaskId) return;
+    const fromIdx = tasks.findIndex((t) => t.id === draggedTaskId);
+    const toIdx = tasks.findIndex((t) => t.id === targetTaskId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const copy = [...tasks];
+    const [moved] = copy.splice(fromIdx, 1);
+    copy.splice(toIdx, 0, moved);
+    setTasks(copy);
+    setDraggedTaskId(null);
+
+    try {
+      await api.updateTask(moved.id, { order: toIdx });
+      await api.updateTask(copy[fromIdx].id, { order: fromIdx });
+    } catch {
+      loadTasks();
+    }
+  };
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const baseFiltered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (categoryFilter !== 'ALL' && (t.category || 'General') !== categoryFilter) return false;
+      if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
+      if (q) {
+        const hay = `${t.title} ${t.description} ${t.category || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tasks, searchQuery, categoryFilter, priorityFilter]);
+
+  const visibleTasks = useMemo(() => {
+    if (viewMode === 'today') {
+      return baseFiltered.filter(
+        (t) => t.status !== 'completed' && Boolean(t.dueDate) && (t.dueDate as string) <= todayStr
+      );
+    }
+    if (viewMode === 'upcoming') {
+      return baseFiltered
+        .filter((t) => t.status !== 'completed' && Boolean(t.dueDate) && (t.dueDate as string) > todayStr)
+        .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+    }
+    if (viewMode === 'completed') {
+      return baseFiltered.filter((t) => t.status === 'completed');
+    }
+    if (viewMode === 'timeline') {
+      return [...baseFiltered].sort((a, b) =>
+        (a.dueDate || '9999-99-99').localeCompare(b.dueDate || '9999-99-99')
+      );
+    }
+    return baseFiltered;
+  }, [baseFiltered, viewMode, todayStr]);
 
   const priorityTone: Record<Task['priority'], 'danger' | 'warning' | 'neutral'> = {
     high: 'danger',
@@ -191,338 +292,574 @@ export const TaskManager: React.FC = () => {
     low: 'neutral',
   };
 
-  return (
-    <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
-      {/* Top Bar with Filter tabs and Add Task */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <ThemeSegmentedControl<'all' | 'active' | 'completed'>
-          ariaLabel="Task status filter"
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { id: 'all', label: `All Tasks (${tasks.length})` },
-            {
-              id: 'active',
-              label: `In Progress (${tasks.filter((t) => t.status !== 'completed').length})`,
-            },
-            {
-              id: 'completed',
-              label: `Completed (${tasks.filter((t) => t.status === 'completed').length})`,
-            },
-          ]}
-        />
+  const renderTaskCard = (task: Task, allowDrag = false) => {
+    const isCompleted = task.status === 'completed';
+    const subDone = (task.subtasks || []).filter((s) => s.done).length;
+    const subTotal = (task.subtasks || []).length;
 
-        <ThemeButton variant="primary" size="md" onClick={openCreateModal} className="shrink-0">
-          <Plus className="w-4 h-4" />
-          <span>New Task</span>
-        </ThemeButton>
-      </div>
-
-      {/* Task List */}
-      <ThemeCard noPadding>
-        {loading && tasks.length === 0 ? (
-          <SkeletonList rows={5} />
-        ) : filteredTasks.length === 0 ? (
-          <EmptyStateIllustration
-            icon={<CheckSquare className="w-6 h-6" />}
-            title="No tasks found"
-            description="Get started by creating a focused task with estimated Pomodoro cycles."
-            action={
-              <ThemeButton variant="primary" size="sm" onClick={openCreateModal}>
-                <Plus className="w-4 h-4" />
-                <span>Create Task</span>
-              </ThemeButton>
-            }
-          />
-        ) : (
-          <div className="divide-y ff-divider">
-            <AnimatePresence initial={false}>
-              {filteredTasks.map((task) => {
-                const isCompleted = task.status === 'completed';
-                const isExpanded = Boolean(expandedIds[task.id]);
-
-                return (
-                  <motion.div
-                    key={task.id}
-                    layout={isDisabled ? false : 'position'}
-                    initial={isDisabled ? false : { opacity: 0, y: 10 }}
-                    animate={{ opacity: isCompleted ? 0.68 : 1, y: 0 }}
-                    exit={
-                      isDisabled
-                        ? { opacity: 0 }
-                        : { opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden' }
-                    }
-                    transition={{
-                      duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01),
-                      ease: MOTION_EASING.decelerate,
-                    }}
-                    className="ff-row-hover"
-                    style={{ padding: 'var(--ff-row-pad)' }}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <motion.button
-                          type="button"
-                          onClick={() => void toggleTaskStatus(task)}
-                          whileTap={isDisabled ? undefined : { scale: 0.85 }}
-                          animate={{ scale: isCompleted && !isDisabled ? [1, 1.15, 1] : 1 }}
-                          transition={{ duration: MOTION_DURATION.control }}
-                          className="mt-0.5 text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] transition-colors shrink-0"
-                          aria-label={isCompleted ? 'Mark incomplete' : 'Mark complete'}
-                        >
-                          {isCompleted ? (
-                            <CheckCircle2 className="w-5 h-5" style={{ color: 'var(--ff-success)' }} />
-                          ) : (
-                            <Circle className="w-5 h-5" />
-                          )}
-                        </motion.button>
-
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span
-                              className={`text-sm font-semibold text-[var(--ff-text-primary)] transition-all duration-200 ${
-                                isCompleted ? 'line-through text-[var(--ff-text-muted)]' : ''
-                              }`}
-                            >
-                              {task.title}
-                            </span>
-
-                            <ThemeBadge tone={priorityTone[task.priority]}>{task.priority}</ThemeBadge>
-                          </div>
-
-                          {task.description && !isExpanded && (
-                            <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
-                              {task.description}
-                            </p>
-                          )}
-
-                          <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
-                            {task.dueDate && (
-                              <div className="flex items-center gap-1 font-mono">
-                                <Calendar className="w-3 h-3" />
-                                <span>Due {task.dueDate}</span>
-                              </div>
-                            )}
-                            {task.dueDate && <span aria-hidden="true">·</span>}
-                            <div className="flex items-center gap-1 font-mono">
-                              <Flame className="w-3 h-3" style={{ color: 'var(--ff-accent-text)' }} />
-                              <span>
-                                {task.completedPomodoros} / {task.estimatedPomodoros} Pomodoros
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                        {!isCompleted && (
-                          <button
-                            type="button"
-                            onClick={() => handleStartFocusOnTask(task)}
-                            className="ff-btn flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border"
-                            style={{
-                              borderRadius: 'var(--ff-radius-button)',
-                              background: 'var(--ff-accent-soft)',
-                              borderColor: 'var(--ff-accent-border)',
-                              color: 'var(--ff-accent-text)',
-                            }}
-                            title="Start Pomodoro timer on this task"
-                          >
-                            <Play className="w-3.5 h-3.5 fill-current" />
-                            <span>Focus</span>
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(task.id)}
-                          aria-expanded={isExpanded}
-                          aria-label={`${isExpanded ? 'Hide' : 'Show'} details for ${task.title}`}
-                          className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors"
-                          title={isExpanded ? 'Collapse details' : 'Expand details'}
-                        >
-                          <motion.span
-                            animate={{ rotate: isExpanded ? 180 : 0 }}
-                            transition={{ duration: isDisabled ? 0.01 : MOTION_DURATION.dropdown }}
-                            className="inline-flex"
-                          >
-                            <ChevronDown className="w-4 h-4" />
-                          </motion.span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(task)}
-                          className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors"
-                          title="Edit task"
-                          aria-label={`Edit ${task.title}`}
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => void handleDelete(task.id)}
-                          className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
-                          title="Delete task"
-                          aria-label={`Delete ${task.title}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Smooth Expandable Details Accordion */}
-                    <div className="ff-expandable" data-expanded={isExpanded ? 'true' : 'false'}>
-                      <div className="ff-expandable-inner">
-                        <div
-                          className="mt-3 pt-3 ml-8 border-t space-y-2.5 text-xs"
-                          style={{ borderColor: 'var(--ff-border-color)' }}
-                        >
-                          {task.description ? (
-                            <p className="text-[var(--ff-text-secondary)] leading-relaxed whitespace-pre-wrap">
-                              {task.description}
-                            </p>
-                          ) : (
-                            <p className="text-[var(--ff-text-muted)] italic">
-                              No detailed notes added to this task yet.
-                            </p>
-                          )}
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-[11px] text-[var(--ff-text-muted)] font-mono">
-                              <span>Focus Progress</span>
-                              <span>
-                                {task.completedPomodoros}/{task.estimatedPomodoros} cycles
-                              </span>
-                            </div>
-                            <ThemeProgressBar
-                              value={(task.completedPomodoros / Math.max(1, task.estimatedPomodoros)) * 100}
-                              label={`Focus Cycles (${task.completedPomodoros}/${task.estimatedPomodoros})`}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          </div>
-        )}
-      </ThemeCard>
-
-      {/* Task Create / Edit Modal */}
-      <ThemeModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editingTask ? 'Edit Task' : 'Create New Task'}
+    return (
+      <ThemeCard
+        key={task.id}
+        variant="interactive"
+        className="space-y-3"
+        draggable={allowDrag}
+        onDragStart={() => setDraggedTaskId(task.id)}
+        onDragOver={(e) => allowDrag && e.preventDefault()}
+        onDrop={() => allowDrag && void handleReorderListDrop(task.id)}
       >
-        <form onSubmit={handleSave} noValidate className="space-y-4">
-          <div>
-            <label
-              htmlFor="task-title-input"
-              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            {allowDrag && (
+              <span className="mt-1 text-[var(--ff-text-muted)] cursor-grab" title="Drag to reorder">
+                <GripVertical className="w-4 h-4" />
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void toggleTaskStatus(task)}
+              className="mt-0.5 shrink-0 transition-transform active:scale-90"
+              style={{ color: isCompleted ? 'var(--ff-success)' : 'var(--ff-text-muted)' }}
+              aria-label={isCompleted ? 'Reopen task' : 'Complete task'}
             >
-              Task Title
-            </label>
-            <ThemeInput
-              id="task-title-input"
-              type="text"
-              required
-              autoFocus
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                if (formError) setFormError(null);
-              }}
-              placeholder="e.g., Implement monthly bill calculation"
-            />
-          </div>
+              {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+            </button>
 
-          <div>
-            <label
-              htmlFor="task-desc-input"
-              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
-            >
-              Description
-            </label>
-            <ThemeTextarea
-              id="task-desc-input"
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Additional context, subtasks, or notes..."
-            />
-          </div>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4
+                  className="text-sm font-bold"
+                  style={{
+                    color: isCompleted ? 'var(--ff-text-muted)' : 'var(--ff-text-primary)',
+                    textDecoration: isCompleted ? 'line-through' : 'none',
+                  }}
+                >
+                  {task.title}
+                </h4>
+                <ThemeBadge tone={priorityTone[task.priority]}>{task.priority}</ThemeBadge>
+                <ThemeBadge tone="neutral">{task.category || 'General'}</ThemeBadge>
+                {task.recurrence && task.recurrence !== 'none' && (
+                  <ThemeBadge tone="accent">
+                    <Repeat className="w-3 h-3 mr-1" /> {task.recurrence}
+                  </ThemeBadge>
+                )}
+              </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label
-                htmlFor="task-priority-select"
-                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
-              >
-                Priority
-              </label>
-              <ThemeSelect
-                id="task-priority-select"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as typeof priority)}
-              >
-                <option value="high">High Priority</option>
-                <option value="medium">Medium Priority</option>
-                <option value="low">Low Priority</option>
-              </ThemeSelect>
-            </div>
+              {task.description && (
+                <p className="text-xs text-[var(--ff-text-secondary)]">{task.description}</p>
+              )}
 
-            <div>
-              <label
-                htmlFor="task-poms-input"
-                className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
-              >
-                Est. Pomodoros
-              </label>
-              <ThemeInput
-                id="task-poms-input"
-                type="number"
-                min="1"
-                max="20"
-                value={estimatedPomodoros}
-                onChange={(e) => setEstimatedPomodoros(e.target.value)}
-                className="font-mono tabular-nums"
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--ff-text-muted)]">
+                <span className="flex items-center gap-1 font-mono">
+                  <Flame className="w-3.5 h-3.5 text-[var(--ff-warning)]" />
+                  {task.completedPomodoros} / {task.estimatedPomodoros} pomodoros
+                </span>
+                {task.dueDate && (
+                  <span className="flex items-center gap-1 font-mono">
+                    <Calendar className="w-3.5 h-3.5" />
+                    Due {task.dueDate}
+                  </span>
+                )}
+                {subTotal > 0 && (
+                  <span className="font-semibold text-[var(--ff-accent-text)]">
+                    Subtasks: {subDone}/{subTotal}
+                  </span>
+                )}
+              </div>
+
+              {subTotal > 0 && (
+                <div className="space-y-1 pt-1">
+                  {task.subtasks!.map((sub) => (
+                    <label
+                      key={sub.id}
+                      className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={sub.done}
+                        onChange={() => void toggleSubtaskInline(task, sub.id)}
+                        className="accent-[var(--ff-accent)]"
+                      />
+                      <span className={sub.done ? 'line-through text-[var(--ff-text-muted)]' : ''}>
+                        {sub.title}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              <ThemeProgressBar
+                value={Math.min(
+                  100,
+                  Math.round((task.completedPomodoros / Math.max(1, task.estimatedPomodoros)) * 100)
+                )}
+                tone={isCompleted ? 'success' : 'accent'}
               />
             </div>
           </div>
 
-          <div>
-            <label
-              htmlFor="task-due-input"
-              className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1"
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            {!isCompleted && (
+              <ThemeButton
+                variant="secondary"
+                size="xs"
+                onClick={() => handleStartFocusOnTask(task)}
+              >
+                <Play className="w-3 h-3 fill-current" /> Focus
+              </ThemeButton>
+            )}
+            <button
+              type="button"
+              onClick={() => openEditModal(task)}
+              className="p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] rounded-lg"
+              aria-label={`Edit ${task.title}`}
             >
-              Target Due Date (Optional)
+              <Edit2 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDelete(task.id)}
+              className="p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] rounded-lg"
+              aria-label={`Move ${task.title} to Trash`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </ThemeCard>
+    );
+  };
+
+  return (
+    <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
+      {/* View Switcher & Primary Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(
+            [
+              { id: 'list', label: 'List', icon: List },
+              { id: 'kanban', label: 'Kanban', icon: Columns },
+              { id: 'today', label: 'Today', icon: Clock },
+              { id: 'upcoming', label: 'Upcoming', icon: Calendar },
+              { id: 'timeline', label: 'Timeline', icon: CalendarDays },
+              { id: 'calendar', label: 'Calendar', icon: CalendarDays },
+              { id: 'completed', label: 'Completed', icon: History },
+            ] as const
+          ).map((v) => {
+            const Icon = v.icon;
+            const active = viewMode === v.id;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => setViewMode(v.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border transition-colors"
+                style={{
+                  borderRadius: 'var(--ff-radius-button)',
+                  borderColor: active ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
+                  background: active ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
+                  color: active ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
+                }}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{v.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <ThemeButton variant="secondary" size="sm" onClick={() => setTrashModalOpen(true)}>
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Trash</span>
+          </ThemeButton>
+          <ThemeButton variant="primary" size="md" onClick={openCreateModal}>
+            <Plus className="w-4 h-4" />
+            <span>Add Task</span>
+          </ThemeButton>
+        </div>
+      </div>
+
+      {/* Search & Multi-Filter Row */}
+      <ThemeCard className="p-3.5 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+        <div className="md:col-span-6 relative">
+          <Search className="w-4 h-4 text-[var(--ff-text-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search tasks by title, description, or category..."
+            className="ff-input w-full pl-9 pr-3 py-2 text-xs"
+          />
+        </div>
+        <div className="md:col-span-3">
+          <ThemeSelect
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="text-xs"
+            aria-label="Filter by category"
+          >
+            <option value="ALL">All Categories</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </ThemeSelect>
+        </div>
+        <div className="md:col-span-3">
+          <ThemeSelect
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value as 'all' | Task['priority'])}
+            className="text-xs"
+            aria-label="Filter by priority"
+          >
+            <option value="all">All Priorities</option>
+            <option value="high">High Priority</option>
+            <option value="medium">Medium Priority</option>
+            <option value="low">Low Priority</option>
+          </ThemeSelect>
+        </div>
+      </ThemeCard>
+
+      {/* Main View Canvas */}
+      {loading && tasks.length === 0 ? (
+        <SkeletonList rows={4} />
+      ) : viewMode === 'kanban' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3" style={{ gap: 'var(--ff-grid-gap)' }}>
+          {(
+            [
+              { id: 'todo', label: 'To Do' },
+              { id: 'in_progress', label: 'In Progress' },
+              { id: 'completed', label: 'Completed' },
+            ] as const
+          ).map((col) => {
+            const colTasks = baseFiltered.filter((t) => t.status === col.id);
+            return (
+              <ThemeCard
+                key={col.id}
+                className="space-y-3 min-h-[320px]"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => {
+                  if (draggedTaskId) {
+                    const target = tasks.find((t) => t.id === draggedTaskId);
+                    if (target && target.status !== col.id) {
+                      void toggleTaskStatus(target, col.id);
+                    }
+                    setDraggedTaskId(null);
+                  }
+                }}
+              >
+                <div className="flex items-center justify-between pb-2 border-b border-[var(--ff-border-color)]">
+                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-[var(--ff-text-primary)]">
+                    {col.label}
+                  </h3>
+                  <ThemeBadge tone={col.id === 'completed' ? 'success' : 'accent'}>
+                    {colTasks.length}
+                  </ThemeBadge>
+                </div>
+                <div className="space-y-2.5">
+                  {colTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      draggable
+                      onDragStart={() => setDraggedTaskId(t.id)}
+                      className="ff-surface-subtle p-3 space-y-2 cursor-grab"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-xs font-bold text-[var(--ff-text-primary)]">
+                          {t.title}
+                        </span>
+                        <ThemeBadge tone={priorityTone[t.priority]}>{t.priority}</ThemeBadge>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-[var(--ff-text-muted)]">
+                        <span>{t.category || 'General'}</span>
+                        <span>{t.dueDate || 'No date'}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {col.id !== 'todo' && (
+                          <button
+                            type="button"
+                            onClick={() => void toggleTaskStatus(t, 'todo')}
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded border border-[var(--ff-border-color)]"
+                          >
+                            To Do
+                          </button>
+                        )}
+                        {col.id !== 'in_progress' && (
+                          <button
+                            type="button"
+                            onClick={() => void toggleTaskStatus(t, 'in_progress')}
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded border border-[var(--ff-border-color)]"
+                          >
+                            In Progress
+                          </button>
+                        )}
+                        {col.id !== 'completed' && (
+                          <button
+                            type="button"
+                            onClick={() => void toggleTaskStatus(t, 'completed')}
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--ff-success-soft)] text-[var(--ff-success)]"
+                          >
+                            Complete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ThemeCard>
+            );
+          })}
+        </div>
+      ) : viewMode === 'calendar' ? (
+        <ThemeCard className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+              Current Month Task Schedule (
+              {new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })})
+            </h3>
+            <span className="text-xs text-[var(--ff-text-muted)]">
+              Click any dated task below to edit
+            </span>
+          </div>
+          {(() => {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+                {Array.from({ length: daysInMonth }, (_, i) => {
+                  const dayNum = i + 1;
+                  const iso = `${monthPrefix}-${String(dayNum).padStart(2, '0')}`;
+                  const dayTasks = baseFiltered.filter((t) => t.dueDate === iso);
+                  const isToday = iso === todayStr;
+                  return (
+                    <div
+                      key={iso}
+                      className="p-2 border min-h-[82px] flex flex-col gap-1"
+                      style={{
+                        borderRadius: 'var(--ff-radius-button)',
+                        borderColor: isToday ? 'var(--ff-accent)' : 'var(--ff-border-color)',
+                        background: isToday ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
+                      }}
+                    >
+                      <span className="text-[11px] font-mono font-bold text-[var(--ff-text-primary)]">
+                        {dayNum}
+                      </span>
+                      {dayTasks.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => openEditModal(t)}
+                          className="text-left text-[10px] font-semibold px-1.5 py-0.5 rounded truncate bg-[var(--ff-card-bg)] border border-[var(--ff-border-color)]"
+                          style={{
+                            textDecoration: t.status === 'completed' ? 'line-through' : 'none',
+                          }}
+                        >
+                          {t.title}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </ThemeCard>
+      ) : visibleTasks.length === 0 ? (
+        <ThemeCard>
+          <EmptyStateIllustration
+            icon={<CheckSquare className="w-7 h-7" />}
+            title="No tasks match this view"
+            description="Create a task or adjust your filters to organize deep focus sprints."
+            action={
+              <ThemeButton variant="primary" size="sm" onClick={openCreateModal}>
+                <Plus className="w-4 h-4" /> Add Task
+              </ThemeButton>
+            }
+          />
+        </ThemeCard>
+      ) : (
+        <div className="space-y-3">
+          {visibleTasks.map((task) => renderTaskCard(task, viewMode === 'list'))}
+        </div>
+      )}
+
+      {/* Task Composer / Editor Modal */}
+      <ThemeModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingTask ? 'Edit Task & Checklist' : 'Create New Task'}
+        subtitle="Set priority, category, recurrence, and subtasks"
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[var(--ff-text-secondary)]">
+              Task Title *
             </label>
             <ThemeInput
-              id="task-due-input"
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
+              required
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Audit Q4 expense categories"
             />
           </div>
 
-          <ValidationMessage message={formError} tone="error" />
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[var(--ff-text-secondary)]">
+              Notes / Context
+            </label>
+            <ThemeTextarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional acceptance criteria or context"
+            />
+          </div>
 
-          <div className="pt-2 flex items-center justify-end gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <label className="text-[11px] font-semibold text-[var(--ff-text-muted)] block mb-1">
+                Priority
+              </label>
+              <ThemeSelect
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as Task['priority'])}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </ThemeSelect>
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-[var(--ff-text-muted)] block mb-1">
+                Category
+              </label>
+              <ThemeSelect value={category} onChange={(e) => setCategory(e.target.value)}>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </ThemeSelect>
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-[var(--ff-text-muted)] block mb-1">
+                Recurrence
+              </label>
+              <ThemeSelect
+                value={recurrence}
+                onChange={(e) => setRecurrence(e.target.value as TaskRecurrence)}
+              >
+                <option value="none">One-Time</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </ThemeSelect>
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-[var(--ff-text-muted)] block mb-1">
+                Est. Pomodoros
+              </label>
+              <ThemeInput
+                type="number"
+                min="1"
+                max="50"
+                value={estimatedPomodoros}
+                onChange={(e) => setEstimatedPomodoros(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-semibold text-[var(--ff-text-muted)] block mb-1">
+                Due Date
+              </label>
+              <ThemeInput
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-[var(--ff-text-muted)] block mb-1">
+                Workflow Status
+              </label>
+              <ThemeSelect
+                value={status}
+                onChange={(e) => setStatus(e.target.value as Task['status'])}
+              >
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </ThemeSelect>
+            </div>
+          </div>
+
+          {/* Subtasks Editor */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block">
+              Subtasks / Checklist ({subtasks.length})
+            </label>
+            <div className="flex gap-2">
+              <ThemeInput
+                value={newSubtaskTitle}
+                onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addDraftSubtask();
+                  }
+                }}
+                placeholder="Add checklist step..."
+              />
+              <ThemeButton type="button" variant="secondary" size="sm" onClick={addDraftSubtask}>
+                Add Step
+              </ThemeButton>
+            </div>
+            {subtasks.length > 0 && (
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pt-1">
+                {subtasks.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-[var(--ff-surface-subtle)] text-xs"
+                  >
+                    <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={s.done}
+                        onChange={() =>
+                          setSubtasks((prev) =>
+                            prev.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x))
+                          )
+                        }
+                      />
+                      <span className="truncate">{s.title}</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setSubtasks((prev) => prev.filter((x) => x.id !== s.id))}
+                      className="text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
+                      aria-label="Remove subtask"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <ValidationMessage message={formError} tone="error" />
+          <div className="flex items-center justify-end gap-2 pt-2">
             <ThemeButton variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
               Cancel
             </ThemeButton>
-            <ThemeButton
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={saving}
-              success={submitSuccess}
-              loadingText="Saving..."
-            >
+            <ThemeButton type="submit" variant="primary" size="sm" loading={saving}>
               {editingTask ? 'Save Changes' : 'Create Task'}
             </ThemeButton>
           </div>

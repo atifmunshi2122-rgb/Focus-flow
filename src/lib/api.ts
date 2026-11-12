@@ -12,6 +12,8 @@ import {
   DashboardData,
   FinanceSummaryData,
   FocusStatsData,
+  SavingsGoal,
+  TrashRecord,
 } from '../types/index.ts';
 import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
@@ -410,6 +412,88 @@ export const api = {
     withPrimaryPersistence(
       (uid) => firestoreService.getPaymentHistory(uid),
       () => request<PaymentHistory[]>('/finance/payments-history')
+    ),
+
+  // Savings Goals
+  getSavingsGoals: () =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.getSavingsGoals(uid),
+      () => request<SavingsGoal[]>('/finance/savings-goals')
+    ),
+
+  createSavingsGoal: (data: Partial<SavingsGoal>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.createSavingsGoal(uid, data),
+      () =>
+        request<SavingsGoal>('/finance/savings-goals', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+    ),
+
+  updateSavingsGoal: (id: string, data: Partial<SavingsGoal>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.updateSavingsGoal(uid, id, data),
+      () =>
+        request<SavingsGoal>(`/finance/savings-goals/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        })
+    ),
+
+  contributeSavingsGoal: (id: string, deltaPaise: number) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.contributeSavingsGoal(uid, id, deltaPaise),
+      () =>
+        request<SavingsGoal>(`/finance/savings-goals/${encodeURIComponent(id)}/contribute`, {
+          method: 'POST',
+          body: JSON.stringify({ deltaPaise }),
+        })
+    ),
+
+  deleteSavingsGoal: (id: string) =>
+    withPrimaryPersistence(
+      async (uid) => {
+        await firestoreService.deleteSavingsGoal(uid, id);
+        return { success: true };
+      },
+      () =>
+        request<{ success: boolean }>(`/finance/savings-goals/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        })
+    ),
+
+  // Trash & Restore
+  getTrash: () =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.getTrashItems(uid),
+      () => request<TrashRecord[]>('/trash')
+    ),
+
+  restoreTrashItem: (entityType: TrashRecord['entityType'], id: string) =>
+    withPrimaryPersistence(
+      async (uid) => {
+        await firestoreService.restoreTrashItem(uid, entityType, id);
+        return { success: true };
+      },
+      () =>
+        request<{ success: boolean }>(
+          `/trash/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}/restore`,
+          { method: 'POST' }
+        )
+    ),
+
+  permanentlyDeleteTrashItem: (entityType: TrashRecord['entityType'], id: string) =>
+    withPrimaryPersistence(
+      async (uid) => {
+        await firestoreService.permanentlyDeleteTrashItem(uid, entityType, id);
+        return { success: true };
+      },
+      () =>
+        request<{ success: boolean }>(
+          `/trash/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}`,
+          { method: 'DELETE' }
+        )
     ),
 };
 

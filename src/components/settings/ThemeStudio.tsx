@@ -52,6 +52,7 @@ import {
   Search,
   Sliders,
   Sparkles,
+  Star,
   Sun,
   Trash2,
   Type,
@@ -86,8 +87,12 @@ export const ThemeStudio: React.FC = () => {
     applyThemeConfig,
     saveCustomTheme,
     applySavedTheme,
+    duplicateSavedTheme,
     deleteSavedTheme,
     resetThemeToDefault,
+    toggleFavoriteStyle,
+    toggleFavoriteTheme,
+    settings,
     showToast,
   } = useApp();
 
@@ -98,6 +103,7 @@ export const ThemeStudio: React.FC = () => {
   const [studioTab, setStudioTab] = useState<'palettes' | 'design-styles' | 'tokens'>('palettes');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<DesignStyleCategory>('all');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [customThemeName, setCustomThemeName] = useState('');
   const [customThemeDesc, setCustomThemeDesc] = useState('');
   const [showSaveForm, setShowSaveForm] = useState(false);
@@ -146,9 +152,13 @@ export const ThemeStudio: React.FC = () => {
   const buttonTextHex = getAccessibleContrastText(activeAccentHex);
   const accentButtonContrast = getContrastRatio(activeAccentHex, buttonTextHex);
 
+  const favoriteStyleIds = settings?.favoriteStyleIds || [];
+  const favoriteThemeIds = settings?.favoriteThemeIds || [];
+
   const filteredStyles = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return DESIGN_STYLES.filter((s) => {
+      if (favoritesOnly && !favoriteStyleIds.includes(s.id)) return false;
       if (categoryFilter !== 'all' && s.category !== categoryFilter) return false;
       if (!q) return true;
       return (
@@ -158,7 +168,7 @@ export const ThemeStudio: React.FC = () => {
         s.traits.some((t) => t.toLowerCase().includes(q))
       );
     });
-  }, [searchQuery, categoryFilter]);
+  }, [searchQuery, categoryFilter, favoritesOnly, favoriteStyleIds]);
 
   const updateDraft = (patch: Partial<ThemeConfig>) => {
     const next = sanitizeThemeConfig({ ...draftConfig, ...patch });
@@ -959,6 +969,30 @@ export const ThemeStudio: React.FC = () => {
                           {isActiveSaved && <ThemeBadge tone="accent">Active</ThemeBadge>}
                           <button
                             type="button"
+                            onClick={() => void toggleFavoriteTheme(saved.id)}
+                            className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-warning)] hover:bg-[var(--ff-surface-hover)]"
+                            title="Favorite saved theme"
+                            aria-label={`Favorite ${saved.name}`}
+                          >
+                            <Star
+                              className={`w-3.5 h-3.5 ${
+                                favoriteThemeIds.includes(saved.id)
+                                  ? 'fill-current text-[var(--ff-warning)]'
+                                  : ''
+                              }`}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void duplicateSavedTheme(saved.id)}
+                            className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)]"
+                            title="Duplicate saved theme"
+                            aria-label={`Duplicate ${saved.name}`}
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => {
                               setDraftConfig(saved.config);
                               if (isFullAppPreview) startFullAppPreview(saved.config);
@@ -1034,6 +1068,19 @@ export const ThemeStudio: React.FC = () => {
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => setFavoritesOnly((v) => !v)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors"
+            style={{
+              background: favoritesOnly ? 'var(--ff-warning-soft)' : 'var(--ff-surface-muted)',
+              color: favoritesOnly ? 'var(--ff-warning)' : 'var(--ff-text-secondary)',
+              borderColor: favoritesOnly ? 'var(--ff-warning)' : 'var(--ff-border-color)',
+            }}
+          >
+            <Star className={`w-3.5 h-3.5 ${favoritesOnly ? 'fill-current' : ''}`} />
+            <span>Favorites ({favoriteStyleIds.length})</span>
+          </button>
         </div>
 
         {/* 16 Style Cards Grid */}
@@ -1128,7 +1175,24 @@ export const ThemeStudio: React.FC = () => {
                     <h4 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
                       {styleDef.name}
                     </h4>
-                    {isApplied && <ThemeBadge tone="success">Active</ThemeBadge>}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => void toggleFavoriteStyle(styleDef.id)}
+                        className="p-1 rounded hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-muted)]"
+                        title="Favorite style"
+                        aria-label={`Favorite ${styleDef.name}`}
+                      >
+                        <Star
+                          className={`w-3.5 h-3.5 ${
+                            favoriteStyleIds.includes(styleDef.id)
+                              ? 'fill-current text-[var(--ff-warning)]'
+                              : ''
+                          }`}
+                        />
+                      </button>
+                      {isApplied && <ThemeBadge tone="success">Active</ThemeBadge>}
+                    </div>
                   </div>
                   <p className="text-[11px] text-[var(--ff-text-muted)] line-clamp-2 mb-2.5">
                     {styleDef.tagline}

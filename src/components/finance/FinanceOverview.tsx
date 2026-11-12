@@ -5,6 +5,9 @@ import { api } from '../../lib/api.ts';
 import { FinanceSummaryData } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { AnalyticsCharts } from './AnalyticsCharts.tsx';
+import { IncomeManager } from './IncomeManager.tsx';
+import { ExpenseManager } from './ExpenseManager.tsx';
+import { BudgetSavingsManager } from './BudgetSavingsManager.tsx';
 import {
   ThemeButton,
   ThemeCard,
@@ -26,14 +29,18 @@ import {
   Scale,
   Clock,
   Plus,
+  Trash2,
 } from 'lucide-react';
 
 interface FinanceOverviewProps {
   onOpenQuickAction: () => void;
 }
 
+type FinanceSubTab = 'overview' | 'income' | 'expenses' | 'savings';
+
 export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAction }) => {
-  const { currency, refreshKey } = useApp();
+  const { currency, refreshKey, setTrashModalOpen } = useApp();
+  const [subTab, setSubTab] = useState<FinanceSubTab>('overview');
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
   const [summary, setSummary] = useState<FinanceSummaryData | null>(null);
@@ -84,8 +91,34 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
 
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
-      {/* Top Filter Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Finance Workspace Sub-Navigation */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <ThemeSegmentedControl<FinanceSubTab>
+          ariaLabel="Finance sections"
+          value={subTab}
+          onChange={setSubTab}
+          options={[
+            { id: 'overview', label: 'Overview & Budgets' },
+            { id: 'income', label: 'Income' },
+            { id: 'expenses', label: 'Expenses & Recurring' },
+            { id: 'savings', label: 'Savings Goals' },
+          ]}
+        />
+        <ThemeButton variant="secondary" size="sm" onClick={() => setTrashModalOpen(true)}>
+          <Trash2 className="w-3.5 h-3.5" /> Trash Bin
+        </ThemeButton>
+      </div>
+
+      {subTab === 'income' ? (
+        <IncomeManager />
+      ) : subTab === 'expenses' ? (
+        <ExpenseManager />
+      ) : subTab === 'savings' ? (
+        <BudgetSavingsManager showBudgets={false} showSavings={true} />
+      ) : (
+        <>
+          {/* Top Filter Bar */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <ThemeSegmentedControl<string>
           ariaLabel="Financial date range filter"
           value={filter}
@@ -315,12 +348,17 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
         </MotionStaggerGrid>
       )}
 
-      {/* Analytics Charts Submodule */}
+      {/* Analytics Charts Submodule + Monthly Budgets */}
       {loading && !summary ? (
         <SkeletonDashboard />
       ) : summary ? (
-        <AnalyticsCharts data={summary} />
+        <>
+          <BudgetSavingsManager showBudgets={true} showSavings={false} />
+          <AnalyticsCharts data={summary} />
+        </>
       ) : null}
+        </>
+      )}
     </div>
   );
 };

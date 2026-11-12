@@ -3,12 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { AppProvider, useApp } from './context/AppContext.tsx';
+import React, { useEffect, useState } from 'react';
+import { AppProvider, NavTab, useApp } from './context/AppContext.tsx';
 import { Sidebar } from './components/layout/Sidebar.tsx';
 import { Header } from './components/layout/Header.tsx';
 import { ToastContainer } from './components/layout/ToastContainer.tsx';
 import { QuickActionModal } from './components/common/QuickActionModal.tsx';
+import { CommandCenter } from './components/common/CommandCenter.tsx';
+import { TrashRestoreModal } from './components/common/TrashRestoreModal.tsx';
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard.tsx';
 import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
 import { FocusAnalytics } from './components/focus/FocusAnalytics.tsx';
@@ -16,6 +18,7 @@ import { TaskManager } from './components/tasks/TaskManager.tsx';
 import { FinanceOverview } from './components/finance/FinanceOverview.tsx';
 import { BillsTracker } from './components/finance/BillsTracker.tsx';
 import { TransactionsLedger } from './components/finance/TransactionsLedger.tsx';
+import { AnalyticsReportsView } from './components/analytics/AnalyticsReportsView.tsx';
 import { SettingsView } from './components/settings/SettingsView.tsx';
 import { getStyleDefinition } from './theme/stylesRegistry.ts';
 import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
@@ -27,6 +30,9 @@ import { Check, Eye, X } from 'lucide-react';
 const MainContent: React.FC = () => {
   const {
     currentTab,
+    setCurrentTab,
+    settings,
+    setCommandCenterOpen,
     effectiveThemeConfig,
     isFullAppPreview,
     previewThemeConfig,
@@ -37,6 +43,38 @@ const MainContent: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [quickActionOpen, setQuickActionOpen] = useState(false);
+
+  // Global keyboard shortcuts (Cmd/Ctrl + K & Alt + 1..8)
+  useEffect(() => {
+    const enabled = settings?.keyboardShortcutsEnabled ?? true;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!enabled) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandCenterOpen(true);
+        return;
+      }
+      if (e.altKey && !e.metaKey && !e.ctrlKey) {
+        const map: Record<string, NavTab> = {
+          '1': 'dashboard',
+          '2': 'focus',
+          '3': 'tasks',
+          '4': 'finance',
+          '5': 'transactions',
+          '6': 'bills',
+          '7': 'analytics',
+          '8': 'settings',
+        };
+        const target = map[e.key];
+        if (target) {
+          e.preventDefault();
+          setCurrentTab(target);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [settings?.keyboardShortcutsEnabled, setCommandCenterOpen, setCurrentTab]);
 
   const previewStyleName = previewThemeConfig
     ? getStyleDefinition(previewThemeConfig.styleId).name
@@ -98,11 +136,7 @@ const MainContent: React.FC = () => {
 
             {currentTab === 'bills' && <BillsTracker />}
 
-            {currentTab === 'analytics' && (
-              <div className="space-y-6">
-                <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
-              </div>
-            )}
+            {currentTab === 'analytics' && <AnalyticsReportsView />}
 
             {currentTab === 'settings' && <SettingsView />}
           </MotionPage>
@@ -156,6 +190,10 @@ const MainContent: React.FC = () => {
         isOpen={quickActionOpen}
         onClose={() => setQuickActionOpen(false)}
       />
+
+      {/* Global Command Center & Trash Restore Modal */}
+      <CommandCenter onOpenQuickAction={() => setQuickActionOpen(true)} />
+      <TrashRestoreModal />
 
       {/* Notification Toast Container */}
       <ToastContainer />

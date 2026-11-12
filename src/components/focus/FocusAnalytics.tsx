@@ -13,10 +13,10 @@ import {
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
-import { Clock, CheckCircle2, Flame, Calendar, History, Sparkles } from 'lucide-react';
+import { Clock, CheckCircle2, Flame, Calendar, History, Sparkles, Grid3X3 } from 'lucide-react';
 
 export const FocusAnalytics: React.FC = () => {
-  const { refreshKey } = useApp();
+  const { refreshKey, settings } = useApp();
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
   const [stats, setStats] = useState<FocusStatsData | null>(null);
@@ -40,6 +40,24 @@ export const FocusAnalytics: React.FC = () => {
 
   const maxMinutesInWeek = stats?.last7Days.reduce((max, d) => Math.max(max, d.minutes), 0) || 60;
   const chartHeight = 130;
+
+  const weeklyGoalMin = Math.max(30, settings?.weeklyFocusGoalMinutes || 500);
+  const weeklyMinutes =
+    stats?.weeklyMinutes ?? (stats?.last7Days.reduce((acc, d) => acc + d.minutes, 0) || 0);
+  const weeklyPct = Math.min(100, Math.round((weeklyMinutes / weeklyGoalMin) * 100));
+
+  const dailyGoalMin = Math.max(15, settings?.dailyFocusGoalMinutes || 100);
+  const todayMinutes = stats?.last7Days[stats.last7Days.length - 1]?.minutes || 0;
+  const dailyPct = Math.min(100, Math.round((todayMinutes / dailyGoalMin) * 100));
+
+  const heatmapDays = stats?.dailyHeatmap || [];
+  const heatColor = (mins: number) => {
+    if (mins <= 0) return 'var(--ff-surface-subtle)';
+    if (mins < 30) return 'color-mix(in oklab, var(--ff-accent) 28%, transparent)';
+    if (mins < 75) return 'color-mix(in oklab, var(--ff-accent) 55%, transparent)';
+    if (mins < 120) return 'color-mix(in oklab, var(--ff-accent) 80%, transparent)';
+    return 'var(--ff-accent)';
+  };
 
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-grid-gap)' }}>
@@ -103,14 +121,52 @@ export const FocusAnalytics: React.FC = () => {
               <Flame className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
             </div>
             <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-              <AnimatedNumber value={85} format={(v) => `${Math.round(v)}%`} />
+              <AnimatedNumber value={weeklyPct} format={(v) => `${Math.round(v)}%`} />
             </div>
             <span className="text-[11px] font-semibold mt-1 block" style={{ color: 'var(--ff-success)' }}>
-              Consistent progress
+              {weeklyMinutes} / {weeklyGoalMin} min goal
             </span>
           </ThemeCard>
         </MotionStaggerItem>
       </MotionStaggerGrid>
+
+      {/* Daily & Weekly Focus Goals Bar */}
+      <ThemeCard className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <div className="flex items-center justify-between text-xs mb-1.5">
+            <span className="font-semibold text-[var(--ff-text-secondary)]">Today&apos;s Focus Goal</span>
+            <span className="font-mono font-bold text-[var(--ff-text-primary)]">
+              {todayMinutes} / {dailyGoalMin}m ({dailyPct}%)
+            </span>
+          </div>
+          <div className="h-2 rounded-full overflow-hidden bg-[var(--ff-surface-subtle)]">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${dailyPct}%`,
+                background: dailyPct >= 100 ? 'var(--ff-success)' : 'var(--ff-accent)',
+              }}
+            />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between text-xs mb-1.5">
+            <span className="font-semibold text-[var(--ff-text-secondary)]">Weekly Deep Work Target</span>
+            <span className="font-mono font-bold text-[var(--ff-text-primary)]">
+              {weeklyMinutes} / {weeklyGoalMin}m ({weeklyPct}%)
+            </span>
+          </div>
+          <div className="h-2 rounded-full overflow-hidden bg-[var(--ff-surface-subtle)]">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${weeklyPct}%`,
+                background: 'linear-gradient(90deg, var(--ff-accent), var(--ff-accent-secondary))',
+              }}
+            />
+          </div>
+        </div>
+      </ThemeCard>
 
       {/* Weekly Focus Progress Bar Chart */}
       <ThemeCard>
@@ -129,7 +185,6 @@ export const FocusAnalytics: React.FC = () => {
           </div>
         </div>
 
-        {/* Bar chart */}
         <div
           className="flex items-end justify-between gap-2 sm:gap-4 h-44 pt-4 px-2 border-b"
           style={{ borderColor: 'var(--ff-border-color)' }}
@@ -184,6 +239,42 @@ export const FocusAnalytics: React.FC = () => {
           })}
         </div>
       </ThemeCard>
+
+      {/* 84-Day Focus Calendar Heatmap */}
+      {heatmapDays.length > 0 && (
+        <ThemeCard className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Grid3X3 className="w-4 h-4 text-[var(--ff-accent-text)]" />
+              <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                84-Day Focus Activity Heatmap
+              </h3>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-[var(--ff-text-muted)]">
+              <span>Less</span>
+              {[0, 20, 60, 100, 140].map((v) => (
+                <span
+                  key={v}
+                  className="w-3 h-3 rounded-xs border border-[var(--ff-border-color)]"
+                  style={{ background: heatColor(v) }}
+                />
+              ))}
+              <span>More</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-12 sm:grid-cols-14 md:grid-cols-21 lg:grid-cols-28 gap-1.5">
+            {heatmapDays.map((cell) => (
+              <div
+                key={cell.date}
+                title={`${cell.date}: ${cell.minutes} min (${cell.sessionsCount} sessions)`}
+                className="aspect-square rounded-xs border border-[var(--ff-border-color)] transition-transform hover:scale-125"
+                style={{ background: heatColor(cell.minutes) }}
+              />
+            ))}
+          </div>
+        </ThemeCard>
+      )}
 
       {/* Focus Session History Log */}
       <ThemeCard>

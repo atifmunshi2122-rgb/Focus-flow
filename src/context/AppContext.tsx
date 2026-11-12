@@ -19,6 +19,16 @@ import {
 import { User as FirebaseUser } from 'firebase/auth';
 import { googleSheetsService } from '../lib/googleSheetsService.ts';
 import { firestoreService } from '../lib/firestoreService.ts';
+import {
+  AmbientPreset,
+  startSoundscape,
+  stopSoundscape,
+  setSoundscapeVolume,
+} from '../lib/ambientAudio.ts';
+import {
+  AppNotificationItem,
+  evaluateDeterministicNotifications,
+} from '../lib/notificationsEngine.ts';
 import { DEFAULT_THEME_CONFIG } from '../theme/stylesRegistry.ts';
 import {
   THEME_CACHE_KEY,
@@ -39,6 +49,7 @@ export type NavTab =
   | 'settings';
 
 export type TimerMode = 'work' | 'short_break' | 'long_break';
+export type TimerEngineMode = 'pomodoro' | 'stopwatch' | 'countdown';
 
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
 
@@ -99,8 +110,25 @@ interface AppContextType {
     description?: string
   ) => Promise<SavedCustomTheme>;
   applySavedTheme: (themeId: string) => Promise<void>;
+  duplicateSavedTheme: (themeId: string) => Promise<SavedCustomTheme | null>;
   deleteSavedTheme: (themeId: string) => Promise<void>;
   resetThemeToDefault: () => Promise<void>;
+  toggleFavoriteStyle: (styleId: string) => Promise<void>;
+  toggleFavoriteTheme: (themeId: string) => Promise<void>;
+
+  // Workspace UX & Focus Extras
+  commandCenterOpen: boolean;
+  setCommandCenterOpen: (open: boolean) => void;
+  fullScreenFocus: boolean;
+  setFullScreenFocus: (open: boolean) => void;
+  trashModalOpen: boolean;
+  setTrashModalOpen: (open: boolean) => void;
+  ambientPreset: AmbientPreset;
+  ambientVolume: number;
+  setAmbientSound: (preset: AmbientPreset, volume?: number) => Promise<void>;
+  isOnline: boolean;
+  syncLastError: string | null;
+  notifications: AppNotificationItem[];
 
   // Firebase Auth
   firebaseUser: FirebaseUser | null;
@@ -118,15 +146,20 @@ interface AppContextType {
   syncNowToGoogleSheets: () => Promise<void>;
 
   // Timer State
+  timerEngine: TimerEngineMode;
+  setTimerEngine: (engine: TimerEngineMode) => void;
   timerMode: TimerMode;
   timeLeft: number;
   totalDuration: number;
+  stopwatchElapsed: number;
   isRunning: boolean;
+  completedCycleCount: number;
   activeTaskId: string | null;
   activeTask: Task | null;
   startTimer: () => void;
   pauseTimer: () => void;
   resetTimer: () => void;
+  saveStopwatchSession: () => Promise<void>;
   switchTimerMode: (mode: TimerMode, durationMinutes?: number) => void;
   setActiveTaskId: (id: string | null) => void;
   setCustomDuration: (minutes: number) => void;
@@ -178,21 +211,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
+  // Command Center, Full-Screen Focus, Trash, Audio & Offline/Notifications state
+  const [commandCenterOpen, setCommandCenterOpen] = useState(false);
+  const [fullScreenFocus, setFullScreenFocus] = useState(false);
+  const [trashModalOpen, setTrashModalOpen] = useState(false);
+  const [ambientPreset, setAmbientPreset] = useState<AmbientPreset>('off');
+  const [ambientVolume, setAmbientVolume] = useState<number>(0.35);
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+  const [syncLastError, setSyncLastError] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<AppNotificationItem[]>([]);
+
   // Timer state
+  const [timerEngine, setTimerEngineState] = useState<TimerEngineMode>('pomodoro');
   const [timerMode, setTimerMode] = useState<TimerMode>('work');
   const [timeLeft, setTimeLeft] = useState<number>(25 * 60);
   const [totalDuration, setTotalDuration] = useState<number>(25 * 60);
+  const [stopwatchElapsed, setStopwatchElapsed] = useState<number>(0);
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [completedCycleCount, setCompletedCycleCount] = useState<number>(0);
   const sessionStartTimeRef = useRef<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSwitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const targetEndTimeMsRef = useRef<number | null>(null);
+  const stopwatchStartMsRef = useRef<number | null>(null);
+  const stopwatchElapsedRef = useRef<number>(0);
   const completionHandledRef = useRef<boolean>(false);
   const timerModifiedByUserRef = useRef<boolean>(false);
   const timeLeftRef = useRef<number>(timeLeft);
   const totalDurationRef = useRef<number>(totalDuration);
   timeLeftRef.current = timeLeft;
   totalDurationRef.current = totalDuration;
+  stopwatchElapsedRef.current = stopwatchElapsed;
 
   const isFullAppPreview = previewThemeConfig !== null;
   const effectiveThemeConfig = previewThemeConfig ?? themeConfig;
@@ -380,6 +431,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Theme reset to default', 'info');
   }, [savedThemes, firebaseUser, persistThemeState, showToast]);
 
+  const duplicateSavedTheme = useCallback(
+    async (themeId: string): Promise<SavedCustomTheme | null> => {
+      const source = savedThemes.find((t) => t.id === themeId);
+      if (!source) return null;
+      return saveCustomTheme(
+        `${source.name} (Copy)`,
+        sanitizeThemeConfig(source.config),
+        source.description
+      );
+    },
+    [savedThemes, saveCustomTheme]
+  );
+
+  const toggleFavoriteStyle = useCallback(
+    async (styleId: string) => {
+      const current = settings?.favoriteStyleIds || [];
+      const next = current.includes(styleId)
+        ? current.filter((id) => id !== styleId)
+        : [...current, styleId];
+      try {
+        const res = await api.updateSettings({ favoriteStyleIds: next });
+        setSettings(res.settings);
+      } catch (err) {
+        console.warn('Failed to toggle favorite style:', err);
+      }
+    },
+    [settings]
+  );
+
+  const toggleFavoriteTheme = useCallback(
+    async (themeId: string) => {
+      const current = settings?.favoriteThemeIds || [];
+      const next = current.includes(themeId)
+        ? current.filter((id) => id !== themeId)
+        : [...current, themeId];
+      try {
+        const res = await api.updateSettings({ favoriteThemeIds: next });
+        setSettings(res.settings);
+      } catch (err) {
+        console.warn('Failed to toggle favorite theme:', err);
+      }
+    },
+    [settings]
+  );
+
+  const setAmbientSound = useCallback(
+    async (preset: AmbientPreset, volume?: number) => {
+      const nextVol = volume !== undefined ? volume : ambientVolume;
+      if (volume !== undefined) setAmbientVolume(nextVol);
+      if (preset === 'off') {
+        stopSoundscape();
+        setAmbientPreset('off');
+        return;
+      }
+      if (preset === ambientPreset && volume !== undefined) {
+        setSoundscapeVolume(nextVol);
+        return;
+      }
+      const started = await startSoundscape(preset, nextVol);
+      setAmbientPreset(started);
+    },
+    [ambientPreset, ambientVolume]
+  );
+
+  useEffect(() => {
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      stopSoundscape();
+    };
+  }, []);
+
   const toggleTheme = useCallback(() => {
     const nextColorMode: 'light' | 'dark' = resolvedThemeMode === 'dark' ? 'light' : 'dark';
     const nextConfig: ThemeConfig = {
@@ -517,13 +644,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubscribe();
   }, []);
 
-  // Load tasks for active task link
+  // Load tasks & evaluate deterministic notifications
   useEffect(() => {
-    api
-      .getTasks()
-      .then((data) => setTasks(data))
+    Promise.all([
+      api.getTasks().catch(() => [] as Task[]),
+      api.getBills().catch(() => []),
+      api.getDashboard().catch(() => null),
+      api.getFinanceSummary().catch(() => null),
+    ])
+      .then(([taskList, billList, dashData, finSummary]) => {
+        setTasks(taskList);
+        const items = evaluateDeterministicNotifications({
+          settings,
+          tasks: taskList,
+          bills: billList,
+          dashboard: dashData,
+          financeSummary: finSummary,
+          syncLastError,
+        });
+        setNotifications(items);
+      })
       .catch(console.error);
-  }, [refreshKey]);
+  }, [refreshKey, settings, syncLastError]);
 
   const activeTask = tasks.find((t) => t.id === activeTaskId) || null;
 
@@ -670,12 +812,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const nowIso = new Date().toISOString();
       setLastSyncedAt(nowIso);
       setSyncStatus('synced');
-      setSyncQueueCount(0);
+      setSyncQueueCount(googleSheetsService.getQueueLength());
+      setSyncLastError(googleSheetsService.getLastError());
       await updateSettings({ lastSyncedAt: nowIso });
       showToast('Google Sheets synchronized successfully!', 'success');
     } catch (err: unknown) {
       setSyncStatus('error');
       const msg = err instanceof Error ? err.message : 'Sync failed';
+      setSyncLastError(msg);
       showToast(`Sync failed: ${msg}`, 'error');
     }
   };
@@ -728,6 +872,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : 15;
 
       const totalSec = clampedMinutes * 60;
+      timeLeftRef.current = totalSec;
+      totalDurationRef.current = totalSec;
       setTimeLeft(totalSec);
       setTotalDuration(totalSec);
       sessionStartTimeRef.current = null;
@@ -746,11 +892,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? Math.max(1, Math.min(180, Math.round(minutes)))
         : 25;
       const secs = safeMinutes * 60;
+      timeLeftRef.current = secs;
+      totalDurationRef.current = secs;
       setTimeLeft(secs);
       setTotalDuration(secs);
       sessionStartTimeRef.current = null;
     },
     [clearTimerHandles]
+  );
+
+  const setTimerEngine = useCallback(
+    (engine: TimerEngineMode) => {
+      clearTimerHandles();
+      targetEndTimeMsRef.current = null;
+      stopwatchStartMsRef.current = null;
+      completionHandledRef.current = false;
+      setIsRunning(false);
+      setTimerEngineState(engine);
+      if (engine === 'stopwatch') {
+        stopwatchElapsedRef.current = 0;
+        setStopwatchElapsed(0);
+        sessionStartTimeRef.current = null;
+      } else if (engine === 'countdown') {
+        const secs = 15 * 60;
+        timeLeftRef.current = secs;
+        totalDurationRef.current = secs;
+        setTimeLeft(secs);
+        setTotalDuration(secs);
+      } else {
+        const workMins = Math.max(1, Math.min(180, Math.round(settings?.pomodoroWorkDuration || 25)));
+        const secs = workMins * 60;
+        setTimerMode('work');
+        timeLeftRef.current = secs;
+        totalDurationRef.current = secs;
+        setTimeLeft(secs);
+        setTotalDuration(secs);
+      }
+    },
+    [clearTimerHandles, settings]
   );
 
   const startTimer = useCallback(() => {
@@ -759,10 +938,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     timerModifiedByUserRef.current = true;
     completionHandledRef.current = false;
 
+    if (timerEngine === 'stopwatch') {
+      stopwatchStartMsRef.current = Date.now() - stopwatchElapsedRef.current * 1000;
+      if (!sessionStartTimeRef.current) {
+        sessionStartTimeRef.current = new Date().toISOString();
+      }
+      setIsRunning(true);
+      playClickSound(settings?.soundEnabled ?? true);
+      return;
+    }
+
     const currentRemaining = Math.max(0, Math.floor(timeLeftRef.current));
     const effectiveSecs =
       currentRemaining > 0 ? currentRemaining : Math.max(60, Math.floor(totalDurationRef.current) || 1500);
     if (currentRemaining <= 0) {
+      timeLeftRef.current = effectiveSecs;
       setTimeLeft(effectiveSecs);
     }
     targetEndTimeMsRef.current = Date.now() + effectiveSecs * 1000;
@@ -772,33 +962,77 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     setIsRunning(true);
     playClickSound(settings?.soundEnabled ?? true);
-  }, [settings, clearTimerHandles]);
+  }, [settings, clearTimerHandles, timerEngine]);
 
   const pauseTimer = useCallback(() => {
     clearTimerHandles();
     unlockAudioContext();
     timerModifiedByUserRef.current = true;
-    if (targetEndTimeMsRef.current !== null) {
+    if (timerEngine === 'stopwatch' && stopwatchStartMsRef.current !== null) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - stopwatchStartMsRef.current) / 1000));
+      stopwatchElapsedRef.current = elapsed;
+      setStopwatchElapsed(elapsed);
+      stopwatchStartMsRef.current = null;
+    } else if (targetEndTimeMsRef.current !== null) {
       const remaining = Math.max(0, Math.ceil((targetEndTimeMsRef.current - Date.now()) / 1000));
+      timeLeftRef.current = remaining;
       setTimeLeft(remaining);
       targetEndTimeMsRef.current = null;
     }
     setIsRunning(false);
     playClickSound(settings?.soundEnabled ?? true);
-  }, [settings, clearTimerHandles]);
+  }, [settings, clearTimerHandles, timerEngine]);
 
   const resetTimer = useCallback(() => {
     clearTimerHandles();
     unlockAudioContext();
     targetEndTimeMsRef.current = null;
+    stopwatchStartMsRef.current = null;
     completionHandledRef.current = false;
     timerModifiedByUserRef.current = true;
-    const safeTotal = Math.max(60, Math.floor(totalDurationRef.current) || 1500);
     setIsRunning(false);
-    setTimeLeft(safeTotal);
+    if (timerEngine === 'stopwatch') {
+      stopwatchElapsedRef.current = 0;
+      setStopwatchElapsed(0);
+    } else {
+      const safeTotal = Math.max(60, Math.floor(totalDurationRef.current) || 1500);
+      timeLeftRef.current = safeTotal;
+      setTimeLeft(safeTotal);
+    }
     sessionStartTimeRef.current = null;
     playClickSound(settings?.soundEnabled ?? true);
-  }, [settings, clearTimerHandles]);
+  }, [settings, clearTimerHandles, timerEngine]);
+
+  const saveStopwatchSession = useCallback(async () => {
+    const secs = Math.max(0, Math.floor(stopwatchElapsedRef.current));
+    if (secs < 30) {
+      showToast('Record at least 30 seconds before saving a stopwatch focus session', 'info');
+      return;
+    }
+    const mins = Math.max(1, Math.round(secs / 60));
+    const startedAt = sessionStartTimeRef.current || new Date(Date.now() - secs * 1000).toISOString();
+    const endedAt = new Date().toISOString();
+
+    try {
+      const created = await api.createFocusSession({
+        taskId: activeTaskId,
+        mode: 'work',
+        durationMinutes: mins,
+        durationSeconds: secs,
+        completed: true,
+        startedAt,
+        endedAt,
+      });
+      if (firebaseUser) {
+        firestoreService.saveFocusSession(firebaseUser.uid, created).catch(console.error);
+      }
+      resetTimer();
+      triggerRefresh();
+      showToast(`Logged ${mins} min stopwatch focus session!`, 'success');
+    } catch {
+      showToast('Failed to log stopwatch session', 'error');
+    }
+  }, [activeTaskId, firebaseUser, resetTimer, showToast, triggerRefresh]);
 
   const latestTimerDepsRef = useRef({
     timerMode,
@@ -825,7 +1059,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     triggerRefresh,
   };
 
-  // Timestamp-based countdown loop (drift-free across background tabs & avoids interval stacking)
+  // Timestamp-based countdown / stopwatch loop (drift-free across background tabs)
   useEffect(() => {
     if (!isRunning) {
       if (intervalRef.current !== null) {
@@ -833,6 +1067,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         intervalRef.current = null;
       }
       return;
+    }
+
+    if (timerEngine === 'stopwatch') {
+      if (stopwatchStartMsRef.current === null) {
+        stopwatchStartMsRef.current = Date.now() - stopwatchElapsedRef.current * 1000;
+      }
+      const syncStopwatch = () => {
+        if (stopwatchStartMsRef.current === null) return;
+        const elapsed = Math.max(0, Math.floor((Date.now() - stopwatchStartMsRef.current) / 1000));
+        setStopwatchElapsed((prev) => (prev === elapsed ? prev : elapsed));
+      };
+      syncStopwatch();
+      intervalRef.current = setInterval(syncStopwatch, 250);
+      document.addEventListener('visibilitychange', syncStopwatch);
+      return () => {
+        if (intervalRef.current !== null) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        document.removeEventListener('visibilitychange', syncStopwatch);
+      };
     }
 
     if (targetEndTimeMsRef.current === null) {
@@ -846,6 +1101,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       clearTimerHandles();
       targetEndTimeMsRef.current = null;
       setIsRunning(false);
+      setCompletedCycleCount((c) => c + 1);
 
       const {
         timerMode: modeNow,
@@ -967,7 +1223,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isRunning, clearTimerHandles]);
+  }, [isRunning, timerEngine, clearTimerHandles]);
 
   const currency = settings?.currency || 'INR';
 
@@ -1002,8 +1258,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         stopFullAppPreview,
         saveCustomTheme,
         applySavedTheme,
+        duplicateSavedTheme,
         deleteSavedTheme,
         resetThemeToDefault,
+        toggleFavoriteStyle,
+        toggleFavoriteTheme,
+
+        // Workspace UX & Focus Extras
+        commandCenterOpen,
+        setCommandCenterOpen,
+        fullScreenFocus,
+        setFullScreenFocus,
+        trashModalOpen,
+        setTrashModalOpen,
+        ambientPreset,
+        ambientVolume,
+        setAmbientSound,
+        isOnline,
+        syncLastError,
+        notifications,
 
         // Firebase Auth
         firebaseUser,
@@ -1021,15 +1294,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         syncNowToGoogleSheets,
 
         // Timer
+        timerEngine,
+        setTimerEngine,
         timerMode,
         timeLeft,
         totalDuration,
+        stopwatchElapsed,
         isRunning,
+        completedCycleCount,
         activeTaskId,
         activeTask,
         startTimer,
         pauseTimer,
         resetTimer,
+        saveStopwatchSession,
         switchTimerMode,
         setActiveTaskId,
         setCustomDuration,

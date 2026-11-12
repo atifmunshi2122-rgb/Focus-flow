@@ -4,6 +4,7 @@ export const ALLOWED_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP'] as const;
 export const ALLOWED_THEMES = ['light', 'dark', 'system'] as const;
 export const ALLOWED_TASK_PRIORITIES = ['low', 'medium', 'high'] as const;
 export const ALLOWED_TASK_STATUSES = ['todo', 'in_progress', 'completed'] as const;
+export const ALLOWED_TASK_RECURRENCES = ['none', 'daily', 'weekly', 'monthly'] as const;
 export const ALLOWED_FOCUS_MODES = ['work', 'short_break', 'long_break'] as const;
 export const ALLOWED_PAYMENT_METHODS = [
   'credit_card',
@@ -69,6 +70,52 @@ export function parseEnum<T extends string>(
   return (allowed as readonly string[]).includes(value) ? (value as T) : null;
 }
 
+export interface SubtaskPayload {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
+export function parseSubtasks(raw: unknown): SubtaskPayload[] | null {
+  if (!Array.isArray(raw)) return null;
+  if (raw.length > 50) return null;
+  const parsed: SubtaskPayload[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') return null;
+    const rec = item as Record<string, unknown>;
+    const title = parseNonEmptyString(rec.title, 200);
+    if (!title) return null;
+    const id =
+      typeof rec.id === 'string' && rec.id.trim()
+        ? rec.id.trim().slice(0, 80)
+        : `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    parsed.push({
+      id,
+      title,
+      done: Boolean(rec.done),
+    });
+  }
+  return parsed;
+}
+
+export function computeNextRecurrenceDueDate(
+  currentDueDate: string | null,
+  recurrence: 'daily' | 'weekly' | 'monthly'
+): string {
+  const baseStr = currentDueDate && parseIsoDate(currentDueDate)
+    ? currentDueDate
+    : new Date().toISOString().slice(0, 10);
+  const d = new Date(`${baseStr}T00:00:00.000Z`);
+  if (recurrence === 'daily') {
+    d.setUTCDate(d.getUTCDate() + 1);
+  } else if (recurrence === 'weekly') {
+    d.setUTCDate(d.getUTCDate() + 7);
+  } else {
+    d.setUTCMonth(d.getUTCMonth() + 1);
+  }
+  return d.toISOString().slice(0, 10);
+}
+
 const MAX_STREAK_DAYS = 365;
 
 /**
@@ -106,7 +153,6 @@ export function calculateBoundedStreakDays(
   if (completedWorkDates.has(todayStr)) {
     startOffset = 0;
   } else if (completedWorkDates.has(yesterdayStr)) {
-    // Allow 1-day grace if user hasn't finished today's session yet
     startOffset = 1;
   } else {
     return 0;
@@ -124,4 +170,39 @@ export function calculateBoundedStreakDays(
   }
 
   return streak;
+}
+
+/**
+ * Deterministic all-time longest consecutive streak (non-punitive historical record).
+ */
+export function computeBestStreakDays(
+  sessions: ReadonlyArray<Pick<FocusSession, 'startedAt' | 'completed' | 'mode'>>
+): number {
+  const uniqueDates = new Set<string>();
+  for (const s of sessions) {
+    if (!s || !s.completed || s.mode !== 'work' || typeof s.startedAt !== 'string') continue;
+    const dateStr = s.startedAt.slice(0, 10);
+    if (parseIsoDate(dateStr)) {
+      uniqueDates.add(dateStr);
+    }
+  }
+  if (uniqueDates.size === 0) return 0;
+
+  const sorted = Array.from(uniqueDates).sort();
+  let best = 1;
+  let current = 1;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prevMs = Date.parse(`${sorted[i - 1]}T00:00:00.000Z`);
+    const currMs = Date.parse(`${sorted[i]}T00:00:00.000Z`);
+    const diffDays = Math.round((currMs - prevMs) / 86_400_000);
+    if (diffDays === 1) {
+      current++;
+      if (current > best) best = current;
+    } else if (diffDays > 1) {
+      current = 1;
+    }
+  }
+
+  return best;
 }

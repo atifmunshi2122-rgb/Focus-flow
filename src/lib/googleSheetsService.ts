@@ -18,6 +18,8 @@ export interface SyncQueueItem {
   payload: unknown;
   timestamp: string;
   retryCount: number;
+  dedupeKey?: string;
+  nextRetryAt?: number;
 }
 
 const SYNC_QUEUE_KEY = 'focusflow_sheets_sync_queue';
@@ -142,9 +144,18 @@ export const WORKSHEET_HEADERS: Record<WorksheetName, string[]> = {
 
 class GoogleSheetsService {
   private queue: SyncQueueItem[] = [];
+  private lastError: string | null = null;
 
   constructor() {
     this.loadQueue();
+  }
+
+  public getLastError(): string | null {
+    return this.lastError;
+  }
+
+  public clearLastError(): void {
+    this.lastError = null;
   }
 
   private loadQueue() {
@@ -602,9 +613,25 @@ class GoogleSheetsService {
   }
 
   /**
-   * Queue real-time mutation for Google Sheets (appended or updated).
+   * Queue real-time mutation for Google Sheets (deduplicated by sheet + record identifier).
    */
   public enqueueMutation(sheetName: WorksheetName, payload: unknown, action: SyncQueueItem['action'] = 'append') {
+    const primaryKey =
+      Array.isArray(payload) && payload.length > 0 ? String(payload[0]) : JSON.stringify(payload);
+    const dedupeKey = `${sheetName}:${action}:${primaryKey}`;
+    const existingIdx = this.queue.findIndex((q) => q.dedupeKey === dedupeKey);
+
+    if (existingIdx >= 0) {
+      this.queue[existingIdx] = {
+        ...this.queue[existingIdx],
+        payload,
+        timestamp: new Date().toISOString(),
+        nextRetryAt: 0,
+      };
+      this.saveQueue();
+      return;
+    }
+
     const item: SyncQueueItem = {
       id: `queue_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       sheetName,
@@ -612,44 +639,64 @@ class GoogleSheetsService {
       payload,
       timestamp: new Date().toISOString(),
       retryCount: 0,
+      dedupeKey,
+      nextRetryAt: 0,
     };
     this.queue.push(item);
     this.saveQueue();
   }
 
   /**
-   * Process pending retry queue items.
+   * Process pending retry queue items with exponential backoff.
    */
   public async flushQueue(spreadsheetId: string, accessToken: string): Promise<number> {
     if (this.queue.length === 0) return 0;
 
+    const now = Date.now();
     let processed = 0;
     const remaining: SyncQueueItem[] = [];
+    let latestErr: string | null = null;
 
     for (const item of this.queue) {
+      if (item.nextRetryAt && item.nextRetryAt > now) {
+        remaining.push(item);
+        continue;
+      }
+
       try {
         if (item.action === 'append') {
-          await fetch(`${SHEETS_API_BASE}/${spreadsheetId}/values/${item.sheetName}!A2:append?valueInputOption=USER_ENTERED`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              values: [item.payload as (string | number)[]],
-            }),
-          });
+          const res = await fetch(
+            `${SHEETS_API_BASE}/${spreadsheetId}/values/${item.sheetName}!A2:append?valueInputOption=USER_ENTERED`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                values: [item.payload as (string | number)[]],
+              }),
+            }
+          );
+          if (!res.ok) {
+            const msg = await res.text().catch(() => `HTTP ${res.status}`);
+            throw new Error(msg || `HTTP ${res.status}`);
+          }
         }
         processed++;
       } catch (err) {
-        console.warn(`Sync queue item ${item.id} failed, retaining for retry:`, err);
+        const message = err instanceof Error ? err.message : 'Sync network error';
+        latestErr = message;
         item.retryCount++;
-        if (item.retryCount < 5) {
+        const backoffMs = Math.min(300_000, 2000 * Math.pow(2, item.retryCount));
+        item.nextRetryAt = Date.now() + backoffMs;
+        if (item.retryCount < 6) {
           remaining.push(item);
         }
       }
     }
 
+    this.lastError = latestErr;
     this.queue = remaining;
     this.saveQueue();
     return processed;

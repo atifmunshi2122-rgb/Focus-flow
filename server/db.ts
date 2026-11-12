@@ -30,6 +30,21 @@ export interface UserSettings {
   activeSavedThemeId?: string | null;
   googleSpreadsheetId?: string;
   lastSyncedAt?: string;
+  dailyFocusGoalMinutes?: number;
+  weeklyFocusGoalMinutes?: number;
+  monthlyBudgetPaise?: number;
+  categoryBudgets?: Record<string, number>;
+  dashboardLayout?: Record<string, unknown>;
+  notificationPrefs?: Record<string, unknown>;
+  favoriteStyleIds?: string[];
+  favoriteThemeIds?: string[];
+  keyboardShortcutsEnabled?: boolean;
+}
+
+export interface SubtaskItem {
+  id: string;
+  title: string;
+  done: boolean;
 }
 
 export interface Task {
@@ -39,9 +54,15 @@ export interface Task {
   description: string;
   priority: 'low' | 'medium' | 'high';
   status: 'todo' | 'in_progress' | 'completed';
+  category?: string;
+  subtasks?: SubtaskItem[];
+  recurrence?: 'none' | 'daily' | 'weekly' | 'monthly';
+  order?: number;
   estimatedPomodoros: number;
   completedPomodoros: number;
   dueDate: string | null;
+  completedAt?: string | null;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,6 +115,7 @@ export interface Bill {
   paymentDate: string | null; // YYYY-MM-DD
   notes: string;
   periodKey: string; // e.g. "2026-11" to prevent duplicate recurring bills
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -119,6 +141,7 @@ export interface IncomeTransaction {
   date: string; // YYYY-MM-DD
   category: string;
   notes: string;
+  deletedAt?: string | null;
   createdAt: string;
 }
 
@@ -134,7 +157,20 @@ export interface ExpenseTransaction {
   description: string;
   paymentMethod: 'credit_card' | 'debit_card' | 'upi_bank' | 'cash' | 'other';
   notes: string;
+  deletedAt?: string | null;
   createdAt: string;
+}
+
+export interface SavingsGoal {
+  id: string;
+  userId: string;
+  title: string;
+  targetPaise: number;
+  savedPaise: number;
+  targetDate: string | null;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DatabaseSchema {
@@ -148,6 +184,7 @@ export interface DatabaseSchema {
   paymentHistory: PaymentHistory[];
   incomeTransactions: IncomeTransaction[];
   expenseTransactions: ExpenseTransaction[];
+  savingsGoals: SavingsGoal[];
 }
 
 const DEFAULT_CATEGORIES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -177,12 +214,18 @@ class DatabaseService {
     paymentHistory: [],
     incomeTransactions: [],
     expenseTransactions: [],
+    savingsGoals: [],
   };
 
   private writeQueue: Promise<void> = Promise.resolve();
   private saveScheduled = false;
 
   constructor() {
+    if (process.env.NODE_ENV === 'production' && !process.env.DATA_DIR) {
+      console.warn(
+        '[DB] Warning: DATA_DIR is not set in production; using local ./data/database.json fallback (ephemeral on container restarts unless a volume is mounted). Signed-in users persist directly in Cloud Firestore.'
+      );
+    }
     this.ensureDataDir();
     this.load();
     this.ensureSeedData();
@@ -199,7 +242,20 @@ class DatabaseService {
     try {
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        this.db = JSON.parse(raw);
+        const parsed = JSON.parse(raw) as Partial<DatabaseSchema>;
+        this.db = {
+          users: parsed.users || [],
+          userSettings: parsed.userSettings || [],
+          tasks: parsed.tasks || [],
+          focusSessions: parsed.focusSessions || [],
+          categories: parsed.categories || [],
+          recurringExpenses: parsed.recurringExpenses || [],
+          bills: parsed.bills || [],
+          paymentHistory: parsed.paymentHistory || [],
+          incomeTransactions: parsed.incomeTransactions || [],
+          expenseTransactions: parsed.expenseTransactions || [],
+          savingsGoals: parsed.savingsGoals || [],
+        };
       }
     } catch (err) {
       console.error('Failed to load database file, initializing empty database:', err);
@@ -324,6 +380,7 @@ class DatabaseService {
       const preservedHistory = this.db.paymentHistory.filter((p) => p.userId !== 'usr_atif_default');
       const preservedIncome = this.db.incomeTransactions.filter((i) => i.userId !== 'usr_atif_default');
       const preservedExp = this.db.expenseTransactions.filter((e) => e.userId !== 'usr_atif_default');
+      const preservedGoals = this.db.savingsGoals.filter((g) => g.userId !== 'usr_atif_default');
 
       this.db = {
         users: preservedUsers,
@@ -336,6 +393,7 @@ class DatabaseService {
         paymentHistory: preservedHistory,
         incomeTransactions: preservedIncome,
         expenseTransactions: preservedExp,
+        savingsGoals: preservedGoals,
       };
       this.ensureSeedDataForUser('usr_atif_default', true);
       this.checkRecurringBills('usr_atif_default');
@@ -352,6 +410,7 @@ class DatabaseService {
     this.db.paymentHistory = this.db.paymentHistory.filter((p) => p.userId !== targetUserId);
     this.db.incomeTransactions = this.db.incomeTransactions.filter((i) => i.userId !== targetUserId);
     this.db.expenseTransactions = this.db.expenseTransactions.filter((e) => e.userId !== targetUserId);
+    this.db.savingsGoals = this.db.savingsGoals.filter((g) => g.userId !== targetUserId);
     this.ensureSeedDataForUser(targetUserId, false);
     this.checkRecurringBills(targetUserId);
     this.save();
@@ -814,6 +873,32 @@ class DatabaseService {
       }
     );
 
+    // 11. Savings Goals
+    this.db.savingsGoals.push(
+      {
+        id: `sav_1${idSuffix}`,
+        userId: defaultUserId,
+        title: '6-Month Emergency Reserve',
+        targetPaise: 60000000, // ₹6,00,000.00
+        savedPaise: 32500000,  // ₹3,25,000.00
+        targetDate: `${currentYear + 1}-06-30`,
+        color: '#10b981',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: `sav_2${idSuffix}`,
+        userId: defaultUserId,
+        title: 'Workstation & Studio Upgrade',
+        targetPaise: 12000000, // ₹1,20,000.00
+        savedPaise: 7800000,   // ₹78,000.00
+        targetDate: `${currentYear}-12-31`,
+        color: '#6366f1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    );
+
     this.save();
   }
 
@@ -862,9 +947,9 @@ class DatabaseService {
       }
     }
 
-    // 2. Mark unpaid bills past their due date as OVERDUE
+    // 2. Mark unpaid bills past their due date as OVERDUE (skip trashed bills)
     for (const bill of this.db.bills) {
-      if (bill.userId === userId && bill.status === 'UNPAID' && bill.dueDate < todayStr) {
+      if (!bill.deletedAt && bill.userId === userId && bill.status === 'UNPAID' && bill.dueDate < todayStr) {
         bill.status = 'OVERDUE';
         bill.updatedAt = new Date().toISOString();
         changed = true;
