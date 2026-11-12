@@ -17,7 +17,6 @@ import {
   Flame,
   Sun,
   Moon,
-  Zap,
   Palette,
 } from 'lucide-react';
 
@@ -106,15 +105,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               whileHover={isDisabled ? undefined : { scale: 1.05, rotate: -4 }}
               whileTap={isDisabled ? undefined : { scale: 0.95 }}
               transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
-              className="w-9 h-9 flex items-center justify-center font-bold shrink-0"
+              className="w-10 h-10 flex items-center justify-center overflow-hidden shrink-0 bg-black"
               style={{
                 borderRadius: 'var(--ff-radius-button)',
-                background: 'linear-gradient(135deg, var(--ff-accent), var(--ff-accent-secondary))',
-                color: 'var(--ff-accent-contrast)',
                 boxShadow: 'var(--ff-shadow-button)',
               }}
             >
-              <Zap className="w-5 h-5 fill-current" />
+              <img
+                src="/logo.png"
+                alt="FocusFlow & Finance Logo"
+                className="w-full h-full object-cover"
+              />
             </motion.div>
             {!collapsed && (
               <div className="flex flex-col min-w-0">
