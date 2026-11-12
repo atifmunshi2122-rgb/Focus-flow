@@ -15,11 +15,22 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
+// Support production runtime overrides via Vite environment variables
+export const activeFirebaseConfig = {
+  apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+  storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+  messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  appId: import.meta.env?.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
+  firestoreDatabaseId: import.meta.env?.VITE_FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId || 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8',
+};
+
 // Initialize Firebase App
-export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+export const app = getApps().length === 0 ? initializeApp(activeFirebaseConfig) : getApp();
 
 // CRITICAL: Initialize Firestore with the specific database ID from config
-export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId || 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8');
+export const db: Firestore = getFirestore(app, activeFirebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
 

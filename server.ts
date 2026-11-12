@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { apiRouter } from './server/routes.js';
+import { securityHeaders, rateLimiter, corsHandler, errorHandler } from './server/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,10 +16,30 @@ async function startServer() {
   const port = cliPort || (envPort ? parseInt(envPort, 10) : 3000);
   const isProd = process.env.NODE_ENV === 'production';
 
-  app.use(express.json());
+  app.use(securityHeaders);
+  app.use(corsHandler);
+  app.use(express.json({ limit: '1mb' }));
+
+  // Health-check endpoints for load balancers, orchestrators and uptime monitoring
+  const healthCheck = (_req: express.Request, res: express.Response) => {
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: Math.floor(process.uptime()),
+      environment: process.env.NODE_ENV || 'development',
+      version: '1.0.0',
+    });
+  };
+  app.get('/health', healthCheck);
+  app.get('/api/health', healthCheck);
+
+  app.use('/api', rateLimiter({ maxRequests: 300, windowMs: 60_000 }));
 
   // Mount API routes
   app.use('/api', apiRouter);
+
+  // Central error handling for API
+  app.use('/api', errorHandler);
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');

@@ -11,6 +11,15 @@ import {
 } from './db.js';
 import { AuthenticatedRequest, requireUserContext } from './auth.js';
 import {
+  DEFAULT_TIMEZONE,
+  getTodayDateString,
+  getStartOfWeek,
+  getEndOfWeek,
+  getStartOfMonth,
+  getEndOfMonth,
+  formatDateInTimezone,
+} from './dateTime.js';
+import {
   ALLOWED_CATEGORY_TYPES,
   ALLOWED_CURRENCIES,
   ALLOWED_FOCUS_MODES,
@@ -38,6 +47,9 @@ export const apiRouter = Router();
 apiRouter.use(requireUserContext);
 
 const getAuth = (req: Request) => (req as AuthenticatedRequest).auth;
+
+const canAccess = (itemUserId: string, authUserId: string, isGuest: boolean) =>
+  itemUserId === authUserId || (isGuest && (itemUserId === 'usr_atif_default' || itemUserId === 'usr_default'));
 
 // ----------------------------------------------------
 // User & Settings
@@ -282,16 +294,11 @@ apiRouter.get('/dashboard', (req: Request, res: Response) => {
   dbService.checkRecurringBills(userId);
   const db = dbService.getRaw();
 
-  const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-  // 7-day start (Monday)
-  const day = now.getDay();
-  const diffToMonday = (day + 6) % 7;
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - diffToMonday);
-  const weekStartStr = startOfWeek.toISOString().split('T')[0];
+  const userSettings = db.userSettings.find((s) => s.userId === userId);
+  const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = getTodayDateString(tz);
+  const currentMonthKey = todayStr.substring(0, 7);
+  const weekStartStr = getStartOfWeek(todayStr);
 
   // 1. Focus metrics
   const userSessions = db.focusSessions.filter((s) => s.userId === userId);
@@ -305,7 +312,7 @@ apiRouter.get('/dashboard', (req: Request, res: Response) => {
     weekSessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60
   );
   const completedPomodoroSessions = todaySessions.filter((s) => s.mode === 'work').length;
-  const streak = calculateBoundedStreakDays(userSessions, now);
+  const streak = calculateBoundedStreakDays(userSessions, new Date());
   const bestStreakDays = computeBestStreakDays(userSessions);
 
   // Tasks summary (exclude trashed)
@@ -510,16 +517,19 @@ apiRouter.post('/focus/sessions', (req: Request, res: Response) => {
 apiRouter.get('/focus/stats', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
+  const userSettings = db.userSettings.find((s) => s.userId === userId);
+  const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = getTodayDateString(tz);
   const sessions = db.focusSessions.filter((s) => s.userId === userId && s.completed);
 
   const last7Days: { date: string; dayName: string; minutes: number; sessionsCount: number }[] = [];
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
+    const d = new Date(`${todayStr}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    const dayName = dayNames[d.getDay()];
+    const dayName = dayNames[d.getUTCDay()];
 
     const daysSessions = sessions.filter((s) => s.startedAt.startsWith(dateStr) && s.mode === 'work');
     const totalSecs = daysSessions.reduce((acc, s) => acc + s.durationSeconds, 0);
@@ -535,8 +545,8 @@ apiRouter.get('/focus/stats', (req: Request, res: Response) => {
   // 84-day calendar heatmap (12 weeks)
   const dailyHeatmap: { date: string; minutes: number; sessionsCount: number }[] = [];
   for (let i = 83; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
+    const d = new Date(`${todayStr}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - i);
     const dateStr = d.toISOString().split('T')[0];
     const daySessions = sessions.filter((s) => s.startedAt.startsWith(dateStr) && s.mode === 'work');
     const totalSecs = daySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
@@ -859,9 +869,11 @@ apiRouter.put('/tasks/:id', (req: Request, res: Response) => {
 });
 
 apiRouter.delete('/tasks/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const { userId, isGuest } = getAuth(req);
   const db = dbService.getRaw();
-  const task = db.tasks.find((t) => t.id === req.params.id && t.userId === userId && !t.deletedAt);
+  const task = db.tasks.find(
+    (t) => t.id === req.params.id && canAccess(t.userId, userId, isGuest) && !t.deletedAt
+  );
 
   if (!task) {
     res.status(404).json({ error: 'Task not found' });
@@ -931,28 +943,32 @@ apiRouter.get('/finance/summary', (req: Request, res: Response) => {
   const customStart = req.query.startDate as string;
   const customEnd = req.query.endDate as string;
 
-  const now = new Date();
+  const userSettings = db.userSettings.find((s) => s.userId === userId);
+  const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = getTodayDateString(tz);
   let startDateStr = '';
   let endDateStr = '';
 
   if (filter === 'today') {
-    startDateStr = now.toISOString().split('T')[0];
-    endDateStr = startDateStr;
+    startDateStr = todayStr;
+    endDateStr = todayStr;
   } else if (filter === 'this_week') {
-    const day = now.getDay();
-    const diffToMonday = (day + 6) % 7;
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - diffToMonday);
-    startDateStr = startOfWeek.toISOString().split('T')[0];
-    endDateStr = now.toISOString().split('T')[0];
+    startDateStr = getStartOfWeek(todayStr);
+    endDateStr = getEndOfWeek(todayStr);
   } else if (filter === 'this_month') {
-    startDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    endDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+    startDateStr = getStartOfMonth(todayStr);
+    endDateStr = getEndOfMonth(todayStr);
   } else if (filter === 'last_month') {
-    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastDay = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
-    startDateStr = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-01`;
-    endDateStr = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const [yStr, mStr] = todayStr.split('-');
+    let y = parseInt(yStr, 10);
+    let m = parseInt(mStr, 10) - 1;
+    if (m === 0) {
+      m = 12;
+      y -= 1;
+    }
+    const lastMonthSample = `${y}-${String(m).padStart(2, '0')}-01`;
+    startDateStr = getStartOfMonth(lastMonthSample);
+    endDateStr = getEndOfMonth(lastMonthSample);
   } else if (filter === 'custom' && customStart && customEnd) {
     const validStart = parseIsoDate(customStart);
     const validEnd = parseIsoDate(customEnd);
@@ -963,8 +979,8 @@ apiRouter.get('/finance/summary', (req: Request, res: Response) => {
     startDateStr = validStart;
     endDateStr = validEnd;
   } else {
-    startDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    endDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+    startDateStr = getStartOfMonth(todayStr);
+    endDateStr = getEndOfMonth(todayStr);
   }
 
   const incomes = db.incomeTransactions.filter(
@@ -1012,10 +1028,16 @@ apiRouter.get('/finance/summary', (req: Request, res: Response) => {
 
   const monthlyTrend: { month: string; incomePaise: number; expensePaise: number }[] = [];
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const [currentY, currentM] = todayStr.split('-').map(Number);
   for (let m = 5; m >= 0; m--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = `${monthNames[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`;
+    let y = currentY;
+    let mo = currentM - m;
+    while (mo <= 0) {
+      mo += 12;
+      y -= 1;
+    }
+    const key = `${y}-${String(mo).padStart(2, '0')}`;
+    const label = `${monthNames[mo - 1]} ${String(y).slice(-2)}`;
 
     const mInc = db.incomeTransactions
       .filter((inc) => inc.userId === userId && !inc.deletedAt && inc.date.startsWith(key))
@@ -1082,7 +1104,7 @@ apiRouter.post('/finance/income', (req: Request, res: Response) => {
 
   const parsedDate =
     date === undefined || date === ''
-      ? new Date().toISOString().split('T')[0]
+      ? getTodayDateString(DEFAULT_TIMEZONE)
       : parseIsoDate(date);
   if (!parsedDate) {
     res.status(400).json({ error: 'date must be YYYY-MM-DD' });
@@ -1183,10 +1205,10 @@ apiRouter.put('/finance/income/:id', (req: Request, res: Response) => {
 });
 
 apiRouter.delete('/finance/income/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const { userId, isGuest } = getAuth(req);
   const db = dbService.getRaw();
   const income = db.incomeTransactions.find(
-    (inc) => inc.id === req.params.id && inc.userId === userId && !inc.deletedAt
+    (inc) => inc.id === req.params.id && canAccess(inc.userId, userId, isGuest) && !inc.deletedAt
   );
 
   if (!income) {
@@ -1243,7 +1265,7 @@ apiRouter.post('/finance/expenses', (req: Request, res: Response) => {
 
   const parsedDate =
     date === undefined || date === ''
-      ? new Date().toISOString().split('T')[0]
+      ? getTodayDateString(DEFAULT_TIMEZONE)
       : parseIsoDate(date);
   if (!parsedDate) {
     res.status(400).json({ error: 'date must be YYYY-MM-DD' });
@@ -1381,10 +1403,10 @@ apiRouter.put('/finance/expenses/:id', (req: Request, res: Response) => {
 });
 
 apiRouter.delete('/finance/expenses/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const { userId, isGuest } = getAuth(req);
   const db = dbService.getRaw();
   const expense = db.expenseTransactions.find(
-    (e) => e.id === req.params.id && e.userId === userId && !e.deletedAt
+    (e) => e.id === req.params.id && canAccess(e.userId, userId, isGuest) && !e.deletedAt
   );
 
   if (!expense) {
@@ -1562,10 +1584,10 @@ apiRouter.put('/finance/recurring/:id', (req: Request, res: Response) => {
 });
 
 apiRouter.delete('/finance/recurring/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const { userId, isGuest } = getAuth(req);
   const db = dbService.getRaw();
   const index = db.recurringExpenses.findIndex(
-    (r) => r.id === req.params.id && r.userId === userId
+    (r) => r.id === req.params.id && canAccess(r.userId, userId, isGuest)
   );
 
   if (index === -1) {
@@ -1640,7 +1662,7 @@ apiRouter.post('/finance/bills', (req: Request, res: Response) => {
     return;
   }
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayDateString(DEFAULT_TIMEZONE);
   const isPastDue = parsedDueDate < todayStr;
   const periodKey = parsedDueDate.substring(0, 7);
   const resolvedCategoryId =
@@ -1747,9 +1769,11 @@ apiRouter.post('/finance/bills/:id/undo', (req: Request, res: Response) => {
 });
 
 apiRouter.delete('/finance/bills/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const { userId, isGuest } = getAuth(req);
   const db = dbService.getRaw();
-  const bill = db.bills.find((b) => b.id === req.params.id && b.userId === userId && !b.deletedAt);
+  const bill = db.bills.find(
+    (b) => b.id === req.params.id && canAccess(b.userId, userId, isGuest) && !b.deletedAt
+  );
 
   if (!bill) {
     res.status(404).json({ error: 'Bill not found' });
@@ -1760,7 +1784,7 @@ apiRouter.delete('/finance/bills/:id', (req: Request, res: Response) => {
   bill.deletedAt = nowIso;
   bill.updatedAt = nowIso;
   for (const exp of db.expenseTransactions) {
-    if (exp.userId === userId && exp.billId === bill.id && !exp.deletedAt) {
+    if (canAccess(exp.userId, userId, isGuest) && exp.billId === bill.id && !exp.deletedAt) {
       exp.deletedAt = nowIso;
     }
   }
@@ -1920,9 +1944,11 @@ apiRouter.post('/finance/savings-goals/:id/contribute', (req: Request, res: Resp
 });
 
 apiRouter.delete('/finance/savings-goals/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const { userId, isGuest } = getAuth(req);
   const db = dbService.getRaw();
-  const idx = db.savingsGoals.findIndex((g) => g.id === req.params.id && g.userId === userId);
+  const idx = db.savingsGoals.findIndex(
+    (g) => g.id === req.params.id && canAccess(g.userId, userId, isGuest)
+  );
   if (idx === -1) {
     res.status(404).json({ error: 'Savings goal not found' });
     return;
@@ -1979,6 +2005,35 @@ apiRouter.get('/trash', (req: Request, res: Response) => {
         amountPaise: b.amountPaise,
         deletedAt: b.deletedAt!,
       })),
+    ...(db.timeBlocks || [])
+      .filter((tb) => tb.userId === userId && tb.deletedAt)
+      .map((tb) => ({
+        id: tb.id,
+        entityType: 'time_block' as const,
+        title: tb.title,
+        subtitle: `Time Block · ${tb.date}`,
+        deletedAt: tb.deletedAt!,
+      })),
+    ...(db.envelopes || [])
+      .filter((env) => env.userId === userId && env.deletedAt)
+      .map((env) => ({
+        id: env.id,
+        entityType: 'envelope' as const,
+        title: env.name,
+        subtitle: `Envelope · ${env.monthKey}`,
+        amountPaise: env.allocatedPaise,
+        deletedAt: env.deletedAt!,
+      })),
+    ...(db.subscriptions || [])
+      .filter((s) => s.userId === userId && s.deletedAt)
+      .map((s) => ({
+        id: s.id,
+        entityType: 'subscription' as const,
+        title: s.name,
+        subtitle: `Subscription · ${s.billingCycle}`,
+        amountPaise: s.amountPaise,
+        deletedAt: s.deletedAt!,
+      })),
   ].sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
 
   res.json(items);
@@ -2023,6 +2078,30 @@ apiRouter.post('/trash/:entityType/:id/restore', (req: Request, res: Response) =
         exp.deletedAt = null;
       }
     }
+  } else if (entityType === 'time_block') {
+    const item = (db.timeBlocks || []).find((tb) => tb.id === id && tb.userId === userId && tb.deletedAt);
+    if (!item) {
+      res.status(404).json({ error: 'Trashed time block not found' });
+      return;
+    }
+    item.deletedAt = null;
+    item.updatedAt = new Date().toISOString();
+  } else if (entityType === 'envelope') {
+    const item = (db.envelopes || []).find((env) => env.id === id && env.userId === userId && env.deletedAt);
+    if (!item) {
+      res.status(404).json({ error: 'Trashed envelope not found' });
+      return;
+    }
+    item.deletedAt = null;
+    item.updatedAt = new Date().toISOString();
+  } else if (entityType === 'subscription') {
+    const item = (db.subscriptions || []).find((sub) => sub.id === id && sub.userId === userId && sub.deletedAt);
+    if (!item) {
+      res.status(404).json({ error: 'Trashed subscription not found' });
+      return;
+    }
+    item.deletedAt = null;
+    item.updatedAt = new Date().toISOString();
   } else {
     res.status(400).json({ error: 'Invalid entity type' });
     return;
@@ -2072,6 +2151,27 @@ apiRouter.delete('/trash/:entityType/:id', (req: Request, res: Response) => {
       (p) => !(p.userId === userId && p.billId === bill.id)
     );
     db.bills.splice(idx, 1);
+  } else if (entityType === 'time_block') {
+    const idx = (db.timeBlocks || []).findIndex((tb) => tb.id === id && tb.userId === userId && tb.deletedAt);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Trashed time block not found' });
+      return;
+    }
+    db.timeBlocks.splice(idx, 1);
+  } else if (entityType === 'envelope') {
+    const idx = (db.envelopes || []).findIndex((env) => env.id === id && env.userId === userId && env.deletedAt);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Trashed envelope not found' });
+      return;
+    }
+    db.envelopes.splice(idx, 1);
+  } else if (entityType === 'subscription') {
+    const idx = (db.subscriptions || []).findIndex((sub) => sub.id === id && sub.userId === userId && sub.deletedAt);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Trashed subscription not found' });
+      return;
+    }
+    db.subscriptions.splice(idx, 1);
   } else {
     res.status(400).json({ error: 'Invalid entity type' });
     return;
@@ -2079,4 +2179,202 @@ apiRouter.delete('/trash/:entityType/:id', (req: Request, res: Response) => {
 
   dbService.save();
   res.json({ success: true });
+});
+
+// ----------------------------------------------------
+// TIME BLOCKS
+// ----------------------------------------------------
+apiRouter.get('/time-blocks', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+  const blocks = dbService.getTimeBlocks(userId, date);
+  res.json(blocks);
+});
+
+apiRouter.post('/time-blocks', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const body = req.body || {};
+  const block = dbService.saveTimeBlock(userId, body);
+  res.status(201).json(block);
+});
+
+apiRouter.put('/time-blocks/:id', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { id } = req.params;
+  const body = req.body || {};
+  const block = dbService.saveTimeBlock(userId, { ...body, id });
+  res.json(block);
+});
+
+apiRouter.delete('/time-blocks/:id', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  const { id } = req.params;
+  const ok = dbService.deleteTimeBlock(userId, id, isGuest);
+  if (!ok) {
+    res.status(404).json({ error: 'Time block not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Time block moved to trash' });
+});
+
+// ----------------------------------------------------
+// ENVELOPE BUDGETING
+// ----------------------------------------------------
+apiRouter.get('/envelopes', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const monthKey = typeof req.query.monthKey === 'string' ? req.query.monthKey : undefined;
+  const envelopes = dbService.getEnvelopes(userId, monthKey);
+  res.json(envelopes);
+});
+
+apiRouter.post('/envelopes', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const body = req.body || {};
+  const env = dbService.saveEnvelope(userId, body);
+  res.status(201).json(env);
+});
+
+apiRouter.put('/envelopes/:id', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { id } = req.params;
+  const body = req.body || {};
+  const env = dbService.saveEnvelope(userId, { ...body, id });
+  res.json(env);
+});
+
+apiRouter.delete('/envelopes/:id', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  const { id } = req.params;
+  const ok = dbService.deleteEnvelope(userId, id, isGuest);
+  if (!ok) {
+    res.status(404).json({ error: 'Envelope not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Envelope moved to trash' });
+});
+
+apiRouter.post('/envelopes/transfer', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { fromId, toId, amountPaise } = req.body || {};
+  if (!fromId || !toId || !amountPaise || typeof amountPaise !== 'number') {
+    res.status(400).json({ error: 'fromId, toId, and positive integer amountPaise are required' });
+    return;
+  }
+  const result = dbService.transferEnvelopeFunds(userId, fromId, toId, amountPaise);
+  if (!result.success) {
+    res.status(400).json({ error: result.error || 'Failed to transfer envelope funds' });
+    return;
+  }
+  res.json({ success: true });
+});
+
+// ----------------------------------------------------
+// SUBSCRIPTIONS
+// ----------------------------------------------------
+apiRouter.get('/subscriptions', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const subs = dbService.getSubscriptions(userId);
+  res.json(subs);
+});
+
+apiRouter.post('/subscriptions', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const body = req.body || {};
+  const sub = dbService.saveSubscription(userId, body);
+  res.status(201).json(sub);
+});
+
+apiRouter.put('/subscriptions/:id', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { id } = req.params;
+  const body = req.body || {};
+  const sub = dbService.saveSubscription(userId, { ...body, id });
+  res.json(sub);
+});
+
+apiRouter.delete('/subscriptions/:id', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  const { id } = req.params;
+  const ok = dbService.deleteSubscription(userId, id, isGuest);
+  if (!ok) {
+    res.status(404).json({ error: 'Subscription not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Subscription moved to trash' });
+});
+
+// ----------------------------------------------------
+// WORKSPACE MANAGEMENT (CLEAN DATA)
+// ----------------------------------------------------
+apiRouter.post('/workspace/clear', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  dbService.clearWorkspace(userId, isGuest);
+  res.json({ success: true, message: 'All transactions, tasks, bills, and demo data cleared successfully' });
+});
+
+// ----------------------------------------------------
+// AUDIT LOGS
+// ----------------------------------------------------
+apiRouter.get('/audit-logs', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 100;
+  const logs = dbService.getAuditLogs(userId, limit);
+  res.json(logs);
+});
+
+// ----------------------------------------------------
+// DURABLE SYNC QUEUE
+// ----------------------------------------------------
+apiRouter.get('/sync/queue', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const queue = dbService.getSyncQueue(userId);
+  res.json(queue);
+});
+
+apiRouter.post('/sync/queue/enqueue', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const body = req.body || {};
+  if (!body.entityType || !body.action || !body.sheetName) {
+    res.status(400).json({ error: 'entityType, action, and sheetName are required' });
+    return;
+  }
+  const item = dbService.enqueueSync(userId, body);
+  res.status(201).json(item);
+});
+
+apiRouter.post('/sync/queue/:id/status', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { id } = req.params;
+  const { status, errorMessage, nextRetryAt } = req.body || {};
+  const item = dbService.updateSyncOp(userId, id, {
+    status,
+    errorMessage,
+    nextRetryAt,
+    lastAttemptAt: new Date().toISOString(),
+  });
+  if (!item) {
+    res.status(404).json({ error: 'Queue item not found' });
+    return;
+  }
+  res.json(item);
+});
+
+// ----------------------------------------------------
+// DATA RECOVERY & BACKUPS
+// ----------------------------------------------------
+apiRouter.get('/backup/export', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const backup = dbService.exportUserData(userId);
+  res.json(backup);
+});
+
+apiRouter.post('/backup/restore', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const body = req.body;
+  const result = dbService.restoreUserData(userId, body);
+  if (!result.success) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
 });

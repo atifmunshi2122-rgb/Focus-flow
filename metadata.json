@@ -2,7 +2,5 @@
   "name": "FocusFlow & Finance",
   "description": "Unified personal productivity and finance command center featuring Pomodoro focus tracking, task workflows, recurring bill automation, variable expense ledgers, and financial intelligence.",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": []
 }

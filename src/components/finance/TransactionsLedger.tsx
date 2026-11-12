@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import {
+  ThemeButton,
   ThemeCard,
   ThemeInput,
   ThemeSegmentedControl,
@@ -22,6 +23,9 @@ import {
   Repeat,
   Calendar,
   Tag,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
 } from 'lucide-react';
 
 interface UnifiedTransaction {
@@ -36,15 +40,22 @@ interface UnifiedTransaction {
 }
 
 export const TransactionsLedger: React.FC = () => {
-  const { currency, refreshKey } = useApp();
+  const { currency, refreshKey, showToast, triggerRefresh } = useApp();
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
   const [transactions, setTransactions] = useState<UnifiedTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'fixed' | 'variable'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
+  // Reset to first page when filtering or searching
   useEffect(() => {
+    setCurrentPage(1);
+  }, [search, typeFilter]);
+
+  const loadTransactions = () => {
     setLoading(true);
     Promise.all([api.getIncomes(), api.getExpenses()])
       .then(([incomes, expenses]) => {
@@ -74,7 +85,42 @@ export const TransactionsLedger: React.FC = () => {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadTransactions();
   }, [refreshKey]);
+
+  const handleDeleteTransaction = async (t: UnifiedTransaction) => {
+    if (!window.confirm(`Delete transaction "${t.name}"?`)) return;
+    try {
+      if (t.type === 'income') {
+        await api.deleteIncome(t.id);
+      } else {
+        await api.deleteExpense(t.id);
+      }
+      showToast(`Deleted "${t.name}"`, 'info');
+      triggerRefresh();
+      loadTransactions();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to delete transaction', 'error');
+    }
+  };
+
+  const handleClearAllTransactions = async () => {
+    if (!window.confirm('Delete all transactions and reset your ledger to an empty clean state?')) return;
+    try {
+      await Promise.all([
+        ...transactions.filter((t) => t.type === 'income').map((t) => api.deleteIncome(t.id)),
+        ...transactions.filter((t) => t.type !== 'income').map((t) => api.deleteExpense(t.id)),
+      ]);
+      showToast('All transactions cleared successfully', 'success');
+      triggerRefresh();
+      loadTransactions();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to clear transactions', 'error');
+    }
+  };
 
   const filtered = transactions.filter((t) => {
     const matchesSearch =
@@ -90,6 +136,11 @@ export const TransactionsLedger: React.FC = () => {
     if (typeFilter === 'variable') return t.type === 'variable';
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentDisplayPage = Math.min(currentPage, totalPages);
+  const startIndex = (currentDisplayPage - 1) * pageSize;
+  const paginatedItems = filtered.slice(startIndex, startIndex + pageSize);
 
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
@@ -107,17 +158,31 @@ export const TransactionsLedger: React.FC = () => {
           />
         </div>
 
-        <ThemeSegmentedControl<'all' | 'income' | 'fixed' | 'variable'>
-          ariaLabel="Filter transactions by type"
-          value={typeFilter === 'expense' ? 'all' : typeFilter}
-          onChange={setTypeFilter}
-          options={[
-            { id: 'all', label: 'All Activity' },
-            { id: 'income', label: 'Income Only' },
-            { id: 'fixed', label: 'Fixed (Bills)' },
-            { id: 'variable', label: 'Variable' },
-          ]}
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <ThemeSegmentedControl<'all' | 'income' | 'fixed' | 'variable'>
+            ariaLabel="Filter transactions by type"
+            value={typeFilter === 'expense' ? 'all' : typeFilter}
+            onChange={setTypeFilter}
+            options={[
+              { id: 'all', label: 'All Activity' },
+              { id: 'income', label: 'Income Only' },
+              { id: 'fixed', label: 'Fixed (Bills)' },
+              { id: 'variable', label: 'Variable' },
+            ]}
+          />
+          {transactions.length > 0 && (
+            <ThemeButton
+              variant="danger"
+              size="sm"
+              onClick={handleClearAllTransactions}
+              title="Clear all transactions"
+              aria-label="Clear all transactions"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear All</span>
+            </ThemeButton>
+          )}
+        </div>
       </div>
 
       {/* Ledger Table */}
@@ -133,7 +198,7 @@ export const TransactionsLedger: React.FC = () => {
         ) : (
           <div className="divide-y ff-divider">
             <AnimatePresence initial={false}>
-              {filtered.map((t) => {
+              {paginatedItems.map((t) => {
                 const isIncome = t.type === 'income';
                 const isFixed = t.type === 'fixed';
 
@@ -208,24 +273,100 @@ export const TransactionsLedger: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="text-right shrink-0">
-                      <span
-                        className="text-base font-bold font-mono tabular-nums"
-                        style={{
-                          color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
-                        }}
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <div className="text-right">
+                        <span
+                          className="text-base font-bold font-mono tabular-nums"
+                          style={{
+                            color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
+                          }}
+                        >
+                          {isIncome ? '+' : '-'}
+                          {formatCurrency(t.amountPaise, currency)}
+                        </span>
+                        <span className="block text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
+                          {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteTransaction(t)}
+                        className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] transition-colors"
+                        title={`Delete ${t.name}`}
+                        aria-label={`Delete ${t.name}`}
                       >
-                        {isIncome ? '+' : '-'}
-                        {formatCurrency(t.amountPaise, currency)}
-                      </span>
-                      <span className="block text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
-                        {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
-                      </span>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </motion.div>
                 );
               })}
             </AnimatePresence>
+          </div>
+        )}
+
+        {/* Pagination Toolbar */}
+        {!loading && filtered.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t ff-divider text-xs text-[var(--ff-text-muted)]">
+            <div className="flex items-center gap-2">
+              <span>
+                Showing <strong className="text-[var(--ff-text-primary)] font-mono">{startIndex + 1}</strong> to{' '}
+                <strong className="text-[var(--ff-text-primary)] font-mono">
+                  {Math.min(filtered.length, startIndex + pageSize)}
+                </strong>{' '}
+                of <strong className="text-[var(--ff-text-primary)] font-mono">{filtered.length}</strong> transactions
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span>Rows:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="ff-input text-xs py-1 px-2 rounded cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--ff-card-bg)',
+                    borderColor: 'var(--ff-border)',
+                    color: 'var(--ff-text-primary)',
+                  }}
+                  aria-label="Transactions per page"
+                >
+                  <option value={15}>15</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <ThemeButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentDisplayPage <= 1}
+                  aria-label="Previous page"
+                  className="p-1.5"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </ThemeButton>
+                <span className="font-mono px-2 text-[var(--ff-text-primary)] font-semibold">
+                  {currentDisplayPage} / {totalPages}
+                </span>
+                <ThemeButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentDisplayPage >= totalPages}
+                  aria-label="Next page"
+                  className="p-1.5"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </ThemeButton>
+              </div>
+            </div>
           </div>
         )}
       </ThemeCard>

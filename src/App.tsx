@@ -20,6 +20,11 @@ import { BillsTracker } from './components/finance/BillsTracker.tsx';
 import { TransactionsLedger } from './components/finance/TransactionsLedger.tsx';
 import { AnalyticsReportsView } from './components/analytics/AnalyticsReportsView.tsx';
 import { SettingsView } from './components/settings/SettingsView.tsx';
+import { ProductivityCalendar } from './components/calendar/ProductivityCalendar.tsx';
+import { DailyTimeBlockPlanner } from './components/focus/DailyTimeBlockPlanner.tsx';
+import { EnvelopeBudgetManager } from './components/finance/EnvelopeBudgetManager.tsx';
+import { SubscriptionManager } from './components/finance/SubscriptionManager.tsx';
+import { DataRecoveryCenter } from './components/settings/DataRecoveryCenter.tsx';
 import { getStyleDefinition } from './theme/stylesRegistry.ts';
 import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
 import { MotionPage } from './components/ui/MotionPrimitives.tsx';
@@ -113,6 +118,8 @@ const MainContent: React.FC = () => {
               <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
             )}
 
+            {currentTab === 'calendar' && <ProductivityCalendar />}
+
             {currentTab === 'focus' && (
               <div className="space-y-8">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -126,6 +133,8 @@ const MainContent: React.FC = () => {
               </div>
             )}
 
+            {currentTab === 'timeblocks' && <DailyTimeBlockPlanner />}
+
             {currentTab === 'tasks' && <TaskManager />}
 
             {currentTab === 'finance' && (
@@ -136,7 +145,13 @@ const MainContent: React.FC = () => {
 
             {currentTab === 'bills' && <BillsTracker />}
 
+            {currentTab === 'envelopes' && <EnvelopeBudgetManager />}
+
+            {currentTab === 'subscriptions' && <SubscriptionManager />}
+
             {currentTab === 'analytics' && <AnalyticsReportsView />}
+
+            {currentTab === 'recovery' && <DataRecoveryCenter />}
 
             {currentTab === 'settings' && <SettingsView />}
           </MotionPage>

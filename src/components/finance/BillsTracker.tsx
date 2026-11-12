@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { formatPaymentMethodLabel } from '../../lib/googleSheetsService.ts';
 import { Bill, PaymentHistory, ExpenseCategory } from '../../types/index.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
 import { playCashSound } from '../../lib/sound.ts';
@@ -38,7 +39,6 @@ import {
   Tag,
 } from 'lucide-react';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
-import { firestoreService } from '../../lib/firestoreService.ts';
 
 export const BillsTracker: React.FC = () => {
   const {
@@ -145,10 +145,6 @@ export const BillsTracker: React.FC = () => {
       playCashSound(settings?.soundEnabled);
       showToast(`Payment of ${formatCurrency(payingBill.amountPaise, currency)} recorded!`, 'success');
 
-      if (firebaseUser) {
-        firestoreService.saveBill(firebaseUser.uid, res.bill).catch(console.error);
-      }
-
       googleSheetsService.enqueueMutation('Bills_Payments', [
         res.bill.id,
         res.bill.dueDate,
@@ -157,7 +153,7 @@ export const BillsTracker: React.FC = () => {
         res.bill.amountPaise / 100,
         'PAID',
         payDate,
-        paymentMethod.replace('_', ' ').toUpperCase(),
+        formatPaymentMethodLabel(paymentMethod, true),
         paymentNotes || 'Settled via Tracker',
       ]);
 

@@ -20,12 +20,19 @@ import {
   Moon,
   ArrowRight,
   Command,
+  Calendar,
+  Clock,
+  Layers,
+  Repeat,
+  ShieldAlert,
+  Download,
+  RefreshCw,
 } from 'lucide-react';
 import { useApp, NavTab } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { DESIGN_STYLES } from '../../theme/stylesRegistry.ts';
-import { Bill, ExpenseTransaction, IncomeTransaction, Task } from '../../types/index.ts';
+import { Bill, ExpenseTransaction, IncomeTransaction, Task, TimeBlock, BudgetEnvelope, SubscriptionPlan } from '../../types/index.ts';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 
@@ -59,6 +66,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
     applySavedTheme,
     themeConfig,
     applyThemeConfig,
+    syncNowToGoogleSheets,
   } = useApp();
 
   const { isDisabled } = useMotionPreferences();
@@ -68,6 +76,9 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
   const [bills, setBills] = useState<Bill[]>([]);
   const [incomes, setIncomes] = useState<IncomeTransaction[]>([]);
   const [expenses, setExpenses] = useState<ExpenseTransaction[]>([]);
+  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
+  const [envelopes, setEnvelopes] = useState<BudgetEnvelope[]>([]);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionPlan[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -81,12 +92,18 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
       api.getBills().catch(() => [] as Bill[]),
       api.getIncomes().catch(() => [] as IncomeTransaction[]),
       api.getExpenses().catch(() => [] as ExpenseTransaction[]),
+      api.getTimeBlocks().catch(() => [] as TimeBlock[]),
+      api.getEnvelopes().catch(() => [] as BudgetEnvelope[]),
+      api.getSubscriptions().catch(() => [] as SubscriptionPlan[]),
     ])
-      .then(([t, b, i, e]) => {
+      .then(([t, b, i, e, tb, env, sub]) => {
         setTasks(t.slice(0, 20));
         setBills(b.slice(0, 15));
         setIncomes(i.slice(0, 10));
         setExpenses(e.slice(0, 10));
+        setTimeBlocks(tb.slice(0, 10));
+        setEnvelopes(env.slice(0, 10));
+        setSubscriptions(sub.slice(0, 10));
       })
       .catch(console.error);
   }, [commandCenterOpen]);
@@ -99,12 +116,17 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
 
     const navEntries: Array<{ tab: NavTab; label: string; key: string; icon: React.ComponentType<{ className?: string }> }> = [
       { tab: 'dashboard', label: 'Executive Dashboard', key: 'Alt+1', icon: LayoutDashboard },
+      { tab: 'calendar', label: 'Productivity Calendar', key: 'Alt+C', icon: Calendar },
       { tab: 'focus', label: 'Focus & Pomodoro System', key: 'Alt+2', icon: Timer },
+      { tab: 'timeblocks', label: 'Daily Time-block Planner', key: 'Alt+B', icon: Clock },
       { tab: 'tasks', label: 'Task Management Workspace', key: 'Alt+3', icon: CheckSquare },
-      { tab: 'finance', label: 'Finance, Budgets & Savings', key: 'Alt+4', icon: Wallet },
+      { tab: 'finance', label: 'Finance Overview', key: 'Alt+4', icon: Wallet },
       { tab: 'transactions', label: 'Transactions Ledger', key: 'Alt+5', icon: ReceiptText },
       { tab: 'bills', label: 'Bills & Payments Tracker', key: 'Alt+6', icon: CreditCard },
-      { tab: 'analytics', label: 'Unified Analytics & Exports', key: 'Alt+7', icon: BarChart3 },
+      { tab: 'envelopes', label: 'Envelope Budgeting', key: 'Alt+E', icon: Layers },
+      { tab: 'subscriptions', label: 'Subscription Manager', key: 'Alt+S', icon: Repeat },
+      { tab: 'analytics', label: 'Unified Analytics & Reports', key: 'Alt+7', icon: BarChart3 },
+      { tab: 'recovery', label: 'Data Recovery & Integrity Center', key: 'Alt+R', icon: ShieldAlert },
       { tab: 'settings', label: 'Settings & Theme Studio', key: 'Alt+8', icon: Settings },
     ];
 
@@ -129,6 +151,33 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
         }),
       },
       {
+        id: 'act_sheets_sync',
+        group: 'Actions',
+        title: 'Synchronize Google Sheets Ledger',
+        subtitle: 'Flush pending sync queue to 23 executive worksheets',
+        icon: RefreshCw,
+        run: closeAndRun(() => {
+          void syncNowToGoogleSheets();
+        }),
+      },
+      {
+        id: 'act_backup_export',
+        group: 'Actions',
+        title: 'Export Full Workspace JSON Snapshot',
+        subtitle: 'Download point-in-time validated backup file',
+        icon: Download,
+        run: closeAndRun(() => {
+          void api.exportBackup().then((b) => {
+            const blob = new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' });
+            const u = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = u;
+            a.download = `focusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+          });
+        }),
+      },
+      {
         id: 'act_quick',
         group: 'Actions',
         title: 'Quick Create (Task / Expense / Income / Bill)',
@@ -148,7 +197,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
         id: 'act_trash',
         group: 'Actions',
         title: 'Open Trash & Restore Bin',
-        subtitle: 'Recover deleted tasks, expenses, income, or bills',
+        subtitle: 'Recover deleted tasks, expenses, income, bills, envelopes, or time blocks',
         icon: Trash2,
         run: closeAndRun(() => setTrashModalOpen(true)),
       },
@@ -169,6 +218,14 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
         icon: CheckSquare,
         run: closeAndRun(() => setCurrentTab('tasks')),
       })),
+      ...timeBlocks.map((tb) => ({
+        id: `timeblock_${tb.id}`,
+        group: 'Tasks' as const,
+        title: `Block: ${tb.title}`,
+        subtitle: `Time Block • ${tb.date} • ${tb.category}`,
+        icon: Clock,
+        run: closeAndRun(() => setCurrentTab('timeblocks')),
+      })),
       ...bills.map((b) => ({
         id: `bill_${b.id}`,
         group: 'Finance & Bills' as const,
@@ -176,6 +233,22 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
         subtitle: `Bill • ${b.status} • Due ${b.dueDate}`,
         icon: CreditCard,
         run: closeAndRun(() => setCurrentTab('bills')),
+      })),
+      ...envelopes.map((env) => ({
+        id: `env_${env.id}`,
+        group: 'Finance & Bills' as const,
+        title: `Envelope: ${env.name} (${formatCurrency(env.allocatedPaise)})`,
+        subtitle: `Budget • ${env.monthKey} • ${formatCurrency(env.allocatedPaise - (env.spentPaise || 0))} remaining`,
+        icon: Layers,
+        run: closeAndRun(() => setCurrentTab('envelopes')),
+      })),
+      ...subscriptions.map((sub) => ({
+        id: `sub_${sub.id}`,
+        group: 'Finance & Bills' as const,
+        title: `Subscription: ${sub.name} (${formatCurrency(sub.amountPaise)})`,
+        subtitle: `${sub.billingCycle} • Next renewal ${sub.nextRenewalDate}`,
+        icon: Repeat,
+        run: closeAndRun(() => setCurrentTab('subscriptions')),
       })),
       ...incomes.map((i) => ({
         id: `inc_${i.id}`,
@@ -223,6 +296,9 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
     bills,
     incomes,
     expenses,
+    timeBlocks,
+    envelopes,
+    subscriptions,
     savedThemes,
     themeConfig,
     setCommandCenterOpen,
@@ -235,6 +311,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
     setTrashModalOpen,
     applySavedTheme,
     applyThemeConfig,
+    syncNowToGoogleSheets,
   ]);
 
   const filtered = useMemo(() => {

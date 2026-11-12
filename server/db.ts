@@ -1,5 +1,12 @@
 import fs from 'fs';
 import path from 'path';
+import {
+  DEFAULT_TIMEZONE,
+  getTodayDateString,
+  getDaysInMonth,
+  formatYmd,
+  parseDateString,
+} from './dateTime.js';
 
 // Local JSON fallback store paths (supports DATA_DIR volume mounts for self-hosted deployments;
 // primary persistence for signed-in users lives in Cloud Firestore).
@@ -19,6 +26,7 @@ export interface User {
 export interface UserSettings {
   userId: string;
   currency: 'INR' | 'USD' | 'EUR' | 'GBP';
+  timezone?: string;
   pomodoroWorkDuration: number; // in minutes
   shortBreakDuration: number;
   longBreakDuration: number;
@@ -130,6 +138,8 @@ export interface PaymentHistory {
   paymentMethod: 'credit_card' | 'debit_card' | 'upi_bank' | 'cash' | 'other';
   transactionRef: string;
   notes: string;
+  status?: 'completed' | 'reversed';
+  reversedAt?: string | null;
   createdAt: string;
 }
 
@@ -173,6 +183,81 @@ export interface SavingsGoal {
   updatedAt: string;
 }
 
+export interface TimeBlock {
+  id: string;
+  userId: string;
+  date: string;
+  title: string;
+  startMinute: number;
+  endMinute: number;
+  category: string;
+  taskId?: string | null;
+  completed: boolean;
+  notes?: string;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetEnvelope {
+  id: string;
+  userId: string;
+  name: string;
+  categoryId?: string | null;
+  allocatedPaise: number;
+  spentPaise?: number;
+  monthKey: string;
+  color: string;
+  notes?: string;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  userId: string;
+  name: string;
+  amountPaise: number;
+  categoryId: string;
+  billingCycle: 'monthly' | 'quarterly' | 'yearly';
+  nextRenewalDate: string;
+  reminderDays: number;
+  autoRenew: boolean;
+  status: 'active' | 'paused' | 'cancelled';
+  websiteUrl?: string;
+  notes?: string;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  userId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  entityTitle?: string;
+  details?: string;
+  timestamp: string;
+}
+
+export interface DurableSyncOperation {
+  id: string;
+  userId: string;
+  entityType: string;
+  action: string;
+  sheetName: string;
+  payload: unknown;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  attempts: number;
+  lastAttemptAt?: string | null;
+  nextRetryAt?: number | null;
+  errorMessage?: string | null;
+  createdAt: string;
+}
+
 export interface DatabaseSchema {
   users: User[];
   userSettings: UserSettings[];
@@ -185,6 +270,11 @@ export interface DatabaseSchema {
   incomeTransactions: IncomeTransaction[];
   expenseTransactions: ExpenseTransaction[];
   savingsGoals: SavingsGoal[];
+  timeBlocks: TimeBlock[];
+  envelopes: BudgetEnvelope[];
+  subscriptions: SubscriptionPlan[];
+  auditLogs: AuditLogEntry[];
+  syncQueue: DurableSyncOperation[];
 }
 
 const DEFAULT_CATEGORIES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -215,10 +305,15 @@ class DatabaseService {
     incomeTransactions: [],
     expenseTransactions: [],
     savingsGoals: [],
+    timeBlocks: [],
+    envelopes: [],
+    subscriptions: [],
+    auditLogs: [],
+    syncQueue: [],
   };
 
   private writeQueue: Promise<void> = Promise.resolve();
-  private saveScheduled = false;
+  private hasPendingWrite = false;
 
   constructor() {
     if (process.env.NODE_ENV === 'production' && !process.env.DATA_DIR) {
@@ -228,7 +323,10 @@ class DatabaseService {
     }
     this.ensureDataDir();
     this.load();
-    this.ensureSeedData();
+    this.ensureBaseDefaults();
+    if (process.env.SEED_DEFAULT_DATA === 'true') {
+      this.ensureSeedData();
+    }
     this.checkRecurringBills();
   }
 
@@ -255,6 +353,11 @@ class DatabaseService {
           incomeTransactions: parsed.incomeTransactions || [],
           expenseTransactions: parsed.expenseTransactions || [],
           savingsGoals: parsed.savingsGoals || [],
+          timeBlocks: parsed.timeBlocks || [],
+          envelopes: parsed.envelopes || [],
+          subscriptions: parsed.subscriptions || [],
+          auditLogs: parsed.auditLogs || [],
+          syncQueue: parsed.syncQueue || [],
         };
       }
     } catch (err) {
@@ -263,22 +366,25 @@ class DatabaseService {
   }
 
   public save() {
-    if (this.saveScheduled) return;
-    this.saveScheduled = true;
-    const snapshot = JSON.stringify(this.db, null, 2);
+    this.hasPendingWrite = true;
 
     this.writeQueue = this.writeQueue
       .then(async () => {
-        this.saveScheduled = false;
+        if (!this.hasPendingWrite) return;
+        this.hasPendingWrite = false;
+        const snapshot = JSON.stringify(this.db, null, 2);
         await fs.promises.mkdir(DATA_DIR, { recursive: true });
-        const tempPath = `${DB_FILE}.${process.pid}.tmp`;
+        const tempPath = `${DB_FILE}.${process.pid}.${Date.now()}.tmp`;
         await fs.promises.writeFile(tempPath, snapshot, 'utf-8');
         await fs.promises.rename(tempPath, DB_FILE);
       })
       .catch((err) => {
-        this.saveScheduled = false;
         console.error('Failed to save database file:', err);
       });
+  }
+
+  public async flush(): Promise<void> {
+    await this.writeQueue;
   }
 
   public getRaw(): DatabaseSchema {
@@ -292,11 +398,6 @@ class DatabaseService {
     userId: string,
     profile?: { email?: string; name?: string; avatarUrl?: string; isGuest?: boolean }
   ): { user: User; settings: UserSettings } {
-    if (userId === 'usr_atif_default') {
-      this.ensureSeedData(false);
-    } else if (profile?.isGuest && !this.db.users.some((u) => u.id === userId)) {
-      this.ensureSeedDataForUser(userId, false);
-    }
 
     let user = this.db.users.find((u) => u.id === userId);
     let mutated = false;
@@ -381,6 +482,11 @@ class DatabaseService {
       const preservedIncome = this.db.incomeTransactions.filter((i) => i.userId !== 'usr_atif_default');
       const preservedExp = this.db.expenseTransactions.filter((e) => e.userId !== 'usr_atif_default');
       const preservedGoals = this.db.savingsGoals.filter((g) => g.userId !== 'usr_atif_default');
+      const preservedTimeBlocks = (this.db.timeBlocks || []).filter((tb) => tb.userId !== 'usr_atif_default');
+      const preservedEnvelopes = (this.db.envelopes || []).filter((env) => env.userId !== 'usr_atif_default');
+      const preservedSubscriptions = (this.db.subscriptions || []).filter((sub) => sub.userId !== 'usr_atif_default');
+      const preservedAuditLogs = (this.db.auditLogs || []).filter((l) => l.userId !== 'usr_atif_default');
+      const preservedSyncQueue = (this.db.syncQueue || []).filter((sq) => sq.userId !== 'usr_atif_default');
 
       this.db = {
         users: preservedUsers,
@@ -394,6 +500,11 @@ class DatabaseService {
         incomeTransactions: preservedIncome,
         expenseTransactions: preservedExp,
         savingsGoals: preservedGoals,
+        timeBlocks: preservedTimeBlocks,
+        envelopes: preservedEnvelopes,
+        subscriptions: preservedSubscriptions,
+        auditLogs: preservedAuditLogs,
+        syncQueue: preservedSyncQueue,
       };
       this.ensureSeedDataForUser('usr_atif_default', true);
       this.checkRecurringBills('usr_atif_default');
@@ -411,9 +522,42 @@ class DatabaseService {
     this.db.incomeTransactions = this.db.incomeTransactions.filter((i) => i.userId !== targetUserId);
     this.db.expenseTransactions = this.db.expenseTransactions.filter((e) => e.userId !== targetUserId);
     this.db.savingsGoals = this.db.savingsGoals.filter((g) => g.userId !== targetUserId);
+    this.db.timeBlocks = (this.db.timeBlocks || []).filter((tb) => tb.userId !== targetUserId);
+    this.db.envelopes = (this.db.envelopes || []).filter((env) => env.userId !== targetUserId);
+    this.db.subscriptions = (this.db.subscriptions || []).filter((sub) => sub.userId !== targetUserId);
+    this.db.auditLogs = (this.db.auditLogs || []).filter((l) => l.userId !== targetUserId);
+    this.db.syncQueue = (this.db.syncQueue || []).filter((sq) => sq.userId !== targetUserId);
     this.ensureSeedDataForUser(targetUserId, false);
     this.checkRecurringBills(targetUserId);
     this.save();
+  }
+
+  public clearWorkspace(targetUserId: string, isGuest = false) {
+    const isTarget = (id: string) =>
+      id === targetUserId || (isGuest && (id === 'usr_atif_default' || id === 'usr_default'));
+    this.db.tasks = this.db.tasks.filter((t) => !isTarget(t.userId));
+    this.db.focusSessions = this.db.focusSessions.filter((s) => !isTarget(s.userId));
+    this.db.recurringExpenses = this.db.recurringExpenses.filter((r) => !isTarget(r.userId));
+    this.db.bills = this.db.bills.filter((b) => !isTarget(b.userId));
+    this.db.paymentHistory = this.db.paymentHistory.filter((p) => !isTarget(p.userId));
+    this.db.incomeTransactions = this.db.incomeTransactions.filter((i) => !isTarget(i.userId));
+    this.db.expenseTransactions = this.db.expenseTransactions.filter((e) => !isTarget(e.userId));
+    this.db.savingsGoals = this.db.savingsGoals.filter((g) => !isTarget(g.userId));
+    this.db.timeBlocks = (this.db.timeBlocks || []).filter((tb) => !isTarget(tb.userId));
+    this.db.envelopes = (this.db.envelopes || []).filter((env) => !isTarget(env.userId));
+    this.db.subscriptions = (this.db.subscriptions || []).filter((sub) => !isTarget(sub.userId));
+    this.save();
+  }
+
+  private ensureBaseDefaults() {
+    if (!this.db.categories || this.db.categories.length === 0) {
+      this.db.categories = DEFAULT_CATEGORIES.map((cat, idx) => ({
+        id: `cat_${idx + 1}`,
+        userId: 'usr_default',
+        ...cat,
+      }));
+      this.save();
+    }
   }
 
   private ensureSeedData(force = false) {
@@ -904,31 +1048,52 @@ class DatabaseService {
 
   /**
    * Automatically generate recurring bills for the current period and mark overdue bills.
+   * - Respects cadence (monthly, quarterly, yearly).
+   * - Computes correct month-end boundaries using days in current month.
+   * - Enforces deterministic bill IDs to guarantee idempotency.
    */
   public checkRecurringBills(userId: string = 'usr_atif_default') {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
-    const todayStr = `${currentYear}-${currentMonth}-${String(now.getDate()).padStart(2, '0')}`;
-    const periodKey = `${currentYear}-${currentMonth}`;
+    const userSettings = this.db.userSettings.find((s) => s.userId === userId);
+    const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayDateString(tz);
+    const parsedToday = parseDateString(todayStr) || { year: 2026, month: 11, day: 12 };
+    const currentYear = parsedToday.year;
+    const currentMonth = parsedToday.month;
+    const periodKey = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
     let changed = false;
 
     // 1. Generate bills for active recurring expenses
-    const recurringList = this.db.recurringExpenses.filter((r) => r.userId === userId && r.isActive);
+    const recurringList = this.db.recurringExpenses.filter((r) => r.userId === userId && r.isActive !== false);
 
     for (const rec of recurringList) {
+      // Cadence check
+      if (rec.recurrence === 'quarterly') {
+        const createdParsed = rec.createdAt ? parseDateString(rec.createdAt.slice(0, 10)) : null;
+        const createdMonth = createdParsed ? createdParsed.month : 1;
+        if (Math.abs(currentMonth - createdMonth) % 3 !== 0) {
+          continue;
+        }
+      } else if (rec.recurrence === 'yearly') {
+        const createdParsed = rec.createdAt ? parseDateString(rec.createdAt.slice(0, 10)) : null;
+        const createdMonth = createdParsed ? createdParsed.month : 1;
+        if (currentMonth !== createdMonth) {
+          continue;
+        }
+      }
+
+      const billId = `bill_${rec.id}_${periodKey}`;
       const existing = this.db.bills.find(
-        (b) => b.userId === userId && b.recurringExpenseId === rec.id && b.periodKey === periodKey
+        (b) => b.id === billId || (b.userId === userId && b.recurringExpenseId === rec.id && b.periodKey === periodKey)
       );
 
       if (!existing) {
-        const clampedDay = Number.isFinite(rec.dueDay) ? Math.min(Math.max(Math.round(rec.dueDay), 1), 28) : 1;
-        const dueDayStr = String(clampedDay).padStart(2, '0');
-        const dueDate = `${currentYear}-${currentMonth}-${dueDayStr}`;
+        const maxDays = getDaysInMonth(currentYear, currentMonth);
+        const dueDay = Math.min(Math.max(Math.round(rec.dueDay || 1), 1), maxDays);
+        const dueDate = formatYmd(currentYear, currentMonth, dueDay);
         const isPastDue = dueDate < todayStr;
 
         const newBill: Bill = {
-          id: `bill_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          id: billId,
           userId,
           recurringExpenseId: rec.id,
           name: rec.name,
@@ -939,6 +1104,7 @@ class DatabaseService {
           paymentDate: null,
           notes: rec.notes || `Recurring ${rec.recurrence} expense`,
           periodKey,
+          deletedAt: null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -961,7 +1127,7 @@ class DatabaseService {
     }
   }
 
-  // Transaction support: Mark bill as paid
+  // Transaction support: Mark bill as paid atomically
   public markBillAsPaid(
     userId: string,
     billId: string,
@@ -974,15 +1140,18 @@ class DatabaseService {
       return { success: false, error: 'Bill not found' };
     }
     if (bill.status === 'PAID') {
-      return { success: false, error: 'Bill is already paid' };
+      return { success: false, error: 'Bill is already marked as paid' };
     }
 
-    const effectivePaidDate = paidDate || new Date().toISOString().split('T')[0];
+    const userSettings = this.db.userSettings.find((s) => s.userId === userId);
+    const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+    const effectivePaidDate = paidDate || getTodayDateString(tz);
+    const nowIso = new Date().toISOString();
 
     // Atomic update
     bill.status = 'PAID';
     bill.paymentDate = effectivePaidDate;
-    bill.updatedAt = new Date().toISOString();
+    bill.updatedAt = nowIso;
 
     // Add to PaymentHistory
     const paymentRecord: PaymentHistory = {
@@ -993,9 +1162,10 @@ class DatabaseService {
       amountPaise: bill.amountPaise,
       paidDate: effectivePaidDate,
       paymentMethod,
-      transactionRef: `REF-${Date.now().toString(36).toUpperCase()}`,
+      transactionRef: `REF-${bill.id}-${Date.now().toString(36).toUpperCase()}`,
       notes: notes || 'Bill payment recorded',
-      createdAt: new Date().toISOString(),
+      status: 'completed',
+      createdAt: nowIso,
     };
     this.db.paymentHistory.push(paymentRecord);
 
@@ -1011,15 +1181,38 @@ class DatabaseService {
       description: `${bill.name} (Bill payment)`,
       paymentMethod,
       notes: notes || 'Paid bill expense',
-      createdAt: new Date().toISOString(),
+      deletedAt: null,
+      createdAt: nowIso,
     };
     this.db.expenseTransactions.push(expenseTx);
+
+    // Record audit log
+    this.db.auditLogs.push({
+      id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      userId,
+      action: 'pay',
+      entityType: 'bill',
+      entityId: bill.id,
+      entityTitle: bill.name,
+      details: `Paid ${bill.amountPaise} paise via ${paymentMethod}`,
+      timestamp: nowIso,
+    });
 
     this.save();
     return { success: true, bill };
   }
 
-  // Undo payment: revert bill back to unpaid
+  public payBill(
+    userId: string,
+    billId: string,
+    paidDate?: string,
+    paymentMethod: PaymentHistory['paymentMethod'] = 'upi_bank',
+    notes?: string
+  ): { success: boolean; bill?: Bill; error?: string } {
+    return this.markBillAsPaid(userId, billId, paidDate, paymentMethod, notes);
+  }
+
+  // Safe undo payment: preserve historical payment record with 'reversed' status
   public undoBillPayment(userId: string, billId: string): { success: boolean; bill?: Bill; error?: string } {
     const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId);
     if (!bill) {
@@ -1029,21 +1222,440 @@ class DatabaseService {
       return { success: false, error: 'Bill is not marked as paid' };
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const userSettings = this.db.userSettings.find((s) => s.userId === userId);
+    const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayDateString(tz);
+    const nowIso = new Date().toISOString();
+
     bill.status = bill.dueDate < todayStr ? 'OVERDUE' : 'UNPAID';
     bill.paymentDate = null;
-    bill.updatedAt = new Date().toISOString();
+    bill.updatedAt = nowIso;
 
-    // Remove linked payment record
-    this.db.paymentHistory = this.db.paymentHistory.filter((p) => !(p.userId === userId && p.billId === billId));
+    // Preserve payment history by marking status reversed instead of hard-deleting
+    for (const p of this.db.paymentHistory) {
+      if (p.userId === userId && p.billId === billId && p.status !== 'reversed') {
+        p.status = 'reversed';
+        p.reversedAt = nowIso;
+      }
+    }
 
-    // Remove linked expense transaction
-    this.db.expenseTransactions = this.db.expenseTransactions.filter(
-      (e) => !(e.userId === userId && e.billId === billId)
-    );
+    // Soft-delete corresponding expense transaction
+    for (const e of this.db.expenseTransactions) {
+      if (e.userId === userId && e.billId === billId && !e.deletedAt) {
+        e.deletedAt = nowIso;
+      }
+    }
+
+    // Record audit log
+    this.db.auditLogs.push({
+      id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      userId,
+      action: 'undo_payment',
+      entityType: 'bill',
+      entityId: bill.id,
+      entityTitle: bill.name,
+      details: `Reversed payment for bill ${bill.name}`,
+      timestamp: nowIso,
+    });
 
     this.save();
     return { success: true, bill };
+  }
+
+  // --- TIME BLOCKS ---
+  public getTimeBlocks(userId: string, date?: string): TimeBlock[] {
+    this.db.timeBlocks = this.db.timeBlocks || [];
+    return this.db.timeBlocks
+      .filter((tb) => tb.userId === userId && !tb.deletedAt && (!date || tb.date === date))
+      .sort((a, b) => a.startMinute - b.startMinute);
+  }
+
+  public saveTimeBlock(userId: string, input: Partial<TimeBlock>): TimeBlock {
+    this.db.timeBlocks = this.db.timeBlocks || [];
+    const nowIso = new Date().toISOString();
+    const id = input.id || `tb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const idx = this.db.timeBlocks.findIndex((tb) => tb.id === id && tb.userId === userId);
+
+    const block: TimeBlock = {
+      id,
+      userId,
+      date: input.date || getTodayDateString(DEFAULT_TIMEZONE),
+      title: (input.title || 'Focus Block').trim(),
+      startMinute: Math.max(0, Math.min(1440, Number(input.startMinute) || 0)),
+      endMinute: Math.max(0, Math.min(1440, Number(input.endMinute) || 60)),
+      category: input.category || 'Focus',
+      taskId: input.taskId || null,
+      completed: Boolean(input.completed),
+      notes: input.notes || '',
+      deletedAt: input.deletedAt || null,
+      createdAt: idx >= 0 ? this.db.timeBlocks[idx].createdAt : nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (idx >= 0) {
+      this.db.timeBlocks[idx] = block;
+    } else {
+      this.db.timeBlocks.push(block);
+    }
+    this.save();
+    return block;
+  }
+
+  public deleteTimeBlock(userId: string, id: string, isGuest = false): boolean {
+    this.db.timeBlocks = this.db.timeBlocks || [];
+    const isTarget = (uid: string) => uid === userId || (isGuest && (uid === 'usr_atif_default' || uid === 'usr_default'));
+    const block = this.db.timeBlocks.find((tb) => tb.id === id && isTarget(tb.userId));
+    if (!block) return false;
+    block.deletedAt = new Date().toISOString();
+    block.updatedAt = new Date().toISOString();
+    this.save();
+    return true;
+  }
+
+  // --- ENVELOPE BUDGETING ---
+  public getEnvelopes(userId: string, monthKey?: string): BudgetEnvelope[] {
+    this.db.envelopes = this.db.envelopes || [];
+    const currentMonthKey = monthKey || getTodayDateString(DEFAULT_TIMEZONE).slice(0, 7);
+    
+    // Compute actual spent paise from expenses in this month for matching category
+    return this.db.envelopes
+      .filter((env) => env.userId === userId && !env.deletedAt && (!monthKey || env.monthKey === currentMonthKey))
+      .map((env) => {
+        let spent = 0;
+        if (env.categoryId) {
+          spent = this.db.expenseTransactions
+            .filter((e) => e.userId === userId && !e.deletedAt && e.categoryId === env.categoryId && e.date.startsWith(env.monthKey))
+            .reduce((sum, e) => sum + (e.amountPaise || 0), 0);
+        }
+        return {
+          ...env,
+          spentPaise: spent,
+        };
+      });
+  }
+
+  public saveEnvelope(userId: string, input: Partial<BudgetEnvelope>): BudgetEnvelope {
+    this.db.envelopes = this.db.envelopes || [];
+    const nowIso = new Date().toISOString();
+    const id = input.id || `env_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const idx = this.db.envelopes.findIndex((env) => env.id === id && env.userId === userId);
+
+    const env: BudgetEnvelope = {
+      id,
+      userId,
+      name: (input.name || 'Envelope').trim(),
+      categoryId: input.categoryId || null,
+      allocatedPaise: Math.max(0, Math.floor(Number(input.allocatedPaise) || 0)),
+      monthKey: input.monthKey || getTodayDateString(DEFAULT_TIMEZONE).slice(0, 7),
+      color: input.color || '#6366f1',
+      notes: input.notes || '',
+      deletedAt: input.deletedAt || null,
+      createdAt: idx >= 0 ? this.db.envelopes[idx].createdAt : nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (idx >= 0) {
+      this.db.envelopes[idx] = env;
+    } else {
+      this.db.envelopes.push(env);
+    }
+    this.save();
+    return env;
+  }
+
+  public transferEnvelopeFunds(
+    userId: string,
+    fromId: string,
+    toId: string,
+    amountPaise: number
+  ): { success: boolean; error?: string } {
+    this.db.envelopes = this.db.envelopes || [];
+    const fromEnv = this.db.envelopes.find((e) => e.id === fromId && e.userId === userId && !e.deletedAt);
+    const toEnv = this.db.envelopes.find((e) => e.id === toId && e.userId === userId && !e.deletedAt);
+    if (!fromEnv || !toEnv) return { success: false, error: 'Envelope not found' };
+    if (amountPaise <= 0) return { success: false, error: 'Transfer amount must be positive' };
+    if (fromEnv.allocatedPaise < amountPaise) {
+      return { success: false, error: 'Source envelope has insufficient funds' };
+    }
+
+    const nowIso = new Date().toISOString();
+    fromEnv.allocatedPaise -= amountPaise;
+    fromEnv.updatedAt = nowIso;
+    toEnv.allocatedPaise += amountPaise;
+    toEnv.updatedAt = nowIso;
+
+    this.recordAuditLog(userId, {
+      action: 'envelope_transfer',
+      entityType: 'envelope',
+      entityId: fromId,
+      entityTitle: `${fromEnv.name} -> ${toEnv.name}`,
+      details: `Transferred ${amountPaise} paise from ${fromEnv.name} to ${toEnv.name}`,
+    });
+
+    this.save();
+    return { success: true };
+  }
+
+  public deleteEnvelope(userId: string, id: string, isGuest = false): boolean {
+    this.db.envelopes = this.db.envelopes || [];
+    const isTarget = (uid: string) => uid === userId || (isGuest && (uid === 'usr_atif_default' || uid === 'usr_default'));
+    const env = this.db.envelopes.find((e) => e.id === id && isTarget(e.userId));
+    if (!env) return false;
+    env.deletedAt = new Date().toISOString();
+    env.updatedAt = new Date().toISOString();
+    this.save();
+    return true;
+  }
+
+  // --- SUBSCRIPTIONS ---
+  public getSubscriptions(userId: string): SubscriptionPlan[] {
+    this.db.subscriptions = this.db.subscriptions || [];
+    return this.db.subscriptions
+      .filter((s) => s.userId === userId && !s.deletedAt)
+      .sort((a, b) => a.nextRenewalDate.localeCompare(b.nextRenewalDate));
+  }
+
+  public saveSubscription(userId: string, input: Partial<SubscriptionPlan>): SubscriptionPlan {
+    this.db.subscriptions = this.db.subscriptions || [];
+    const nowIso = new Date().toISOString();
+    const id = input.id || `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const idx = this.db.subscriptions.findIndex((s) => s.id === id && s.userId === userId);
+
+    const sub: SubscriptionPlan = {
+      id,
+      userId,
+      name: (input.name || 'Subscription').trim(),
+      amountPaise: Math.max(0, Math.floor(Number(input.amountPaise) || 0)),
+      categoryId: input.categoryId || 'cat_subscriptions',
+      billingCycle: input.billingCycle || 'monthly',
+      nextRenewalDate: input.nextRenewalDate || getTodayDateString(DEFAULT_TIMEZONE),
+      reminderDays: Math.max(0, Number(input.reminderDays) || 3),
+      autoRenew: input.autoRenew !== false,
+      status: input.status || 'active',
+      websiteUrl: input.websiteUrl || '',
+      notes: input.notes || '',
+      deletedAt: input.deletedAt || null,
+      createdAt: idx >= 0 ? this.db.subscriptions[idx].createdAt : nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (idx >= 0) {
+      this.db.subscriptions[idx] = sub;
+    } else {
+      this.db.subscriptions.push(sub);
+    }
+    this.save();
+    return sub;
+  }
+
+  public deleteSubscription(userId: string, id: string, isGuest = false): boolean {
+    this.db.subscriptions = this.db.subscriptions || [];
+    const isTarget = (uid: string) => uid === userId || (isGuest && (uid === 'usr_atif_default' || uid === 'usr_default'));
+    const sub = this.db.subscriptions.find((s) => s.id === id && isTarget(s.userId));
+    if (!sub) return false;
+    sub.deletedAt = new Date().toISOString();
+    sub.updatedAt = new Date().toISOString();
+    this.save();
+    return true;
+  }
+
+  // --- AUDIT LOGS ---
+  public getAuditLogs(userId: string, limit = 100): AuditLogEntry[] {
+    this.db.auditLogs = this.db.auditLogs || [];
+    return this.db.auditLogs
+      .filter((l) => l.userId === userId)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, limit);
+  }
+
+  public recordAuditLog(
+    userId: string,
+    entry: Omit<AuditLogEntry, 'id' | 'userId' | 'timestamp'> & { timestamp?: string }
+  ): AuditLogEntry {
+    this.db.auditLogs = this.db.auditLogs || [];
+    const log: AuditLogEntry = {
+      id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      userId,
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      entityTitle: entry.entityTitle || '',
+      details: entry.details || '',
+      timestamp: entry.timestamp || new Date().toISOString(),
+    };
+    this.db.auditLogs.push(log);
+    if (this.db.auditLogs.length > 2000) {
+      this.db.auditLogs = this.db.auditLogs.slice(-1500);
+    }
+    this.save();
+    return log;
+  }
+
+  // --- DURABLE SYNC QUEUE ---
+  public getSyncQueue(userId: string): DurableSyncOperation[] {
+    this.db.syncQueue = this.db.syncQueue || [];
+    return this.db.syncQueue.filter((sq) => sq.userId === userId && sq.status !== 'completed');
+  }
+
+  public enqueueSync(
+    userId: string,
+    op: Omit<DurableSyncOperation, 'id' | 'userId' | 'status' | 'attempts' | 'createdAt'>
+  ): DurableSyncOperation {
+    this.db.syncQueue = this.db.syncQueue || [];
+    const item: DurableSyncOperation = {
+      id: `sync_op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      userId,
+      entityType: op.entityType,
+      action: op.action,
+      sheetName: op.sheetName,
+      payload: op.payload,
+      status: 'pending',
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+    };
+    this.db.syncQueue.push(item);
+    this.save();
+    return item;
+  }
+
+  public updateSyncOp(
+    userId: string,
+    id: string,
+    updates: Partial<DurableSyncOperation>
+  ): DurableSyncOperation | null {
+    this.db.syncQueue = this.db.syncQueue || [];
+    const item = this.db.syncQueue.find((sq) => sq.id === id && sq.userId === userId);
+    if (!item) return null;
+    Object.assign(item, updates);
+    this.save();
+    return item;
+  }
+
+  // --- DATA RECOVERY & BACKUPS ---
+  public exportUserData(userId: string): Record<string, unknown> {
+    const backup = {
+      version: '2.0.0',
+      exportedAt: new Date().toISOString(),
+      userId,
+      userSettings: this.db.userSettings.find((s) => s.userId === userId) || null,
+      tasks: this.db.tasks.filter((t) => t.userId === userId),
+      focusSessions: this.db.focusSessions.filter((s) => s.userId === userId),
+      categories: this.db.categories.filter((c) => c.userId === userId),
+      recurringExpenses: this.db.recurringExpenses.filter((r) => r.userId === userId),
+      bills: this.db.bills.filter((b) => b.userId === userId),
+      paymentHistory: this.db.paymentHistory.filter((p) => p.userId === userId),
+      incomeTransactions: this.db.incomeTransactions.filter((i) => i.userId === userId),
+      expenseTransactions: this.db.expenseTransactions.filter((e) => e.userId === userId),
+      savingsGoals: this.db.savingsGoals.filter((g) => g.userId === userId),
+      timeBlocks: (this.db.timeBlocks || []).filter((tb) => tb.userId === userId),
+      envelopes: (this.db.envelopes || []).filter((env) => env.userId === userId),
+      subscriptions: (this.db.subscriptions || []).filter((sub) => sub.userId === userId),
+      auditLogs: (this.db.auditLogs || []).filter((l) => l.userId === userId),
+    };
+    return backup;
+  }
+
+  public restoreUserData(
+    userId: string,
+    data: any
+  ): { success: boolean; counts: Record<string, number>; errors?: string[] } {
+    if (!data || typeof data !== 'object') {
+      return { success: false, counts: {}, errors: ['Invalid backup JSON structure'] };
+    }
+
+    const counts: Record<string, number> = {};
+    const nowIso = new Date().toISOString();
+
+    if (Array.isArray(data.tasks)) {
+      this.db.tasks = this.db.tasks.filter((t) => t.userId !== userId);
+      for (const item of data.tasks) {
+        if (item && item.id && item.title) {
+          this.db.tasks.push({ ...item, userId });
+        }
+      }
+      counts.tasks = this.db.tasks.filter((t) => t.userId === userId).length;
+    }
+
+    if (Array.isArray(data.incomeTransactions)) {
+      this.db.incomeTransactions = this.db.incomeTransactions.filter((i) => i.userId !== userId);
+      for (const item of data.incomeTransactions) {
+        if (item && item.id && item.source) {
+          this.db.incomeTransactions.push({ ...item, userId });
+        }
+      }
+      counts.incomeTransactions = this.db.incomeTransactions.filter((i) => i.userId === userId).length;
+    }
+
+    if (Array.isArray(data.expenseTransactions)) {
+      this.db.expenseTransactions = this.db.expenseTransactions.filter((e) => e.userId !== userId);
+      for (const item of data.expenseTransactions) {
+        if (item && item.id && item.amountPaise !== undefined) {
+          this.db.expenseTransactions.push({ ...item, userId });
+        }
+      }
+      counts.expenseTransactions = this.db.expenseTransactions.filter((e) => e.userId === userId).length;
+    }
+
+    if (Array.isArray(data.bills)) {
+      this.db.bills = this.db.bills.filter((b) => b.userId !== userId);
+      for (const item of data.bills) {
+        if (item && item.id && item.name) {
+          this.db.bills.push({ ...item, userId });
+        }
+      }
+      counts.bills = this.db.bills.filter((b) => b.userId === userId).length;
+    }
+
+    if (Array.isArray(data.paymentHistory)) {
+      this.db.paymentHistory = this.db.paymentHistory.filter((p) => p.userId !== userId);
+      for (const item of data.paymentHistory) {
+        if (item && item.id && item.billId) {
+          this.db.paymentHistory.push({ ...item, userId });
+        }
+      }
+      counts.paymentHistory = this.db.paymentHistory.filter((p) => p.userId === userId).length;
+    }
+
+    if (Array.isArray(data.timeBlocks)) {
+      this.db.timeBlocks = (this.db.timeBlocks || []).filter((tb) => tb.userId !== userId);
+      for (const item of data.timeBlocks) {
+        if (item && item.id && item.title) {
+          this.db.timeBlocks.push({ ...item, userId });
+        }
+      }
+      counts.timeBlocks = this.db.timeBlocks.filter((tb) => tb.userId === userId).length;
+    }
+
+    if (Array.isArray(data.envelopes)) {
+      this.db.envelopes = (this.db.envelopes || []).filter((env) => env.userId !== userId);
+      for (const item of data.envelopes) {
+        if (item && item.id && item.name) {
+          this.db.envelopes.push({ ...item, userId });
+        }
+      }
+      counts.envelopes = this.db.envelopes.filter((env) => env.userId === userId).length;
+    }
+
+    if (Array.isArray(data.subscriptions)) {
+      this.db.subscriptions = (this.db.subscriptions || []).filter((sub) => sub.userId !== userId);
+      for (const item of data.subscriptions) {
+        if (item && item.id && item.name) {
+          this.db.subscriptions.push({ ...item, userId });
+        }
+      }
+      counts.subscriptions = this.db.subscriptions.filter((sub) => sub.userId === userId).length;
+    }
+
+    this.recordAuditLog(userId, {
+      action: 'backup_restore',
+      entityType: 'backup',
+      entityId: `rst_${Date.now()}`,
+      entityTitle: 'Data Recovery Restore',
+      details: `Restored records: ${JSON.stringify(counts)}`,
+    });
+
+    this.save();
+    return { success: true, counts };
   }
 }
 

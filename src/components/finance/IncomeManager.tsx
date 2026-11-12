@@ -22,7 +22,6 @@ import {
 import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import { Plus, TrendingUp, Trash2, Edit2, Calendar, Tag } from 'lucide-react';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
-import { firestoreService } from '../../lib/firestoreService.ts';
 
 export const IncomeManager: React.FC = () => {
   const {
@@ -107,9 +106,6 @@ export const IncomeManager: React.FC = () => {
           category,
           notes,
         });
-        if (firebaseUser) {
-          firestoreService.saveIncome(firebaseUser.uid, updated).catch(console.error);
-        }
         showToast('Income record updated', 'success');
       } else {
         const created = await api.createIncome({
@@ -119,9 +115,6 @@ export const IncomeManager: React.FC = () => {
           category,
           notes,
         });
-        if (firebaseUser) {
-          firestoreService.saveIncome(firebaseUser.uid, created).catch(console.error);
-        }
         googleSheetsService.enqueueMutation('Income', [
           created.id,
           created.date,

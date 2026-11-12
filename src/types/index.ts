@@ -47,6 +47,7 @@ export interface NotificationPreferences {
 export interface UserSettings {
   userId: string;
   currency: CurrencyCode;
+  timezone?: string; // Default: 'Asia/Kolkata'
   pomodoroWorkDuration: number; // minutes
   shortBreakDuration: number;
   longBreakDuration: number;
@@ -163,6 +164,8 @@ export interface PaymentHistory {
   paymentMethod: 'credit_card' | 'debit_card' | 'upi_bank' | 'cash' | 'other';
   transactionRef: string;
   notes: string;
+  status?: 'completed' | 'reversed';
+  reversedAt?: string | null;
   createdAt: string;
 }
 
@@ -207,9 +210,85 @@ export interface SavingsGoal {
   updatedAt: string;
 }
 
+export interface TimeBlock {
+  id: string;
+  userId: string;
+  date: string; // YYYY-MM-DD in target timezone
+  title: string;
+  startMinute: number; // 0 - 1440
+  endMinute: number;   // 0 - 1440
+  category: string;
+  taskId?: string | null;
+  completed: boolean;
+  notes?: string;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetEnvelope {
+  id: string;
+  userId: string;
+  name: string;
+  categoryId?: string | null;
+  allocatedPaise: number;
+  spentPaise?: number;
+  monthKey: string; // YYYY-MM
+  color: string;
+  notes?: string;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  userId: string;
+  name: string;
+  amountPaise: number;
+  categoryId: string;
+  categoryName?: string;
+  billingCycle: 'monthly' | 'quarterly' | 'yearly';
+  nextRenewalDate: string; // YYYY-MM-DD
+  reminderDays: number;
+  autoRenew: boolean;
+  status: 'active' | 'paused' | 'cancelled';
+  websiteUrl?: string;
+  notes?: string;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  userId: string;
+  action: 'create' | 'update' | 'delete' | 'restore' | 'pay' | 'undo_payment' | 'import_backup' | 'purge' | 'envelope_transfer' | 'backup_restore';
+  entityType: 'task' | 'income' | 'expense' | 'bill' | 'time_block' | 'envelope' | 'subscription' | 'settings' | 'backup';
+  entityId: string;
+  entityTitle?: string;
+  details?: string;
+  timestamp: string;
+}
+
+export interface DurableSyncOperation {
+  id: string;
+  userId: string;
+  entityType: 'focus_session' | 'income' | 'expense' | 'bill' | 'category' | 'full_sync';
+  action: 'append' | 'update' | 'delete' | 'full_sync';
+  sheetName: string;
+  payload: unknown;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  attempts: number;
+  lastAttemptAt?: string | null;
+  nextRetryAt?: number | null; // epoch ms for exponential backoff
+  errorMessage?: string | null;
+  createdAt: string;
+}
+
 export interface TrashRecord {
   id: string;
-  entityType: 'task' | 'income' | 'expense' | 'bill';
+  entityType: 'task' | 'income' | 'expense' | 'bill' | 'time_block' | 'envelope' | 'subscription';
   title: string;
   subtitle: string;
   amountPaise?: number;

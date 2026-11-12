@@ -40,12 +40,17 @@ import {
 
 export type NavTab =
   | 'dashboard'
+  | 'calendar'
   | 'focus'
+  | 'timeblocks'
   | 'tasks'
   | 'finance'
   | 'transactions'
   | 'bills'
+  | 'envelopes'
+  | 'subscriptions'
   | 'analytics'
+  | 'recovery'
   | 'settings';
 
 export type TimerMode = 'work' | 'short_break' | 'long_break';
@@ -86,6 +91,7 @@ interface AppContextType {
   theme: 'light' | 'dark';
   toggleTheme: () => void;
   reseedData: () => Promise<void>;
+  clearAllData: () => Promise<void>;
 
   // Advanced Design System & Theme Studio
   themeConfig: ThemeConfig;
@@ -144,6 +150,7 @@ interface AppContextType {
   syncQueueCount: number;
   createOrConnectSpreadsheet: () => Promise<string>;
   syncNowToGoogleSheets: () => Promise<void>;
+  historicalResyncToGoogleSheets: () => Promise<void>;
 
   // Timer State
   timerEngine: TimerEngineMode;
@@ -702,6 +709,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const clearAllData = async () => {
+    try {
+      await api.clearWorkspace();
+      showToast('All workspace records cleared successfully', 'success');
+      triggerRefresh();
+    } catch {
+      showToast('Failed to clear workspace data', 'error');
+    }
+  };
+
   // Google Sign-In & Sign-Out handlers
   const signInWithGoogle = async () => {
     try {
@@ -746,7 +763,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setSyncStatus('syncing');
     try {
-      showToast('Creating professional master workbook with 12 styled worksheets...', 'info');
+      showToast('Creating executive master workbook with 23 styled worksheets, charts & live formulas...', 'info');
       const spreadsheetId = await googleSheetsService.createMasterWorkbook(token);
       setGoogleSpreadsheetId(spreadsheetId);
 
@@ -757,7 +774,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       await syncNowToGoogleSheets(spreadsheetId, token);
 
-      showToast('Master Google Sheets workbook initialized with all 12 tabs!', 'success');
+      showToast('Executive Google Sheets workbook initialized with all 23 worksheets!', 'success');
       setSyncStatus('synced');
       return spreadsheetId;
     } catch (err: unknown) {
@@ -786,16 +803,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setSyncStatus('syncing');
     try {
-      const [sessions, focusStats, incomes, recurring, expenses, bills, financeSummary] =
-        await Promise.all([
-          api.getFocusSessions(),
-          api.getFocusStats(),
-          api.getIncomes(),
-          api.getRecurringExpenses(),
-          api.getExpenses(),
-          api.getBills(),
-          api.getFinanceSummary(),
-        ]);
+      const [
+        sessions,
+        focusStats,
+        incomes,
+        recurring,
+        expenses,
+        bills,
+        paymentHistory,
+        financeSummary,
+        tasks,
+        envelopes,
+        savingsGoals,
+        syncQueue,
+      ] = await Promise.all([
+        api.getFocusSessions(),
+        api.getFocusStats(),
+        api.getIncomes(),
+        api.getRecurringExpenses(),
+        api.getExpenses(),
+        api.getBills(),
+        api.getPaymentHistory(),
+        api.getFinanceSummary(),
+        api.getTasks(),
+        api.getEnvelopes(),
+        api.getSavingsGoals(),
+        api.getSyncQueue().catch(() => []),
+      ]);
 
       await googleSheetsService.syncAllData(sId, token, {
         sessions,
@@ -804,23 +838,109 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         recurring,
         expenses,
         bills,
+        paymentHistory,
         financeSummary,
+        tasks,
+        envelopes,
+        savingsGoals,
+        syncQueue,
+        userSettings: settings,
       });
 
-      await googleSheetsService.flushQueue(sId, token);
+      const flushed = await googleSheetsService.flushQueue(sId, token);
+      if (flushed > 0) {
+        console.log(`[Sync] Flushed ${flushed} pending durable sync operations.`);
+      }
 
       const nowIso = new Date().toISOString();
       setLastSyncedAt(nowIso);
       setSyncStatus('synced');
-      setSyncQueueCount(googleSheetsService.getQueueLength());
+      const activeOps = (await api.getSyncQueue().catch(() => [])).filter((o) => o.status !== 'completed');
+      setSyncQueueCount(activeOps.length);
       setSyncLastError(googleSheetsService.getLastError());
       await updateSettings({ lastSyncedAt: nowIso });
-      showToast('Google Sheets synchronized successfully!', 'success');
+      showToast('Executive Google Sheets workbook synchronized successfully!', 'success');
     } catch (err: unknown) {
       setSyncStatus('error');
       const msg = err instanceof Error ? err.message : 'Sync failed';
       setSyncLastError(msg);
       showToast(`Sync failed: ${msg}`, 'error');
+    }
+  };
+
+  const historicalResyncToGoogleSheets = async () => {
+    if (!googleSpreadsheetId) {
+      showToast('Please initialize your Google Sheets master workbook first', 'info');
+      return;
+    }
+    let token = googleAccessToken;
+    if (!token) {
+      token = await getAccessToken();
+    }
+    if (!token) {
+      showToast('Please sign in with Google to perform historical resync', 'info');
+      return;
+    }
+
+    setSyncStatus('syncing');
+    try {
+      const [
+        sessions,
+        focusStats,
+        incomes,
+        recurring,
+        expenses,
+        bills,
+        paymentHistory,
+        financeSummary,
+        tasks,
+        envelopes,
+        savingsGoals,
+        syncQueue,
+      ] = await Promise.all([
+        api.getFocusSessions(),
+        api.getFocusStats(),
+        api.getIncomes(),
+        api.getRecurringExpenses(),
+        api.getExpenses(),
+        api.getBills(),
+        api.getPaymentHistory(),
+        api.getFinanceSummary(),
+        api.getTasks(),
+        api.getEnvelopes(),
+        api.getSavingsGoals(),
+        api.getSyncQueue().catch(() => []),
+      ]);
+
+      await googleSheetsService.historicalResync(googleSpreadsheetId, token, {
+        sessions,
+        focusStats,
+        incomes,
+        recurring,
+        expenses,
+        bills,
+        paymentHistory,
+        financeSummary,
+        tasks,
+        envelopes,
+        savingsGoals,
+        syncQueue,
+        userSettings: settings,
+      });
+
+      const nowIso = new Date().toISOString();
+      setLastSyncedAt(nowIso);
+      setSyncStatus('synced');
+      const activeOps = (await api.getSyncQueue().catch(() => [])).filter((o) => o.status !== 'completed');
+      setSyncQueueCount(activeOps.length);
+      setSyncLastError(googleSheetsService.getLastError());
+      await updateSettings({ lastSyncedAt: nowIso });
+      showToast('Historical resync completed — all 23 worksheets rebuilt!', 'success');
+    } catch (err: unknown) {
+      setSyncStatus('error');
+      const msg = err instanceof Error ? err.message : 'Resync failed';
+      setSyncLastError(msg);
+      showToast(`Historical resync failed: ${msg}`, 'error');
     }
   };
 
@@ -1242,6 +1362,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         theme: resolvedThemeMode,
         toggleTheme,
         reseedData,
+        clearAllData,
 
         // Theme Studio
         themeConfig,
@@ -1292,6 +1413,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         syncQueueCount,
         createOrConnectSpreadsheet,
         syncNowToGoogleSheets,
+        historicalResyncToGoogleSheets,
 
         // Timer
         timerEngine,

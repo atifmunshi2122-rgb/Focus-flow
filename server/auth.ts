@@ -199,10 +199,22 @@ export async function requireUserContext(
   }
 
   const demoSessionHeader = req.headers['x-demo-session'];
-  const demoSessionId =
-    typeof demoSessionHeader === 'string' && GUEST_ID_REGEX.test(demoSessionHeader.trim())
-      ? demoSessionHeader.trim()
-      : 'usr_atif_default';
+  let demoSessionId: string;
+
+  if (typeof demoSessionHeader === 'string' && GUEST_ID_REGEX.test(demoSessionHeader.trim())) {
+    demoSessionId = demoSessionHeader.trim();
+  } else if (process.env.DEMO_MODE === 'shared') {
+    demoSessionId = 'usr_atif_default';
+  } else {
+    // Generate an isolated guest ID keyed to client characteristics
+    const clientIp =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+      req.socket.remoteAddress ||
+      'localhost';
+    const clientUa = req.headers['user-agent'] || 'generic';
+    const hash = crypto.createHash('sha256').update(`${clientIp}:${clientUa}`).digest('hex').slice(0, 16);
+    demoSessionId = `gst_${hash}`;
+  }
 
   (req as AuthenticatedRequest).auth = {
     userId: demoSessionId,

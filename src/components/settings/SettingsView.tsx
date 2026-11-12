@@ -41,6 +41,7 @@ export const SettingsView: React.FC = () => {
     theme,
     toggleTheme,
     reseedData,
+    clearAllData,
     firebaseUser,
     isAuthenticated,
     signInWithGoogle,
@@ -159,6 +160,16 @@ export const SettingsView: React.FC = () => {
     }
   };
 
+  const handleClearAllWorkspace = async () => {
+    if (
+      window.confirm(
+        'Are you sure you want to delete ALL transactions, tasks, bills, time blocks, and subscriptions to start completely clean? This action cannot be undone.'
+      )
+    ) {
+      await clearAllData();
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Settings Module Switcher */}
@@ -232,10 +243,10 @@ export const SettingsView: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                    Google Sheets Automated Synchronization
+                    Google Sheets Executive Synchronization
                   </h2>
                   <p className="text-xs text-[var(--ff-text-muted)]">
-                    Synchronize 12 master worksheets with professional formatting, formulas, and real-time updates.
+                    Synchronize 23 master worksheets with executive dashboards, native charts, INR currency formatting, and live formulas.
                   </p>
                 </div>
               </div>
@@ -332,10 +343,10 @@ export const SettingsView: React.FC = () => {
               >
                 <div>
                   <span className="text-xs font-bold text-[var(--ff-text-primary)] block">
-                    Initialize Master Spreadsheet
+                    Initialize Executive Master Spreadsheet
                   </span>
                   <span className="text-[11px] text-[var(--ff-text-muted)] block mt-0.5">
-                    Automatically generate the 12 formatted worksheets with frozen headers, INR currency styling, and live formulas.
+                    Automatically generate all 23 formatted worksheets with executive dashboards, frozen headers, INR currency styling, and live formulas.
                   </span>
                 </div>
 
@@ -344,7 +355,7 @@ export const SettingsView: React.FC = () => {
                   size="sm"
                   onClick={handleCreateWorkbook}
                   loading={isInitializingSheets}
-                  loadingText="Creating 12 Tabs..."
+                  loadingText="Creating 23 Tabs..."
                   className="shrink-0"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -353,29 +364,44 @@ export const SettingsView: React.FC = () => {
               </ThemeCard>
             )}
 
-            {/* 12 Worksheets Catalog */}
+            {/* 23 Worksheets Catalog */}
             <div className="pt-2">
               <span className="text-[11px] font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider block mb-2">
-                The 12 Synchronized Worksheets
+                The 23 Master Worksheets Architecture
               </span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-[var(--ff-text-secondary)] font-mono">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px] text-[var(--ff-text-secondary)] font-mono">
                 {[
-                  '1. Focus_Sessions',
-                  '2. Focus_Daily',
-                  '3. Focus_Weekly',
-                  '4. Focus_Monthly',
-                  '5. Income',
-                  '6. Fixed_Expenses',
-                  '7. Variable_Expenses',
-                  '8. Bills_Payments',
-                  '9. Finance_Daily',
-                  '10. Finance_Weekly',
-                  '11. Finance_Monthly',
-                  '12. Overall_Analytics',
+                  '1. Executive_Dashboard ★',
+                  '2. Finance_Dashboard',
+                  '3. Productivity_Dashboard',
+                  '4. Focus_Sessions',
+                  '5. Focus_Daily',
+                  '6. Focus_Weekly',
+                  '7. Focus_Monthly',
+                  '8. Tasks',
+                  '9. Task_Analytics',
+                  '10. Productivity_Goals',
+                  '11. Income',
+                  '12. Fixed_Expenses',
+                  '13. Variable_Expenses',
+                  '14. Bills_Payments',
+                  '15. Budgets',
+                  '16. Savings_Goals',
+                  '17. Finance_Daily',
+                  '18. Finance_Weekly',
+                  '19. Finance_Monthly',
+                  '20. Sync_Control',
+                  '21. Sync_Error_Log',
+                  '22. Data_Dictionary',
+                  '23. Settings',
                 ].map((sheet) => (
                   <span
                     key={sheet}
-                    className="p-1.5 rounded-md bg-[var(--ff-surface-inset)] border border-[var(--ff-border-color)] truncate"
+                    className={`p-1.5 rounded-md border truncate ${
+                      sheet.includes('★')
+                        ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent-text)] text-[var(--ff-accent-text)] font-bold'
+                        : 'bg-[var(--ff-surface-inset)] border-[var(--ff-border-color)]'
+                    }`}
                   >
                     {sheet}
                   </span>
@@ -768,16 +794,30 @@ export const SettingsView: React.FC = () => {
             </ThemeCard>
 
             {/* Actions bar */}
-            <div className="flex items-center justify-between pt-2">
-              <ThemeButton
-                variant="ghost"
-                size="sm"
-                onClick={handleReseed}
-                style={{ color: 'var(--ff-danger)' }}
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset Demo Data</span>
-              </ThemeButton>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+              <div className="flex items-center gap-2">
+                <ThemeButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearAllWorkspace}
+                  style={{ color: 'var(--ff-danger)' }}
+                  title="Wipe all data and start with an empty workspace"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Wipe All Data</span>
+                </ThemeButton>
+
+                <ThemeButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleReseed}
+                  style={{ color: 'var(--ff-text-muted)' }}
+                  title="Load sample starter data"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Load Sample Data</span>
+                </ThemeButton>
+              </div>
 
               <ThemeButton
                 type="submit"

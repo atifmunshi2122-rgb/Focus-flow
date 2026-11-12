@@ -1,12 +1,14 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global Safety Net: Default Deny All
+    // Default Deny All: Any document not explicitly matched is denied
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions
+    // ==========================================
+    // REUSABLE SECURITY & VALIDATION HELPERS
+    // ==========================================
     function isSignedIn() {
       return request.auth != null;
     }
@@ -16,63 +18,308 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Test connection doc
+    function isIsoDate(val) {
+      return val is string && val.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function isNonEmptyString(val, maxLen) {
+      return val is string && val.size() > 0 && val.size() <= maxLen;
+    }
+
+    function isOptionalString(val, maxLen) {
+      return val == null || (val is string && val.size() <= maxLen);
+    }
+
+    function isPositivePaise(val) {
+      return (val is int || val is float) && val > 0 && val <= 1000000000000 && int(val) == val;
+    }
+
+    function isNonNegativePaise(val) {
+      return (val is int || val is float) && val >= 0 && val <= 1000000000000 && int(val) == val;
+    }
+
+    function isBoundedInt(val, minVal, maxVal) {
+      return (val is int || val is float) && val >= minVal && val <= maxVal && int(val) == val;
+    }
+
+    function isSoftDelete(resourceData) {
+      return resourceData != null && (
+        request.resource.data.diff(resourceData).affectedKeys().hasOnly(['deletedAt', 'updatedAt']) ||
+        request.resource.data.diff(resourceData).affectedKeys().hasOnly(['deletedAt'])
+      );
+    }
+
+    // Test connection doc for client health-checks
     match /test/connection {
       allow read: if true;
+      allow write: if false;
     }
 
-    // User profile document
+    // ==========================================
+    // USER WORKSPACE ROOT
+    // ==========================================
     match /users/{userId} {
       allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId);
-      allow delete: if false;
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && request.resource.data.id == userId
+        && isNonEmptyString(request.resource.data.email, 256)
+        && isNonEmptyString(request.resource.data.name, 128);
+      allow update: if isOwner(userId)
+        && request.resource.data.id == userId
+        && isNonEmptyString(request.resource.data.email, 256)
+        && isNonEmptyString(request.resource.data.name, 128);
+      allow delete: if false; // Protect root user profile from accidental deletion
 
       // Settings subcollection
       match /settings/{settingId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(settingId);
+        allow delete: if isOwner(userId);
       }
 
       // Tasks subcollection
       match /tasks/{taskId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(taskId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256)
+          && request.resource.data.priority in ['low', 'medium', 'high']
+          && request.resource.data.status in ['todo', 'in_progress', 'completed']
+          && isBoundedInt(request.resource.data.estimatedPomodoros, 1, 100);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.title, 256)
+              && request.resource.data.priority in ['low', 'medium', 'high']
+              && request.resource.data.status in ['todo', 'in_progress', 'completed']
+            )
+          );
+        allow delete: if isOwner(userId);
       }
 
       // Focus sessions subcollection
       match /focus_sessions/{sessionId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(sessionId)
+          && request.resource.data.userId == userId
+          && request.resource.data.mode in ['work', 'short_break', 'long_break']
+          && isBoundedInt(request.resource.data.durationSeconds, 1, 86400)
+          && request.resource.data.completed is bool
+          && isNonEmptyString(request.resource.data.startedAt, 64);
+        allow update: if isOwner(userId)
+          && request.resource.data.userId == userId;
+        allow delete: if isOwner(userId);
       }
 
       // Income records subcollection
       match /income/{incomeId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(incomeId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.source, 256)
+          && isPositivePaise(request.resource.data.amountPaise)
+          && isIsoDate(request.resource.data.date);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.source, 256)
+              && isPositivePaise(request.resource.data.amountPaise)
+              && isIsoDate(request.resource.data.date)
+            )
+          );
+        allow delete: if isOwner(userId);
       }
 
       // Recurring expenses subcollection
       match /recurring_expenses/{recId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(recId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.name, 256)
+          && isPositivePaise(request.resource.data.amountPaise)
+          && request.resource.data.recurrence in ['monthly', 'quarterly', 'yearly']
+          && isBoundedInt(request.resource.data.dueDay, 1, 31);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.name, 256)
+              && isPositivePaise(request.resource.data.amountPaise)
+              && request.resource.data.recurrence in ['monthly', 'quarterly', 'yearly']
+              && isBoundedInt(request.resource.data.dueDay, 1, 31)
+            )
+          );
+        allow delete: if isOwner(userId);
       }
 
       // Expense transactions subcollection
       match /expenses/{expenseId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(expenseId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.description, 256)
+          && isPositivePaise(request.resource.data.amountPaise)
+          && isIsoDate(request.resource.data.date)
+          && request.resource.data.type in ['fixed', 'variable']
+          && request.resource.data.paymentMethod in ['credit_card', 'debit_card', 'upi_bank', 'cash', 'other'];
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.description, 256)
+              && isPositivePaise(request.resource.data.amountPaise)
+              && isIsoDate(request.resource.data.date)
+            )
+          );
+        allow delete: if isOwner(userId);
       }
 
       // Bills subcollection
       match /bills/{billId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(billId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.name, 256)
+          && isPositivePaise(request.resource.data.amountPaise)
+          && isIsoDate(request.resource.data.dueDate)
+          && request.resource.data.status in ['PAID', 'UNPAID', 'OVERDUE'];
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.name, 256)
+              && isPositivePaise(request.resource.data.amountPaise)
+              && isIsoDate(request.resource.data.dueDate)
+              && request.resource.data.status in ['PAID', 'UNPAID', 'OVERDUE']
+            )
+          );
+        allow delete: if isOwner(userId);
       }
 
       // Payment history subcollection
       match /payment_history/{payId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(payId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.billId, 128)
+          && isPositivePaise(request.resource.data.amountPaise)
+          && isIsoDate(request.resource.data.paidDate)
+          && request.resource.data.paymentMethod in ['credit_card', 'debit_card', 'upi_bank', 'cash', 'other'];
+        allow update: if isOwner(userId)
+          && request.resource.data.userId == userId;
+        allow delete: if isOwner(userId);
       }
 
-      // Sync queue subcollection
+      // Sync queue subcollection (Durable Google Sheets synchronization)
       match /sync_queue/{queueId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(queueId)
+          && request.resource.data.userId == userId
+          && request.resource.data.status in ['pending', 'processing', 'completed', 'failed'];
+        allow update: if isOwner(userId)
+          && request.resource.data.userId == userId
+          && request.resource.data.status in ['pending', 'processing', 'completed', 'failed'];
+        allow delete: if isOwner(userId);
+      }
+
+      // Time blocks subcollection (Daily Time-Block Planner)
+      match /time_blocks/{blockId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(blockId)
+          && request.resource.data.userId == userId
+          && isIsoDate(request.resource.data.date)
+          && isNonEmptyString(request.resource.data.title, 256)
+          && isBoundedInt(request.resource.data.startMinute, 0, 1440)
+          && isBoundedInt(request.resource.data.endMinute, 0, 1440)
+          && request.resource.data.endMinute > request.resource.data.startMinute;
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isIsoDate(request.resource.data.date)
+              && isNonEmptyString(request.resource.data.title, 256)
+              && isBoundedInt(request.resource.data.startMinute, 0, 1440)
+              && isBoundedInt(request.resource.data.endMinute, 0, 1440)
+              && request.resource.data.endMinute > request.resource.data.startMinute
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Envelopes subcollection (Envelope Budgeting)
+      match /envelopes/{envelopeId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(envelopeId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.name, 128)
+          && isNonNegativePaise(request.resource.data.allocatedPaise);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.name, 128)
+              && isNonNegativePaise(request.resource.data.allocatedPaise)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Subscriptions subcollection (Subscription Manager)
+      match /subscriptions/{subId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(subId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.name, 256)
+          && isPositivePaise(request.resource.data.amountPaise)
+          && request.resource.data.billingCycle in ['monthly', 'quarterly', 'yearly']
+          && isIsoDate(request.resource.data.nextRenewalDate);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.name, 256)
+              && isPositivePaise(request.resource.data.amountPaise)
+              && request.resource.data.billingCycle in ['monthly', 'quarterly', 'yearly']
+              && isIsoDate(request.resource.data.nextRenewalDate)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Audit logs & Data recovery subcollection
+      match /audit_logs/{logId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(logId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.action, 64);
+        allow update, delete: if false; // Audit logs are append-only
       }
     }
   }

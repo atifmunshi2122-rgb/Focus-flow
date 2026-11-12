@@ -14,6 +14,11 @@ import {
   FocusStatsData,
   SavingsGoal,
   TrashRecord,
+  TimeBlock,
+  BudgetEnvelope,
+  SubscriptionPlan,
+  AuditLogEntry,
+  DurableSyncOperation,
 } from '../types/index.ts';
 import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
@@ -127,6 +132,15 @@ export const api = {
         return { success: true, message: 'Cloud workspace reset cleanly' };
       },
       () => request<{ success: boolean; message: string }>('/reseed', { method: 'POST' })
+    ),
+
+  clearWorkspace: () =>
+    withPrimaryPersistence(
+      async (uid) => {
+        await firestoreService.reseedWorkspace(uid);
+        return { success: true, message: 'Workspace cleared cleanly' };
+      },
+      () => request<{ success: boolean; message: string }>('/workspace/clear', { method: 'POST' })
     ),
 
   // Unified Dashboard
@@ -494,6 +508,246 @@ export const api = {
           `/trash/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}`,
           { method: 'DELETE' }
         )
+    ),
+
+  // Time Blocks
+  getTimeBlocks: (date?: string) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.getTimeBlocks(uid, date),
+      () => request<TimeBlock[]>(`/time-blocks${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+    ),
+
+  createTimeBlock: (block: Partial<TimeBlock>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.saveTimeBlock(uid, block),
+      () =>
+        request<TimeBlock>('/time-blocks', {
+          method: 'POST',
+          body: JSON.stringify(block),
+        })
+    ),
+
+  updateTimeBlock: (id: string, block: Partial<TimeBlock>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.saveTimeBlock(uid, { ...block, id }),
+      () =>
+        request<TimeBlock>(`/time-blocks/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(block),
+        })
+    ),
+
+  deleteTimeBlock: (id: string) =>
+    withPrimaryPersistence(
+      async (uid) => {
+        await firestoreService.deleteTimeBlock(uid, id);
+        return { success: true };
+      },
+      () =>
+        request<{ success: boolean }>(`/time-blocks/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        })
+    ),
+
+  // Envelope Budgeting
+  getEnvelopes: (monthKey?: string) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.getEnvelopes(uid, monthKey),
+      () => request<BudgetEnvelope[]>(`/envelopes${monthKey ? `?monthKey=${encodeURIComponent(monthKey)}` : ''}`)
+    ),
+
+  createEnvelope: (env: Partial<BudgetEnvelope>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.saveEnvelope(uid, env),
+      () =>
+        request<BudgetEnvelope>('/envelopes', {
+          method: 'POST',
+          body: JSON.stringify(env),
+        })
+    ),
+
+  updateEnvelope: (id: string, env: Partial<BudgetEnvelope>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.saveEnvelope(uid, { ...env, id }),
+      () =>
+        request<BudgetEnvelope>(`/envelopes/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(env),
+        })
+    ),
+
+  deleteEnvelope: (id: string) =>
+    withPrimaryPersistence(
+      async (uid) => {
+        await firestoreService.deleteEnvelope(uid, id);
+        return { success: true };
+      },
+      () =>
+        request<{ success: boolean }>(`/envelopes/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        })
+    ),
+
+  transferEnvelopeFunds: (fromId: string, toId: string, amountPaise: number) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.transferEnvelopeFunds(uid, fromId, toId, amountPaise),
+      () =>
+        request<{ success: boolean }>('/envelopes/transfer', {
+          method: 'POST',
+          body: JSON.stringify({ fromId, toId, amountPaise }),
+        })
+    ),
+
+  // Subscriptions
+  getSubscriptions: () =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.getSubscriptions(uid),
+      () => request<SubscriptionPlan[]>('/subscriptions')
+    ),
+
+  createSubscription: (sub: Partial<SubscriptionPlan>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.saveSubscription(uid, sub),
+      () =>
+        request<SubscriptionPlan>('/subscriptions', {
+          method: 'POST',
+          body: JSON.stringify(sub),
+        })
+    ),
+
+  updateSubscription: (id: string, sub: Partial<SubscriptionPlan>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.saveSubscription(uid, { ...sub, id }),
+      () =>
+        request<SubscriptionPlan>(`/subscriptions/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(sub),
+        })
+    ),
+
+  deleteSubscription: (id: string) =>
+    withPrimaryPersistence(
+      async (uid) => {
+        await firestoreService.deleteSubscription(uid, id);
+        return { success: true };
+      },
+      () =>
+        request<{ success: boolean }>(`/subscriptions/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        })
+    ),
+
+  // Audit Logs
+  getAuditLogs: (limit = 100) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.getAuditLogs(uid, limit),
+      () => request<AuditLogEntry[]>(`/audit-logs?limit=${limit}`)
+    ),
+
+  // Durable Sync Queue
+  getSyncQueue: () =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.getDurableSyncQueue(uid),
+      () => request<DurableSyncOperation[]>('/sync/queue')
+    ),
+
+  enqueueSync: (op: Omit<DurableSyncOperation, 'id' | 'userId' | 'status' | 'attempts' | 'createdAt'>) =>
+    withPrimaryPersistence(
+      (uid) => firestoreService.enqueueDurableSync(uid, op),
+      () =>
+        request<DurableSyncOperation>('/sync/queue/enqueue', {
+          method: 'POST',
+          body: JSON.stringify(op),
+        })
+    ),
+
+  updateSyncOpStatus: (id: string, updates: Partial<DurableSyncOperation>) =>
+    withPrimaryPersistence(
+      async (uid) => {
+        await firestoreService.updateDurableSyncOp(uid, id, updates);
+        return { success: true };
+      },
+      () =>
+        request<{ success: boolean }>(`/sync/queue/${encodeURIComponent(id)}/status`, {
+          method: 'POST',
+          body: JSON.stringify(updates),
+        })
+    ),
+
+  // Backups & Data Recovery
+  exportBackup: () =>
+    withPrimaryPersistence(
+      async (uid) => {
+        // Construct comprehensive client-side Firestore export
+        const [
+          settings,
+          tasks,
+          focusSessions,
+          categories,
+          recurringExpenses,
+          bills,
+          paymentHistory,
+          income,
+          expenses,
+          savingsGoals,
+          timeBlocks,
+          envelopes,
+          subscriptions,
+          auditLogs,
+        ] = await Promise.all([
+          firestoreService.getSettings(uid),
+          firestoreService.getTasks(uid),
+          firestoreService.getFocusSessions(uid),
+          firestoreService.getCategories(uid),
+          firestoreService.getRecurringExpenses(uid),
+          firestoreService.getBills(uid),
+          firestoreService.getPaymentHistory(uid),
+          firestoreService.getIncomes(uid),
+          firestoreService.getExpenses(uid),
+          firestoreService.getSavingsGoals(uid),
+          firestoreService.getTimeBlocks(uid),
+          firestoreService.getEnvelopes(uid),
+          firestoreService.getSubscriptions(uid),
+          firestoreService.getAuditLogs(uid),
+        ]);
+
+        return {
+          version: '2.0.0',
+          exportedAt: new Date().toISOString(),
+          userId: uid,
+          userSettings: settings,
+          tasks,
+          focusSessions,
+          categories,
+          recurringExpenses,
+          bills,
+          paymentHistory,
+          incomeTransactions: income,
+          expenseTransactions: expenses,
+          savingsGoals,
+          timeBlocks,
+          envelopes,
+          subscriptions,
+          auditLogs,
+        };
+      },
+      () => request<Record<string, unknown>>('/backup/export')
+    ),
+
+  restoreBackup: (data: unknown) =>
+    withPrimaryPersistence(
+      async (uid) => {
+        // Fallback to server restore or execute batch restore
+        return request<{ success: boolean; counts: Record<string, number> }>('/backup/restore', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+      },
+      () =>
+        request<{ success: boolean; counts: Record<string, number> }>('/backup/restore', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
     ),
 };
 

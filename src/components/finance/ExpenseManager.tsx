@@ -32,7 +32,6 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
-import { firestoreService } from '../../lib/firestoreService.ts';
 
 export const ExpenseManager: React.FC = () => {
   const {
@@ -127,9 +126,6 @@ export const ExpenseManager: React.FC = () => {
           notes: varNotes,
           type: 'variable',
         });
-        if (firebaseUser) {
-          firestoreService.saveExpense(firebaseUser.uid, updated).catch(console.error);
-        }
         showToast('Expense updated', 'success');
       } else {
         const created = await api.createExpense({
@@ -141,9 +137,6 @@ export const ExpenseManager: React.FC = () => {
           notes: varNotes,
           type: 'variable',
         });
-        if (firebaseUser) {
-          firestoreService.saveExpense(firebaseUser.uid, created).catch(console.error);
-        }
         googleSheetsService.enqueueMutation('Variable_Expenses', [
           created.id,
           created.date,
@@ -230,9 +223,6 @@ export const ExpenseManager: React.FC = () => {
           dueDay: Number(recDueDay),
           notes: recNotes,
         });
-        if (firebaseUser) {
-          firestoreService.saveRecurringExpense(firebaseUser.uid, updated).catch(console.error);
-        }
         showToast('Recurring expense updated', 'success');
       } else {
         const created = await api.createRecurringExpense({
@@ -243,9 +233,6 @@ export const ExpenseManager: React.FC = () => {
           dueDay: Number(recDueDay),
           notes: recNotes,
         });
-        if (firebaseUser) {
-          firestoreService.saveRecurringExpense(firebaseUser.uid, created).catch(console.error);
-        }
         googleSheetsService.enqueueMutation('Fixed_Expenses', [
           created.id,
           created.name,

@@ -5,11 +5,28 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
+  writeBatch,
   onSnapshot,
   Unsubscribe,
 } from 'firebase/firestore';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType } from './firebase.ts';
+import {
+  DEFAULT_TIMEZONE,
+  getTodayDateString,
+  getDaysInMonth,
+  getStartOfWeek,
+  getEndOfWeek,
+  getStartOfMonth,
+  getEndOfMonth,
+  formatDateInTimezone,
+  computeNextRecurrenceDueDate as calcNextRecDueDate,
+  isDueDateOverdue,
+  calculateFocusStreakDays,
+  computeBestStreakDays as calcBestStreakDays,
+  formatYmd,
+  parseDateString,
+} from './dateTime.ts';
 import {
   User,
   Task,
@@ -30,6 +47,11 @@ import {
   TrashRecord,
   NotificationPreferences,
   DashboardLayoutConfig,
+  TimeBlock,
+  BudgetEnvelope,
+  SubscriptionPlan,
+  AuditLogEntry,
+  DurableSyncOperation,
 } from '../types/index.ts';
 
 const DEFAULT_CATEGORY_TEMPLATES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -662,11 +684,15 @@ export const firestoreService = {
 
   async deleteTask(userId: string, taskId: string): Promise<void> {
     const path = `users/${userId}/tasks/${taskId}`;
+    const nowIso = new Date().toISOString();
     try {
-      const nowIso = new Date().toISOString();
       await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, path);
+    } catch {
+      try {
+        await deleteDoc(doc(db, path));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      }
     }
   },
 
@@ -755,10 +781,15 @@ export const firestoreService = {
 
   async deleteIncome(userId: string, id: string): Promise<void> {
     const path = `users/${userId}/income/${id}`;
+    const nowIso = new Date().toISOString();
     try {
-      await setDoc(doc(db, path), { deletedAt: new Date().toISOString() }, { merge: true });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, path);
+      await setDoc(doc(db, path), { deletedAt: nowIso }, { merge: true });
+    } catch {
+      try {
+        await deleteDoc(doc(db, path));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      }
     }
   },
 
@@ -969,37 +1000,59 @@ export const firestoreService = {
 
   async deleteExpense(userId: string, id: string): Promise<void> {
     const path = `users/${userId}/expenses/${id}`;
+    const nowIso = new Date().toISOString();
     try {
-      await setDoc(doc(db, path), { deletedAt: new Date().toISOString() }, { merge: true });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, path);
+      await setDoc(doc(db, path), { deletedAt: nowIso }, { merge: true });
+    } catch {
+      try {
+        await deleteDoc(doc(db, path));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      }
     }
   },
 
   // Bills & Payment History
   async checkRecurringBills(userId: string): Promise<Bill[]> {
-    const [recs, bills] = await Promise.all([
+    const [recs, bills, settings] = await Promise.all([
       listSubcollection<RecurringExpense>(`users/${userId}/recurring_expenses`),
       listSubcollection<Bill>(`users/${userId}/bills`),
+      this.getSettings(userId),
     ]);
 
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
-    const todayStr = `${currentYear}-${currentMonth}-${String(now.getDate()).padStart(2, '0')}`;
-    const periodKey = `${currentYear}-${currentMonth}`;
+    const tz = settings?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayDateString(tz);
+    const parsedToday = parseDateString(todayStr) || { year: 2026, month: 11, day: 12 };
+    const currentYear = parsedToday.year;
+    const currentMonth = parsedToday.month;
+    const periodKey = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
 
     const writes: Promise<void>[] = [];
     for (const rec of recs) {
       if (!rec.isActive) continue;
+
+      // Period cadence check
+      if (rec.recurrence === 'quarterly') {
+        const createdParsed = rec.createdAt ? parseDateString(rec.createdAt.slice(0, 10)) : null;
+        const createdMonth = createdParsed ? createdParsed.month : 1;
+        if (Math.abs(currentMonth - createdMonth) % 3 !== 0) continue;
+      } else if (rec.recurrence === 'yearly') {
+        const createdParsed = rec.createdAt ? parseDateString(rec.createdAt.slice(0, 10)) : null;
+        const createdMonth = createdParsed ? createdParsed.month : 1;
+        if (currentMonth !== createdMonth) continue;
+      }
+
+      const billId = `bill_${rec.id}_${periodKey}`;
       const existing = bills.find(
-        (b) => b.recurringExpenseId === rec.id && b.periodKey === periodKey
+        (b) => b.id === billId || (b.recurringExpenseId === rec.id && b.periodKey === periodKey)
       );
+
       if (!existing) {
-        const clampedDay = Number.isFinite(rec.dueDay) ? Math.min(Math.max(Math.round(rec.dueDay), 1), 28) : 1;
-        const dueDate = `${currentYear}-${currentMonth}-${String(clampedDay).padStart(2, '0')}`;
+        const maxDays = getDaysInMonth(currentYear, currentMonth);
+        const clampedDay = Math.min(Math.max(Math.round(rec.dueDay || 1), 1), maxDays);
+        const dueDate = formatYmd(currentYear, currentMonth, clampedDay);
         const created: Bill = {
-          id: `bill_${rec.id}_${periodKey}`,
+          id: billId,
           userId,
           recurringExpenseId: rec.id,
           name: rec.name,
@@ -1064,9 +1117,10 @@ export const firestoreService = {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Valid amount is required');
     if (!dueDate || !isIsoDate(dueDate)) throw new Error('Valid dueDate (YYYY-MM-DD) is required');
 
-    const cats = await this.getCategories(userId);
+    const [cats, settings] = await Promise.all([this.getCategories(userId), this.getSettings(userId)]);
     const categoryId = input.categoryId || cats[0]?.id || 'cat_1';
-    const todayStr = new Date().toISOString().split('T')[0];
+    const tz = settings?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayDateString(tz);
     const now = new Date().toISOString();
 
     const created: Bill = {
@@ -1113,12 +1167,16 @@ export const firestoreService = {
     const bill = snap.data() as Bill;
     if (bill.status === 'PAID') throw new Error('Bill is already paid');
 
-    const effectivePaidDate = paidDate || new Date().toISOString().split('T')[0];
+    const settings = await this.getSettings(userId);
+    const tz = settings?.timezone || DEFAULT_TIMEZONE;
+    const effectivePaidDate = paidDate || getTodayDateString(tz);
+    const nowIso = new Date().toISOString();
+
     const updatedBill: Bill = {
       ...bill,
       status: 'PAID',
       paymentDate: effectivePaidDate,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
     };
 
     const payRecord: PaymentHistory = {
@@ -1129,9 +1187,10 @@ export const firestoreService = {
       amountPaise: bill.amountPaise,
       paidDate: effectivePaidDate,
       paymentMethod,
-      transactionRef: `REF-${Date.now().toString(36).toUpperCase()}`,
+      transactionRef: `REF-${bill.id}-${Date.now().toString(36).toUpperCase()}`,
       notes: notes || 'Bill payment recorded',
-      createdAt: new Date().toISOString(),
+      status: 'completed',
+      createdAt: nowIso,
     };
 
     const expenseTx: ExpenseTransaction = {
@@ -1145,14 +1204,24 @@ export const firestoreService = {
       description: `${bill.name} (Bill payment)`,
       paymentMethod,
       notes: notes || 'Paid bill expense',
-      createdAt: new Date().toISOString(),
+      deletedAt: null,
+      createdAt: nowIso,
     };
 
-    await Promise.all([
-      this.saveBill(userId, updatedBill),
-      this.savePaymentHistory(userId, payRecord),
-      this.saveExpense(userId, expenseTx),
-    ]);
+    // Atomic write batch guarantees consistent multi-document commit
+    const batch = writeBatch(db);
+    batch.set(doc(db, billPath), stripUndefined({ ...updatedBill }), { merge: true });
+    batch.set(doc(db, `users/${userId}/payment_history/${payRecord.id}`), stripUndefined({ ...payRecord }), { merge: true });
+    batch.set(doc(db, `users/${userId}/expenses/${expenseTx.id}`), stripUndefined({ ...expenseTx }), { merge: true });
+    await batch.commit();
+
+    await this.recordAuditLog(userId, {
+      action: 'pay',
+      entityType: 'bill',
+      entityId: bill.id,
+      entityTitle: bill.name,
+      details: `Paid ${bill.amountPaise} paise via ${paymentMethod}`,
+    });
 
     const cats = await this.getCategories(userId);
     return {
@@ -1171,24 +1240,41 @@ export const firestoreService = {
     const bill = snap.data() as Bill;
     if (bill.status !== 'PAID') throw new Error('Bill is not marked as paid');
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const settings = await this.getSettings(userId);
+    const tz = settings?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayDateString(tz);
+    const nowIso = new Date().toISOString();
+
     const revertedBill: Bill = {
       ...bill,
       status: bill.dueDate < todayStr ? 'OVERDUE' : 'UNPAID',
       paymentDate: null,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
     };
 
     const historyItems = await this.getPaymentHistory(userId);
-    const linkedPayments = historyItems.filter((p) => p.billId === billId);
+    const linkedPayments = historyItems.filter((p) => p.billId === billId && p.status !== 'reversed');
 
-    await Promise.all([
-      this.saveBill(userId, revertedBill),
-      deleteDoc(doc(db, `users/${userId}/expenses/exp_bill_${billId}`)).catch(() => {}),
-      ...linkedPayments.map((p) =>
-        deleteDoc(doc(db, `users/${userId}/payment_history/${p.id}`)).catch(() => {})
-      ),
-    ]);
+    // Atomic write batch: Revert bill, soft-delete expense, mark payment reversed (preserves audit trail)
+    const batch = writeBatch(db);
+    batch.set(doc(db, billPath), stripUndefined({ ...revertedBill }), { merge: true });
+    batch.set(doc(db, `users/${userId}/expenses/exp_bill_${billId}`), { deletedAt: nowIso }, { merge: true });
+    for (const p of linkedPayments) {
+      batch.set(
+        doc(db, `users/${userId}/payment_history/${p.id}`),
+        { status: 'reversed', reversedAt: nowIso },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+
+    await this.recordAuditLog(userId, {
+      action: 'undo_payment',
+      entityType: 'bill',
+      entityId: bill.id,
+      entityTitle: bill.name,
+      details: `Reversed payment for bill "${bill.name}"`,
+    });
 
     const cats = await this.getCategories(userId);
     return {
@@ -1202,13 +1288,22 @@ export const firestoreService = {
 
   async deleteBill(userId: string, billId: string): Promise<void> {
     const nowIso = new Date().toISOString();
-    const expSnap = await getDoc(doc(db, `users/${userId}/expenses/exp_bill_${billId}`)).catch(() => null);
-    await Promise.all([
-      setDoc(doc(db, `users/${userId}/bills/${billId}`), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true }),
-      expSnap && expSnap.exists()
-        ? setDoc(doc(db, `users/${userId}/expenses/exp_bill_${billId}`), { deletedAt: nowIso }, { merge: true })
-        : Promise.resolve(),
-    ]);
+    const billPath = `users/${userId}/bills/${billId}`;
+    try {
+      const expSnap = await getDoc(doc(db, `users/${userId}/expenses/exp_bill_${billId}`)).catch(() => null);
+      await Promise.all([
+        setDoc(doc(db, billPath), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true }),
+        expSnap && expSnap.exists()
+          ? setDoc(doc(db, `users/${userId}/expenses/exp_bill_${billId}`), { deletedAt: nowIso }, { merge: true })
+          : Promise.resolve(),
+      ]);
+    } catch {
+      try {
+        await deleteDoc(doc(db, billPath));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, billPath);
+      }
+    }
   },
 
   async getPaymentHistory(userId: string): Promise<PaymentHistory[]> {
@@ -1563,11 +1658,14 @@ export const firestoreService = {
 
   // Trash & Restore
   async getTrashItems(userId: string): Promise<TrashRecord[]> {
-    const [tasks, incomes, expenses, bills] = await Promise.all([
+    const [tasks, incomes, expenses, bills, timeBlocks, envelopes, subscriptions] = await Promise.all([
       listSubcollection<Task>(`users/${userId}/tasks`),
       listSubcollection<IncomeTransaction>(`users/${userId}/income`),
       listSubcollection<ExpenseTransaction>(`users/${userId}/expenses`),
       listSubcollection<Bill>(`users/${userId}/bills`),
+      listSubcollection<TimeBlock>(`users/${userId}/time_blocks`),
+      listSubcollection<BudgetEnvelope>(`users/${userId}/envelopes`),
+      listSubcollection<SubscriptionPlan>(`users/${userId}/subscriptions`),
     ]);
 
     const records: TrashRecord[] = [
@@ -1610,6 +1708,35 @@ export const firestoreService = {
           amountPaise: b.amountPaise,
           deletedAt: b.deletedAt!,
         })),
+      ...timeBlocks
+        .filter((tb) => Boolean(tb.deletedAt))
+        .map((tb) => ({
+          id: tb.id,
+          entityType: 'time_block' as const,
+          title: tb.title,
+          subtitle: `Time Block • ${tb.date}`,
+          deletedAt: tb.deletedAt!,
+        })),
+      ...envelopes
+        .filter((env) => Boolean(env.deletedAt))
+        .map((env) => ({
+          id: env.id,
+          entityType: 'envelope' as const,
+          title: env.name,
+          subtitle: `Envelope • ${env.monthKey}`,
+          amountPaise: env.allocatedPaise,
+          deletedAt: env.deletedAt!,
+        })),
+      ...subscriptions
+        .filter((s) => Boolean(s.deletedAt))
+        .map((s) => ({
+          id: s.id,
+          entityType: 'subscription' as const,
+          title: s.name,
+          subtitle: `Subscription • ${s.billingCycle}`,
+          amountPaise: s.amountPaise,
+          deletedAt: s.deletedAt!,
+        })),
     ];
 
     return records.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
@@ -1621,6 +1748,9 @@ export const firestoreService = {
       income: 'income',
       expense: 'expenses',
       bill: 'bills',
+      time_block: 'time_blocks',
+      envelope: 'envelopes',
+      subscription: 'subscriptions',
     };
     const path = `users/${userId}/${colMap[entityType]}/${id}`;
     await setDoc(doc(db, path), { deletedAt: null }, { merge: true });
@@ -1642,11 +1772,243 @@ export const firestoreService = {
       income: 'income',
       expense: 'expenses',
       bill: 'bills',
+      time_block: 'time_blocks',
+      envelope: 'envelopes',
+      subscription: 'subscriptions',
     };
     await deleteDoc(doc(db, `users/${userId}/${colMap[entityType]}/${id}`));
     if (entityType === 'bill') {
       await deleteDoc(doc(db, `users/${userId}/expenses/exp_bill_${id}`)).catch(() => {});
     }
+  },
+
+  // --- TIME BLOCKS ---
+  async getTimeBlocks(userId: string, date?: string): Promise<TimeBlock[]> {
+    const blocks = await listSubcollection<TimeBlock>(`users/${userId}/time_blocks`);
+    return blocks
+      .filter((tb) => !tb.deletedAt && (!date || tb.date === date))
+      .sort((a, b) => a.startMinute - b.startMinute);
+  },
+
+  async saveTimeBlock(userId: string, input: Partial<TimeBlock>): Promise<TimeBlock> {
+    const id = input.id || `tb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const block: TimeBlock = {
+      id,
+      userId,
+      date: input.date || getTodayDateString(DEFAULT_TIMEZONE),
+      title: (input.title || 'Focus Block').trim(),
+      startMinute: Math.max(0, Math.min(1440, Number(input.startMinute) || 0)),
+      endMinute: Math.max(0, Math.min(1440, Number(input.endMinute) || 60)),
+      category: input.category || 'Focus',
+      taskId: input.taskId || null,
+      completed: Boolean(input.completed),
+      notes: input.notes || '',
+      deletedAt: input.deletedAt || null,
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+    await setDoc(doc(db, `users/${userId}/time_blocks/${id}`), stripUndefined({ ...block }), { merge: true });
+    return block;
+  },
+
+  async deleteTimeBlock(userId: string, id: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/time_blocks/${id}`;
+    try {
+      await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
+    } catch {
+      await deleteDoc(doc(db, path));
+    }
+  },
+
+  // --- BUDGET ENVELOPES ---
+  async getEnvelopes(userId: string, monthKey?: string): Promise<BudgetEnvelope[]> {
+    const envelopes = await listSubcollection<BudgetEnvelope>(`users/${userId}/envelopes`);
+    const currentMonthKey = monthKey || getTodayDateString(DEFAULT_TIMEZONE).slice(0, 7);
+    const active = envelopes.filter((env) => !env.deletedAt && (!monthKey || env.monthKey === currentMonthKey));
+    
+    // Calculate spent paise from expenses in matching category and month
+    const expenses = await listSubcollection<ExpenseTransaction>(`users/${userId}/expenses`);
+    return active.map((env) => {
+      let spent = 0;
+      if (env.categoryId) {
+        spent = expenses
+          .filter((e) => !e.deletedAt && e.categoryId === env.categoryId && e.date.startsWith(env.monthKey))
+          .reduce((sum, e) => sum + (e.amountPaise || 0), 0);
+      }
+      return {
+        ...env,
+        spentPaise: spent,
+      };
+    });
+  },
+
+  async saveEnvelope(userId: string, input: Partial<BudgetEnvelope>): Promise<BudgetEnvelope> {
+    const id = input.id || `env_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const env: BudgetEnvelope = {
+      id,
+      userId,
+      name: (input.name || 'Envelope').trim(),
+      categoryId: input.categoryId || null,
+      allocatedPaise: Math.max(0, Math.floor(Number(input.allocatedPaise) || 0)),
+      monthKey: input.monthKey || getTodayDateString(DEFAULT_TIMEZONE).slice(0, 7),
+      color: input.color || '#6366f1',
+      notes: input.notes || '',
+      deletedAt: input.deletedAt || null,
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+    await setDoc(doc(db, `users/${userId}/envelopes/${id}`), stripUndefined({ ...env }), { merge: true });
+    return env;
+  },
+
+  async transferEnvelopeFunds(
+    userId: string,
+    fromId: string,
+    toId: string,
+    amountPaise: number
+  ): Promise<{ success: boolean; error?: string }> {
+    if (amountPaise <= 0) return { success: false, error: 'Amount must be positive' };
+    const fromSnap = await getDoc(doc(db, `users/${userId}/envelopes/${fromId}`));
+    const toSnap = await getDoc(doc(db, `users/${userId}/envelopes/${toId}`));
+    if (!fromSnap.exists() || !toSnap.exists()) return { success: false, error: 'Envelope not found' };
+
+    const fromEnv = fromSnap.data() as BudgetEnvelope;
+    const toEnv = toSnap.data() as BudgetEnvelope;
+    if (fromEnv.allocatedPaise < amountPaise) return { success: false, error: 'Insufficient funds in source envelope' };
+
+    const nowIso = new Date().toISOString();
+    const batch = writeBatch(db);
+    batch.update(doc(db, `users/${userId}/envelopes/${fromId}`), {
+      allocatedPaise: fromEnv.allocatedPaise - amountPaise,
+      updatedAt: nowIso,
+    });
+    batch.update(doc(db, `users/${userId}/envelopes/${toId}`), {
+      allocatedPaise: toEnv.allocatedPaise + amountPaise,
+      updatedAt: nowIso,
+    });
+    await batch.commit();
+
+    await this.recordAuditLog(userId, {
+      action: 'envelope_transfer',
+      entityType: 'envelope',
+      entityId: fromId,
+      entityTitle: `${fromEnv.name} -> ${toEnv.name}`,
+      details: `Transferred ${amountPaise} paise from ${fromEnv.name} to ${toEnv.name}`,
+    });
+
+    return { success: true };
+  },
+
+  async deleteEnvelope(userId: string, id: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/envelopes/${id}`;
+    try {
+      await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
+    } catch {
+      await deleteDoc(doc(db, path));
+    }
+  },
+
+  // --- SUBSCRIPTIONS ---
+  async getSubscriptions(userId: string): Promise<SubscriptionPlan[]> {
+    const subs = await listSubcollection<SubscriptionPlan>(`users/${userId}/subscriptions`);
+    return subs.filter((s) => !s.deletedAt).sort((a, b) => a.nextRenewalDate.localeCompare(b.nextRenewalDate));
+  },
+
+  async saveSubscription(userId: string, input: Partial<SubscriptionPlan>): Promise<SubscriptionPlan> {
+    const id = input.id || `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const sub: SubscriptionPlan = {
+      id,
+      userId,
+      name: (input.name || 'Subscription').trim(),
+      amountPaise: Math.max(0, Math.floor(Number(input.amountPaise) || 0)),
+      categoryId: input.categoryId || 'cat_subscriptions',
+      billingCycle: input.billingCycle || 'monthly',
+      nextRenewalDate: input.nextRenewalDate || getTodayDateString(DEFAULT_TIMEZONE),
+      reminderDays: Math.max(0, Number(input.reminderDays) || 3),
+      autoRenew: input.autoRenew !== false,
+      status: input.status || 'active',
+      websiteUrl: input.websiteUrl || '',
+      notes: input.notes || '',
+      deletedAt: input.deletedAt || null,
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+    await setDoc(doc(db, `users/${userId}/subscriptions/${id}`), stripUndefined({ ...sub }), { merge: true });
+    return sub;
+  },
+
+  async deleteSubscription(userId: string, id: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/subscriptions/${id}`;
+    try {
+      await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
+    } catch {
+      await deleteDoc(doc(db, path));
+    }
+  },
+
+  // --- AUDIT LOGS ---
+  async getAuditLogs(userId: string, limitCount = 100): Promise<AuditLogEntry[]> {
+    const logs = await listSubcollection<AuditLogEntry>(`users/${userId}/audit_logs`);
+    return logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, limitCount);
+  },
+
+  async recordAuditLog(
+    userId: string,
+    entry: Omit<AuditLogEntry, 'id' | 'userId' | 'timestamp'> & { timestamp?: string }
+  ): Promise<AuditLogEntry> {
+    const id = `aud_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const log: AuditLogEntry = {
+      id,
+      userId,
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      entityTitle: entry.entityTitle || '',
+      details: entry.details || '',
+      timestamp: entry.timestamp || new Date().toISOString(),
+    };
+    await setDoc(doc(db, `users/${userId}/audit_logs/${id}`), stripUndefined({ ...log }), { merge: true }).catch(() => {});
+    return log;
+  },
+
+  // --- DURABLE SYNC QUEUE ---
+  async getDurableSyncQueue(userId: string): Promise<DurableSyncOperation[]> {
+    const ops = await listSubcollection<DurableSyncOperation>(`users/${userId}/sync_queue`);
+    return ops.filter((op) => op.status !== 'completed');
+  },
+
+  async enqueueDurableSync(
+    userId: string,
+    op: Omit<DurableSyncOperation, 'id' | 'userId' | 'status' | 'attempts' | 'createdAt'>
+  ): Promise<DurableSyncOperation> {
+    const id = `sync_op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const item: DurableSyncOperation = {
+      id,
+      userId,
+      entityType: op.entityType,
+      action: op.action,
+      sheetName: op.sheetName,
+      payload: op.payload,
+      status: 'pending',
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+    };
+    await setDoc(doc(db, `users/${userId}/sync_queue/${id}`), stripUndefined({ ...item }), { merge: true });
+    return item;
+  },
+
+  async updateDurableSyncOp(
+    userId: string,
+    id: string,
+    updates: Partial<DurableSyncOperation>
+  ): Promise<void> {
+    await setDoc(doc(db, `users/${userId}/sync_queue/${id}`), stripUndefined({ ...updates }), { merge: true });
   },
 
   async reseedWorkspace(userId: string): Promise<void> {
@@ -1658,6 +2020,11 @@ export const firestoreService = {
       'expenses',
       'bills',
       'payment_history',
+      'time_blocks',
+      'envelopes',
+      'subscriptions',
+      'audit_logs',
+      'sync_queue',
     ];
     for (const sub of subcollections) {
       const snap = await getDocs(collection(db, `users/${userId}/${sub}`));

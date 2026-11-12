@@ -18,6 +18,11 @@ import {
   Sun,
   Moon,
   Palette,
+  Calendar,
+  Clock,
+  Layers,
+  Repeat,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -57,12 +62,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'focus', label: 'Focus & Timer', icon: Timer, tag: isRunning ? 'Active' : undefined },
+    { id: 'timeblocks', label: 'Time Blocks', icon: Clock },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare },
     { id: 'finance', label: 'Finance Overview', icon: Wallet },
     { id: 'transactions', label: 'Transactions', icon: ReceiptText },
     { id: 'bills', label: 'Bills & Payments', icon: CreditCard },
+    { id: 'envelopes', label: 'Envelope Budgets', icon: Layers },
+    { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'recovery', label: 'Data Recovery', icon: ShieldAlert },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 

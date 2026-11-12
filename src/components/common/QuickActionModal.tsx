@@ -161,7 +161,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
           createdBill.amountPaise / 100,
           createdBill.status,
           '',
-          'PENDING',
+          createdBill.status === 'PAID' ? 'UPI / Bank' : '—',
           createdBill.notes || '',
         ]);
         showToast('Bill registered to tracker & synchronized', 'success');
