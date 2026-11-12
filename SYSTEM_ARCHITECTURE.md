@@ -128,3 +128,4 @@ Embedded native charts:
 | **Firestore Database** | Subcollection isolation & strict field validation rules | Enforces strict multi-tenant data boundaries |
 | **Logging Subsystem** | Regex-based credential and PII masking | Prevents credential leaks in monitoring logs |
 | **HTTP Transport** | `Strict-Transport-Security`, `nosniff`, `SAMEORIGIN` | Defends against MITM, clickjacking, MIME-sniffing |
+

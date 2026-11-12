@@ -112,3 +112,4 @@ If a migration script causes unexpected corruption or invalid document updates:
      ```
 3. **Full Snapshot Restore (If Destructive Corruption Occurred):**
    - Follow [BACKUP_RECOVERY_GUIDE.md](file:///Users/munshimdatif/Downloads/focusflow-&-finance/BACKUP_RECOVERY_GUIDE.md) to restore the pre-migration snapshot taken in step 4.
+

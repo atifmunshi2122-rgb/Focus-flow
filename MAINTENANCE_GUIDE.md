@@ -93,3 +93,4 @@ All logging across Express and client modules passes through `server/logSanitize
 - **Redacted Fields:** `password`, `token`, `secret`, `apiKey`, `cardNumber`, `cvv`, `pan`, `aadhaar`.
 - **Masking Pattern:** Replaced with `***REDACTED***`.
 - **Zero PII in Monitoring:** Personal user identifiers (emails, phone numbers) are masked in all standard operational logs.
+

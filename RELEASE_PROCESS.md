@@ -163,3 +163,4 @@ git push origin hotfix/emergency-rollback
 ### Step 4: Validate Data Integrity
 - Check `Sync_Log` in Google Sheets to identify any records transmitted during the faulty window.
 - If data corruption occurred in Firestore, follow the [BACKUP_RECOVERY_GUIDE.md](file:///Users/munshimdatif/Downloads/focusflow-&-finance/BACKUP_RECOVERY_GUIDE.md) to restore from the latest automated snapshot.
+

@@ -174,3 +174,4 @@ If Firestore experiences a catastrophic total outage and no recent Cloud Storage
 
 - **RPO (Recovery Point Objective):** $\le 1\text{ hour}$ with continuous PITR; $\le 24\text{ hours}$ via daily snapshots.
 - **RTO (Recovery Time Objective):** $\le 30\text{ minutes}$ to restore Cloud Run traffic to recovered database.
+

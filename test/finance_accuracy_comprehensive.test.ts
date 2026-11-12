@@ -141,3 +141,4 @@ test('Finance Accuracy — Zero Floating Point Drift across 10,000 Operations', 
   assert.equal(fromPaise(accumulatorPaise), 199900);
   assert.equal(formatCurrency(accumulatorPaise, 'INR'), '₹1,99,900.00');
 });
+
