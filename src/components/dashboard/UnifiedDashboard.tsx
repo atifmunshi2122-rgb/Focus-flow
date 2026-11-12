@@ -350,7 +350,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                   ) : (
                     <ThemeButton variant="success" size="md" onClick={() => void createOrConnectSpreadsheet()}>
                       <FileSpreadsheet className="w-4 h-4" />
-                      <span>Initialize 12 Sheets</span>
+                      <span>Initialize 23 Master Sheets</span>
                     </ThemeButton>
                   )}
 

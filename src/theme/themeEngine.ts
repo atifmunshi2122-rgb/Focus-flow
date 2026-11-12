@@ -348,6 +348,7 @@ export function buildThemeCssVariables(
     '--ff-surface-card': palette.surfaceCard,
     '--ff-surface-elevated': palette.surfaceElevated,
     '--ff-surface-muted': palette.surfaceMuted,
+    '--ff-surface-subtle': mixColors(palette.surfaceCard, palette.bgCanvas, isDark ? 0.35 : 0.25),
     '--ff-surface-inset': palette.surfaceInset,
     '--ff-surface-hover': palette.surfaceHover,
     '--ff-surface-sidebar': palette.surfaceSidebar,

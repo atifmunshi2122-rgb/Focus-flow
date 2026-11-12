@@ -56,12 +56,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
 
   const tabLabels: Record<string, string> = {
     dashboard: 'Executive Dashboard',
+    calendar: 'Productivity Calendar',
     focus: 'Focus & Pomodoro Timer',
+    timeblocks: 'Daily Time-Block Planner',
     tasks: 'Task Management',
     finance: 'Financial Command',
     transactions: 'Transaction Ledger',
     bills: 'Bills & Payments Tracker',
+    envelopes: 'Envelope Budgets',
+    subscriptions: 'Recurring Subscriptions',
     analytics: 'Visual Intelligence & Reports',
+    recovery: 'Data Recovery Center',
     settings: 'Settings & Theme Studio',
   };
 

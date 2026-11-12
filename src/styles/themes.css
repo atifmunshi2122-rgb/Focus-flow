@@ -19,6 +19,7 @@
   --ff-surface-card: #111114;
   --ff-surface-elevated: #18181c;
   --ff-surface-muted: #1c1c21;
+  --ff-surface-subtle: #141418;
   --ff-surface-inset: #0c0c0f;
   --ff-surface-hover: #1f1f25;
   --ff-surface-sidebar: #0d0d10;
@@ -295,6 +296,17 @@
     background-color var(--ff-duration-fast) var(--ff-ease);
 }
 
+.ff-surface-subtle {
+  background: var(--ff-surface-subtle);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  border-radius: calc(var(--ff-radius-card) * 0.75);
+  color: var(--ff-text-primary);
+  transition:
+    background-color var(--ff-duration-fast) var(--ff-ease),
+    border-color var(--ff-duration-fast) var(--ff-ease),
+    box-shadow var(--ff-duration-fast) var(--ff-ease);
+}
+
 .ff-card-interactive:hover {
   background: var(--ff-surface-hover);
   border-color: var(--ff-accent-border);
@@ -330,6 +342,37 @@
   transition: background-color var(--ff-duration-fast) var(--ff-ease);
 }
 .ff-row-hover:hover {
+  background: var(--ff-surface-hover);
+}
+
+/* Tables & Dense Financial Grids */
+.ff-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.ff-th {
+  padding: 0.625rem 0.875rem;
+  font-weight: 700;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ff-text-muted);
+  background: var(--ff-surface-subtle);
+  border-bottom: var(--ff-border-width) solid var(--ff-border-color);
+  white-space: nowrap;
+}
+
+.ff-td {
+  padding: 0.75rem 0.875rem;
+  color: var(--ff-text-primary);
+  border-bottom: var(--ff-border-width) solid var(--ff-border-color);
+  transition: background-color var(--ff-duration-fast) var(--ff-ease);
+}
+
+.ff-tr:hover .ff-td {
   background: var(--ff-surface-hover);
 }
 
