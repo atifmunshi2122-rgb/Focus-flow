@@ -37,6 +37,7 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   tag?: string;
+  section: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -61,19 +62,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const factor = getIntensityFactor(intensity);
 
   const navItems: NavItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'calendar', label: 'Calendar', icon: Calendar },
-    { id: 'focus', label: 'Focus & Timer', icon: Timer, tag: isRunning ? 'Active' : undefined },
-    { id: 'timeblocks', label: 'Time Blocks', icon: Clock },
-    { id: 'tasks', label: 'Tasks', icon: CheckSquare },
-    { id: 'finance', label: 'Finance Overview', icon: Wallet },
-    { id: 'transactions', label: 'Transactions', icon: ReceiptText },
-    { id: 'bills', label: 'Bills & Payments', icon: CreditCard },
-    { id: 'envelopes', label: 'Envelope Budgets', icon: Layers },
-    { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'recovery', label: 'Data Recovery', icon: ShieldAlert },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Overview' },
+    { id: 'calendar', label: 'Calendar', icon: Calendar, section: 'Overview' },
+    { id: 'focus', label: 'Focus & Timer', icon: Timer, tag: isRunning ? 'Active' : undefined, section: 'Focus & Productivity' },
+    { id: 'timeblocks', label: 'Time Blocks', icon: Clock, section: 'Focus & Productivity' },
+    { id: 'tasks', label: 'Tasks', icon: CheckSquare, section: 'Focus & Productivity' },
+    { id: 'finance', label: 'Finance Overview', icon: Wallet, section: 'Wealth & Finance' },
+    { id: 'transactions', label: 'Transactions', icon: ReceiptText, section: 'Wealth & Finance' },
+    { id: 'bills', label: 'Bills & Payments', icon: CreditCard, section: 'Wealth & Finance' },
+    { id: 'envelopes', label: 'Envelope Budgets', icon: Layers, section: 'Wealth & Finance' },
+    { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, section: 'Wealth & Finance' },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3, section: 'System & Intelligence' },
+    { id: 'recovery', label: 'Data Recovery', icon: ShieldAlert, section: 'System & Intelligence' },
+    { id: 'settings', label: 'Settings', icon: Settings, section: 'System & Intelligence' },
   ];
 
   const handleNavClick = (tab: NavTab) => {
@@ -197,57 +198,117 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </AnimatePresence>
 
         {/* Nav Items List */}
-        <nav aria-label="Primary Sidebar" className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+        <nav aria-label="Primary Sidebar" className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
+          {navItems.map((item, index) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
+            const isFirstOfSection = index === 0 || navItems[index - 1].section !== item.section;
 
             return (
-              <motion.button
-                key={item.id}
-                type="button"
-                data-active={isActive ? 'true' : 'false'}
-                onClick={() => handleNavClick(item.id)}
-                whileHover={isDisabled ? undefined : { x: collapsed || isActive ? 0 : 3 }}
-                whileTap={isDisabled ? undefined : { scale: 0.98 }}
-                transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
-                className="ff-sidebar-item relative w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-colors"
-                style={{
-                  borderRadius: 'var(--ff-radius-button)',
-                  color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
-                  fontWeight: isActive ? 700 : 500,
-                }}
-                title={collapsed ? item.label : undefined}
-              >
-                {isActive && (
-                  <motion.span
-                    layoutId="sidebar-nav-active-pill"
-                    aria-hidden="true"
-                    transition={
-                      isDisabled
-                        ? { duration: 0.01 }
-                        : { type: 'spring', stiffness: 420, damping: 34 }
-                    }
-                    className="absolute inset-0 pointer-events-none"
+              <React.Fragment key={item.id}>
+                {/* Section Header when Expanded */}
+                {!collapsed && isFirstOfSection && (
+                  <div
+                    className={`px-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] select-none opacity-75 ${
+                      index === 0 ? 'mb-1' : 'mt-3 mb-1'
+                    }`}
+                  >
+                    {item.section}
+                  </div>
+                )}
+
+                {/* Subtle Divider when Collapsed */}
+                {collapsed && index > 0 && isFirstOfSection && (
+                  <div className="my-1.5 mx-2 border-t border-[var(--ff-border-color)] opacity-40" />
+                )}
+
+                <motion.button
+                  type="button"
+                  data-active={isActive ? 'true' : 'false'}
+                  onClick={() => handleNavClick(item.id)}
+                  whileHover={isDisabled ? undefined : { x: collapsed || isActive ? 0 : 2 }}
+                  whileTap={isDisabled ? undefined : { scale: 0.98 }}
+                  transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
+                  className="ff-sidebar-item group relative w-full flex items-center gap-2.5 px-2.5 py-2 text-sm font-medium transition-colors hover:bg-[var(--ff-surface-hover)]"
+                  style={{
+                    borderRadius: 'var(--ff-radius-button)',
+                    color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
+                    fontWeight: isActive ? 700 : 500,
+                  }}
+                  title={collapsed ? item.label : undefined}
+                >
+                  {/* Left Accent Bar on Active Tab */}
+                  {isActive && (
+                    <motion.span
+                      layoutId="sidebar-active-indicator"
+                      aria-hidden="true"
+                      className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full z-20 pointer-events-none"
+                      style={{
+                        backgroundColor: 'var(--ff-accent)',
+                        boxShadow: '0 0 8px var(--ff-accent-border)',
+                      }}
+                    />
+                  )}
+
+                  {/* Active Surface Pill */}
+                  {isActive && (
+                    <motion.span
+                      layoutId="sidebar-nav-active-pill"
+                      aria-hidden="true"
+                      transition={
+                        isDisabled
+                          ? { duration: 0.01 }
+                          : { type: 'spring', stiffness: 420, damping: 34 }
+                      }
+                      className="absolute inset-0 pointer-events-none z-0"
+                      style={{
+                        borderRadius: 'var(--ff-radius-button)',
+                        background: 'color-mix(in oklab, var(--ff-accent) 15%, var(--ff-surface-card))',
+                        border: '1px solid var(--ff-accent-border)',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                      }}
+                    />
+                  )}
+
+                  {/* Icon Box */}
+                  <span
+                    className="relative z-10 w-7 h-7 flex items-center justify-center shrink-0 rounded-md transition-all"
                     style={{
-                      borderRadius: 'var(--ff-radius-button)',
-                      background: 'var(--ff-accent-soft)',
-                      border: '1px solid var(--ff-accent-border)',
+                      color: isActive ? 'var(--ff-accent)' : 'inherit',
+                      background: isActive ? 'var(--ff-accent-soft)' : 'transparent',
                     }}
-                  />
-                )}
-                <Icon className="relative z-10 w-5 h-5 shrink-0" />
-                {!collapsed && (
-                  <span className="relative z-10 flex-1 text-left truncate whitespace-nowrap">
-                    {item.label}
+                  >
+                    <Icon className="w-4 h-4 transition-transform group-hover:scale-105" />
                   </span>
-                )}
-                {!collapsed && item.tag && (
-                  <span className="relative z-10 text-[10px] font-bold uppercase tracking-wider">
-                    {item.tag}
-                  </span>
-                )}
-              </motion.button>
+
+                  {/* Text Label */}
+                  {!collapsed && (
+                    <span
+                      className="relative z-10 flex-1 text-left truncate whitespace-nowrap text-xs transition-colors"
+                      style={{
+                        color: isActive ? 'var(--ff-accent-text)' : 'inherit',
+                        fontWeight: isActive ? 700 : 500,
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  )}
+
+                  {/* Tag Badge */}
+                  {!collapsed && item.tag && (
+                    <span
+                      className="relative z-10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded"
+                      style={{
+                        background: 'var(--ff-accent)',
+                        color: 'var(--ff-accent-contrast)',
+                        boxShadow: 'var(--ff-shadow-button)',
+                      }}
+                    >
+                      {item.tag}
+                    </span>
+                  )}
+                </motion.button>
+              </React.Fragment>
             );
           })}
         </nav>

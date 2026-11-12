@@ -319,7 +319,8 @@ service cloud.firestore {
           && isValidId(logId)
           && request.resource.data.userId == userId
           && isNonEmptyString(request.resource.data.action, 64);
-        allow update, delete: if false; // Audit logs are append-only
+        allow update: if false; // Audit logs are append-only
+        allow delete: if isOwner(userId);
       }
     }
   }

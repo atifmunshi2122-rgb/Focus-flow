@@ -233,6 +233,23 @@
     background-color var(--ff-duration-normal) var(--ff-ease);
 }
 
+.ff-sidebar-item {
+  color: var(--ff-text-secondary);
+  border-radius: var(--ff-radius-button);
+  transition: background-color var(--ff-duration-fast) var(--ff-ease),
+    color var(--ff-duration-fast) var(--ff-ease),
+    transform var(--ff-duration-fast) var(--ff-ease);
+}
+
+.ff-sidebar-item:hover:not([data-active="true"]) {
+  background: var(--ff-surface-hover);
+  color: var(--ff-text-primary);
+}
+
+.ff-sidebar-item[data-active="true"] {
+  color: var(--ff-accent-text);
+}
+
 .ff-header {
   background: var(--ff-surface-header);
   border-bottom: var(--ff-border-width) solid var(--ff-border-color);
