@@ -148,7 +148,7 @@
     },
     "PaymentHistoryRecord": {
       "title": "PaymentHistoryRecord",
-      "description": "Audit record of settled bill payment",
+      "description": "Payment audit record of settled bill payment",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
@@ -163,6 +163,83 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "userId", "billId", "amountPaise", "paidDate"]
+    },
+    "TimeBlockRecord": {
+      "title": "TimeBlockRecord",
+      "description": "Daily scheduled time block for focus management",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string" },
+        "title": { "type": "string", "maxLength": 256 },
+        "startMinute": { "type": "number" },
+        "endMinute": { "type": "number" },
+        "category": { "type": "string", "maxLength": 128 },
+        "completed": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "date", "title", "startMinute", "endMinute"]
+    },
+    "EnvelopeRecord": {
+      "title": "EnvelopeRecord",
+      "description": "Budget envelope allocation for spending category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "allocatedPaise": { "type": "number" },
+        "monthKey": { "type": "string", "maxLength": 16 },
+        "color": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "allocatedPaise"]
+    },
+    "SubscriptionRecord": {
+      "title": "SubscriptionRecord",
+      "description": "Recurring service subscription commitment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 256 },
+        "amountPaise": { "type": "number" },
+        "billingCycle": { "type": "string", "enum": ["monthly", "quarterly", "yearly"] },
+        "nextRenewalDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "paused", "cancelled"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "amountPaise", "billingCycle", "nextRenewalDate"]
+    },
+    "AuditLogRecord": {
+      "title": "AuditLogRecord",
+      "description": "Historical audit log entry of user actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string", "maxLength": 64 },
+        "entityType": { "type": "string", "maxLength": 64 },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "action", "timestamp"]
+    },
+    "SyncQueueRecord": {
+      "title": "SyncQueueRecord",
+      "description": "Durable queue entry for Google Sheets sync",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "processing", "completed", "failed"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "status"]
     }
   },
   "firestore": {
@@ -201,6 +278,26 @@
     "/users/{userId}/payment_history/{payId}": {
       "schema": { "$ref": "#/entities/PaymentHistoryRecord" },
       "description": "Payment audit history"
+    },
+    "/users/{userId}/time_blocks/{blockId}": {
+      "schema": { "$ref": "#/entities/TimeBlockRecord" },
+      "description": "Daily scheduled time blocks"
+    },
+    "/users/{userId}/envelopes/{envelopeId}": {
+      "schema": { "$ref": "#/entities/EnvelopeRecord" },
+      "description": "Budget envelopes"
+    },
+    "/users/{userId}/subscriptions/{subId}": {
+      "schema": { "$ref": "#/entities/SubscriptionRecord" },
+      "description": "Service subscriptions"
+    },
+    "/users/{userId}/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLogRecord" },
+      "description": "User activity audit logs"
+    },
+    "/users/{userId}/sync_queue/{queueId}": {
+      "schema": { "$ref": "#/entities/SyncQueueRecord" },
+      "description": "Google Sheets durable sync queue"
     }
   }
 }
