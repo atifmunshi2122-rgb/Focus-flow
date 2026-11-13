@@ -33,7 +33,7 @@ import { api } from '../../lib/api.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { DESIGN_STYLES } from '../../theme/stylesRegistry.ts';
 import { Bill, ExpenseTransaction, IncomeTransaction, Task, TimeBlock, BudgetEnvelope, SubscriptionPlan } from '../../types/index.ts';
-import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { useMotionPreferences, EmptyStateIllustration } from '../ui/MotionPrimitives.tsx';
 import {
   MOTION_DURATION,
   MOTION_EASING,
@@ -414,8 +414,12 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
               className="max-h-[54vh] overflow-y-auto p-2 space-y-1"
             >
               {filtered.length === 0 ? (
-                <div className="py-10 text-center text-sm text-[var(--ff-text-muted)]">
-                  No matching commands or records for &ldquo;{query}&rdquo;.
+                <div className="py-6">
+                  <EmptyStateIllustration
+                    icon={<Search className="w-6 h-6" />}
+                    title={query ? `No results for "${query}"` : 'No matching commands or records'}
+                    description="Try searching for a different action, page, transaction, or theme."
+                  />
                 </div>
               ) : (
                 filtered.map((item, idx) => {

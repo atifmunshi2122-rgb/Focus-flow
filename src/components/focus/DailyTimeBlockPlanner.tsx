@@ -312,11 +312,29 @@ export const DailyTimeBlockPlanner: React.FC = () => {
               (b) => b.startMinute < hourEndMin && b.endMinute > hourStartMin
             );
 
+            const currentHour = new Date().getHours();
+            const isCurrentHour = selectedDate === todayStr && hour === currentHour;
+            const currentMinutePercent = Math.round((new Date().getMinutes() / 60) * 100);
+
             return (
               <div
                 key={hour}
-                className="flex items-start min-h-[72px] transition-colors hover:bg-[var(--ff-muted)]/10"
+                className="relative flex items-start min-h-[72px] transition-colors hover:bg-[var(--ff-muted)]/10"
               >
+                {/* Real-time Current Hour Indicator Line */}
+                {isCurrentHour && (
+                  <div
+                    className="absolute left-0 right-0 z-20 flex items-center pointer-events-none"
+                    style={{ top: `${currentMinutePercent}%` }}
+                    aria-hidden="true"
+                  >
+                    <div className="w-2.5 h-2.5 rounded-full bg-[var(--ff-danger)] -ml-1 shadow-[0_0_8px_var(--ff-danger)]" />
+                    <div className="flex-1 h-0.5 bg-[var(--ff-danger)] opacity-85" />
+                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-[var(--ff-danger)] text-white mr-2">
+                      NOW
+                    </span>
+                  </div>
+                )}
                 {/* Hour Label */}
                 <div className="w-20 sm:w-24 shrink-0 px-4 py-3 text-xs font-mono font-bold text-[var(--ff-text-muted)] border-r ff-divider">
                   {hourStr}

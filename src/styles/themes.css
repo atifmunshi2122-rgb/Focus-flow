@@ -499,6 +499,33 @@
   box-shadow: var(--ff-shadow-inset), 0 0 0 3px var(--ff-accent-soft);
 }
 
+/* Accessibility & Global Focus-Visible Ring */
+:focus-visible {
+  outline: 2px solid var(--ff-accent);
+  outline-offset: 2px;
+}
+
+/* Calendar & Time Picker Ergonomics */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.6);
+  opacity: 0.85;
+  transition: opacity var(--ff-duration-fast) var(--ff-ease), filter var(--ff-duration-fast) var(--ff-ease);
+}
+
+:root[data-color-mode="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-color-mode="dark"] input[type="time"]::-webkit-calendar-picker-indicator,
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+.dark input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.9);
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 /* Segmented Controls */
 .ff-segmented {
   display: inline-flex;

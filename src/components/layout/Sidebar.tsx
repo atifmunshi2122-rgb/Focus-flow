@@ -63,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     effectiveThemeConfig,
   } = useApp();
 
+  const [hoveredTab, setHoveredTab] = React.useState<NavTab | null>(null);
   const { isDisabled, intensity } = useMotionPreferences();
   const activeStyle = getStyleDefinition(effectiveThemeConfig.styleId);
   const factor = getIntensityFactor(intensity);
@@ -245,6 +246,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   data-nav-id={item.id}
                   data-active={isActive ? 'true' : 'false'}
                   onClick={() => handleNavClick(item.id)}
+                  onMouseEnter={() => setHoveredTab(item.id)}
+                  onMouseLeave={() => setHoveredTab(null)}
                   whileHover={isDisabled ? undefined : { x: !isExpanded || isActive ? 0 : 2 }}
                   whileTap={isDisabled ? undefined : { scale: 0.98 }}
                   transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
@@ -256,6 +259,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   title={!isExpanded ? item.label : undefined}
                 >
+                  {/* Floating Tooltip when Collapsed */}
+                  {!isExpanded && hoveredTab === item.id && !isDisabled && (
+                    <motion.div
+                      initial={{ opacity: 0, x: 6, scale: 0.96 }}
+                      animate={{ opacity: 1, x: 12, scale: 1 }}
+                      exit={{ opacity: 0, x: 6, scale: 0.96 }}
+                      transition={{ duration: 0.15 }}
+                      className="hidden lg:flex items-center gap-1.5 absolute left-full top-1/2 -translate-y-1/2 z-50 px-2.5 py-1 text-xs font-semibold rounded-lg shadow-xl pointer-events-none whitespace-nowrap border"
+                      style={{
+                        background: 'var(--ff-surface-elevated)',
+                        color: 'var(--ff-text-primary)',
+                        borderColor: 'var(--ff-border-color)',
+                        boxShadow: 'var(--ff-shadow-elevated)',
+                      }}
+                    >
+                      <span>{item.label}</span>
+                      {item.tag && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)]">
+                          {item.tag}
+                        </span>
+                      )}
+                    </motion.div>
+                  )}
+
                   {/* Left Accent Bar on Active Tab */}
                   {isActive && (
                     <motion.span

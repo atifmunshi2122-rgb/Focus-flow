@@ -19,7 +19,7 @@ import {
 } from '../../types/index.ts';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
 import { ThemeBadge, ThemeButton, ThemeCard, ThemeInput, ThemeSelect } from '../ui/ThemePrimitives.tsx';
-import { AnimatedProgressBar } from '../ui/MotionPrimitives.tsx';
+import { AnimatedProgressBar, EmptyStateIllustration } from '../ui/MotionPrimitives.tsx';
 
 export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings?: boolean }> = ({
   showBudgets = true,
@@ -172,6 +172,15 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
     monthlyCapPaise > 0 ? Math.round((spentThisMonthPaise / monthlyCapPaise) * 100) : 0;
   const warnThreshold = settings?.notificationPrefs?.budgetWarningPercent || 80;
 
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const currentDay = now.getDate();
+  const daysRemaining = Math.max(1, daysInMonth - currentDay + 1);
+  const remainingBudgetPaise = Math.max(0, monthlyCapPaise - spentThisMonthPaise);
+  const baselineDailyAllowance = Math.round(monthlyCapPaise / daysInMonth);
+  const dynamicDailySafeLimit = Math.round(remainingBudgetPaise / daysRemaining);
+  const isOverDailySafeLimit = dynamicDailySafeLimit > 0 && (spentThisMonthPaise / Math.max(1, currentDay)) > baselineDailyAllowance;
+
   return (
     <div className="space-y-6">
       {showBudgets && (
@@ -210,30 +219,76 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
           </div>
 
           {monthlyCapPaise > 0 && (
-            <div>
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-[var(--ff-text-secondary)] font-semibold">
-                  This Month Utilization
-                </span>
-                <span className="font-mono font-bold text-[var(--ff-text-primary)]">
-                  {formatCurrency(spentThisMonthPaise, currency)} /{' '}
-                  {formatCurrency(monthlyCapPaise, currency)}
-                </span>
+            <div className="space-y-3">
+              <div>
+                <div className="flex justify-between text-xs mb-1.5">
+                  <span className="text-[var(--ff-text-secondary)] font-semibold">
+                    This Month Utilization
+                  </span>
+                  <span className="font-mono font-bold text-[var(--ff-text-primary)]">
+                    {formatCurrency(spentThisMonthPaise, currency)} /{' '}
+                    {formatCurrency(monthlyCapPaise, currency)}
+                  </span>
+                </div>
+                <AnimatedProgressBar
+                  value={budgetPct}
+                  tone={
+                    budgetPct >= 100
+                      ? 'danger'
+                      : budgetPct >= warnThreshold
+                        ? 'warning'
+                        : 'success'
+                  }
+                  pulsing={budgetPct >= 85}
+                  showShimmer={budgetPct < 85}
+                  heightClass="h-2.5"
+                  ariaLabel="Monthly budget utilization"
+                />
               </div>
-              <AnimatedProgressBar
-                value={budgetPct}
-                tone={
-                  budgetPct >= 100
-                    ? 'danger'
-                    : budgetPct >= warnThreshold
-                      ? 'warning'
-                      : 'success'
-                }
-                pulsing={budgetPct >= 85}
-                showShimmer={budgetPct < 85}
-                heightClass="h-2.5"
-                ariaLabel="Monthly budget utilization"
-              />
+
+              {/* Daily Safe-to-Spend & Pacing Guardrail Strip */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                <div className="p-3 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)]">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--ff-text-muted)] block">
+                    Remaining Budget
+                  </span>
+                  <span className="text-sm font-bold font-mono text-[var(--ff-text-primary)] block mt-0.5">
+                    {formatCurrency(remainingBudgetPaise, currency)}
+                  </span>
+                  <span className="text-[10px] text-[var(--ff-text-muted)] mt-0.5 block">
+                    {daysRemaining} day{daysRemaining > 1 ? 's' : ''} left this month
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)]">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--ff-text-muted)] block">
+                    Daily Safe Allowance
+                  </span>
+                  <span className="text-sm font-bold font-mono text-[var(--ff-accent-text)] block mt-0.5">
+                    {formatCurrency(dynamicDailySafeLimit, currency)}/day
+                  </span>
+                  <span className="text-[10px] text-[var(--ff-text-muted)] mt-0.5 block">
+                    Base: {formatCurrency(baselineDailyAllowance, currency)}/day
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)]">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--ff-text-muted)] block">
+                    Spending Pace
+                  </span>
+                  <span
+                    className="text-sm font-bold font-mono block mt-0.5"
+                    style={{ color: isOverDailySafeLimit ? 'var(--ff-danger)' : 'var(--ff-success)' }}
+                  >
+                    {isOverDailySafeLimit ? 'Burning Fast' : 'Within Guardrail'}
+                  </span>
+                  <span className="text-[10px] text-[var(--ff-text-muted)] mt-0.5 block">
+                    {budgetPct >= 100
+                      ? '100% budget consumed'
+                      : `${100 - budgetPct}% remaining runway`}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 
@@ -399,71 +454,79 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
             </div>
           </form>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {goals.map((g) => {
-              const pct =
-                g.targetPaise > 0
-                  ? Math.min(100, Math.round((g.savedPaise / g.targetPaise) * 100))
-                  : 0;
-              return (
-                <div key={g.id} className="ff-surface-subtle p-4 space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="text-sm font-bold text-[var(--ff-text-primary)]">{g.title}</h4>
-                      <p className="text-[11px] text-[var(--ff-text-muted)]">
-                        {formatCurrency(g.savedPaise, currency)} of{' '}
-                        {formatCurrency(g.targetPaise, currency)} ({pct}%)
-                        {g.targetDate ? ` · Due ${g.targetDate}` : ''}
-                      </p>
+          {goals.length === 0 ? (
+            <EmptyStateIllustration
+              icon={<PiggyBank className="w-6 h-6" />}
+              title="No active savings goals"
+              description="Define a target for emergency fund, equipment, or investments above to track your progress visually."
+            />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {goals.map((g) => {
+                const pct =
+                  g.targetPaise > 0
+                    ? Math.min(100, Math.round((g.savedPaise / g.targetPaise) * 100))
+                    : 0;
+                return (
+                  <div key={g.id} className="ff-surface-subtle p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="text-sm font-bold text-[var(--ff-text-primary)]">{g.title}</h4>
+                        <p className="text-[11px] text-[var(--ff-text-muted)]">
+                          {formatCurrency(g.savedPaise, currency)} of{' '}
+                          {formatCurrency(g.targetPaise, currency)} ({pct}%)
+                          {g.targetDate ? ` · Due ${g.targetDate}` : ''}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteGoal(g)}
+                        className="p-1.5 rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
+                        aria-label={`Delete ${g.title}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteGoal(g)}
-                      className="p-1.5 rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
-                      aria-label={`Delete ${g.title}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
 
-                  <AnimatedProgressBar
-                    value={pct}
-                    tone={pct >= 100 ? 'success' : 'accent'}
-                    showShimmer={pct >= 100}
-                    heightClass="h-2"
-                    ariaLabel={`${g.title} savings progress`}
-                  />
-
-                  <div className="flex items-center gap-2">
-                    <ThemeInput
-                      type="number"
-                      min="1"
-                      placeholder="₹ 1000"
-                      value={contribAmounts[g.id] ?? ''}
-                      onChange={(e) =>
-                        setContribAmounts((prev) => ({ ...prev, [g.id]: e.target.value }))
-                      }
-                      className="flex-1 text-xs py-1.5"
+                    <AnimatedProgressBar
+                      value={pct}
+                      tone={pct >= 100 ? 'success' : 'accent'}
+                      showShimmer={pct >= 100}
+                      heightClass="h-2"
+                      ariaLabel={`${g.title} savings progress`}
                     />
-                    <ThemeButton
-                      variant="success"
-                      size="xs"
-                      onClick={() => void handleAdjustGoal(g, 1)}
-                    >
-                      <ArrowUpRight className="w-3.5 h-3.5" /> Deposit
-                    </ThemeButton>
-                    <ThemeButton
-                      variant="secondary"
-                      size="xs"
-                      onClick={() => void handleAdjustGoal(g, -1)}
-                    >
-                      <ArrowDownRight className="w-3.5 h-3.5" /> Withdraw
-                    </ThemeButton>
+
+                    <div className="flex items-center gap-2">
+                      <ThemeInput
+                        type="number"
+                        min="1"
+                        placeholder="₹ 1000"
+                        value={contribAmounts[g.id] ?? ''}
+                        onChange={(e) =>
+                          setContribAmounts((prev) => ({ ...prev, [g.id]: e.target.value }))
+                        }
+                        className="flex-1 text-xs py-1.5"
+                      />
+                      <ThemeButton
+                        variant="success"
+                        size="xs"
+                        onClick={() => void handleAdjustGoal(g, 1)}
+                      >
+                        <ArrowUpRight className="w-3.5 h-3.5" /> Deposit
+                      </ThemeButton>
+                      <ThemeButton
+                        variant="secondary"
+                        size="xs"
+                        onClick={() => void handleAdjustGoal(g, -1)}
+                      >
+                        <ArrowDownRight className="w-3.5 h-3.5" /> Withdraw
+                      </ThemeButton>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </ThemeCard>
       )}
     </div>

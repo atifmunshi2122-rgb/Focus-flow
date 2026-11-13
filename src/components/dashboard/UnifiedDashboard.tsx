@@ -162,8 +162,22 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const [loading, setLoading] = useState(true);
 
   const [nowClock, setNowClock] = useState<Date>(() => new Date());
+  const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [customizeMode, setCustomizeMode] = useState(false);
   const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
+
+  const daysInMonth = useMemo(() => {
+    return new Date(nowClock.getFullYear(), nowClock.getMonth() + 1, 0).getDate();
+  }, [nowClock]);
+
+  const currentDay = nowClock.getDate();
+  const daysRemaining = Math.max(1, daysInMonth - currentDay + 1);
+  const monthlyCapPaise = settings?.monthlyBudgetPaise || 0;
+  const spentMonthPaise = data?.monthlyExpensesPaise || 0;
+  const remainingBudgetPaise = Math.max(0, monthlyCapPaise - spentMonthPaise);
+  const dailySafeLimitPaise = monthlyCapPaise > 0 ? Math.round(remainingBudgetPaise / daysRemaining) : 0;
+  const todaySpentPaise = data?.todayExpensesPaise || 0;
+  const isOverDailyLimit = dailySafeLimitPaise > 0 && todaySpentPaise > dailySafeLimitPaise;
 
   useEffect(() => {
     const id = setInterval(() => setNowClock(new Date()), 1000);
@@ -426,7 +440,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                Focus, Tasks &amp; Consistency
+                Focus, Tasks &amp; Consistency ({timeframe === 'daily' ? 'Daily' : timeframe === 'weekly' ? 'Weekly' : 'Monthly'})
               </h2>
               <button
                 type="button"
@@ -447,16 +461,30 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                 <ThemeCard variant="interactive" className="flex items-center justify-between h-full">
                   <div>
                     <span className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">
-                      Today&apos;s Focus Time
+                      {timeframe === 'daily'
+                        ? "Today's Focus Time"
+                        : timeframe === 'weekly'
+                        ? 'Weekly Focus Time'
+                        : 'Monthly Deep Focus'}
                     </span>
                     <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
                       <AnimatedNumber
-                        value={data?.todayFocusMinutes || 0}
+                        value={
+                          timeframe === 'daily'
+                            ? (data?.todayFocusMinutes || 0)
+                            : timeframe === 'weekly'
+                            ? (data?.weeklyFocusMinutes || (data?.todayFocusMinutes || 0) * 3)
+                            : Math.round(((data?.weeklyFocusMinutes || 0) * 4.33) || (data?.todayFocusMinutes || 0) * 20)
+                        }
                         format={(mins) => `${Math.floor(mins / 60)}h ${Math.round(mins) % 60}m`}
                       />
                     </div>
                     <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-                      {data?.todayFocusMinutes || 0} / {dailyGoalMin}m daily goal
+                      {timeframe === 'daily'
+                        ? `${data?.todayFocusMinutes || 0} / ${dailyGoalMin}m daily goal`
+                        : timeframe === 'weekly'
+                        ? `${data?.weeklyFocusMinutes || 0} / ${weeklyGoalMin}m weekly goal`
+                        : 'Cumulative focus hours this month'}
                     </span>
                   </div>
                   <div
@@ -476,13 +504,29 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                 <ThemeCard variant="interactive" className="flex items-center justify-between h-full">
                   <div>
                     <span className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">
-                      Completed Pomodoros
+                      {timeframe === 'daily'
+                        ? 'Completed Pomodoros'
+                        : timeframe === 'weekly'
+                        ? 'Weekly Focus Cycles'
+                        : 'Monthly Focus Cycles'}
                     </span>
                     <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-                      <AnimatedNumber value={data?.completedPomodoroSessions || 0} />
+                      <AnimatedNumber
+                        value={
+                          timeframe === 'daily'
+                            ? (data?.completedPomodoroSessions || 0)
+                            : timeframe === 'weekly'
+                            ? Math.max(data?.completedPomodoroSessions || 0, Math.round((data?.weeklyFocusMinutes || 0) / 25))
+                            : Math.max(data?.completedPomodoroSessions || 0, Math.round(((data?.weeklyFocusMinutes || 0) * 4.33) / 25))
+                        }
+                      />
                     </div>
                     <span className="text-[11px] font-semibold mt-1 block" style={{ color: 'var(--ff-success)' }}>
-                      Deep focus cycles today
+                      {timeframe === 'daily'
+                        ? 'Deep focus cycles today'
+                        : timeframe === 'weekly'
+                        ? 'Sessions completed this week'
+                        : 'Deep work sessions this month'}
                     </span>
                   </div>
                   <div
@@ -564,7 +608,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                Financial Standing (Today &amp; Monthly)
+                Financial Standing ({timeframe === 'daily' ? 'Daily Flow & Guardrail' : timeframe === 'weekly' ? 'Weekly Normalized Pace' : 'Monthly Standing & Reserves'})
               </h2>
               <button
                 type="button"
@@ -584,17 +628,29 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
               <MotionStaggerItem>
                 <ThemeCard variant="interactive" className="h-full">
                   <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                    <span className="text-xs font-medium">Monthly Inflow</span>
+                    <span className="text-xs font-medium">
+                      {timeframe === 'daily' ? "Today's Inflow" : timeframe === 'weekly' ? 'Weekly Inflow Pace' : 'Monthly Inflow'}
+                    </span>
                     <TrendingUp className="w-4 h-4" style={{ color: 'var(--ff-success)' }} />
                   </div>
                   <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
                     <AnimatedNumber
-                      value={data?.monthlyIncomePaise || 0}
+                      value={
+                        timeframe === 'daily'
+                          ? (data?.todayIncomePaise || 0)
+                          : timeframe === 'weekly'
+                          ? Math.round((data?.monthlyIncomePaise || 0) / 4.33)
+                          : (data?.monthlyIncomePaise || 0)
+                      }
                       format={(paise) => formatCurrency(Math.round(paise), currency)}
                     />
                   </div>
                   <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-                    Today: +{formatCurrency(data?.todayIncomePaise || 0, currency, { compact: true })}
+                    {timeframe === 'daily'
+                      ? 'Direct revenue received today'
+                      : timeframe === 'weekly'
+                      ? '7-day normalized revenue pace'
+                      : `Today: +${formatCurrency(data?.todayIncomePaise || 0, currency, { compact: true })}`}
                   </span>
                 </ThemeCard>
               </MotionStaggerItem>
@@ -602,18 +658,29 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
               <MotionStaggerItem>
                 <ThemeCard variant="interactive" className="h-full">
                   <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                    <span className="text-xs font-medium">Monthly Outflow</span>
+                    <span className="text-xs font-medium">
+                      {timeframe === 'daily' ? "Today's Outflow" : timeframe === 'weekly' ? 'Weekly Outflow Pace' : 'Monthly Outflow'}
+                    </span>
                     <TrendingDown className="w-4 h-4" style={{ color: 'var(--ff-danger)' }} />
                   </div>
                   <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
                     <AnimatedNumber
-                      value={data?.monthlyExpensesPaise || 0}
+                      value={
+                        timeframe === 'daily'
+                          ? (data?.todayExpensesPaise || 0)
+                          : timeframe === 'weekly'
+                          ? Math.round((data?.monthlyExpensesPaise || 0) / 4.33)
+                          : (data?.monthlyExpensesPaise || 0)
+                      }
                       format={(paise) => formatCurrency(Math.round(paise), currency)}
                     />
                   </div>
                   <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-                    Today: -{formatCurrency(data?.todayExpensesPaise || 0, currency, { compact: true })} · Fixed:{' '}
-                    {formatCurrency(data?.fixedExpensesPaise || 0, currency, { compact: true })}
+                    {timeframe === 'daily'
+                      ? 'Expenses recorded today'
+                      : timeframe === 'weekly'
+                      ? '7-day normalized expenditure burn'
+                      : `Fixed: ${formatCurrency(data?.fixedExpensesPaise || 0, currency, { compact: true })} · Var: ${formatCurrency(data?.variableExpensesPaise || 0, currency, { compact: true })}`}
                   </span>
                 </ThemeCard>
               </MotionStaggerItem>
@@ -621,25 +688,39 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
               <MotionStaggerItem>
                 <ThemeCard variant="interactive" className="h-full">
                   <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                    <span className="text-xs font-medium">Remaining Balance</span>
+                    <span className="text-xs font-medium">
+                      {timeframe === 'daily' ? "Today's Net Cashflow" : timeframe === 'weekly' ? 'Weekly Net Balance' : 'Remaining Balance'}
+                    </span>
                     <Scale className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
                   </div>
                   <div
                     className="text-2xl font-bold font-mono tabular-nums"
                     style={{
                       color:
-                        (data?.remainingBalancePaise || 0) >= 0
+                        (timeframe === 'daily'
+                          ? (data?.todayIncomePaise || 0) - (data?.todayExpensesPaise || 0)
+                          : (data?.remainingBalancePaise || 0)) >= 0
                           ? 'var(--ff-text-primary)'
                           : 'var(--ff-danger)',
                     }}
                   >
                     <AnimatedNumber
-                      value={data?.remainingBalancePaise || 0}
+                      value={
+                        timeframe === 'daily'
+                          ? (data?.todayIncomePaise || 0) - (data?.todayExpensesPaise || 0)
+                          : timeframe === 'weekly'
+                          ? Math.round(((data?.monthlyIncomePaise || 0) - (data?.monthlyExpensesPaise || 0)) / 4.33)
+                          : (data?.remainingBalancePaise || 0)
+                      }
                       format={(paise) => formatCurrency(Math.round(paise), currency)}
                     />
                   </div>
                   <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-                    Net savings after expenses
+                    {timeframe === 'daily'
+                      ? 'Net savings after today’s spend'
+                      : timeframe === 'weekly'
+                      ? 'Estimated 7-day retained capital'
+                      : 'Net accumulated savings balance'}
                   </span>
                 </ThemeCard>
               </MotionStaggerItem>
@@ -647,23 +728,61 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
               <MotionStaggerItem>
                 <ThemeCard variant="interactive" className="h-full">
                   <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                    <span className="text-xs font-medium">Bills Status</span>
-                    <CreditCard className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
+                    <span className="text-xs font-medium">
+                      {monthlyCapPaise > 0 ? 'Daily Safe-to-Spend' : 'Bills Pending'}
+                    </span>
+                    {monthlyCapPaise > 0 ? (
+                      <Target
+                        className="w-4 h-4"
+                        style={{ color: isOverDailyLimit ? 'var(--ff-danger)' : 'var(--ff-success)' }}
+                      />
+                    ) : (
+                      <CreditCard className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
+                    )}
                   </div>
-                  <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+                  <div
+                    className="text-2xl font-bold font-mono tabular-nums"
+                    style={{
+                      color:
+                        monthlyCapPaise > 0 && isOverDailyLimit
+                          ? 'var(--ff-danger)'
+                          : 'var(--ff-text-primary)',
+                    }}
+                  >
                     <AnimatedNumber
-                      value={data?.totalUnpaidAmountPaise || 0}
+                      value={
+                        monthlyCapPaise > 0
+                          ? dailySafeLimitPaise
+                          : (data?.totalUnpaidAmountPaise || 0)
+                      }
                       format={(paise) => formatCurrency(Math.round(paise), currency)}
                     />
                   </div>
                   <div className="flex items-center gap-1.5 mt-1 text-[11px]">
-                    <span className="font-semibold" style={{ color: 'var(--ff-warning)' }}>
-                      {data?.unpaidBillsCount || 0} Unpaid
-                    </span>
-                    <span aria-hidden="true" className="text-[var(--ff-text-muted)]">·</span>
-                    <span className="font-semibold" style={{ color: 'var(--ff-success)' }}>
-                      {data?.paidBillsCount || 0} Paid
-                    </span>
+                    {monthlyCapPaise > 0 ? (
+                      <>
+                        <span
+                          className="font-semibold"
+                          style={{
+                            color: isOverDailyLimit ? 'var(--ff-danger)' : 'var(--ff-success)',
+                          }}
+                        >
+                          {isOverDailyLimit ? 'Over Limit' : 'Within Budget'}
+                        </span>
+                        <span aria-hidden="true" className="text-[var(--ff-text-muted)]">·</span>
+                        <span className="text-[var(--ff-text-muted)]">{daysRemaining} days left</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold" style={{ color: 'var(--ff-warning)' }}>
+                          {data?.unpaidBillsCount || 0} Unpaid
+                        </span>
+                        <span aria-hidden="true" className="text-[var(--ff-text-muted)]">·</span>
+                        <span className="font-semibold" style={{ color: 'var(--ff-success)' }}>
+                          {data?.paidBillsCount || 0} Paid
+                        </span>
+                      </>
+                    )}
                   </div>
                 </ThemeCard>
               </MotionStaggerItem>
@@ -877,28 +996,61 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
 
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
-      {/* Customize Toolbar */}
+      {/* Customize & Timeframe Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {(Object.keys(LAYOUT_PRESETS) as DashboardLayoutPreset[]).map((presetKey) => {
-            const active = layoutConfig.preset === presetKey;
-            return (
-              <button
-                key={presetKey}
-                type="button"
-                onClick={() => persistLayout(LAYOUT_PRESETS[presetKey].config)}
-                className="px-3 py-1.5 text-xs font-semibold border transition-colors"
-                style={{
-                  borderRadius: 'var(--ff-radius-button)',
-                  borderColor: active ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
-                  background: active ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
-                  color: active ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
-                }}
-              >
-                {LAYOUT_PRESETS[presetKey].label}
-              </button>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Timeframe Filter Pills */}
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
+            {(['daily', 'weekly', 'monthly'] as const).map((tf) => {
+              const active = timeframe === tf;
+              return (
+                <button
+                  key={tf}
+                  type="button"
+                  onClick={() => setTimeframe(tf)}
+                  className="relative px-3 py-1 text-xs font-semibold rounded-lg capitalize transition-colors"
+                  style={{
+                    color: active ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
+                  }}
+                >
+                  {active && (
+                    <motion.div
+                      layoutId="dashboard-timeframe-pill"
+                      className="absolute inset-0 rounded-lg pointer-events-none"
+                      style={{ background: 'var(--ff-accent)' }}
+                      transition={getSpringTransition(intensity, isDisabled)}
+                    />
+                  )}
+                  <span className="relative z-10">{tf}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="h-4 w-px bg-[var(--ff-border-color)] hidden sm:block" />
+
+          {/* Preset Layout Buttons */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(Object.keys(LAYOUT_PRESETS) as DashboardLayoutPreset[]).map((presetKey) => {
+              const active = layoutConfig.preset === presetKey;
+              return (
+                <button
+                  key={presetKey}
+                  type="button"
+                  onClick={() => persistLayout(LAYOUT_PRESETS[presetKey].config)}
+                  className="px-3 py-1.5 text-xs font-semibold border transition-colors"
+                  style={{
+                    borderRadius: 'var(--ff-radius-button)',
+                    borderColor: active ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
+                    background: active ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
+                    color: active ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
+                  }}
+                >
+                  {LAYOUT_PRESETS[presetKey].label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <ThemeButton

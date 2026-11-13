@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -52,13 +52,14 @@ export const TransactionsLedger: React.FC = () => {
   const [hasMoreExpenses, setHasMoreExpenses] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'fixed' | 'variable'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
   // Reset to first page when filtering or searching
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, typeFilter]);
+  }, [search, typeFilter, dateFilter]);
 
   const mapUnified = (
     incomes: Awaited<ReturnType<typeof api.getIncomesPage>>['items'],
@@ -180,6 +181,14 @@ export const TransactionsLedger: React.FC = () => {
     }
   };
 
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const currentMonthStr = useMemo(() => todayStr.slice(0, 7), [todayStr]);
+  const oneWeekAgoStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
   const filtered = transactions.filter((t) => {
     const matchesSearch =
       t.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -188,12 +197,26 @@ export const TransactionsLedger: React.FC = () => {
 
     if (!matchesSearch) return false;
 
-    if (typeFilter === 'income') return t.type === 'income';
-    if (typeFilter === 'expense') return t.type === 'fixed' || t.type === 'variable';
-    if (typeFilter === 'fixed') return t.type === 'fixed';
-    if (typeFilter === 'variable') return t.type === 'variable';
+    if (typeFilter === 'income' && t.type !== 'income') return false;
+    if (typeFilter === 'expense' && t.type === 'income') return false;
+    if (typeFilter === 'fixed' && t.type !== 'fixed') return false;
+    if (typeFilter === 'variable' && t.type !== 'variable') return false;
+
+    if (dateFilter === 'today' && t.date !== todayStr) return false;
+    if (dateFilter === 'week' && t.date < oneWeekAgoStr) return false;
+    if (dateFilter === 'month' && !t.date.startsWith(currentMonthStr)) return false;
+
     return true;
   });
+
+  const filteredInflowPaise = useMemo(
+    () => filtered.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amountPaise, 0),
+    [filtered]
+  );
+  const filteredOutflowPaise = useMemo(
+    () => filtered.filter((t) => t.type !== 'income').reduce((sum, t) => sum + t.amountPaise, 0),
+    [filtered]
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentDisplayPage = Math.min(currentPage, totalPages);
@@ -240,6 +263,39 @@ export const TransactionsLedger: React.FC = () => {
               <span>Clear All</span>
             </ThemeButton>
           )}
+        </div>
+      </div>
+
+      {/* Quick Date Filters & Realtime Aggregation Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 text-xs px-1">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] font-semibold text-[var(--ff-text-muted)] mr-1">Timeframe:</span>
+          {(['all', 'today', 'week', 'month'] as const).map((df) => {
+            const active = dateFilter === df;
+            const labels: Record<string, string> = { all: 'All Time', today: 'Today', week: 'Last 7 Days', month: 'This Month' };
+            return (
+              <button
+                key={df}
+                type="button"
+                onClick={() => setDateFilter(df)}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors"
+                style={{
+                  background: active ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
+                  borderColor: active ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
+                  color: active ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
+                }}
+              >
+                {labels[df]}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 font-mono text-[11px]">
+          <span className="text-[var(--ff-text-muted)]">{filtered.length} entries</span>
+          <span className="text-[var(--ff-success)]">+{formatCurrency(filteredInflowPaise, currency, { compact: true })}</span>
+          <span className="text-[var(--ff-text-muted)]">/</span>
+          <span className="text-[var(--ff-danger)]">-{formatCurrency(filteredOutflowPaise, currency, { compact: true })}</span>
         </div>
       </div>
 

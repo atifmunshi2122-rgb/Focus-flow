@@ -97,6 +97,8 @@ export const TaskManager: React.FC = () => {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [quickTaskTitle, setQuickTaskTitle] = useState('');
+  const [isSubmittingQuick, setIsSubmittingQuick] = useState(false);
 
   const loadTasks = () => {
     setLoading(true);
@@ -279,6 +281,35 @@ export const TaskManager: React.FC = () => {
       loadTasks();
     } catch {
       showToast('Failed to delete task', 'error');
+    }
+  };
+
+  const handleQuickAddTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanTitle = quickTaskTitle.trim();
+    if (!cleanTitle || isSubmittingQuick) return;
+    setIsSubmittingQuick(true);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      await api.createTask({
+        title: cleanTitle,
+        description: '',
+        status: 'todo',
+        priority: 'medium',
+        category: categoryFilter !== 'ALL' ? categoryFilter : 'General',
+        dueDate: todayStr,
+        estimatedPomodoros: 2,
+        recurrence: 'none',
+        subtasks: [],
+      });
+      setQuickTaskTitle('');
+      showToast(`Quick task added: "${cleanTitle}"`, 'success');
+      triggerRefresh();
+      loadTasks();
+    } catch {
+      showToast('Failed to quick-add task', 'error');
+    } finally {
+      setIsSubmittingQuick(false);
     }
   };
 
@@ -567,6 +598,29 @@ export const TaskManager: React.FC = () => {
           </ThemeButton>
         </div>
       </div>
+
+      {/* Quick Inline Task Bar */}
+      <form
+        onSubmit={handleQuickAddTask}
+        className="flex items-center gap-2 p-2 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] focus-within:border-[var(--ff-accent)] focus-within:ring-2 focus-within:ring-[var(--ff-accent-soft)] transition-all"
+      >
+        <Plus className="w-4 h-4 text-[var(--ff-accent-text)] shrink-0 ml-1.5" />
+        <input
+          type="text"
+          value={quickTaskTitle}
+          onChange={(e) => setQuickTaskTitle(e.target.value)}
+          placeholder="Quick add a new task... (press Enter to create)"
+          className="bg-transparent text-xs text-[var(--ff-text-primary)] placeholder-[var(--ff-text-muted)] focus:outline-none flex-1 min-w-0"
+        />
+        <ThemeButton
+          type="submit"
+          variant="primary"
+          size="xs"
+          disabled={!quickTaskTitle.trim() || isSubmittingQuick}
+        >
+          {isSubmittingQuick ? 'Adding...' : 'Add'}
+        </ThemeButton>
+      </form>
 
       {/* Search & Multi-Filter Row */}
       <ThemeCard className="p-3.5 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">

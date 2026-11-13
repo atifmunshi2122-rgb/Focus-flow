@@ -71,6 +71,22 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     settings: 'Settings & Theme Studio',
   };
 
+  const tabSectionMap: Record<string, string> = {
+    dashboard: 'Overview',
+    calendar: 'Overview',
+    focus: 'Focus Lab',
+    timeblocks: 'Focus Lab',
+    tasks: 'Focus Lab',
+    finance: 'Wealth Command',
+    transactions: 'Wealth Command',
+    bills: 'Wealth Command',
+    envelopes: 'Wealth Command',
+    subscriptions: 'Wealth Command',
+    analytics: 'Intelligence',
+    recovery: 'Intelligence',
+    settings: 'Preferences',
+  };
+
   const formatTimerMinSec = (seconds: number) => {
     const safeSecs = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
     const mins = Math.floor(safeSecs / 60);
@@ -107,11 +123,33 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         </div>
       </div>
 
-      {/* Zone 2: Refined Workspace Context */}
-      <div className="hidden lg:flex items-center gap-2 text-xs text-[var(--ff-text-muted)] min-w-0 shrink-0">
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)] border border-[var(--ff-accent-border)]">
-          Pro Workspace
+      {/* Zone 2: Animated Breadcrumbs & Workspace Context */}
+      <div className="hidden lg:flex items-center gap-1.5 text-xs min-w-0">
+        <button
+          type="button"
+          onClick={() => setCurrentTab('dashboard')}
+          className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors font-medium truncate"
+          title="Go to Dashboard"
+        >
+          FocusFlow
+        </button>
+        <span className="text-[var(--ff-text-muted)] opacity-50 select-none">/</span>
+        <span className="text-[var(--ff-text-muted)] font-medium truncate">
+          {tabSectionMap[currentTab] || 'Workspace'}
         </span>
+        <span className="text-[var(--ff-text-muted)] opacity-50 select-none">/</span>
+        <AnimatePresence mode="wait">
+          <motion.span
+            key={currentTab}
+            initial={isDisabled ? false : { opacity: 0, x: -3 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0, x: 3 }}
+            transition={{ duration: 0.16 }}
+            className="font-bold text-[var(--ff-accent-text)] truncate max-w-[200px]"
+          >
+            {tabLabels[currentTab] || 'Dashboard'}
+          </motion.span>
+        </AnimatePresence>
       </div>
 
       {/* Zone 3: Primary Action Cluster */}

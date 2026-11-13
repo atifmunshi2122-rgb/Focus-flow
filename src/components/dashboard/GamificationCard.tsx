@@ -12,6 +12,7 @@ import { ThemeBadge, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
   AnimatedProgressBar,
+  InteractiveSurface3D,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
 import { getSpringTransition } from '../../theme/motionTokens.ts';
@@ -57,7 +58,8 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
   const visibleBadges = showAllBadges ? summary.badges : summary.badges.slice(0, 6);
 
   return (
-    <ThemeCard className="space-y-4">
+    <InteractiveSurface3D maxTilt={2.5}>
+      <ThemeCard className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <motion.div
@@ -217,6 +219,7 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
           </div>
         </div>
       )}
-    </ThemeCard>
+      </ThemeCard>
+    </InteractiveSurface3D>
   );
 };

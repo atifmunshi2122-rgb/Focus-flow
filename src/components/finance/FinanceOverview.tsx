@@ -30,6 +30,7 @@ import {
   Clock,
   Plus,
   Trash2,
+  Calendar,
 } from 'lucide-react';
 
 interface FinanceOverviewProps {
@@ -39,7 +40,7 @@ interface FinanceOverviewProps {
 type FinanceSubTab = 'overview' | 'income' | 'expenses' | 'savings';
 
 export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAction }) => {
-  const { currency, refreshKey, setTrashModalOpen } = useApp();
+  const { currency, refreshKey, setTrashModalOpen, setCurrentTab } = useApp();
   const [subTab, setSubTab] = useState<FinanceSubTab>('overview');
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
@@ -104,9 +105,14 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
             { id: 'savings', label: 'Savings Goals' },
           ]}
         />
-        <ThemeButton variant="secondary" size="sm" onClick={() => setTrashModalOpen(true)}>
-          <Trash2 className="w-3.5 h-3.5" /> Trash Bin
-        </ThemeButton>
+        <div className="flex items-center gap-2">
+          <ThemeButton variant="secondary" size="sm" onClick={() => setCurrentTab('calendar')}>
+            <Calendar className="w-3.5 h-3.5" /> Financial Calendar
+          </ThemeButton>
+          <ThemeButton variant="secondary" size="sm" onClick={() => setTrashModalOpen(true)}>
+            <Trash2 className="w-3.5 h-3.5" /> Trash Bin
+          </ThemeButton>
+        </div>
       </div>
 
       {subTab === 'income' ? (

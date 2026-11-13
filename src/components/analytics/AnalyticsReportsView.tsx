@@ -28,10 +28,10 @@ import {
 } from '../../types/index.ts';
 import { AnalyticsCharts } from '../finance/AnalyticsCharts.tsx';
 import { ThemeButton, ThemeCard, ThemeSegmentedControl } from '../ui/ThemePrimitives.tsx';
-import { MotionStaggerGrid, MotionStaggerItem } from '../ui/MotionPrimitives.tsx';
+import { MotionStaggerGrid, MotionStaggerItem, EmptyStateIllustration } from '../ui/MotionPrimitives.tsx';
 
 export const AnalyticsReportsView: React.FC = () => {
-  const { user, currency, refreshKey, showToast, settings } = useApp();
+  const { user, currency, refreshKey, showToast, settings, setCurrentTab } = useApp();
   const [filter, setFilter] = useState<string>('this_month');
   const [financeSummary, setFinanceSummary] = useState<FinanceSummaryData | null>(null);
   const [focusStats, setFocusStats] = useState<FocusStatsData | null>(null);
@@ -213,7 +213,27 @@ export const AnalyticsReportsView: React.FC = () => {
         </MotionStaggerItem>
       </MotionStaggerGrid>
 
-      {financeSummary && <AnalyticsCharts data={financeSummary} />}
+      {(!financeSummary ||
+        (financeSummary.totalIncomePaise === 0 &&
+          financeSummary.totalExpensePaise === 0 &&
+          (!focusStats || focusStats.totalMinutes === 0) &&
+          tasks.length === 0 &&
+          sessions.length === 0)) ? (
+        <ThemeCard className="py-12">
+          <EmptyStateIllustration
+            icon={<BarChart3 className="w-8 h-8 text-[var(--ff-accent-text)]" />}
+            title="No activity recorded in this period"
+            description="Complete tasks, run Pomodoro sessions, or record transactions to unlock cross-domain productivity and financial insights."
+            action={
+              <ThemeButton variant="primary" size="sm" onClick={() => setCurrentTab('dashboard')}>
+                Go to Dashboard
+              </ThemeButton>
+            }
+          />
+        </ThemeCard>
+      ) : (
+        <AnalyticsCharts data={financeSummary} />
+      )}
     </div>
   );
 };

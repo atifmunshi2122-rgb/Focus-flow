@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { FocusSession, FocusStatsData } from '../../types/index.ts';
-import { ThemeCard } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
   AnimatedProgressBar,
@@ -162,6 +162,118 @@ export const FocusAnalytics: React.FC = () => {
             heightClass="h-2"
             ariaLabel="Weekly Deep Work Target"
           />
+        </div>
+      </ThemeCard>
+
+      {/* Weekly Habit & Focus Consistency Strip */}
+      <ThemeCard className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-[var(--ff-text-primary)] flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[var(--ff-accent-text)]" />
+              Weekly Habit Consistency &amp; Productivity Insights
+            </h3>
+            <p className="text-xs text-[var(--ff-text-muted)]">
+              Daily habit goal adherence ({dailyGoalMin}m threshold) and session pacing
+            </p>
+          </div>
+          <ThemeBadge tone={dailyPct >= 100 ? 'success' : 'accent'}>
+            {stats?.last7Days.filter((d) => d.minutes >= dailyGoalMin).length} / 7 Days On-Target
+          </ThemeBadge>
+        </div>
+
+        {/* 7-Day Consistency Dot Matrix */}
+        <div className="grid grid-cols-7 gap-2 pt-1">
+          {stats?.last7Days.map((d) => {
+            const hitTarget = d.minutes >= dailyGoalMin;
+            const hasActivity = d.minutes > 0;
+            const isToday = d.date === new Date().toISOString().split('T')[0];
+            return (
+              <div
+                key={d.date}
+                className="p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition-all text-center"
+                style={{
+                  background: isToday
+                    ? 'var(--ff-accent-soft)'
+                    : hitTarget
+                    ? 'var(--ff-success-soft)'
+                    : 'var(--ff-surface-subtle)',
+                  borderColor: isToday
+                    ? 'var(--ff-accent-border)'
+                    : hitTarget
+                    ? 'var(--ff-success)'
+                    : 'var(--ff-border-color)',
+                }}
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                  {d.dayName.slice(0, 3)}
+                </span>
+                <div
+                  className="w-5 h-5 rounded-full flex items-center justify-center"
+                  style={{
+                    background: hitTarget
+                      ? 'var(--ff-success)'
+                      : hasActivity
+                      ? 'var(--ff-accent)'
+                      : 'var(--ff-surface-muted)',
+                    color: '#ffffff',
+                  }}
+                >
+                  {hitTarget ? (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  ) : (
+                    <span className="text-[9px] font-mono font-bold">{d.minutes > 0 ? d.minutes : '0'}</span>
+                  )}
+                </div>
+                <span className="text-[10px] font-mono text-[var(--ff-text-primary)]">
+                  {d.minutes}m
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Dynamic Insights Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[var(--ff-border-color)] text-xs">
+          <div className="p-2.5 rounded-lg bg-[var(--ff-surface-subtle)]">
+            <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
+              Average Cycle Duration
+            </span>
+            <span className="text-sm font-bold font-mono text-[var(--ff-text-primary)] mt-0.5 block">
+              {stats?.totalCompletedSessions && stats.totalCompletedSessions > 0
+                ? `${Math.round(stats.totalMinutes / stats.totalCompletedSessions)} mins`
+                : '25 mins'}
+            </span>
+            <span className="text-[10px] text-[var(--ff-text-muted)]">Per completed Pomodoro</span>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-[var(--ff-surface-subtle)]">
+            <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
+              Consistency Ratio
+            </span>
+            <span className="text-sm font-bold font-mono text-[var(--ff-success)] mt-0.5 block">
+              {stats?.last7Days.length
+                ? `${Math.round((stats.last7Days.filter((d) => d.minutes > 0).length / 7) * 100)}%`
+                : '0%'}
+            </span>
+            <span className="text-[10px] text-[var(--ff-text-muted)]">Active days past 7 days</span>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-[var(--ff-surface-subtle)]">
+            <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
+              Focus Momentum Tier
+            </span>
+            <span className="text-sm font-bold font-mono text-[var(--ff-accent-text)] mt-0.5 block">
+              {(stats?.totalMinutes || 0) >= 3000
+                ? 'Platinum Master'
+                : (stats?.totalMinutes || 0) >= 1200
+                ? 'Gold Practitioner'
+                : (stats?.totalMinutes || 0) >= 300
+                ? 'Silver Builder'
+                : 'Bronze Starter'}
+            </span>
+            <span className="text-[10px] text-[var(--ff-text-muted)]">Based on verified focus time</span>
+          </div>
         </div>
       </ThemeCard>
 

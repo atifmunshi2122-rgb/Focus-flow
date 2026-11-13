@@ -11,6 +11,7 @@ import {
 } from '../ui/ThemePrimitives.tsx';
 import {
   ConfirmationBurst,
+  InteractiveSurface3D,
   ValidationMessage,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
@@ -602,9 +603,11 @@ export const PomodoroTimer: React.FC = () => {
 
   return (
     <>
-      <ThemeCard className="relative overflow-hidden flex flex-col items-center justify-center p-6 sm:p-7">
-        {timerBody}
-      </ThemeCard>
+      <InteractiveSurface3D maxTilt={3}>
+        <ThemeCard className="relative overflow-hidden flex flex-col items-center justify-center p-6 sm:p-7">
+          {timerBody}
+        </ThemeCard>
+      </InteractiveSurface3D>
 
       {/* Distraction-Free Full-Screen Focus Overlay */}
       <AnimatePresence>
