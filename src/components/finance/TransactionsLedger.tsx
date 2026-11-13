@@ -275,41 +275,59 @@ export const TransactionsLedger: React.FC = () => {
                       duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01),
                       ease: MOTION_EASING.decelerate,
                     }}
-                    className="ff-row-hover flex items-center justify-between gap-4"
-                    style={{ padding: 'var(--ff-row-pad)' }}
+                    className="ff-row-hover"
                   >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      <div
-                        className="w-9 h-9 flex items-center justify-center shrink-0"
-                        style={{
-                          borderRadius: 'var(--ff-radius-button)',
-                          background: isIncome
-                            ? 'var(--ff-success-soft)'
-                            : isFixed
-                            ? 'var(--ff-accent-soft)'
-                            : 'var(--ff-danger-soft)',
-                          color: isIncome
-                            ? 'var(--ff-success)'
-                            : isFixed
-                            ? 'var(--ff-accent-text)'
-                            : 'var(--ff-danger)',
-                        }}
-                      >
-                        {isIncome ? (
-                          <TrendingUp className="w-4 h-4" />
-                        ) : isFixed ? (
-                          <Repeat className="w-4 h-4" />
-                        ) : (
-                          <TrendingDown className="w-4 h-4" />
-                        )}
+                    {/* Mobile Card View (< 640px) */}
+                    <div className="flex sm:hidden flex-col gap-2.5 p-3.5">
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className="w-9 h-9 flex items-center justify-center shrink-0"
+                            style={{
+                              borderRadius: 'var(--ff-radius-button)',
+                              background: isIncome
+                                ? 'var(--ff-success-soft)'
+                                : isFixed
+                                ? 'var(--ff-accent-soft)'
+                                : 'var(--ff-danger-soft)',
+                              color: isIncome
+                                ? 'var(--ff-success)'
+                                : isFixed
+                                ? 'var(--ff-accent-text)'
+                                : 'var(--ff-danger)',
+                            }}
+                          >
+                            {isIncome ? (
+                              <TrendingUp className="w-4 h-4" />
+                            ) : isFixed ? (
+                              <Repeat className="w-4 h-4" />
+                            ) : (
+                              <TrendingDown className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
+                              {t.name}
+                            </p>
+                            <span className="text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
+                              {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <span
+                          className="text-base font-bold font-mono tabular-nums shrink-0"
+                          style={{
+                            color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
+                          }}
+                        >
+                          {isIncome ? '+' : '-'}
+                          {formatCurrency(t.amountPaise, currency)}
+                        </span>
                       </div>
 
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
-                          {t.name}
-                        </p>
-
-                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[var(--ff-text-muted)]">
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--ff-border-color)] text-[11px] text-[var(--ff-text-muted)]">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <div className="flex items-center gap-1">
                             <Tag className="w-3 h-3" />
                             <span>{t.category}</span>
@@ -328,33 +346,102 @@ export const TransactionsLedger: React.FC = () => {
                             </>
                           )}
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteTransaction(t)}
+                          className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] transition-colors shrink-0"
+                          title={`Delete ${t.name}`}
+                          aria-label={`Delete ${t.name}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <div className="text-right">
-                        <span
-                          className="text-base font-bold font-mono tabular-nums"
+                    {/* Desktop Row View (>= 640px) */}
+                    <div
+                      className="hidden sm:flex items-center justify-between gap-4 w-full"
+                      style={{ padding: 'var(--ff-row-pad)' }}
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div
+                          className="w-9 h-9 flex items-center justify-center shrink-0"
                           style={{
-                            color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
+                            borderRadius: 'var(--ff-radius-button)',
+                            background: isIncome
+                              ? 'var(--ff-success-soft)'
+                              : isFixed
+                              ? 'var(--ff-accent-soft)'
+                              : 'var(--ff-danger-soft)',
+                            color: isIncome
+                              ? 'var(--ff-success)'
+                              : isFixed
+                              ? 'var(--ff-accent-text)'
+                              : 'var(--ff-danger)',
                           }}
                         >
-                          {isIncome ? '+' : '-'}
-                          {formatCurrency(t.amountPaise, currency)}
-                        </span>
-                        <span className="block text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
-                          {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
-                        </span>
+                          {isIncome ? (
+                            <TrendingUp className="w-4 h-4" />
+                          ) : isFixed ? (
+                            <Repeat className="w-4 h-4" />
+                          ) : (
+                            <TrendingDown className="w-4 h-4" />
+                          )}
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
+                            {t.name}
+                          </p>
+
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[var(--ff-text-muted)]">
+                            <div className="flex items-center gap-1">
+                              <Tag className="w-3 h-3" />
+                              <span>{t.category}</span>
+                            </div>
+                            <span aria-hidden="true">·</span>
+                            <div className="flex items-center gap-1 font-mono">
+                              <Calendar className="w-3 h-3" />
+                              <span>{t.date}</span>
+                            </div>
+                            {t.paymentMethod && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="uppercase text-[10px] font-medium">
+                                  {t.paymentMethod.replace('_', ' ')}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteTransaction(t)}
-                        className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] transition-colors"
-                        title={`Delete ${t.name}`}
-                        aria-label={`Delete ${t.name}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <div className="text-right">
+                          <span
+                            className="text-base font-bold font-mono tabular-nums"
+                            style={{
+                              color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
+                            }}
+                          >
+                            {isIncome ? '+' : '-'}
+                            {formatCurrency(t.amountPaise, currency)}
+                          </span>
+                          <span className="block text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
+                            {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteTransaction(t)}
+                          className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] transition-colors"
+                          title={`Delete ${t.name}`}
+                          aria-label={`Delete ${t.name}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </motion.div>
                 );

@@ -32,7 +32,15 @@ import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
 import { MotionPage } from './components/ui/MotionPrimitives.tsx';
 import { MOTION_EASING, MOTION_DURATION, getIntensityFactor } from './theme/motionTokens.ts';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { Check, Eye, X } from 'lucide-react';
+import { Check, Eye, X, LayoutDashboard, Timer, CheckSquare, Wallet, Settings } from 'lucide-react';
+
+const mobileBottomNavItems: Array<{ id: NavTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'focus', label: 'Focus', icon: Timer },
+  { id: 'tasks', label: 'Tasks', icon: CheckSquare },
+  { id: 'finance', label: 'Finance', icon: Wallet },
+  { id: 'settings', label: 'Settings', icon: Settings },
+];
 
 const MainContent: React.FC = () => {
   const {
@@ -119,8 +127,8 @@ const MainContent: React.FC = () => {
 
         {/* Viewport Content Area */}
         <main
-          className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1920px] mx-auto min-w-0"
-          style={{ paddingBottom: isFullAppPreview ? '6rem' : undefined }}
+          className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1920px] mx-auto min-w-0 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-8"
+          style={{ paddingBottom: isFullAppPreview ? '8rem' : undefined }}
         >
           <MotionPage routeKey={currentTab}>
             {currentTab === 'dashboard' && (
@@ -165,6 +173,60 @@ const MainContent: React.FC = () => {
             {currentTab === 'settings' && <SettingsView />}
           </MotionPage>
         </main>
+
+        {/* Sticky Mobile Bottom Navigation Bar (lg:hidden) */}
+        <nav
+          aria-label="Mobile Bottom Navigation"
+          className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--ff-surface-header)] backdrop-blur-md border-t border-[var(--ff-border-color)] px-2 py-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+          style={{
+            boxShadow: '0 -4px 16px rgba(0, 0, 0, 0.12)',
+          }}
+        >
+          <div className="flex items-center justify-around max-w-lg mx-auto">
+            {mobileBottomNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-tab={item.id}
+                  data-bottom-nav={item.id}
+                  onClick={() => setCurrentTab(item.id)}
+                  className="relative flex flex-col items-center justify-center flex-1 py-1.5 px-1 min-h-[48px] rounded-xl transition-all"
+                  style={{
+                    color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
+                  }}
+                  aria-label={item.label}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="mobile-bottom-nav-active"
+                      className="absolute inset-0 rounded-xl pointer-events-none"
+                      style={{
+                        background: 'var(--ff-accent-soft)',
+                        border: '1px solid var(--ff-accent-border)',
+                      }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <div className="relative z-10 flex flex-col items-center gap-0.5">
+                    <Icon className="w-5 h-5" />
+                    <span
+                      className="text-[10px] font-medium tracking-tight"
+                      style={{
+                        fontWeight: isActive ? 700 : 500,
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
       </div>
 
       {/* Full-App Live Preview Floating Banner */}

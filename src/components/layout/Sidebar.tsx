@@ -23,6 +23,7 @@ import {
   Layers,
   Repeat,
   ShieldAlert,
+  X,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -60,6 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { isDisabled, intensity } = useMotionPreferences();
   const activeStyle = getStyleDefinition(effectiveThemeConfig.styleId);
   const factor = getIntensityFactor(intensity);
+  const isExpanded = !collapsed || mobileOpen;
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Overview' },
@@ -102,8 +104,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`ff-sidebar fixed lg:sticky top-0 left-0 z-50 h-screen flex flex-col justify-between select-none transition-[transform,width] duration-300 ease-out ${
-          collapsed ? 'w-20' : 'w-64'
+        className={`ff-sidebar fixed lg:sticky top-0 left-0 z-50 h-[100dvh] flex flex-col justify-between select-none transition-[transform,width] duration-300 ease-out w-64 ${
+          collapsed ? 'lg:w-20' : 'lg:w-64'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Top Header / Brand */}
@@ -128,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="w-full h-full object-cover"
               />
             </motion.div>
-            {!collapsed && (
+            {isExpanded && (
               <div className="flex flex-col min-w-0">
                 <span className="ff-heading font-bold text-base truncate">
                   FocusFlow
@@ -155,6 +157,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <ChevronLeft className="w-4 h-4" />
             </motion.span>
+          </button>
+
+          {/* Mobile Close Button (>= 44x44px touch target) */}
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="lg:hidden flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+            aria-label="Close navigation drawer"
+          >
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -184,7 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`w-4 h-4 shrink-0 ${isDisabled ? '' : 'animate-spin'}`}
                   style={{ animationDuration: '4s' }}
                 />
-                {!collapsed && (
+                {isExpanded && (
                   <div className="flex-1 truncate">
                     <div className="text-[11px] font-semibold uppercase tracking-wider">
                       {timerMode === 'work' ? 'Focusing' : 'On Break'}
@@ -207,7 +219,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <React.Fragment key={item.id}>
                 {/* Section Header when Expanded */}
-                {!collapsed && isFirstOfSection && (
+                {isExpanded && isFirstOfSection && (
                   <div
                     className={`px-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] select-none opacity-75 ${
                       index === 0 ? 'mb-1' : 'mt-3 mb-1'
@@ -218,7 +230,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
 
                 {/* Subtle Divider when Collapsed */}
-                {collapsed && index > 0 && isFirstOfSection && (
+                {!isExpanded && index > 0 && isFirstOfSection && (
                   <div className="my-1.5 mx-2 border-t border-[var(--ff-border-color)] opacity-40" />
                 )}
 
@@ -228,7 +240,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   data-nav-id={item.id}
                   data-active={isActive ? 'true' : 'false'}
                   onClick={() => handleNavClick(item.id)}
-                  whileHover={isDisabled ? undefined : { x: collapsed || isActive ? 0 : 2 }}
+                  whileHover={isDisabled ? undefined : { x: !isExpanded || isActive ? 0 : 2 }}
                   whileTap={isDisabled ? undefined : { scale: 0.98 }}
                   transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
                   className="ff-sidebar-item group relative w-full flex items-center gap-2.5 px-2.5 py-2 text-sm font-medium transition-colors hover:bg-[var(--ff-surface-hover)]"
@@ -237,7 +249,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
                     fontWeight: isActive ? 700 : 500,
                   }}
-                  title={collapsed ? item.label : undefined}
+                  title={!isExpanded ? item.label : undefined}
                 >
                   {/* Left Accent Bar on Active Tab */}
                   {isActive && (
@@ -284,7 +296,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
 
                   {/* Text Label */}
-                  {!collapsed && (
+                  {isExpanded && (
                     <span
                       className="relative z-10 flex-1 text-left truncate whitespace-nowrap text-xs transition-colors"
                       style={{
@@ -297,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
 
                   {/* Tag Badge */}
-                  {!collapsed && item.tag && (
+                  {isExpanded && item.tag && (
                     <span
                       className="relative z-10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded"
                       style={{
@@ -317,7 +329,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Footer / Style Indicator, Theme Mode & Profile */}
         <div
-          className="p-3 border-t space-y-2"
+          className="p-3 border-t space-y-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
           style={{ borderColor: 'var(--ff-border-color)' }}
         >
           {/* Active Style Quick Jump */}
@@ -325,7 +337,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={() => handleNavClick('settings')}
             className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium transition-colors border ${
-              collapsed ? 'justify-center' : ''
+              !isExpanded ? 'justify-center' : ''
             }`}
             style={{
               borderRadius: 'var(--ff-radius-button)',
@@ -336,7 +348,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={`Active style: ${activeStyle.name} — Open Theme Studio`}
           >
             <Palette className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
-            {!collapsed && (
+            {isExpanded && (
               <span className="flex-1 text-left truncate">{activeStyle.name}</span>
             )}
           </button>
@@ -346,7 +358,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={toggleTheme}
             className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-[var(--ff-text-secondary)] hover:bg-[var(--ff-surface-hover)] transition-colors ${
-              collapsed ? 'justify-center' : ''
+              !isExpanded ? 'justify-center' : ''
             }`}
             style={{ borderRadius: 'var(--ff-radius-button)' }}
             title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
@@ -367,12 +379,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </motion.span>
             </AnimatePresence>
-            {!collapsed && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
+            {isExpanded && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
           </button>
 
           {/* User mini badge */}
           <div
-            className={`flex items-center gap-2.5 p-2 ${collapsed ? 'justify-center' : ''}`}
+            className={`flex items-center gap-2.5 p-2 ${!isExpanded ? 'justify-center' : ''}`}
             style={{
               borderRadius: 'var(--ff-radius-button)',
               background: 'var(--ff-surface-muted)',
@@ -388,7 +400,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               {user?.name ? user.name.slice(0, 2).toUpperCase() : 'AM'}
             </div>
-            {!collapsed && (
+            {isExpanded && (
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold truncate text-[var(--ff-text-primary)]">
                   {user?.name || 'Atif Munshi'}

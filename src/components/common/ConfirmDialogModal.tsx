@@ -86,8 +86,14 @@ export const ConfirmDialogModal: React.FC<ConfirmDialogModalProps> = ({
           </div>
         </div>
 
-        <div className="pt-2 flex items-center justify-end gap-2 border-t border-[var(--ff-border-color)]">
-          <ThemeButton type="button" variant="ghost" size="sm" onClick={onCancel}>
+        <div className="pt-3 flex items-center justify-end gap-2 border-t border-[var(--ff-border-color)]">
+          <ThemeButton
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            className="min-h-[44px] px-4 text-xs font-semibold"
+          >
             {cancelLabel}
           </ThemeButton>
           <ThemeButton
@@ -95,6 +101,7 @@ export const ConfirmDialogModal: React.FC<ConfirmDialogModalProps> = ({
             variant={tone === 'danger' ? 'danger' : 'primary'}
             size="sm"
             onClick={onConfirm}
+            className="min-h-[44px] px-4 text-xs font-semibold"
           >
             {confirmLabel}
           </ThemeButton>

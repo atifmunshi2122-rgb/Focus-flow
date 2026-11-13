@@ -451,57 +451,63 @@ export const BillsTracker: React.FC = () => {
                       duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01),
                       ease: MOTION_EASING.decelerate,
                     }}
-                    className="ff-row-hover relative flex flex-col md:flex-row md:items-center justify-between gap-4"
-                    style={{ padding: 'var(--ff-row-pad)' }}
+                    className="ff-row-hover relative"
                   >
-                    <div className="flex items-start gap-3.5 min-w-0">
-                      <motion.button
-                        type="button"
-                        onClick={() =>
-                          isPaid ? void handleUndoPayment(bill.id, bill.name) : openPayModal(bill)
-                        }
-                        whileTap={isDisabled ? undefined : { scale: 0.85 }}
-                        animate={{ scale: isPaid && !isDisabled ? [1, 1.15, 1] : 1 }}
-                        transition={{ duration: MOTION_DURATION.control }}
-                        className="mt-1 w-6 h-6 flex items-center justify-center transition-colors shrink-0 border-2"
-                        style={{
-                          borderRadius: 'var(--ff-radius-badge)',
-                          background: isPaid ? 'var(--ff-success)' : 'transparent',
-                          borderColor: isPaid ? 'var(--ff-success)' : 'var(--ff-border-strong)',
-                          color: '#ffffff',
-                        }}
-                        title={isPaid ? 'Click to undo payment' : 'Click to mark as paid'}
-                        aria-label={isPaid ? 'Undo payment' : 'Mark as paid'}
-                      >
-                        {isPaid && <Check className="w-4 h-4 stroke-[3]" />}
-                      </motion.button>
+                    {/* Mobile Card View (< 640px) */}
+                    <div className="flex sm:hidden flex-col gap-3 p-3.5">
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 -mt-2 shrink-0">
+                            <motion.button
+                              type="button"
+                              onClick={() =>
+                                isPaid ? void handleUndoPayment(bill.id, bill.name) : openPayModal(bill)
+                              }
+                              whileTap={isDisabled ? undefined : { scale: 0.85 }}
+                              animate={{ scale: isPaid && !isDisabled ? [1, 1.15, 1] : 1 }}
+                              transition={{ duration: MOTION_DURATION.control }}
+                              className="w-7 h-7 flex items-center justify-center transition-colors border-2"
+                              style={{
+                                borderRadius: 'var(--ff-radius-badge)',
+                                background: isPaid ? 'var(--ff-success)' : 'transparent',
+                                borderColor: isPaid ? 'var(--ff-success)' : 'var(--ff-border-strong)',
+                                color: '#ffffff',
+                              }}
+                              title={isPaid ? 'Click to undo payment' : 'Click to mark as paid'}
+                              aria-label={isPaid ? 'Undo payment' : 'Mark as paid'}
+                            >
+                              {isPaid && <Check className="w-4 h-4 stroke-[3]" />}
+                            </motion.button>
+                          </div>
 
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-bold text-[var(--ff-text-primary)]">
-                            {bill.name}
-                          </span>
-
-                          <ThemeBadge
-                            tone={isPaid ? 'success' : isOverdue ? 'danger' : 'warning'}
-                          >
-                            {isPaid ? 'PAID' : isOverdue ? 'OVERDUE' : 'UNPAID'}
-                          </ThemeBadge>
-
-                          {bill.recurringExpenseId && (
-                            <ThemeBadge tone="accent">Recurring</ThemeBadge>
-                          )}
-
-                          <ConfirmationBurst show={recentlyPaidBillId === bill.id} label="Paid!" />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-sm font-bold text-[var(--ff-text-primary)]">
+                                {bill.name}
+                              </span>
+                              <ThemeBadge tone={isPaid ? 'success' : isOverdue ? 'danger' : 'warning'}>
+                                {isPaid ? 'PAID' : isOverdue ? 'OVERDUE' : 'UNPAID'}
+                              </ThemeBadge>
+                              {bill.recurringExpenseId && (
+                                <ThemeBadge tone="accent">Recurring</ThemeBadge>
+                              )}
+                              <ConfirmationBurst show={recentlyPaidBillId === bill.id} label="Paid!" />
+                            </div>
+                            {bill.notes && (
+                              <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
+                                {bill.notes}
+                              </p>
+                            )}
+                          </div>
                         </div>
 
-                        {bill.notes && (
-                          <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
-                            {bill.notes}
-                          </p>
-                        )}
+                        <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)] shrink-0">
+                          {formatCurrency(bill.amountPaise, currency)}
+                        </span>
+                      </div>
 
-                        <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--ff-border-color)]">
+                        <div className="flex items-center gap-2 text-[11px] text-[var(--ff-text-muted)] flex-wrap">
                           <div className="flex items-center gap-1">
                             <Tag className="w-3 h-3" />
                             <span>{bill.categoryName || 'General'}</span>
@@ -520,47 +526,159 @@ export const BillsTracker: React.FC = () => {
                             </>
                           )}
                         </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {!isPaid ? (
+                            <ThemeButton
+                              variant="success"
+                              size="sm"
+                              onClick={() => openPayModal(bill)}
+                              className="min-h-[44px] px-3.5 text-xs whitespace-nowrap"
+                            >
+                              Mark as Paid
+                            </ThemeButton>
+                          ) : (
+                            <ThemeButton
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void handleUndoPayment(bill.id, bill.name)}
+                              className="min-h-[44px] px-3.5 text-xs"
+                              title="Undo payment"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                              <span>Undo</span>
+                            </ThemeButton>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteBill(bill)}
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] rounded-lg transition-colors"
+                            title="Delete bill"
+                            aria-label={`Delete ${bill.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4 self-end md:self-center shrink-0">
-                      <div className="text-right">
-                        <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)] block">
-                          {formatCurrency(bill.amountPaise, currency)}
-                        </span>
+                    {/* Desktop Row View (>= 640px) */}
+                    <div
+                      className="hidden sm:flex items-center justify-between gap-4 w-full"
+                      style={{ padding: 'var(--ff-row-pad)' }}
+                    >
+                      <div className="flex items-start gap-3.5 min-w-0">
+                        <div className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 -mt-2 shrink-0">
+                          <motion.button
+                            type="button"
+                            onClick={() =>
+                              isPaid ? void handleUndoPayment(bill.id, bill.name) : openPayModal(bill)
+                            }
+                            whileTap={isDisabled ? undefined : { scale: 0.85 }}
+                            animate={{ scale: isPaid && !isDisabled ? [1, 1.15, 1] : 1 }}
+                            transition={{ duration: MOTION_DURATION.control }}
+                            className="w-6 h-6 flex items-center justify-center transition-colors border-2"
+                            style={{
+                              borderRadius: 'var(--ff-radius-badge)',
+                              background: isPaid ? 'var(--ff-success)' : 'transparent',
+                              borderColor: isPaid ? 'var(--ff-success)' : 'var(--ff-border-strong)',
+                              color: '#ffffff',
+                            }}
+                            title={isPaid ? 'Click to undo payment' : 'Click to mark as paid'}
+                            aria-label={isPaid ? 'Undo payment' : 'Mark as paid'}
+                          >
+                            {isPaid && <Check className="w-4 h-4 stroke-[3]" />}
+                          </motion.button>
+                        </div>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-[var(--ff-text-primary)]">
+                              {bill.name}
+                            </span>
+
+                            <ThemeBadge
+                              tone={isPaid ? 'success' : isOverdue ? 'danger' : 'warning'}
+                            >
+                              {isPaid ? 'PAID' : isOverdue ? 'OVERDUE' : 'UNPAID'}
+                            </ThemeBadge>
+
+                            {bill.recurringExpenseId && (
+                              <ThemeBadge tone="accent">Recurring</ThemeBadge>
+                            )}
+
+                            <ConfirmationBurst show={recentlyPaidBillId === bill.id} label="Paid!" />
+                          </div>
+
+                          {bill.notes && (
+                            <p className="text-xs text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
+                              {bill.notes}
+                            </p>
+                          )}
+
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
+                            <div className="flex items-center gap-1">
+                              <Tag className="w-3 h-3" />
+                              <span>{bill.categoryName || 'General'}</span>
+                            </div>
+                            <span aria-hidden="true">·</span>
+                            <div className="flex items-center gap-1 font-mono">
+                              <Calendar className="w-3 h-3" />
+                              <span>Due {bill.dueDate}</span>
+                            </div>
+                            {isPaid && bill.paymentDate && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="font-medium" style={{ color: 'var(--ff-success)' }}>
+                                  Paid {bill.paymentDate}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        {!isPaid ? (
-                          <ThemeButton
-                            variant="success"
-                            size="xs"
-                            onClick={() => openPayModal(bill)}
-                            className="whitespace-nowrap"
-                          >
-                            Mark as Paid
-                          </ThemeButton>
-                        ) : (
-                          <ThemeButton
-                            variant="ghost"
-                            size="xs"
-                            onClick={() => void handleUndoPayment(bill.id, bill.name)}
-                            title="Undo payment"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>Undo</span>
-                          </ThemeButton>
-                        )}
+                      <div className="flex items-center gap-4 shrink-0">
+                        <div className="text-right">
+                          <span className="text-base font-bold font-mono tabular-nums text-[var(--ff-text-primary)] block">
+                            {formatCurrency(bill.amountPaise, currency)}
+                          </span>
+                        </div>
 
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteBill(bill)}
-                          className="p-1.5 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] rounded-lg transition-colors"
-                          title="Delete bill"
-                          aria-label={`Delete ${bill.name}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {!isPaid ? (
+                            <ThemeButton
+                              variant="success"
+                              size="xs"
+                              onClick={() => openPayModal(bill)}
+                              className="whitespace-nowrap min-h-[36px]"
+                            >
+                              Mark as Paid
+                            </ThemeButton>
+                          ) : (
+                            <ThemeButton
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => void handleUndoPayment(bill.id, bill.name)}
+                              title="Undo payment"
+                              className="min-h-[36px]"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Undo</span>
+                            </ThemeButton>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteBill(bill)}
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] rounded-lg transition-colors"
+                            title="Delete bill"
+                            aria-label={`Delete ${bill.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </motion.div>

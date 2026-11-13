@@ -111,9 +111,9 @@ export const PomodoroTimer: React.FC = () => {
   const secs = displaySeconds % 60;
   const timeFormatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 
-  const size = fullScreenFocus ? 320 : 272;
+  const baseSize = 280;
   const strokeWidth = 10;
-  const radius = (size - strokeWidth * 2) / 2;
+  const radius = (baseSize - strokeWidth * 2) / 2;
   const circumference = 2 * Math.PI * radius;
   const progressRatio =
     timerEngine === 'stopwatch'
@@ -188,7 +188,7 @@ export const PomodoroTimer: React.FC = () => {
               }
             : { duration: isDisabled ? 0.01 : 0.45, ease: MOTION_EASING.standard }
         }
-        className="absolute inset-x-0 top-12 mx-auto w-72 h-72 rounded-full pointer-events-none blur-3xl"
+        className="absolute inset-x-0 top-12 mx-auto w-56 h-56 sm:w-72 sm:h-72 max-w-[70vw] max-h-[70vw] rounded-full pointer-events-none blur-3xl"
         style={{ background: currentModeColors.aura }}
       />
 
@@ -310,11 +310,10 @@ export const PomodoroTimer: React.FC = () => {
       </div>
 
       {/* Circular Progress Display */}
-      <div className="relative z-10 flex items-center justify-center my-2">
+      <div className="relative z-10 flex items-center justify-center my-2 w-full max-w-[280px] sm:max-w-[320px] aspect-square mx-auto">
         <svg
-          width={size}
-          height={size}
-          className="transform -rotate-90 transition-[filter] duration-300"
+          viewBox={`0 0 ${baseSize} ${baseSize}`}
+          className="w-56 h-56 xs:w-64 xs:h-64 sm:w-72 sm:h-72 md:w-80 md:h-80 max-w-[75vw] max-h-[75vw] transform -rotate-90 transition-[filter] duration-300"
           style={{
             filter: isRunning
               ? `drop-shadow(0 0 14px color-mix(in oklab, ${currentModeColors.ring} 38%, transparent))`
@@ -323,8 +322,8 @@ export const PomodoroTimer: React.FC = () => {
           aria-hidden="true"
         >
           <circle
-            cx={size / 2}
-            cy={size / 2}
+            cx={baseSize / 2}
+            cy={baseSize / 2}
             r={radius}
             strokeWidth={strokeWidth}
             stroke="var(--ff-surface-muted)"
@@ -332,8 +331,8 @@ export const PomodoroTimer: React.FC = () => {
           />
 
           <motion.circle
-            cx={size / 2}
-            cy={size / 2}
+            cx={baseSize / 2}
+            cy={baseSize / 2}
             r={radius}
             strokeWidth={strokeWidth}
             fill="transparent"
@@ -350,17 +349,17 @@ export const PomodoroTimer: React.FC = () => {
           />
         </svg>
 
-        <div className="absolute flex flex-col items-center justify-center text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
           <ConfirmationBurst show={showCelebration} label="Session Complete!" />
           <motion.span
             animate={{ scale: isRunning && !isDisabled ? 1.03 : 1 }}
             transition={{ duration: 0.3, ease: MOTION_EASING.standard }}
-            className="text-5xl font-extrabold font-mono tabular-nums text-[var(--ff-text-primary)]"
+            className="text-4xl sm:text-5xl font-extrabold font-mono tabular-nums text-[var(--ff-text-primary)] tracking-tight"
           >
             {timeFormatted}
           </motion.span>
           <span
-            className="text-xs font-semibold uppercase tracking-wider mt-1.5"
+            className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider mt-1.5"
             style={{ color: currentModeColors.text }}
           >
             {timerEngine === 'stopwatch'
@@ -373,7 +372,7 @@ export const PomodoroTimer: React.FC = () => {
                     ? 'Short Pause'
                     : 'Rest & Recharge'}
           </span>
-          <span className="text-[11px] text-[var(--ff-text-muted)] mt-1">
+          <span className="text-[10px] sm:text-[11px] text-[var(--ff-text-muted)] mt-1">
             {isRunning ? 'Session in progress' : 'Ready to start'}
           </span>
         </div>

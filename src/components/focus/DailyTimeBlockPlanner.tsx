@@ -17,6 +17,7 @@ import {
   Edit2,
   Tag,
   Link as LinkIcon,
+  GripVertical,
 } from 'lucide-react';
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -323,7 +324,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => openCreateModal(hourStr)}
-                      className="opacity-0 hover:opacity-100 text-[11px] text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)] flex items-center gap-1 px-2 py-1 rounded transition-opacity"
+                      className="opacity-75 sm:opacity-0 sm:hover:opacity-100 text-[11px] text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)] flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-[var(--ff-border-color)] sm:border-transparent hover:border-[var(--ff-accent-border)] transition-all min-h-[36px]"
                     >
                       <Plus className="w-3.5 h-3.5" /> Schedule {hourStr}
                     </button>
@@ -335,7 +336,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                       return (
                         <div
                           key={b.id}
-                          className={`flex items-center justify-between gap-3 p-2.5 rounded-xl border transition-all ${
+                          className={`flex items-center justify-between gap-2 p-2 sm:p-2.5 rounded-xl border transition-all ${
                             b.completed
                               ? 'bg-[var(--ff-card-bg)] opacity-60 border-[var(--ff-border)]'
                               : 'bg-[var(--ff-card-bg)] shadow-xs'
@@ -346,11 +347,21 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                             borderColor: isConflicted ? 'var(--ff-danger)' : undefined,
                           }}
                         >
-                          <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {/* Dedicated Drag Handle for Touch Ergonomics */}
+                            <div
+                              className="text-[var(--ff-text-muted)] opacity-60 hover:opacity-100 cursor-grab active:cursor-grabbing p-1 shrink-0"
+                              style={{ touchAction: 'none' }}
+                              title="Drag handle"
+                              aria-hidden="true"
+                            >
+                              <GripVertical className="w-3.5 h-3.5" />
+                            </div>
+
                             <button
                               type="button"
                               onClick={() => handleToggleComplete(b)}
-                              className="text-[var(--ff-text-muted)] hover:text-[var(--ff-success)] shrink-0"
+                              className="min-w-[40px] min-h-[40px] flex items-center justify-center text-[var(--ff-text-muted)] hover:text-[var(--ff-success)] shrink-0"
                               aria-label={b.completed ? 'Mark incomplete' : 'Mark completed'}
                             >
                               {b.completed ? (
@@ -360,7 +371,12 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                               )}
                             </button>
 
-                            <div>
+                            {/* Tap to edit block body */}
+                            <div
+                              onClick={() => openEditModal(b)}
+                              className="cursor-pointer min-w-0 pr-1 select-none"
+                              title="Tap to edit this block"
+                            >
                               <p
                                 className={`text-xs font-bold text-[var(--ff-text-primary)] truncate ${
                                   b.completed ? 'line-through' : ''
@@ -380,16 +396,16 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1 shrink-0 ml-2">
+                          <div className="flex items-center gap-0.5 shrink-0 ml-2">
                             {isConflicted && (
-                              <span title="Overlaps with another block">
+                              <span title="Overlaps with another block" className="p-1">
                                 <AlertTriangle className="w-3.5 h-3.5 text-[var(--ff-danger)]" />
                               </span>
                             )}
                             <button
                               type="button"
                               onClick={() => openEditModal(b)}
-                              className="p-1 rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
                               aria-label="Edit time block"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -397,7 +413,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => void handleDelete(b)}
-                              className="p-1 rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
+                              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
                               aria-label="Delete time block"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -414,13 +430,16 @@ export const DailyTimeBlockPlanner: React.FC = () => {
         </div>
       </ThemeCard>
 
-      {/* Add / Edit Time Block Modal */}
+      {/* Add / Edit Time Block Modal (Bottom-Sheet on Mobile) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs">
           <form
             onSubmit={handleSave}
-            className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col overflow-hidden"
+            className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col max-h-[85dvh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]"
           >
+            {/* Mobile Grab Handle */}
+            <div className="sm:hidden w-12 h-1 bg-[var(--ff-border-strong)] rounded-full mx-auto mt-2.5 opacity-60 shrink-0" />
+
             <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
               <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
                 {editingBlock ? 'Edit Time Block' : 'Schedule Time Block'}
@@ -428,7 +447,8 @@ export const DailyTimeBlockPlanner: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                aria-label="Close dialog"
               >
                 ✕
               </button>
@@ -531,10 +551,21 @@ export const DailyTimeBlockPlanner: React.FC = () => {
             </div>
 
             <div className="p-4 border-t ff-divider flex items-center justify-end gap-2">
-              <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsModalOpen(false)}>
+              <ThemeButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsModalOpen(false)}
+                className="min-h-[44px] px-4 font-semibold"
+              >
                 Cancel
               </ThemeButton>
-              <ThemeButton type="submit" variant="primary" size="sm">
+              <ThemeButton
+                type="submit"
+                variant="primary"
+                size="sm"
+                className="min-h-[44px] px-4 font-semibold"
+              >
                 {editingBlock ? 'Save Changes' : 'Schedule Block'}
               </ThemeButton>
             </div>

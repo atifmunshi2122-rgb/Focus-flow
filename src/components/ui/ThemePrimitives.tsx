@@ -456,15 +456,17 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      className={`ff-dialog ff-card-elevated w-[calc(100%-2rem)] ${maxWidthClass} p-0 bg-transparent border-0 text-[var(--ff-text-primary)]`}
+      className={`ff-dialog ff-card-elevated fixed inset-x-0 bottom-0 top-auto m-0 w-full rounded-t-2xl rounded-b-none sm:relative sm:inset-auto sm:m-auto sm:w-[calc(100%-2rem)] ${maxWidthClass} sm:rounded-[var(--ff-radius-card)] max-h-[85dvh] overflow-y-auto p-0 bg-transparent border-0 text-[var(--ff-text-primary)]`}
       style={{
         background: 'var(--ff-surface-elevated)',
         border: 'var(--ff-border-width) solid var(--ff-border-color)',
-        borderRadius: 'var(--ff-radius-card)',
         boxShadow: 'var(--ff-shadow-elevated)',
       }}
     >
-      <div className="p-6">
+      <div className="p-4 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        {/* Mobile Bottom-Sheet Grab Handle */}
+        <div className="sm:hidden w-12 h-1 bg-[var(--ff-border-strong)] rounded-full mx-auto mb-3 opacity-60 shrink-0" />
+
         <div className="flex items-start justify-between gap-4 pb-4 border-b border-[var(--ff-border-color)]">
           <div>
             <h2 id={titleId} className="text-base font-bold text-[var(--ff-text-primary)]">
@@ -477,7 +479,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
           <button
             type="button"
             onClick={() => dialogRef.current && void closeWithAnimation(dialogRef.current)}
-            className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors shrink-0"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors shrink-0"
             aria-label="Close dialog"
           >
             <X className="w-4 h-4" />

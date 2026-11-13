@@ -418,8 +418,13 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
 
           <ValidationMessage message={formError} tone="error" />
 
-          <div className="pt-2 flex items-center justify-end gap-2">
-            <ThemeButton variant="ghost" size="sm" onClick={onClose}>
+          <div className="pt-3 flex items-center justify-end gap-2 border-t border-[var(--ff-border-color)]">
+            <ThemeButton
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="min-h-[44px] px-4 text-xs font-semibold"
+            >
               Cancel
             </ThemeButton>
             <ThemeButton
@@ -429,6 +434,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
               loading={loading}
               success={submitSuccess}
               loadingText="Saving..."
+              className="min-h-[44px] px-4 text-xs font-semibold"
             >
               {submitSuccess ? 'Saved!' : 'Save & Record'}
             </ThemeButton>
