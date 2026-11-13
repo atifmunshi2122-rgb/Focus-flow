@@ -28,6 +28,7 @@ import {
 } from '../../types/index.ts';
 import { AnalyticsCharts } from '../finance/AnalyticsCharts.tsx';
 import { ThemeButton, ThemeCard, ThemeSegmentedControl } from '../ui/ThemePrimitives.tsx';
+import { MotionStaggerGrid, MotionStaggerItem } from '../ui/MotionPrimitives.tsx';
 
 export const AnalyticsReportsView: React.FC = () => {
   const { user, currency, refreshKey, showToast, settings } = useApp();
@@ -145,61 +146,72 @@ export const AnalyticsReportsView: React.FC = () => {
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 'var(--ff-grid-gap)' }}>
-        <ThemeCard>
-          <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-            <span>Task Completion Rate</span>
-            <CheckSquare className="w-4 h-4 text-[var(--ff-accent-text)]" />
-          </div>
-          <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-            {completionRate}%
-          </div>
-          <span className="text-[11px] text-[var(--ff-text-muted)]">
-            {completedTasks} finished · {pendingTasks} active
-          </span>
-        </ThemeCard>
+      <MotionStaggerGrid
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+        style={{ gap: 'var(--ff-grid-gap)' }}
+      >
+        <MotionStaggerItem>
+          <ThemeCard>
+            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+              <span>Task Completion Rate</span>
+              <CheckSquare className="w-4 h-4 text-[var(--ff-accent-text)]" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+              {completionRate}%
+            </div>
+            <span className="text-[11px] text-[var(--ff-text-muted)]">
+              {completedTasks} finished · {pendingTasks} active
+            </span>
+          </ThemeCard>
+        </MotionStaggerItem>
 
-        <ThemeCard>
-          <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-            <span>Month Focus Volume</span>
-            <Clock className="w-4 h-4 text-[var(--ff-accent-text)]" />
-          </div>
-          <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-            {focusStats?.monthMinutes || 0} min
-          </div>
-          <span className="text-[11px] text-[var(--ff-text-muted)]">
-            {focusStats?.monthSessionsCount || 0} work sessions
-          </span>
-        </ThemeCard>
+        <MotionStaggerItem>
+          <ThemeCard>
+            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+              <span>Month Focus Volume</span>
+              <Clock className="w-4 h-4 text-[var(--ff-accent-text)]" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+              {focusStats?.monthMinutes || 0} min
+            </div>
+            <span className="text-[11px] text-[var(--ff-text-muted)]">
+              {focusStats?.monthSessionsCount || 0} work sessions
+            </span>
+          </ThemeCard>
+        </MotionStaggerItem>
 
-        <ThemeCard>
-          <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-            <span>Budget Headroom</span>
-            <Wallet className="w-4 h-4 text-[var(--ff-warning)]" />
-          </div>
-          <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-            {monthlyCap > 0 ? `${budgetAdherence}%` : 'Unbounded'}
-          </div>
-          <span className="text-[11px] text-[var(--ff-text-muted)]">
-            {monthlyCap > 0
-              ? `Cap: ${formatCurrency(monthlyCap, currency)}`
-              : 'Configure cap in Finance'}
-          </span>
-        </ThemeCard>
+        <MotionStaggerItem>
+          <ThemeCard>
+            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+              <span>Budget Headroom</span>
+              <Wallet className="w-4 h-4 text-[var(--ff-warning)]" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+              {monthlyCap > 0 ? `${budgetAdherence}%` : 'Unbounded'}
+            </div>
+            <span className="text-[11px] text-[var(--ff-text-muted)]">
+              {monthlyCap > 0
+                ? `Cap: ${formatCurrency(monthlyCap, currency)}`
+                : 'Configure cap in Finance'}
+            </span>
+          </ThemeCard>
+        </MotionStaggerItem>
 
-        <ThemeCard>
-          <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-            <span>Savings Reserves</span>
-            <PiggyBank className="w-4 h-4 text-[var(--ff-success)]" />
-          </div>
-          <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-            {formatCurrency(totalSavedPaise, currency)}
-          </div>
-          <span className="text-[11px] text-[var(--ff-text-muted)]">
-            Across {goals.length} active savings goal{goals.length === 1 ? '' : 's'}
-          </span>
-        </ThemeCard>
-      </div>
+        <MotionStaggerItem>
+          <ThemeCard>
+            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+              <span>Savings Reserves</span>
+              <PiggyBank className="w-4 h-4 text-[var(--ff-success)]" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+              {formatCurrency(totalSavedPaise, currency)}
+            </div>
+            <span className="text-[11px] text-[var(--ff-text-muted)]">
+              Across {goals.length} active savings goal{goals.length === 1 ? '' : 's'}
+            </span>
+          </ThemeCard>
+        </MotionStaggerItem>
+      </MotionStaggerGrid>
 
       {financeSummary && <AnalyticsCharts data={financeSummary} />}
     </div>

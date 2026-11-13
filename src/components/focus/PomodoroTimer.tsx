@@ -311,9 +311,50 @@ export const PomodoroTimer: React.FC = () => {
 
       {/* Circular Progress Display */}
       <div className="relative z-10 flex items-center justify-center my-2 w-full max-w-[280px] sm:max-w-[320px] aspect-square mx-auto">
+        {/* Breathing ambient glow behind progress ring */}
+        <motion.div
+          aria-hidden="true"
+          animate={
+            isRunning && !isDisabled
+              ? {
+                  scale: [0.94, 1.05, 0.94],
+                  opacity: [0.26, 0.52, 0.26],
+                }
+              : { scale: 1, opacity: 0.12 }
+          }
+          transition={
+            isRunning && !isDisabled
+              ? { duration: 3.2, repeat: Infinity, ease: 'easeInOut' }
+              : { duration: 0.3 }
+          }
+          className="absolute inset-0 rounded-full pointer-events-none blur-2xl"
+          style={{
+            background: currentModeColors.aura,
+          }}
+        />
+
+        {/* Celebratory Radial Ripple */}
+        <AnimatePresence>
+          {showCelebration && !isDisabled && (
+            <motion.div
+              key="celebration-ripple"
+              aria-hidden="true"
+              initial={{ scale: 0.75, opacity: 0.85 }}
+              animate={{ scale: 1.45, opacity: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute inset-0 rounded-full border-2 pointer-events-none"
+              style={{
+                borderColor: 'var(--ff-success)',
+                boxShadow: '0 0 24px var(--ff-success)',
+              }}
+            />
+          )}
+        </AnimatePresence>
+
         <svg
           viewBox={`0 0 ${baseSize} ${baseSize}`}
-          className="w-56 h-56 xs:w-64 xs:h-64 sm:w-72 sm:h-72 md:w-80 md:h-80 max-w-[75vw] max-h-[75vw] transform -rotate-90 transition-[filter] duration-300"
+          className="w-56 h-56 xs:w-64 xs:h-64 sm:w-72 sm:h-72 md:w-80 md:h-80 max-w-[75vw] max-h-[75vw] transform -rotate-90 transition-[filter] duration-300 relative z-10"
           style={{
             filter: isRunning
               ? `drop-shadow(0 0 14px color-mix(in oklab, ${currentModeColors.ring} 38%, transparent))`
@@ -349,29 +390,51 @@ export const PomodoroTimer: React.FC = () => {
           />
         </svg>
 
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 z-20">
           <ConfirmationBurst show={showCelebration} label="Session Complete!" />
-          <motion.span
-            animate={{ scale: isRunning && !isDisabled ? 1.03 : 1 }}
-            transition={{ duration: 0.3, ease: MOTION_EASING.standard }}
-            className="text-4xl sm:text-5xl font-extrabold font-mono tabular-nums text-[var(--ff-text-primary)] tracking-tight"
-          >
-            {timeFormatted}
-          </motion.span>
-          <span
-            className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider mt-1.5"
-            style={{ color: currentModeColors.text }}
-          >
-            {timerEngine === 'stopwatch'
-              ? 'Open Stopwatch'
-              : timerEngine === 'countdown'
-                ? 'Custom Countdown'
-                : timerMode === 'work'
-                  ? 'Deep Focus'
-                  : timerMode === 'short_break'
-                    ? 'Short Pause'
-                    : 'Rest & Recharge'}
-          </span>
+
+          <div className="relative overflow-hidden h-12 sm:h-14 flex items-center justify-center">
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span
+                key={timeFormatted}
+                initial={isDisabled ? false : { opacity: 0.65, y: 3 }}
+                animate={{ opacity: 1, y: 0, scale: isRunning && !isDisabled ? 1.03 : 1 }}
+                exit={isDisabled ? undefined : { opacity: 0.65, y: -3 }}
+                transition={{ duration: isDisabled ? 0.01 : 0.18, ease: MOTION_EASING.standard }}
+                className="text-4xl sm:text-5xl font-extrabold font-mono tabular-nums text-[var(--ff-text-primary)] tracking-tight block"
+              >
+                {timeFormatted}
+              </motion.span>
+            </AnimatePresence>
+          </div>
+
+          <div className="relative overflow-hidden min-h-[1.25rem] flex items-center justify-center mt-1">
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span
+                key={`${timerEngine}-${timerMode}`}
+                initial={isDisabled ? false : { opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={isDisabled ? undefined : { opacity: 0, y: -4 }}
+                transition={{
+                  duration: isDisabled ? 0.01 : MOTION_DURATION.micro,
+                  ease: MOTION_EASING.decelerate,
+                }}
+                className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider block"
+                style={{ color: currentModeColors.text }}
+              >
+                {timerEngine === 'stopwatch'
+                  ? 'Open Stopwatch'
+                  : timerEngine === 'countdown'
+                    ? 'Custom Countdown'
+                    : timerMode === 'work'
+                      ? 'Deep Focus'
+                      : timerMode === 'short_break'
+                        ? 'Short Pause'
+                        : 'Rest & Recharge'}
+              </motion.span>
+            </AnimatePresence>
+          </div>
+
           <span className="text-[10px] sm:text-[11px] text-[var(--ff-text-muted)] mt-1">
             {isRunning ? 'Session in progress' : 'Ready to start'}
           </span>

@@ -3,7 +3,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useApp, NavTab } from '../../context/AppContext.tsx';
 import { getStyleDefinition } from '../../theme/stylesRegistry.ts';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
-import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
+import {
+  MOTION_DURATION,
+  MOTION_EASING,
+  getIntensityFactor,
+  getSpringTransition,
+} from '../../theme/motionTokens.ts';
 import {
   LayoutDashboard,
   Timer,
@@ -267,13 +272,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {/* Active Surface Pill */}
                   {isActive && (
                     <motion.span
-                      layoutId="sidebar-nav-active-pill"
+                      layoutId="sidebar-active-pill"
                       aria-hidden="true"
-                      transition={
-                        isDisabled
-                          ? { duration: 0.01 }
-                          : { type: 'spring', stiffness: 420, damping: 34 }
-                      }
+                      transition={getSpringTransition(intensity, isDisabled)}
                       className="absolute inset-0 pointer-events-none z-0"
                       style={{
                         borderRadius: 'var(--ff-radius-button)',

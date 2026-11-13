@@ -3,8 +3,12 @@ import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { FinanceSummaryData } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
-import { ThemeCard, ThemeProgressBar } from '../ui/ThemePrimitives.tsx';
-import { EmptyStateIllustration, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { ThemeCard } from '../ui/ThemePrimitives.tsx';
+import {
+  AnimatedProgressBar,
+  EmptyStateIllustration,
+  useMotionPreferences,
+} from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import { BarChart2, PieChart, Layers } from 'lucide-react';
 
@@ -250,11 +254,11 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({ data }) => {
                     </div>
                   </div>
 
-                  <ThemeProgressBar
+                  <AnimatedProgressBar
                     value={Math.max(2, share)}
                     customColor={cat.color}
                     heightClass="h-2"
-                    label={`${cat.name} spending share`}
+                    ariaLabel={`${cat.name} spending share`}
                   />
                 </div>
               );

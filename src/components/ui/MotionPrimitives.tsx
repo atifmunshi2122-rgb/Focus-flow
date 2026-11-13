@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AnimatePresence,
+  Transition,
   animate,
   motion,
   useReducedMotion,
@@ -459,5 +460,169 @@ export const ThemeTooltip: React.FC<ThemeTooltipProps> = ({ content, children })
         )}
       </AnimatePresence>
     </div>
+  );
+};
+
+export interface AnimatedProgressBarProps {
+  value: number;
+  max?: number;
+  heightClass?: string;
+  tone?: 'accent' | 'success' | 'warning' | 'danger' | 'neutral';
+  customColor?: string;
+  showShimmer?: boolean;
+  pulsing?: boolean;
+  className?: string;
+  barClassName?: string;
+  ariaLabel?: string;
+}
+
+export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
+  value,
+  max = 100,
+  heightClass = 'h-2',
+  tone = 'accent',
+  customColor,
+  showShimmer = false,
+  pulsing = false,
+  className = '',
+  barClassName = '',
+  ariaLabel,
+}) => {
+  const { intensity, isDisabled } = useMotionPreferences();
+  const safeMax = Math.max(1, Number.isFinite(max) ? max : 100);
+  const safeVal = Math.max(0, Number.isFinite(value) ? value : 0);
+  const percent = Math.min(100, Math.round((safeVal / safeMax) * 100));
+
+  const fillColor =
+    customColor ||
+    (tone === 'success'
+      ? 'var(--ff-success)'
+      : tone === 'warning'
+      ? 'var(--ff-warning)'
+      : tone === 'danger'
+      ? 'var(--ff-danger)'
+      : tone === 'neutral'
+      ? 'var(--ff-text-muted)'
+      : 'var(--ff-accent)');
+
+  return (
+    <div
+      role="progressbar"
+      aria-valuenow={percent}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={ariaLabel}
+      className={`relative w-full overflow-hidden rounded-full bg-[var(--ff-surface-subtle)] ${heightClass} ${className}`.trim()}
+    >
+      <motion.div
+        className={`h-full rounded-full relative overflow-hidden ${barClassName}`.trim()}
+        initial={isDisabled ? false : { width: '0%' }}
+        animate={{
+          width: `${percent}%`,
+          opacity: pulsing && !isDisabled ? [1, 0.72, 1] : 1,
+        }}
+        transition={{
+          width: getSpringTransition(intensity, isDisabled),
+          opacity:
+            pulsing && !isDisabled
+              ? { duration: 1.6, repeat: Infinity, ease: 'easeInOut' }
+              : undefined,
+        }}
+        style={{
+          backgroundColor: fillColor,
+        }}
+      >
+        {showShimmer && !isDisabled && percent > 0 && (
+          <motion.div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background:
+                'linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.45) 50%, transparent 80%)',
+              width: '100%',
+            }}
+            animate={{
+              x: ['-100%', '150%'],
+            }}
+            transition={{
+              repeat: Infinity,
+              duration: 2.2,
+              ease: 'easeInOut',
+              repeatDelay: 0.8,
+            }}
+          />
+        )}
+      </motion.div>
+    </div>
+  );
+};
+
+export interface MotionTabIndicatorProps {
+  layoutId?: string;
+  className?: string;
+  style?: React.CSSProperties;
+  transition?: Transition;
+}
+
+export const MotionTabIndicator: React.FC<MotionTabIndicatorProps> = ({
+  layoutId = 'motion-tab-indicator',
+  className = '',
+  style,
+  transition,
+}) => {
+  const { intensity, isDisabled } = useMotionPreferences();
+  return (
+    <motion.div
+      layoutId={layoutId}
+      transition={transition || getSpringTransition(intensity, isDisabled)}
+      className={className}
+      style={style}
+      aria-hidden="true"
+    />
+  );
+};
+
+export interface AnimatedCheckmarkProps {
+  checked: boolean;
+  size?: number;
+  strokeWidth?: number;
+  color?: string;
+  className?: string;
+}
+
+export const AnimatedCheckmark: React.FC<AnimatedCheckmarkProps> = ({
+  checked,
+  size = 18,
+  strokeWidth = 2.5,
+  color = 'currentColor',
+  className = '',
+}) => {
+  const { isDisabled } = useMotionPreferences();
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <motion.path
+        d="M4.5 12.75l6 6 9-13.5"
+        initial={false}
+        animate={{
+          pathLength: checked ? 1 : 0,
+          opacity: checked ? 1 : 0,
+        }}
+        transition={{
+          duration: isDisabled ? 0.01 : MOTION_DURATION.control,
+          ease: MOTION_EASING.decelerate,
+        }}
+      />
+    </svg>
   );
 };

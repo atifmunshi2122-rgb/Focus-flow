@@ -19,6 +19,7 @@ import {
 } from '../../types/index.ts';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
 import { ThemeBadge, ThemeButton, ThemeCard, ThemeInput, ThemeSelect } from '../ui/ThemePrimitives.tsx';
+import { AnimatedProgressBar } from '../ui/MotionPrimitives.tsx';
 
 export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings?: boolean }> = ({
   showBudgets = true,
@@ -219,20 +220,20 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
                   {formatCurrency(monthlyCapPaise, currency)}
                 </span>
               </div>
-              <div className="h-2.5 rounded-full overflow-hidden bg-[var(--ff-surface-subtle)]">
-                <div
-                  className="h-full transition-all duration-500 rounded-full"
-                  style={{
-                    width: `${Math.min(100, budgetPct)}%`,
-                    background:
-                      budgetPct >= 100
-                        ? 'var(--ff-danger)'
-                        : budgetPct >= warnThreshold
-                          ? 'var(--ff-warning)'
-                          : 'var(--ff-success)',
-                  }}
-                />
-              </div>
+              <AnimatedProgressBar
+                value={budgetPct}
+                tone={
+                  budgetPct >= 100
+                    ? 'danger'
+                    : budgetPct >= warnThreshold
+                      ? 'warning'
+                      : 'success'
+                }
+                pulsing={budgetPct >= 85}
+                showShimmer={budgetPct < 85}
+                heightClass="h-2.5"
+                ariaLabel="Monthly budget utilization"
+              />
             </div>
           )}
 
@@ -319,20 +320,19 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
                     <div className="text-[11px] font-mono text-[var(--ff-text-muted)]">
                       {formatCurrency(spent, currency)} / {formatCurrency(capPaise, currency)}
                     </div>
-                    <div className="h-1.5 rounded-full overflow-hidden bg-[var(--ff-surface-muted)]">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${Math.min(100, pct)}%`,
-                          background:
-                            pct >= 100
-                              ? 'var(--ff-danger)'
-                              : pct >= warnThreshold
-                                ? 'var(--ff-warning)'
-                                : 'var(--ff-accent)',
-                        }}
-                      />
-                    </div>
+                    <AnimatedProgressBar
+                      value={pct}
+                      tone={
+                        pct >= 100
+                          ? 'danger'
+                          : pct >= warnThreshold
+                            ? 'warning'
+                            : 'accent'
+                      }
+                      pulsing={pct >= 85}
+                      heightClass="h-1.5"
+                      ariaLabel={`${cat?.name || catId} budget utilization`}
+                    />
                   </div>
                 );
               })}
@@ -426,15 +426,13 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
                     </button>
                   </div>
 
-                  <div className="h-2 rounded-full overflow-hidden bg-[var(--ff-surface-muted)]">
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${pct}%`,
-                        background: pct >= 100 ? 'var(--ff-success)' : 'var(--ff-accent)',
-                      }}
-                    />
-                  </div>
+                  <AnimatedProgressBar
+                    value={pct}
+                    tone={pct >= 100 ? 'success' : 'accent'}
+                    showShimmer={pct >= 100}
+                    heightClass="h-2"
+                    ariaLabel={`${g.title} savings progress`}
+                  />
 
                   <div className="flex items-center gap-2">
                     <ThemeInput

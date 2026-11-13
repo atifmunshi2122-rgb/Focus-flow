@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
@@ -14,10 +15,18 @@ import {
   ThemeTextarea,
 } from '../ui/ThemePrimitives.tsx';
 import {
+  AnimatedCheckmark,
+  AnimatedProgressBar,
   EmptyStateIllustration,
   SkeletonList,
   ValidationMessage,
+  useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
+import {
+  MOTION_DURATION,
+  MOTION_EASING,
+  getSpringTransition,
+} from '../../theme/motionTokens.ts';
 import {
   CheckCircle2,
   Circle,
@@ -65,6 +74,7 @@ export const TaskManager: React.FC = () => {
     googleAccessToken,
   } = useApp();
 
+  const { intensity, isDisabled } = useMotionPreferences();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<TaskViewMode>('list');
@@ -349,134 +359,162 @@ export const TaskManager: React.FC = () => {
     const subTotal = (task.subtasks || []).length;
 
     return (
-      <ThemeCard
+      <motion.div
         key={task.id}
-        variant="interactive"
-        className="space-y-3"
-        draggable={allowDrag}
-        onDragStart={() => setDraggedTaskId(task.id)}
-        onDragOver={(e) => allowDrag && e.preventDefault()}
-        onDrop={() => allowDrag && void handleReorderListDrop(task.id)}
+        layout
+        transition={getSpringTransition(intensity, isDisabled)}
+        className="w-full"
       >
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            {allowDrag && (
-              <span className="mt-1 text-[var(--ff-text-muted)] cursor-grab" title="Drag to reorder">
-                <GripVertical className="w-4 h-4" />
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => void toggleTaskStatus(task)}
-              className="mt-0.5 shrink-0 transition-transform active:scale-90"
-              style={{ color: isCompleted ? 'var(--ff-success)' : 'var(--ff-text-muted)' }}
-              aria-label={isCompleted ? 'Reopen task' : 'Complete task'}
-            >
-              {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
-            </button>
-
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <h4
-                  className="text-sm font-bold"
-                  style={{
-                    color: isCompleted ? 'var(--ff-text-muted)' : 'var(--ff-text-primary)',
-                    textDecoration: isCompleted ? 'line-through' : 'none',
-                  }}
-                >
-                  {task.title}
-                </h4>
-                <ThemeBadge tone={priorityTone[task.priority]}>{task.priority}</ThemeBadge>
-                <ThemeBadge tone="neutral">{task.category || 'General'}</ThemeBadge>
-                {task.recurrence && task.recurrence !== 'none' && (
-                  <ThemeBadge tone="accent">
-                    <Repeat className="w-3 h-3 mr-1" /> {task.recurrence}
-                  </ThemeBadge>
-                )}
-              </div>
-
-              {task.description && (
-                <p className="text-xs text-[var(--ff-text-secondary)]">{task.description}</p>
-              )}
-
-              <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--ff-text-muted)]">
-                <span className="flex items-center gap-1 font-mono">
-                  <Flame className="w-3.5 h-3.5 text-[var(--ff-warning)]" />
-                  {task.completedPomodoros} / {task.estimatedPomodoros} pomodoros
+        <ThemeCard
+          variant="interactive"
+          className="space-y-3"
+          draggable={allowDrag}
+          onDragStart={() => setDraggedTaskId(task.id)}
+          onDragOver={(e) => allowDrag && e.preventDefault()}
+          onDrop={() => allowDrag && void handleReorderListDrop(task.id)}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0 flex-1">
+              {allowDrag && (
+                <span className="mt-1 text-[var(--ff-text-muted)] cursor-grab" title="Drag to reorder">
+                  <GripVertical className="w-4 h-4" />
                 </span>
-                {task.dueDate && (
-                  <span className="flex items-center gap-1 font-mono">
-                    <Calendar className="w-3.5 h-3.5" />
-                    Due {task.dueDate}
-                  </span>
-                )}
-                {subTotal > 0 && (
-                  <span className="font-semibold text-[var(--ff-accent-text)]">
-                    Subtasks: {subDone}/{subTotal}
-                  </span>
-                )}
-              </div>
-
-              {subTotal > 0 && (
-                <div className="space-y-1 pt-1">
-                  {task.subtasks!.map((sub) => (
-                    <label
-                      key={sub.id}
-                      className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={sub.done}
-                        onChange={() => void toggleSubtaskInline(task, sub.id)}
-                        className="accent-[var(--ff-accent)]"
-                      />
-                      <span className={sub.done ? 'line-through text-[var(--ff-text-muted)]' : ''}>
-                        {sub.title}
-                      </span>
-                    </label>
-                  ))}
-                </div>
               )}
+              <button
+                type="button"
+                onClick={() => void toggleTaskStatus(task)}
+                className="mt-0.5 shrink-0 transition-transform active:scale-90 flex items-center justify-center w-5 h-5 rounded-full border"
+                style={{
+                  borderColor: isCompleted ? 'var(--ff-success)' : 'var(--ff-text-muted)',
+                  backgroundColor: isCompleted
+                    ? 'color-mix(in oklab, var(--ff-success) 15%, transparent)'
+                    : 'transparent',
+                }}
+                aria-label={isCompleted ? 'Reopen task' : 'Complete task'}
+              >
+                <AnimatedCheckmark
+                  checked={isCompleted}
+                  size={13}
+                  strokeWidth={3}
+                  color="var(--ff-success)"
+                />
+              </button>
 
-              <ThemeProgressBar
-                value={Math.min(
-                  100,
-                  Math.round((task.completedPomodoros / Math.max(1, task.estimatedPomodoros)) * 100)
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative inline-block max-w-full">
+                    <h4
+                      className="text-sm font-bold truncate transition-colors duration-200"
+                      style={{
+                        color: isCompleted ? 'var(--ff-text-muted)' : 'var(--ff-text-primary)',
+                      }}
+                    >
+                      {task.title}
+                    </h4>
+                    {isCompleted && (
+                      <motion.span
+                        initial={isDisabled ? { width: '100%' } : { width: '0%' }}
+                        animate={{ width: '100%' }}
+                        transition={{
+                          duration: isDisabled ? 0.01 : MOTION_DURATION.control,
+                          ease: MOTION_EASING.decelerate,
+                        }}
+                        className="absolute left-0 top-1/2 -translate-y-1/2 h-[1.5px] bg-[var(--ff-text-muted)] pointer-events-none"
+                      />
+                    )}
+                  </div>
+                  <ThemeBadge tone={priorityTone[task.priority]}>{task.priority}</ThemeBadge>
+                  <ThemeBadge tone="neutral">{task.category || 'General'}</ThemeBadge>
+                  {task.recurrence && task.recurrence !== 'none' && (
+                    <ThemeBadge tone="accent">
+                      <Repeat className="w-3 h-3 mr-1" /> {task.recurrence}
+                    </ThemeBadge>
+                  )}
+                </div>
+
+                {task.description && (
+                  <p className="text-xs text-[var(--ff-text-secondary)]">{task.description}</p>
                 )}
-                tone={isCompleted ? 'success' : 'accent'}
-              />
+
+                <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--ff-text-muted)]">
+                  <span className="flex items-center gap-1 font-mono">
+                    <Flame className="w-3.5 h-3.5 text-[var(--ff-warning)]" />
+                    {task.completedPomodoros} / {task.estimatedPomodoros} pomodoros
+                  </span>
+                  {task.dueDate && (
+                    <span className="flex items-center gap-1 font-mono">
+                      <Calendar className="w-3.5 h-3.5" />
+                      Due {task.dueDate}
+                    </span>
+                  )}
+                  {subTotal > 0 && (
+                    <span className="font-semibold text-[var(--ff-accent-text)]">
+                      Subtasks: {subDone}/{subTotal}
+                    </span>
+                  )}
+                </div>
+
+                {subTotal > 0 && (
+                  <div className="space-y-1 pt-1">
+                    {task.subtasks!.map((sub) => (
+                      <label
+                        key={sub.id}
+                        className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={sub.done}
+                          onChange={() => void toggleSubtaskInline(task, sub.id)}
+                          className="accent-[var(--ff-accent)]"
+                        />
+                        <span className={sub.done ? 'line-through text-[var(--ff-text-muted)]' : ''}>
+                          {sub.title}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <AnimatedProgressBar
+                  value={task.completedPomodoros}
+                  max={Math.max(1, task.estimatedPomodoros)}
+                  heightClass="h-1.5"
+                  tone={isCompleted ? 'success' : 'accent'}
+                  ariaLabel={`${task.title} pomodoro progress`}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+              {!isCompleted && (
+                <ThemeButton
+                  variant="secondary"
+                  size="xs"
+                  onClick={() => handleStartFocusOnTask(task)}
+                >
+                  <Play className="w-3 h-3 fill-current" /> Focus
+                </ThemeButton>
+              )}
+              <button
+                type="button"
+                onClick={() => openEditModal(task)}
+                className="p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] rounded-lg"
+                aria-label={`Edit ${task.title}`}
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete(task)}
+                className="p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] rounded-lg"
+                aria-label={`Move ${task.title} to Trash`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
           </div>
-
-          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-            {!isCompleted && (
-              <ThemeButton
-                variant="secondary"
-                size="xs"
-                onClick={() => handleStartFocusOnTask(task)}
-              >
-                <Play className="w-3 h-3 fill-current" /> Focus
-              </ThemeButton>
-            )}
-            <button
-              type="button"
-              onClick={() => openEditModal(task)}
-              className="p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] rounded-lg"
-              aria-label={`Edit ${task.title}`}
-            >
-              <Edit2 className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDelete(task)}
-              className="p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] rounded-lg"
-              aria-label={`Move ${task.title} to Trash`}
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </ThemeCard>
+        </ThemeCard>
+      </motion.div>
     );
   };
 

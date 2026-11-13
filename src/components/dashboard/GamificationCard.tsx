@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Award, Flame, ShieldCheck, Target, Trophy } from 'lucide-react';
 import {
   Bill,
@@ -8,6 +9,12 @@ import {
 } from '../../types/index.ts';
 import { computeGamificationState } from '../../lib/gamificationEngine.ts';
 import { ThemeBadge, ThemeCard } from '../ui/ThemePrimitives.tsx';
+import {
+  AnimatedNumber,
+  AnimatedProgressBar,
+  useMotionPreferences,
+} from '../ui/MotionPrimitives.tsx';
+import { getSpringTransition } from '../../theme/motionTokens.ts';
 
 interface GamificationCardProps {
   sessions: FocusSession[];
@@ -31,6 +38,7 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
   compact = false,
 }) => {
   const [showAllBadges, setShowAllBadges] = useState(false);
+  const { intensity, isDisabled } = useMotionPreferences();
 
   const summary = useMemo(
     () =>
@@ -52,22 +60,29 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
     <ThemeCard className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div
+          <motion.div
+            whileHover={isDisabled ? undefined : { scale: 1.08, rotate: [0, -6, 6, 0] }}
+            transition={{ duration: 0.3 }}
             className="w-10 h-10 flex items-center justify-center shrink-0"
             style={{
               borderRadius: 'var(--ff-radius-button)',
               background: 'linear-gradient(135deg, var(--ff-accent), var(--ff-accent-secondary))',
               color: 'var(--ff-accent-contrast)',
+              boxShadow: isDisabled
+                ? undefined
+                : '0 0 16px color-mix(in oklab, var(--ff-accent) 45%, transparent)',
             }}
           >
             <Trophy className="w-5 h-5" />
-          </div>
+          </motion.div>
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
                 Level {summary.level} · {summary.rankTitle}
               </h3>
-              <ThemeBadge tone="accent">{summary.xp} XP</ThemeBadge>
+              <ThemeBadge tone="accent">
+                <AnimatedNumber value={summary.xp} /> XP
+              </ThemeBadge>
             </div>
             <p className="text-xs text-[var(--ff-text-muted)]">
               Rule-based milestones • {summary.earnedCount}/{summary.badges.length} badges unlocked
@@ -98,15 +113,12 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
             {summary.currentLevelXp} / {summary.nextLevelXp} XP ({summary.levelProgressPercent}%)
           </span>
         </div>
-        <div className="h-2 rounded-full overflow-hidden bg-[var(--ff-surface-subtle)]">
-          <div
-            className="h-full transition-all duration-500 rounded-full"
-            style={{
-              width: `${summary.levelProgressPercent}%`,
-              background: 'linear-gradient(90deg, var(--ff-accent), var(--ff-accent-secondary))',
-            }}
-          />
-        </div>
+        <AnimatedProgressBar
+          value={summary.levelProgressPercent}
+          showShimmer={true}
+          heightClass="h-2"
+          ariaLabel="Level XP Progress"
+        />
       </div>
 
       {!compact && (
@@ -117,33 +129,28 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
               <Target className="w-3.5 h-3.5" /> Active Challenges
             </h4>
             <div className="space-y-2">
-              {summary.challenges.map((ch) => {
-                const pct = Math.min(100, Math.round((ch.progress / Math.max(1, ch.target)) * 100));
-                return (
-                  <div key={ch.id} className="ff-surface-subtle p-2.5">
-                    <div className="flex items-center justify-between text-xs gap-2 mb-1">
-                      <span className="font-semibold text-[var(--ff-text-primary)] truncate">
-                        {ch.title}
-                      </span>
-                      <span
-                        className="font-mono text-[11px] shrink-0 font-semibold"
-                        style={{ color: ch.completed ? 'var(--ff-success)' : 'var(--ff-accent-text)' }}
-                      >
-                        {ch.progress}/{ch.target} {ch.unit}
-                      </span>
-                    </div>
-                    <div className="h-1.5 rounded-full overflow-hidden bg-[var(--ff-surface-muted)]">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{
-                          width: `${pct}%`,
-                          background: ch.completed ? 'var(--ff-success)' : 'var(--ff-accent)',
-                        }}
-                      />
-                    </div>
+              {summary.challenges.map((ch) => (
+                <div key={ch.id} className="ff-surface-subtle p-2.5">
+                  <div className="flex items-center justify-between text-xs gap-2 mb-1">
+                    <span className="font-semibold text-[var(--ff-text-primary)] truncate">
+                      {ch.title}
+                    </span>
+                    <span
+                      className="font-mono text-[11px] shrink-0 font-semibold"
+                      style={{ color: ch.completed ? 'var(--ff-success)' : 'var(--ff-accent-text)' }}
+                    >
+                      {ch.progress}/{ch.target} {ch.unit}
+                    </span>
                   </div>
-                );
-              })}
+                  <AnimatedProgressBar
+                    value={ch.progress}
+                    max={ch.target}
+                    heightClass="h-1.5"
+                    tone={ch.completed ? 'success' : 'accent'}
+                    ariaLabel={`${ch.title} progress`}
+                  />
+                </div>
+              ))}
             </div>
           </div>
 
@@ -162,30 +169,50 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {visibleBadges.map((b) => (
-                <div
-                  key={b.id}
-                  className="p-2.5 border transition-colors"
-                  style={{
-                    borderRadius: 'var(--ff-radius-button)',
-                    borderColor: b.earned ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
-                    background: b.earned ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
-                    opacity: b.earned ? 1 : 0.72,
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span className="text-xs font-bold text-[var(--ff-text-primary)] truncate">
-                      {b.title}
-                    </span>
-                    <span className="text-[10px] font-mono font-bold text-[var(--ff-accent-text)] shrink-0">
-                      {b.earned ? 'UNLOCKED' : `${b.progress}/${b.target}`}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
-                    {b.description}
-                  </p>
-                </div>
-              ))}
+              <AnimatePresence mode="popLayout">
+                {visibleBadges.map((b) => (
+                  <motion.div
+                    key={b.id}
+                    layout
+                    initial={isDisabled ? false : { opacity: 0, scale: 0.94, y: 6 }}
+                    animate={{ opacity: b.earned ? 1 : 0.72, scale: 1, y: 0 }}
+                    exit={isDisabled ? undefined : { opacity: 0, scale: 0.94, y: 6 }}
+                    whileHover={isDisabled ? undefined : { y: -2, scale: 1.02 }}
+                    whileTap={isDisabled ? undefined : { scale: 0.98 }}
+                    transition={getSpringTransition(intensity, isDisabled)}
+                    className="p-2.5 border transition-shadow cursor-default"
+                    style={{
+                      borderRadius: 'var(--ff-radius-button)',
+                      borderColor: b.earned ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
+                      background: b.earned ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
+                      boxShadow:
+                        b.earned && !isDisabled
+                          ? '0 0 12px color-mix(in oklab, var(--ff-accent) 25%, transparent)'
+                          : undefined,
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-xs font-bold text-[var(--ff-text-primary)] truncate">
+                        {b.title}
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-[var(--ff-accent-text)] shrink-0 flex items-center gap-1">
+                        {b.earned && (
+                          <motion.span
+                            initial={isDisabled ? false : { scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                            className="w-1.5 h-1.5 rounded-full bg-[var(--ff-success)] inline-block"
+                          />
+                        )}
+                        {b.earned ? 'UNLOCKED' : `${b.progress}/${b.target}`}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
+                      {b.description}
+                    </p>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           </div>
         </div>

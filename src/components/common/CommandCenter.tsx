@@ -34,7 +34,12 @@ import { formatCurrency } from '../../lib/currency.ts';
 import { DESIGN_STYLES } from '../../theme/stylesRegistry.ts';
 import { Bill, ExpenseTransaction, IncomeTransaction, Task, TimeBlock, BudgetEnvelope, SubscriptionPlan } from '../../types/index.ts';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
-import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
+import {
+  MOTION_DURATION,
+  MOTION_EASING,
+  getSpringTransition,
+  getStaggerVariants,
+} from '../../theme/motionTokens.ts';
 
 interface CommandCenterProps {
   onOpenQuickAction: () => void;
@@ -69,7 +74,11 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
     syncNowToGoogleSheets,
   } = useApp();
 
-  const { isDisabled } = useMotionPreferences();
+  const { intensity, isDisabled } = useMotionPreferences();
+  const { container: staggerContainer, item: staggerItem } = getStaggerVariants(
+    intensity,
+    isDisabled
+  );
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -397,7 +406,13 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
             </div>
 
             {/* Results List */}
-            <div className="max-h-[54vh] overflow-y-auto p-2 space-y-1">
+            <motion.div
+              key={query}
+              variants={staggerContainer}
+              initial={isDisabled ? false : 'hidden'}
+              animate="show"
+              className="max-h-[54vh] overflow-y-auto p-2 space-y-1"
+            >
               {filtered.length === 0 ? (
                 <div className="py-10 text-center text-sm text-[var(--ff-text-muted)]">
                   No matching commands or records for &ldquo;{query}&rdquo;.
@@ -407,21 +422,34 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
                   const Icon = item.icon;
                   const active = idx === selectedIndex;
                   return (
-                    <button
+                    <motion.button
                       key={item.id}
                       type="button"
+                      variants={staggerItem}
                       onMouseEnter={() => setSelectedIndex(idx)}
                       onClick={item.run}
-                      className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors"
+                      className="relative w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors"
                       style={{
                         borderRadius: 'var(--ff-radius-button)',
-                        background: active ? 'var(--ff-accent-soft)' : 'transparent',
                         color: active ? 'var(--ff-text-primary)' : 'var(--ff-text-secondary)',
                       }}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      {active && (
+                        <motion.div
+                          layoutId="command-selection-pill"
+                          transition={getSpringTransition(intensity, isDisabled)}
+                          className="absolute inset-0 z-0 pointer-events-none"
+                          style={{
+                            borderRadius: 'var(--ff-radius-button)',
+                            background: 'var(--ff-accent-soft)',
+                            border: '1px solid var(--ff-accent-border)',
+                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+                          }}
+                        />
+                      )}
+                      <div className="relative z-10 flex items-center gap-3 min-w-0">
                         <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                           style={{
                             background: active ? 'var(--ff-accent)' : 'var(--ff-surface-subtle)',
                             color: active ? 'var(--ff-accent-contrast)' : 'var(--ff-accent-text)',
@@ -437,7 +465,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="relative z-10 flex items-center gap-2 shrink-0">
                         {item.shortcut && (
                           <kbd className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-[var(--ff-border-color)] text-[var(--ff-text-muted)]">
                             {item.shortcut}
@@ -445,11 +473,11 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
                         )}
                         {active && <ArrowRight className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />}
                       </div>
-                    </button>
+                    </motion.button>
                   );
                 })
               )}
-            </div>
+            </motion.div>
 
             {/* Footer Hints */}
             <div
