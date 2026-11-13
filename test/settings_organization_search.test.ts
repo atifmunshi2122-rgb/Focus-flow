@@ -230,3 +230,4 @@ test('Non-Destructive UserSettings Integrity — 100% Schema Preservation', () =
   assert.ok(notifKeys.includes('recurringBillGenerationAlert'));
   assert.ok(notifKeys.includes('syncErrorAlerts'));
 });
+
