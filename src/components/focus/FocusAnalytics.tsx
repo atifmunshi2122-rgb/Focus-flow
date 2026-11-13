@@ -6,6 +6,7 @@ import { FocusSession, FocusStatsData } from '../../types/index.ts';
 import { ThemeCard } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
+  AnimatedProgressBar,
   EmptyStateIllustration,
   MotionStaggerGrid,
   MotionStaggerItem,
@@ -139,15 +140,13 @@ export const FocusAnalytics: React.FC = () => {
               {todayMinutes} / {dailyGoalMin}m ({dailyPct}%)
             </span>
           </div>
-          <div className="h-2 rounded-full overflow-hidden bg-[var(--ff-surface-subtle)]">
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${dailyPct}%`,
-                background: dailyPct >= 100 ? 'var(--ff-success)' : 'var(--ff-accent)',
-              }}
-            />
-          </div>
+          <AnimatedProgressBar
+            value={dailyPct}
+            showShimmer={true}
+            tone={dailyPct >= 100 ? 'success' : 'accent'}
+            heightClass="h-2"
+            ariaLabel="Today's Focus Goal"
+          />
         </div>
         <div>
           <div className="flex items-center justify-between text-xs mb-1.5">
@@ -156,15 +155,13 @@ export const FocusAnalytics: React.FC = () => {
               {weeklyMinutes} / {weeklyGoalMin}m ({weeklyPct}%)
             </span>
           </div>
-          <div className="h-2 rounded-full overflow-hidden bg-[var(--ff-surface-subtle)]">
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${weeklyPct}%`,
-                background: 'linear-gradient(90deg, var(--ff-accent), var(--ff-accent-secondary))',
-              }}
-            />
-          </div>
+          <AnimatedProgressBar
+            value={weeklyPct}
+            showShimmer={true}
+            tone={weeklyPct >= 100 ? 'success' : 'accent'}
+            heightClass="h-2"
+            ariaLabel="Weekly Deep Work Target"
+          />
         </div>
       </ThemeCard>
 

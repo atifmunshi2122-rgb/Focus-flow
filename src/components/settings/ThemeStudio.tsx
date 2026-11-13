@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
-import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
+import { MOTION_DURATION, MOTION_EASING, getIntensityFactor, getSpringTransition } from '../../theme/motionTokens.ts';
 import {
   AnimationIntensity,
   BackgroundMode,
@@ -425,60 +425,44 @@ export const ThemeStudio: React.FC = () => {
 
       {/* Studio Mode Selector */}
       <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
-        <button
-          type="button"
-          onClick={() => setStudioTab('palettes')}
-          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all"
-          style={{
-            background: studioTab === 'palettes' ? 'var(--ff-accent)' : 'transparent',
-            color: studioTab === 'palettes' ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
-          }}
-        >
-          <Palette className="w-4 h-4" />
-          <span>100+ Color Ecosystem &amp; 3D Generator</span>
-          <ThemeBadge tone={studioTab === 'palettes' ? 'neutral' : 'accent'}>100 Palettes</ThemeBadge>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setStudioTab('design-styles')}
-          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all"
-          style={{
-            background: studioTab === 'design-styles' ? 'var(--ff-accent)' : 'transparent',
-            color: studioTab === 'design-styles' ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
-          }}
-        >
-          <Layers className="w-4 h-4" />
-          <span>19 Design Systems &amp; Hybrids</span>
-          <ThemeBadge tone={studioTab === 'design-styles' ? 'neutral' : 'accent'}>19 Styles</ThemeBadge>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setStudioTab('fusion')}
-          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all"
-          style={{
-            background: studioTab === 'fusion' ? 'var(--ff-accent)' : 'transparent',
-            color: studioTab === 'fusion' ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
-          }}
-        >
-          <Wand2 className="w-4 h-4" />
-          <span>Style Fusion Mixer (Glass + Clay)</span>
-          <ThemeBadge tone={studioTab === 'fusion' ? 'neutral' : 'accent'}>Hybrid Mixer</ThemeBadge>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setStudioTab('tokens')}
-          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all"
-          style={{
-            background: studioTab === 'tokens' ? 'var(--ff-accent)' : 'transparent',
-            color: studioTab === 'tokens' ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
-          }}
-        >
-          <Sliders className="w-4 h-4" />
-          <span>Tokens, Shapes &amp; Typography</span>
-        </button>
+        {[
+          { id: 'palettes', label: '100+ Color Ecosystem & 3D Generator', badge: '100 Palettes', badgeTone: 'accent' as const, icon: Palette },
+          { id: 'design-styles', label: '19 Design Systems & Hybrids', badge: '19 Styles', badgeTone: 'accent' as const, icon: Layers },
+          { id: 'fusion', label: 'Style Fusion Mixer (Glass + Clay)', badge: 'Hybrid Mixer', badgeTone: 'accent' as const, icon: Wand2 },
+          { id: 'tokens', label: 'Tokens, Shapes & Typography', icon: Sliders },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = studioTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setStudioTab(tab.id as any)}
+              className="relative flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors"
+              style={{
+                color: isActive ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
+              }}
+            >
+              {isActive && (
+                <motion.div
+                  layoutId="studio-mode-active-pill"
+                  className="absolute inset-0 rounded-xl"
+                  style={{ background: 'var(--ff-accent)' }}
+                  transition={getSpringTransition(intensity, isDisabled)}
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-2">
+                <Icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <ThemeBadge tone={isActive ? 'neutral' : tab.badgeTone}>
+                    {tab.badge}
+                  </ThemeBadge>
+                )}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* TAB 1: 100+ COLOR ECOSYSTEM, HARMONY GENERATOR & 3D GRADIENTS */}

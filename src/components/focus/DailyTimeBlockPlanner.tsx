@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { TimeBlock, Task } from '../../types/index.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString, parseDateString } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeButton, ThemeInput, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
 import {
   Clock,
   Plus,
@@ -31,6 +34,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export const DailyTimeBlockPlanner: React.FC = () => {
   const { settings, showToast, refreshKey, triggerRefresh, confirmAction } = useApp();
+  const { intensity, isDisabled } = useMotionPreferences();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
 
@@ -431,147 +435,161 @@ export const DailyTimeBlockPlanner: React.FC = () => {
       </ThemeCard>
 
       {/* Add / Edit Time Block Modal (Bottom-Sheet on Mobile) */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <form
-            onSubmit={handleSave}
-            className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col max-h-[85dvh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]"
-          >
-            {/* Mobile Grab Handle */}
-            <div className="sm:hidden w-12 h-1 bg-[var(--ff-border-strong)] rounded-full mx-auto mt-2.5 opacity-60 shrink-0" />
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div
+              initial={isDisabled ? { opacity: 1 } : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={isDisabled ? { opacity: 0 } : { opacity: 0 }}
+              transition={{ duration: MOTION_DURATION.card }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs"
+              onClick={() => setIsModalOpen(false)}
+            />
+            <motion.form
+              onSubmit={handleSave}
+              initial={isDisabled ? false : { opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={isDisabled ? undefined : { opacity: 0, y: 20, scale: 0.98 }}
+              transition={getSpringTransition(intensity, isDisabled)}
+              className="relative z-10 w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col max-h-[85dvh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]"
+            >
+              {/* Mobile Grab Handle */}
+              <div className="sm:hidden w-12 h-1 bg-[var(--ff-border-strong)] rounded-full mx-auto mt-2.5 opacity-60 shrink-0" />
 
-            <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
-              <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
-                {editingBlock ? 'Edit Time Block' : 'Schedule Time Block'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
-                aria-label="Close dialog"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-6 flex flex-col gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
-                  Block Title
-                </label>
-                <ThemeInput
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder="e.g. Deep Focus: Q4 Financial Review"
-                  required
-                  autoFocus
-                />
+              <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
+                <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
+                  {editingBlock ? 'Edit Time Block' : 'Schedule Time Block'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                  aria-label="Close dialog"
+                >
+                  ✕
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="p-6 flex flex-col gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
-                    Start Time
+                    Block Title
                   </label>
                   <ThemeInput
-                    type="time"
-                    value={formStartTime}
-                    onChange={(e) => setFormStartTime(e.target.value)}
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                    placeholder="e.g. Deep Focus: Q4 Financial Review"
                     required
+                    autoFocus
                   />
                 </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                      Start Time
+                    </label>
+                    <ThemeInput
+                      type="time"
+                      value={formStartTime}
+                      onChange={(e) => setFormStartTime(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                      End Time
+                    </label>
+                    <ThemeInput
+                      type="time"
+                      value={formEndTime}
+                      onChange={(e) => setFormEndTime(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
-                    End Time
+                    Category
+                  </label>
+                  <select
+                    value={formCategory}
+                    onChange={(e) => setFormCategory(e.target.value)}
+                    className="ff-input w-full text-xs py-2 px-3 rounded-lg"
+                    style={{
+                      backgroundColor: 'var(--ff-card-bg)',
+                      borderColor: 'var(--ff-border)',
+                      color: 'var(--ff-text-primary)',
+                    }}
+                  >
+                    {Object.keys(CATEGORY_COLORS).map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                    Link Existing Task (Optional)
+                  </label>
+                  <select
+                    value={formTaskId}
+                    onChange={(e) => setFormTaskId(e.target.value)}
+                    className="ff-input w-full text-xs py-2 px-3 rounded-lg"
+                    style={{
+                      backgroundColor: 'var(--ff-card-bg)',
+                      borderColor: 'var(--ff-border)',
+                      color: 'var(--ff-text-primary)',
+                    }}
+                  >
+                    <option value="">-- No Linked Task --</option>
+                    {tasks.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                    Notes
                   </label>
                   <ThemeInput
-                    type="time"
-                    value={formEndTime}
-                    onChange={(e) => setFormEndTime(e.target.value)}
-                    required
+                    value={formNotes}
+                    onChange={(e) => setFormNotes(e.target.value)}
+                    placeholder="Goals or agenda for this session"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
-                  Category
-                </label>
-                <select
-                  value={formCategory}
-                  onChange={(e) => setFormCategory(e.target.value)}
-                  className="ff-input w-full text-xs py-2 px-3 rounded-lg"
-                  style={{
-                    backgroundColor: 'var(--ff-card-bg)',
-                    borderColor: 'var(--ff-border)',
-                    color: 'var(--ff-text-primary)',
-                  }}
+              <div className="p-4 border-t ff-divider flex items-center justify-end gap-2">
+                <ThemeButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsModalOpen(false)}
+                  className="min-h-[44px] px-4 font-semibold"
                 >
-                  {Object.keys(CATEGORY_COLORS).map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
-                  Link Existing Task (Optional)
-                </label>
-                <select
-                  value={formTaskId}
-                  onChange={(e) => setFormTaskId(e.target.value)}
-                  className="ff-input w-full text-xs py-2 px-3 rounded-lg"
-                  style={{
-                    backgroundColor: 'var(--ff-card-bg)',
-                    borderColor: 'var(--ff-border)',
-                    color: 'var(--ff-text-primary)',
-                  }}
+                  Cancel
+                </ThemeButton>
+                <ThemeButton
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  className="min-h-[44px] px-4 font-semibold"
                 >
-                  <option value="">-- No Linked Task --</option>
-                  {tasks.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.title}
-                    </option>
-                  ))}
-                </select>
+                  {editingBlock ? 'Save Changes' : 'Schedule Block'}
+                </ThemeButton>
               </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
-                  Notes
-                </label>
-                <ThemeInput
-                  value={formNotes}
-                  onChange={(e) => setFormNotes(e.target.value)}
-                  placeholder="Goals or agenda for this session"
-                />
-              </div>
-            </div>
-
-            <div className="p-4 border-t ff-divider flex items-center justify-end gap-2">
-              <ThemeButton
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsModalOpen(false)}
-                className="min-h-[44px] px-4 font-semibold"
-              >
-                Cancel
-              </ThemeButton>
-              <ThemeButton
-                type="submit"
-                variant="primary"
-                size="sm"
-                className="min-h-[44px] px-4 font-semibold"
-              >
-                {editingBlock ? 'Save Changes' : 'Schedule Block'}
-              </ThemeButton>
-            </div>
-          </form>
-        </div>
-      )}
+            </motion.form>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

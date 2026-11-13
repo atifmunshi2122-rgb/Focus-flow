@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import {
@@ -17,12 +18,15 @@ import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import { GamificationCard } from './GamificationCard.tsx';
 import {
   AnimatedNumber,
+  AnimatedProgressBar,
   EmptyStateIllustration,
   InteractiveSurface3D,
   MotionStaggerGrid,
   MotionStaggerItem,
   SkeletonDashboard,
+  useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
+import { getSpringTransition } from '../../theme/motionTokens.ts';
 import {
   CheckCircle2,
   Flame,
@@ -149,6 +153,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     createOrConnectSpreadsheet,
   } = useApp();
 
+  const { intensity, isDisabled } = useMotionPreferences();
   const [data, setData] = useState<DashboardData | null>(null);
   const [sessions, setSessions] = useState<FocusSession[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -321,7 +326,44 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       case 'hero':
         return (
           <InteractiveSurface3D maxTilt={4}>
-            <ThemeCard variant="hero">
+            <ThemeCard variant="hero" className="relative overflow-hidden">
+              {/* Subtle floating 3D decorative elements */}
+              {!isDisabled && (
+                <>
+                  <motion.div
+                    aria-hidden="true"
+                    animate={{
+                      y: [-6, 6, -6],
+                      x: [-4, 4, -4],
+                      scale: [1, 1.08, 1],
+                      opacity: [0.22, 0.45, 0.22],
+                    }}
+                    transition={{
+                      duration: 6,
+                      repeat: Infinity,
+                      ease: 'easeInOut',
+                    }}
+                    className="absolute -top-12 -right-12 w-48 h-48 rounded-full pointer-events-none blur-3xl"
+                    style={{ background: 'var(--ff-accent)' }}
+                  />
+                  <motion.div
+                    aria-hidden="true"
+                    animate={{
+                      y: [8, -8, 8],
+                      x: [5, -5, 5],
+                      opacity: [0.16, 0.35, 0.16],
+                    }}
+                    transition={{
+                      duration: 7.5,
+                      repeat: Infinity,
+                      ease: 'easeInOut',
+                      delay: 0.8,
+                    }}
+                    className="absolute -bottom-10 right-36 w-40 h-40 rounded-full pointer-events-none blur-3xl"
+                    style={{ background: 'var(--ff-accent-secondary)' }}
+                  />
+                </>
+              )}
               <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="space-y-2 max-w-xl">
                   <div
@@ -655,15 +697,13 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                     {data?.todayFocusMinutes || 0} / {dailyGoalMin} min ({dailyGoalPct}%)
                   </span>
                 </div>
-                <div className="h-2.5 rounded-full overflow-hidden bg-[var(--ff-surface-subtle)]">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${dailyGoalPct}%`,
-                      background: dailyGoalPct >= 100 ? 'var(--ff-success)' : 'var(--ff-accent)',
-                    }}
-                  />
-                </div>
+                <AnimatedProgressBar
+                  value={dailyGoalPct}
+                  showShimmer={true}
+                  tone={dailyGoalPct >= 100 ? 'success' : 'accent'}
+                  heightClass="h-2.5"
+                  ariaLabel="Daily Focus Target"
+                />
               </div>
               <div>
                 <div className="flex items-center justify-between text-xs mb-1.5">
@@ -672,15 +712,13 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                     {data?.weeklyFocusMinutes || 0} / {weeklyGoalMin} min ({weeklyGoalPct}%)
                   </span>
                 </div>
-                <div className="h-2.5 rounded-full overflow-hidden bg-[var(--ff-surface-subtle)]">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${weeklyGoalPct}%`,
-                      background: 'linear-gradient(90deg, var(--ff-accent), var(--ff-accent-secondary))',
-                    }}
-                  />
-                </div>
+                <AnimatedProgressBar
+                  value={weeklyGoalPct}
+                  showShimmer={true}
+                  tone={weeklyGoalPct >= 100 ? 'success' : 'accent'}
+                  heightClass="h-2.5"
+                  ariaLabel="Weekly Deep Work Goal"
+                />
               </div>
             </div>
           </ThemeCard>
@@ -951,8 +989,10 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
         {layoutConfig.widgetOrder
           .filter((id) => !layoutConfig.hiddenWidgets.includes(id))
           .map((id) => (
-            <div
+            <motion.div
               key={id}
+              layout={isDisabled ? false : 'position'}
+              transition={getSpringTransition(intensity, isDisabled)}
               draggable={customizeMode}
               onDragStart={() => setDraggedWidget(id)}
               onDragOver={(e) => {
@@ -974,7 +1014,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                 </div>
               )}
               {renderWidgetBody(id)}
-            </div>
+            </motion.div>
           ))}
       </div>
     </div>

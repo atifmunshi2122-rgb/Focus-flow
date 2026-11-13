@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { BudgetEnvelope, ExpenseCategory } from '../../types/index.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise, toMajorCurrency } from '../../lib/currency.ts';
 import { ThemeCard, ThemeButton, ThemeInput, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { AnimatedProgressBar, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
 import {
   Wallet,
   Plus,
@@ -26,6 +29,7 @@ const ENVELOPE_COLORS = [
 
 export const EnvelopeBudgetManager: React.FC = () => {
   const { currency, settings, showToast, refreshKey, triggerRefresh, confirmAction } = useApp();
+  const { intensity, isDisabled } = useMotionPreferences();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
   const currentMonthKey = useMemo(() => todayStr.slice(0, 7), [todayStr]);
@@ -311,13 +315,12 @@ export const EnvelopeBudgetManager: React.FC = () => {
             <span className="text-xs text-[var(--ff-text-muted)] uppercase font-semibold">Utilization</span>
             <span className="text-xs font-mono font-bold text-[var(--ff-text-primary)]">{overallPercentage}%</span>
           </div>
-          <div className="w-full bg-[var(--ff-muted)] rounded-full h-2.5 mt-2 overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-300"
-              style={{
-                width: `${overallPercentage}%`,
-                backgroundColor: overallPercentage > 95 ? 'var(--ff-danger)' : 'var(--ff-accent)',
-              }}
+          <div className="mt-2">
+            <AnimatedProgressBar
+              value={overallPercentage}
+              tone={overallPercentage > 95 ? 'danger' : 'accent'}
+              pulsing={overallPercentage >= 85}
+              heightClass="h-2.5"
             />
           </div>
         </div>
@@ -345,8 +348,11 @@ export const EnvelopeBudgetManager: React.FC = () => {
             const categoryObj = categories.find((c) => c.id === env.categoryId);
 
             return (
-              <div
+              <motion.div
                 key={env.id}
+                layout
+                transition={getSpringTransition(intensity, isDisabled)}
+                whileHover={isDisabled ? undefined : { y: -2 }}
                 className="flex flex-col justify-between p-5 rounded-2xl bg-[var(--ff-card-bg)] border transition-all duration-150 hover:shadow-md"
                 style={{
                   borderTopWidth: '5px',
@@ -409,15 +415,13 @@ export const EnvelopeBudgetManager: React.FC = () => {
                     </span>
                   </div>
 
-                  <div className="w-full bg-[var(--ff-muted)] rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-300"
-                      style={{
-                        width: `${Math.min(100, percent)}%`,
-                        backgroundColor: isOverspent ? 'var(--ff-danger)' : env.color || '#6366f1',
-                      }}
-                    />
-                  </div>
+                  <AnimatedProgressBar
+                    value={percent}
+                    tone={isOverspent ? 'danger' : undefined}
+                    customColor={isOverspent ? undefined : env.color || '#6366f1'}
+                    pulsing={percent >= 85}
+                    heightClass="h-2"
+                  />
                 </div>
 
                 {/* Footer Balance */}
@@ -430,19 +434,34 @@ export const EnvelopeBudgetManager: React.FC = () => {
                     </span>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
       )}
 
       {/* Create / Edit Envelope Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <form
-            onSubmit={handleSaveEnvelope}
-            className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col overflow-hidden"
+      <AnimatePresence>
+        {isModalOpen && (
+          <motion.div
+            key="envelope-modal-backdrop"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+            initial={isDisabled ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={isDisabled ? undefined : { opacity: 0 }}
+            transition={{ duration: MOTION_DURATION.overlay }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsModalOpen(false);
+            }}
           >
+            <motion.form
+              onSubmit={handleSaveEnvelope}
+              className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col overflow-hidden"
+              initial={isDisabled ? false : { opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={isDisabled ? undefined : { opacity: 0, scale: 0.95, y: 12 }}
+              transition={getSpringTransition(intensity, isDisabled)}
+            >
             <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
               <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
                 {editingEnvelope ? 'Edit Budget Envelope' : 'New Budget Envelope'}
@@ -540,17 +559,33 @@ export const EnvelopeBudgetManager: React.FC = () => {
                 {editingEnvelope ? 'Save Changes' : 'Create Envelope'}
               </ThemeButton>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
+    </AnimatePresence>
 
       {/* Fund Transfer Modal */}
-      {isTransferModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <form
-            onSubmit={handleTransfer}
-            className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col overflow-hidden"
+      <AnimatePresence>
+        {isTransferModalOpen && (
+          <motion.div
+            key="transfer-modal-backdrop"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+            initial={isDisabled ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={isDisabled ? undefined : { opacity: 0 }}
+            transition={{ duration: MOTION_DURATION.overlay }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsTransferModalOpen(false);
+            }}
           >
+            <motion.form
+              onSubmit={handleTransfer}
+              className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col overflow-hidden"
+              initial={isDisabled ? false : { opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={isDisabled ? undefined : { opacity: 0, scale: 0.95, y: 12 }}
+              transition={getSpringTransition(intensity, isDisabled)}
+            >
             <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
               <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
                 Reallocate Envelope Funds
@@ -638,9 +673,10 @@ export const EnvelopeBudgetManager: React.FC = () => {
                 Transfer Funds
               </ThemeButton>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
+    </AnimatePresence>
     </div>
   );
 };

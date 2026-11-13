@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { SubscriptionPlan, ExpenseCategory } from '../../types/index.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString, computeNextRecurrenceDueDate } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise, toMajorCurrency } from '../../lib/currency.ts';
 import { ThemeCard, ThemeButton, ThemeInput, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { AnimatedNumber, MotionStaggerGrid, MotionStaggerItem, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
 import {
   CreditCard,
   Plus,
@@ -23,6 +26,7 @@ import {
 
 export const SubscriptionManager: React.FC = () => {
   const { currency, settings, showToast, refreshKey, triggerRefresh, confirmAction } = useApp();
+  const { intensity, isDisabled } = useMotionPreferences();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
 
@@ -224,52 +228,67 @@ export const SubscriptionManager: React.FC = () => {
       </div>
 
       {/* Financial Projections Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-xl bg-[var(--ff-card-bg)] border ff-divider flex items-center justify-between">
+      <MotionStaggerGrid className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <MotionStaggerItem className="p-4 rounded-xl bg-[var(--ff-card-bg)] border ff-divider flex items-center justify-between">
           <div>
             <span className="text-xs text-[var(--ff-text-muted)] uppercase font-semibold">Active Subscriptions</span>
             <p className="text-lg font-bold font-mono text-[var(--ff-text-primary)] mt-0.5">
-              {activeSubs.length} of {subscriptions.length}
+              <AnimatedNumber value={activeSubs.length} /> of {subscriptions.length}
             </p>
           </div>
           <ThemeBadge tone="neutral">{subscriptions.filter((s) => s.status === 'paused').length} Paused</ThemeBadge>
-        </div>
+        </MotionStaggerItem>
 
-        <div className="p-4 rounded-xl bg-[var(--ff-card-bg)] border ff-divider flex items-center justify-between">
+        <MotionStaggerItem className="p-4 rounded-xl bg-[var(--ff-card-bg)] border ff-divider flex items-center justify-between">
           <div>
             <span className="text-xs text-[var(--ff-text-muted)] uppercase font-semibold">Monthly Outflow</span>
             <p className="text-lg font-bold font-mono text-[var(--ff-text-primary)] mt-0.5">
-              {formatCurrency(monthlyProjectedPaise, currency)}/mo
+              <AnimatedNumber
+                value={monthlyProjectedPaise / 100}
+                format={(v) => `${formatCurrency(Math.round(v * 100), currency)}/mo`}
+              />
             </p>
           </div>
           <ThemeBadge tone="neutral">Normalized</ThemeBadge>
-        </div>
+        </MotionStaggerItem>
 
-        <div className="p-4 rounded-xl bg-[var(--ff-card-bg)] border ff-divider flex items-center justify-between">
+        <MotionStaggerItem className="p-4 rounded-xl bg-[var(--ff-card-bg)] border ff-divider flex items-center justify-between">
           <div>
             <span className="text-xs text-[var(--ff-text-muted)] uppercase font-semibold">Annual Projected Cost</span>
             <p className="text-lg font-bold font-mono text-[var(--ff-accent-text)] mt-0.5">
-              {formatCurrency(annualProjectedPaise, currency)}/yr
+              <AnimatedNumber
+                value={annualProjectedPaise / 100}
+                format={(v) => `${formatCurrency(Math.round(v * 100), currency)}/yr`}
+              />
             </p>
           </div>
           <TrendingUp className="w-5 h-5 text-[var(--ff-accent)]" />
-        </div>
-      </div>
+        </MotionStaggerItem>
+      </MotionStaggerGrid>
 
       {/* Near Renewal Alert */}
-      {renewalsNear.length > 0 && (
-        <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
-          <div className="flex-1 text-xs">
-            <span className="font-bold text-amber-600 dark:text-amber-400">
-              {renewalsNear.length} Subscription{renewalsNear.length > 1 ? 's' : ''} Renewing in the Next 7 Days:
-            </span>{' '}
-            <span className="text-[var(--ff-text-secondary)]">
-              {renewalsNear.map((s) => `${s.name} (${s.nextRenewalDate})`).join(', ')}
-            </span>
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {renewalsNear.length > 0 && (
+          <motion.div
+            key="renewals-near-alert"
+            initial={isDisabled ? false : { opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={isDisabled ? undefined : { opacity: 0, y: -6 }}
+            transition={getSpringTransition(intensity, isDisabled)}
+            className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 flex items-center gap-3"
+          >
+            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+            <div className="flex-1 text-xs">
+              <span className="font-bold text-amber-600 dark:text-amber-400">
+                {renewalsNear.length} Subscription{renewalsNear.length > 1 ? 's' : ''} Renewing in the Next 7 Days:
+              </span>{' '}
+              <span className="text-[var(--ff-text-secondary)]">
+                {renewalsNear.map((s) => `${s.name} (${s.nextRenewalDate})`).join(', ')}
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Subscriptions Grid */}
       {subscriptions.length === 0 ? (
@@ -294,8 +313,11 @@ export const SubscriptionManager: React.FC = () => {
             );
 
             return (
-              <div
+              <motion.div
                 key={sub.id}
+                layout
+                transition={getSpringTransition(intensity, isDisabled)}
+                whileHover={isDisabled ? undefined : { y: -2 }}
                 className={`flex flex-col justify-between p-5 rounded-2xl bg-[var(--ff-card-bg)] border transition-all ${
                   isPaused || isCancelled ? 'opacity-60 border-[var(--ff-border)]' : 'hover:shadow-md border-[var(--ff-border)]'
                 }`}
@@ -381,19 +403,34 @@ export const SubscriptionManager: React.FC = () => {
                       : `In ${diffDays} day${diffDays > 1 ? 's' : ''}`}
                   </ThemeBadge>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
       )}
 
       {/* Add / Edit Subscription Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <form
-            onSubmit={handleSave}
-            className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col overflow-hidden"
+      <AnimatePresence>
+        {isModalOpen && (
+          <motion.div
+            key="sub-modal-backdrop"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+            initial={isDisabled ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={isDisabled ? undefined : { opacity: 0 }}
+            transition={{ duration: MOTION_DURATION.overlay }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsModalOpen(false);
+            }}
           >
+            <motion.form
+              onSubmit={handleSave}
+              className="w-full max-w-md bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col overflow-hidden"
+              initial={isDisabled ? false : { opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={isDisabled ? undefined : { opacity: 0, scale: 0.95, y: 12 }}
+              transition={getSpringTransition(intensity, isDisabled)}
+            >
             <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
               <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
                 {editingSub ? 'Edit Subscription' : 'New Subscription Plan'}
@@ -519,9 +556,10 @@ export const SubscriptionManager: React.FC = () => {
                 {editingSub ? 'Save Changes' : 'Track Subscription'}
               </ThemeButton>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
+    </AnimatePresence>
     </div>
   );
 };

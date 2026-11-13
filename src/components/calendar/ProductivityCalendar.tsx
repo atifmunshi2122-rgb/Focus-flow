@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { Task, Bill, FocusSession, IncomeTransaction, ExpenseTransaction } from '../../types/index.ts';
@@ -14,6 +15,8 @@ import {
 } from '../../lib/dateTime.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -43,6 +46,7 @@ interface DaySummary {
 
 export const ProductivityCalendar: React.FC = () => {
   const { currency, settings, refreshKey, triggerRefresh, showToast } = useApp();
+  const { intensity, isDisabled } = useMotionPreferences();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
 
@@ -355,13 +359,28 @@ export const ProductivityCalendar: React.FC = () => {
       </div>
 
       {/* Day Details Modal */}
-      {selectedDay && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div
-            className="w-full max-w-lg bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col max-h-[85vh] overflow-hidden"
-            role="dialog"
-            aria-modal="true"
+      <AnimatePresence>
+        {selectedDay && (
+          <motion.div
+            key="calendar-day-modal"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+            initial={isDisabled ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={isDisabled ? undefined : { opacity: 0 }}
+            transition={{ duration: MOTION_DURATION.overlay }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedDay(null);
+            }}
           >
+            <motion.div
+              className="w-full max-w-lg bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col max-h-[85vh] overflow-hidden"
+              role="dialog"
+              aria-modal="true"
+              initial={isDisabled ? false : { opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={isDisabled ? undefined : { opacity: 0, scale: 0.95, y: 12 }}
+              transition={getSpringTransition(intensity, isDisabled)}
+            >
             <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
               <div>
                 <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
@@ -485,9 +504,10 @@ export const ProductivityCalendar: React.FC = () => {
                 Close
               </ThemeButton>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+    </AnimatePresence>
     </div>
   );
 };
