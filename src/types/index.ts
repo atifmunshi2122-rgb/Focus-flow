@@ -149,6 +149,8 @@ export interface Bill {
   paymentDate: string | null;
   notes: string;
   periodKey: string;
+  lastPaymentId?: string | null;
+  lastPaymentIdempotencyKey?: string | null;
   deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -163,6 +165,7 @@ export interface PaymentHistory {
   paidDate: string;
   paymentMethod: 'credit_card' | 'debit_card' | 'upi_bank' | 'cash' | 'other';
   transactionRef: string;
+  idempotencyKey?: string;
   notes: string;
   status?: 'completed' | 'reversed';
   reversedAt?: string | null;
@@ -274,10 +277,20 @@ export interface AuditLogEntry {
 export interface DurableSyncOperation {
   id: string;
   userId: string;
-  entityType: 'focus_session' | 'income' | 'expense' | 'bill' | 'category' | 'full_sync';
+  entityType:
+    | 'focus_session'
+    | 'task'
+    | 'income'
+    | 'expense'
+    | 'bill'
+    | 'budget'
+    | 'savings_goal'
+    | 'category'
+    | 'full_sync';
   action: 'append' | 'update' | 'delete' | 'full_sync';
   sheetName: string;
   payload: unknown;
+  dedupeKey?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   attempts: number;
   lastAttemptAt?: string | null;
@@ -371,3 +384,49 @@ export interface FocusStatsData {
   totalMinutes: number;
   totalCompletedSessions: number;
 }
+
+export interface CursorPage<T> {
+  items: T[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface OfflineOutboxOperation {
+  id: string;
+  userId: string;
+  dedupeKey: string;
+  operationType:
+    | 'create_task'
+    | 'update_task'
+    | 'delete_task'
+    | 'create_focus_session'
+    | 'create_income'
+    | 'update_income'
+    | 'delete_income'
+    | 'create_expense'
+    | 'update_expense'
+    | 'delete_expense'
+    | 'create_recurring'
+    | 'update_recurring'
+    | 'delete_recurring'
+    | 'create_bill'
+    | 'pay_bill'
+    | 'undo_bill_payment'
+    | 'delete_bill'
+    | 'save_time_block'
+    | 'delete_time_block'
+    | 'save_envelope'
+    | 'delete_envelope'
+    | 'save_subscription'
+    | 'delete_subscription'
+    | 'create_savings_goal'
+    | 'update_savings_goal'
+    | 'contribute_savings_goal'
+    | 'delete_savings_goal'
+    | 'update_settings';
+  payload: Record<string, unknown>;
+  createdAt: string;
+  attempts: number;
+  lastError?: string;
+}
+

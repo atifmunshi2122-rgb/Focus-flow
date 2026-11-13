@@ -40,11 +40,16 @@ interface UnifiedTransaction {
 }
 
 export const TransactionsLedger: React.FC = () => {
-  const { currency, refreshKey, showToast, triggerRefresh } = useApp();
+  const { currency, refreshKey, showToast, triggerRefresh, confirmAction } = useApp();
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
   const [transactions, setTransactions] = useState<UnifiedTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [incomeCursor, setIncomeCursor] = useState<string | null>(null);
+  const [expenseCursor, setExpenseCursor] = useState<string | null>(null);
+  const [hasMoreIncomes, setHasMoreIncomes] = useState(false);
+  const [hasMoreExpenses, setHasMoreExpenses] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'fixed' | 'variable'>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -55,36 +60,76 @@ export const TransactionsLedger: React.FC = () => {
     setCurrentPage(1);
   }, [search, typeFilter]);
 
+  const mapUnified = (
+    incomes: Awaited<ReturnType<typeof api.getIncomesPage>>['items'],
+    expenses: Awaited<ReturnType<typeof api.getExpensesPage>>['items']
+  ): UnifiedTransaction[] => {
+    const unifiedInc: UnifiedTransaction[] = incomes.map((i) => ({
+      id: i.id,
+      type: 'income',
+      name: i.source,
+      category: i.category,
+      amountPaise: i.amountPaise,
+      date: i.date,
+      notes: i.notes,
+    }));
+
+    const unifiedExp: UnifiedTransaction[] = expenses.map((e) => ({
+      id: e.id,
+      type: e.type,
+      name: e.description,
+      category: e.categoryName || 'General',
+      amountPaise: e.amountPaise,
+      date: e.date,
+      notes: e.notes,
+      paymentMethod: e.paymentMethod,
+    }));
+
+    return [...unifiedInc, ...unifiedExp].sort((a, b) => b.date.localeCompare(a.date));
+  };
+
   const loadTransactions = () => {
     setLoading(true);
-    Promise.all([api.getIncomes(), api.getExpenses()])
-      .then(([incomes, expenses]) => {
-        const unifiedInc: UnifiedTransaction[] = incomes.map((i) => ({
-          id: i.id,
-          type: 'income',
-          name: i.source,
-          category: i.category,
-          amountPaise: i.amountPaise,
-          date: i.date,
-          notes: i.notes,
-        }));
-
-        const unifiedExp: UnifiedTransaction[] = expenses.map((e) => ({
-          id: e.id,
-          type: e.type,
-          name: e.description,
-          category: e.categoryName || 'General',
-          amountPaise: e.amountPaise,
-          date: e.date,
-          notes: e.notes,
-          paymentMethod: e.paymentMethod,
-        }));
-
-        const combined = [...unifiedInc, ...unifiedExp].sort((a, b) => b.date.localeCompare(a.date));
-        setTransactions(combined);
+    Promise.all([api.getIncomesPage(25, null), api.getExpensesPage(25, null)])
+      .then(([incPage, expPage]) => {
+        setIncomeCursor(incPage.nextCursor);
+        setHasMoreIncomes(incPage.hasMore);
+        setExpenseCursor(expPage.nextCursor);
+        setHasMoreExpenses(expPage.hasMore);
+        setTransactions(mapUnified(incPage.items, expPage.items));
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+  };
+
+  const handleLoadMoreCloud = async () => {
+    if (!hasMoreIncomes && !hasMoreExpenses) return;
+    setLoadingMore(true);
+    try {
+      const [incPage, expPage] = await Promise.all([
+        hasMoreIncomes
+          ? api.getIncomesPage(25, incomeCursor)
+          : Promise.resolve({ items: [], nextCursor: null, hasMore: false }),
+        hasMoreExpenses
+          ? api.getExpensesPage(25, expenseCursor)
+          : Promise.resolve({ items: [], nextCursor: null, hasMore: false }),
+      ]);
+      setIncomeCursor(incPage.nextCursor);
+      setHasMoreIncomes(incPage.hasMore);
+      setExpenseCursor(expPage.nextCursor);
+      setHasMoreExpenses(expPage.hasMore);
+
+      const nextChunk = mapUnified(incPage.items, expPage.items);
+      setTransactions((prev) => {
+        const seen = new Set(prev.map((x) => `${x.type}:${x.id}`));
+        const deduped = nextChunk.filter((x) => !seen.has(`${x.type}:${x.id}`));
+        return [...prev, ...deduped].sort((a, b) => b.date.localeCompare(a.date));
+      });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to load older records', 'error');
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
   useEffect(() => {
@@ -92,14 +137,21 @@ export const TransactionsLedger: React.FC = () => {
   }, [refreshKey]);
 
   const handleDeleteTransaction = async (t: UnifiedTransaction) => {
-    if (!window.confirm(`Delete transaction "${t.name}"?`)) return;
+    const confirmed = await confirmAction({
+      title: 'Delete Transaction',
+      message: 'Move this financial transaction to Trash? You can restore it later from the Trash Bin.',
+      itemLabel: `${t.name} · ${formatCurrency(t.amountPaise, currency)} (${t.date})`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       if (t.type === 'income') {
         await api.deleteIncome(t.id);
       } else {
         await api.deleteExpense(t.id);
       }
-      showToast(`Deleted "${t.name}"`, 'info');
+      showToast(`Moved "${t.name}" to Trash`, 'info');
       triggerRefresh();
       loadTransactions();
     } catch (err) {
@@ -108,13 +160,19 @@ export const TransactionsLedger: React.FC = () => {
   };
 
   const handleClearAllTransactions = async () => {
-    if (!window.confirm('Delete all transactions and reset your ledger to an empty clean state?')) return;
+    const confirmed = await confirmAction({
+      title: 'Clear Loaded Transactions',
+      message: `Move all ${transactions.length} loaded transactions to Trash? You can restore individual items from the Trash Bin if needed.`,
+      confirmLabel: `Move ${transactions.length} to Trash`,
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await Promise.all([
         ...transactions.filter((t) => t.type === 'income').map((t) => api.deleteIncome(t.id)),
         ...transactions.filter((t) => t.type !== 'income').map((t) => api.deleteExpense(t.id)),
       ]);
-      showToast('All transactions cleared successfully', 'success');
+      showToast('Loaded transactions moved to Trash', 'success');
       triggerRefresh();
       loadTransactions();
     } catch (err) {
@@ -174,8 +232,8 @@ export const TransactionsLedger: React.FC = () => {
             <ThemeButton
               variant="danger"
               size="sm"
-              onClick={handleClearAllTransactions}
-              title="Clear all transactions"
+              onClick={() => void handleClearAllTransactions()}
+              title="Clear all loaded transactions"
               aria-label="Clear all transactions"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -318,7 +376,19 @@ export const TransactionsLedger: React.FC = () => {
               </span>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {(hasMoreIncomes || hasMoreExpenses) && (
+                <ThemeButton
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void handleLoadMoreCloud()}
+                  loading={loadingMore}
+                  loadingText="Loading..."
+                >
+                  Load Older Records
+                </ThemeButton>
+              )}
+
               <div className="flex items-center gap-1.5">
                 <span>Rows:</span>
                 <select

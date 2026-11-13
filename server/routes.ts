@@ -40,6 +40,15 @@ import {
   parsePositiveInt,
   parseSubtasks,
 } from './validation.js';
+import {
+  verifySpreadsheet,
+  createMasterWorkbook,
+  applyWorkbookFormatting,
+  syncAllData,
+  historicalResync,
+  flushQueueOperations,
+} from './sheetsWorker.js';
+import type { SheetsSnapshotPayload } from '../src/lib/sheetsSpec.js';
 
 export const apiRouter = Router();
 
@@ -1699,7 +1708,7 @@ apiRouter.post('/finance/bills', (req: Request, res: Response) => {
 apiRouter.post('/finance/bills/:id/pay', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-  const { paidDate, paymentMethod, notes } = body;
+  const { paidDate, paymentMethod, notes, idempotencyKey } = body;
 
   let validPaidDate: string | undefined;
   if (paidDate !== undefined && paidDate !== '') {
@@ -1724,12 +1733,18 @@ apiRouter.post('/finance/bills/:id/pay', (req: Request, res: Response) => {
     return;
   }
 
+  const parsedIdemKey =
+    typeof idempotencyKey === 'string' && idempotencyKey.trim()
+      ? idempotencyKey.trim().slice(0, 128)
+      : undefined;
+
   const result = dbService.markBillAsPaid(
     userId,
     req.params.id,
     validPaidDate,
     parsedMethod,
-    parsedNotes
+    parsedNotes,
+    parsedIdemKey
   );
 
   if (!result.success) {
@@ -2345,18 +2360,171 @@ apiRouter.post('/sync/queue/enqueue', (req: Request, res: Response) => {
 apiRouter.post('/sync/queue/:id/status', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const { id } = req.params;
-  const { status, errorMessage, nextRetryAt } = req.body || {};
-  const item = dbService.updateSyncOp(userId, id, {
+  const { status, errorMessage, nextRetryAt, attempts } = req.body || {};
+  const updates: Record<string, unknown> = {
     status,
     errorMessage,
     nextRetryAt,
     lastAttemptAt: new Date().toISOString(),
-  });
+  };
+  if (typeof attempts === 'number' && Number.isFinite(attempts) && attempts >= 0) {
+    updates.attempts = Math.floor(attempts);
+  }
+  const item = dbService.updateSyncOp(userId, id, updates);
   if (!item) {
     res.status(404).json({ error: 'Queue item not found' });
     return;
   }
   res.json(item);
+});
+
+// ----------------------------------------------------
+// SECURE BACKEND GOOGLE SHEETS WORKER ENDPOINTS
+// ----------------------------------------------------
+function extractGoogleAccessToken(req: Request): string | null {
+  const raw = req.headers['x-google-access-token'];
+  if (typeof raw === 'string' && raw.trim().length > 10) {
+    return raw.trim();
+  }
+  return null;
+}
+
+apiRouter.post('/sheets/verify', async (req: Request, res: Response) => {
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({ error: 'Google authorization token header is required.' });
+    return;
+  }
+  const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
+  if (!spreadsheetId) {
+    res.status(400).json({ error: 'spreadsheetId is required.' });
+    return;
+  }
+  try {
+    const meta = await verifySpreadsheet(spreadsheetId, accessToken);
+    res.json({
+      spreadsheetId: meta.spreadsheetId,
+      title: meta.title,
+      sheetsCount: meta.sheets.length,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Spreadsheet verification failed.' });
+  }
+});
+
+apiRouter.post('/sheets/create-workbook', async (req: Request, res: Response) => {
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({ error: 'Google authorization token header is required.' });
+    return;
+  }
+  try {
+    const created = await createMasterWorkbook(accessToken);
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Workbook creation failed.' });
+  }
+});
+
+apiRouter.post('/sheets/sync', async (req: Request, res: Response) => {
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({ error: 'Google authorization token header is required.' });
+    return;
+  }
+  const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
+  const data = req.body?.data as SheetsSnapshotPayload | undefined;
+  if (!spreadsheetId || !data || typeof data !== 'object') {
+    res.status(400).json({ error: 'spreadsheetId and snapshot data are required.' });
+    return;
+  }
+  try {
+    const result = await syncAllData(spreadsheetId, accessToken, data);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Google Sheets sync failed.' });
+  }
+});
+
+apiRouter.post('/sheets/apply-formatting', async (req: Request, res: Response) => {
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({ error: 'Google authorization token header is required.' });
+    return;
+  }
+  const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
+  if (!spreadsheetId) {
+    res.status(400).json({ error: 'spreadsheetId is required.' });
+    return;
+  }
+  try {
+    await applyWorkbookFormatting(spreadsheetId, accessToken, {
+      includeHeaders: Boolean(req.body?.includeHeaders),
+      includeAutoResize: req.body?.includeAutoResize !== false,
+      verifyFirst: true,
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Formatting update failed.' });
+  }
+});
+
+apiRouter.post('/sheets/historical-resync', async (req: Request, res: Response) => {
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({ error: 'Google authorization token header is required.' });
+    return;
+  }
+  const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
+  const data = req.body?.data as SheetsSnapshotPayload | undefined;
+  const confirmed = req.body?.confirmed === true;
+
+  if (!confirmed) {
+    res.status(400).json({ error: 'Explicit user confirmation (confirmed: true) is required for historical resync.' });
+    return;
+  }
+  if (!spreadsheetId || !data || typeof data !== 'object') {
+    res.status(400).json({ error: 'spreadsheetId and snapshot data are required.' });
+    return;
+  }
+
+  try {
+    const result = await historicalResync(spreadsheetId, accessToken, data, true);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Historical resync failed.' });
+  }
+});
+
+apiRouter.post('/sheets/flush-queue', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({ error: 'Google authorization token header is required.' });
+    return;
+  }
+  const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
+  if (!spreadsheetId) {
+    res.status(400).json({ error: 'spreadsheetId is required.' });
+    return;
+  }
+
+  const incomingOps = Array.isArray(req.body?.operations) ? req.body.operations : dbService.getSyncQueue(userId);
+  try {
+    const summary = await flushQueueOperations(spreadsheetId, accessToken, incomingOps);
+    for (const r of summary.results) {
+      dbService.updateSyncOp(userId, r.id, {
+        status: r.status,
+        attempts: r.attempts,
+        nextRetryAt: r.nextRetryAt ?? null,
+        errorMessage: r.errorMessage ?? null,
+        lastAttemptAt: new Date().toISOString(),
+      });
+    }
+    res.json(summary);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Queue flush failed.' });
+  }
 });
 
 // ----------------------------------------------------

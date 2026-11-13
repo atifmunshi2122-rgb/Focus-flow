@@ -29,8 +29,8 @@ export const IncomeManager: React.FC = () => {
     refreshKey,
     triggerRefresh,
     showToast,
+    confirmAction,
     settings,
-    firebaseUser,
     googleSpreadsheetId,
     googleAccessToken,
   } = useApp();
@@ -115,14 +115,19 @@ export const IncomeManager: React.FC = () => {
           category,
           notes,
         });
-        googleSheetsService.enqueueMutation('Income', [
-          created.id,
-          created.date,
-          created.source,
-          created.category,
-          created.amountPaise / 100,
-          created.notes || '',
-        ]);
+        void googleSheetsService.enqueueMutation(
+          'Income',
+          [
+            created.id,
+            created.date,
+            created.source,
+            created.category,
+            created.amountPaise / 100,
+            created.notes || '',
+          ],
+          'append',
+          `Income_append_${created.id}`
+        );
         if (googleSpreadsheetId && googleAccessToken) {
           googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
         }
@@ -144,11 +149,18 @@ export const IncomeManager: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this income record?')) return;
+  const handleDelete = async (inc: IncomeTransaction) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Income Record',
+      message: 'Move this income entry to Trash? You can restore it later from the Trash Bin.',
+      itemLabel: `${inc.source} · +${formatCurrency(inc.amountPaise, currency)} (${inc.date})`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await api.deleteIncome(id);
-      showToast('Income record deleted', 'info');
+      await api.deleteIncome(inc.id);
+      showToast('Income record moved to Trash', 'info');
       triggerRefresh();
       loadIncomes();
     } catch {
@@ -275,7 +287,7 @@ export const IncomeManager: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => void handleDelete(inc.id)}
+                        onClick={() => void handleDelete(inc)}
                         className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
                         title="Delete income"
                         aria-label={`Delete ${inc.source}`}

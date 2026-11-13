@@ -48,11 +48,17 @@ export const SettingsView: React.FC = () => {
     signOutGoogle,
     googleSpreadsheetId,
     syncStatus,
+    syncQueueCount,
     lastSyncedAt,
     createOrConnectSpreadsheet,
     syncNowToGoogleSheets,
+    historicalResyncToGoogleSheets,
+    reapplySheetFormatting,
+    offlineOutboxCount,
+    reconcileOutboxNow,
     setTrashModalOpen,
     showToast,
+    confirmAction,
   } = useApp();
 
   const [activeSection, setActiveSection] = useState<'studio' | 'system'>('studio');
@@ -151,21 +157,27 @@ export const SettingsView: React.FC = () => {
   };
 
   const handleReseed = async () => {
-    if (
-      window.confirm(
-        'Reset database to initial pristine seed data? This will restore sample transactions, bills, and focus sessions.'
-      )
-    ) {
+    const confirmed = await confirmAction({
+      title: 'Load Sample Starter Data',
+      message:
+        'Reset database to initial pristine seed data? This will restore sample transactions, bills, and focus sessions.',
+      confirmLabel: 'Load Sample Data',
+      tone: 'warning',
+    });
+    if (confirmed) {
       await reseedData();
     }
   };
 
   const handleClearAllWorkspace = async () => {
-    if (
-      window.confirm(
-        'Are you sure you want to delete ALL transactions, tasks, bills, time blocks, and subscriptions to start completely clean? This action cannot be undone.'
-      )
-    ) {
+    const confirmed = await confirmAction({
+      title: 'Wipe Entire Workspace',
+      message:
+        'Delete ALL transactions, tasks, bills, time blocks, and subscriptions to start completely clean? This action cannot be undone.',
+      confirmLabel: 'Wipe All Data',
+      tone: 'danger',
+    });
+    if (confirmed) {
       await clearAllData();
     }
   };
@@ -295,12 +307,24 @@ export const SettingsView: React.FC = () => {
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <span
-                      className="text-xs font-bold block"
-                      style={{ color: 'var(--ff-success)' }}
-                    >
-                      Master Ledger Active in Google Drive
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className="text-xs font-bold block"
+                        style={{ color: 'var(--ff-success)' }}
+                      >
+                        Master Ledger Active in Google Drive
+                      </span>
+                      {syncQueueCount > 0 && (
+                        <ThemeBadge tone="warning">
+                          {syncQueueCount} queued {syncQueueCount === 1 ? 'op' : 'ops'}
+                        </ThemeBadge>
+                      )}
+                      {offlineOutboxCount > 0 && (
+                        <ThemeBadge tone="danger">
+                          {offlineOutboxCount} offline pending
+                        </ThemeBadge>
+                      )}
+                    </div>
                     <span className="text-[11px] font-mono text-[var(--ff-text-secondary)] block mt-0.5 truncate max-w-md">
                       Sheet ID: {googleSpreadsheetId}
                     </span>
@@ -311,7 +335,7 @@ export const SettingsView: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <a
                       href={`https://docs.google.com/spreadsheets/d/${googleSpreadsheetId}`}
                       target="_blank"
@@ -323,6 +347,31 @@ export const SettingsView: React.FC = () => {
                     </a>
 
                     <ThemeButton
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void reapplySheetFormatting()}
+                      disabled={syncStatus === 'syncing'}
+                      title="Explicitly re-apply header styling, filters, conditional formatting, and column sizing"
+                    >
+                      <Palette className="w-3.5 h-3.5" />
+                      <span>Re-apply Formatting</span>
+                    </ThemeButton>
+
+                    <ThemeButton
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void historicalResyncToGoogleSheets()}
+                      disabled={syncStatus === 'syncing'}
+                      title="Safely verify, clear dynamic ranges, and perform full historical rebuild"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Historical Resync</span>
+                    </ThemeButton>
+
+                    <ThemeButton
+                      type="button"
                       variant="success"
                       size="sm"
                       onClick={() => void syncNowToGoogleSheets()}
@@ -335,6 +384,21 @@ export const SettingsView: React.FC = () => {
                     </ThemeButton>
                   </div>
                 </div>
+                {offlineOutboxCount > 0 && (
+                  <div className="pt-2 border-t border-[var(--ff-border-color)] flex items-center justify-between gap-2 text-xs">
+                    <span className="text-[var(--ff-text-secondary)]">
+                      {offlineOutboxCount} offline write{offlineOutboxCount === 1 ? '' : 's'} waiting to reconcile to Firestore.
+                    </span>
+                    <ThemeButton
+                      type="button"
+                      variant="secondary"
+                      size="xs"
+                      onClick={() => void reconcileOutboxNow()}
+                    >
+                      Reconcile Outbox
+                    </ThemeButton>
+                  </div>
+                )}
               </ThemeCard>
             ) : (
               <ThemeCard

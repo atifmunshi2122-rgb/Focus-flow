@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { googleSheetsService } from '../../lib/googleSheetsService.ts';
 import { SubtaskItem, Task, TaskRecurrence } from '../../types/index.ts';
 import {
   ThemeBadge,
@@ -59,6 +60,9 @@ export const TaskManager: React.FC = () => {
     startTimer,
     setCurrentTab,
     setTrashModalOpen,
+    confirmAction,
+    googleSpreadsheetId,
+    googleAccessToken,
   } = useApp();
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -161,12 +165,32 @@ export const TaskManager: React.FC = () => {
     };
 
     try {
+      let savedTask: Task;
       if (editingTask) {
-        await api.updateTask(editingTask.id, payload);
+        savedTask = await api.updateTask(editingTask.id, payload);
         showToast('Task updated successfully', 'success');
       } else {
-        await api.createTask(payload);
+        savedTask = await api.createTask(payload);
         showToast('Task created successfully', 'success');
+      }
+      googleSheetsService.enqueueMutation(
+        'Tasks',
+        [
+          savedTask.id,
+          savedTask.title,
+          savedTask.priority,
+          savedTask.status,
+          savedTask.dueDate || '',
+          savedTask.estimatedPomodoros,
+          savedTask.completedPomodoros,
+          savedTask.createdAt,
+          savedTask.updatedAt,
+        ],
+        editingTask ? 'update' : 'append',
+        `Tasks_${editingTask ? 'update' : 'append'}_${savedTask.id}`
+      );
+      if (googleSpreadsheetId && googleAccessToken) {
+        googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
       }
       setModalOpen(false);
       triggerRefresh();
@@ -182,7 +206,26 @@ export const TaskManager: React.FC = () => {
   const toggleTaskStatus = async (task: Task, targetStatus?: Task['status']) => {
     const nextStatus = targetStatus || (task.status === 'completed' ? 'todo' : 'completed');
     try {
-      await api.updateTask(task.id, { status: nextStatus });
+      const updated = await api.updateTask(task.id, { status: nextStatus });
+      googleSheetsService.enqueueMutation(
+        'Tasks',
+        [
+          updated.id,
+          updated.title,
+          updated.priority,
+          updated.status,
+          updated.dueDate || '',
+          updated.estimatedPomodoros,
+          updated.completedPomodoros,
+          updated.createdAt,
+          updated.updatedAt,
+        ],
+        'update',
+        `Tasks_update_${updated.id}_${updated.status}`
+      );
+      if (googleSpreadsheetId && googleAccessToken) {
+        googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
+      }
       triggerRefresh();
       loadTasks();
       showToast(
@@ -210,9 +253,17 @@ export const TaskManager: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (task: Task) => {
+    const confirmed = await confirmAction({
+      title: 'Move Task to Trash',
+      message: 'Move this task to the Trash Bin? You can restore it anytime later.',
+      itemLabel: task.title,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await api.deleteTask(id);
+      await api.deleteTask(task.id);
       showToast('Moved task to Trash', 'info');
       triggerRefresh();
       loadTasks();
@@ -417,7 +468,7 @@ export const TaskManager: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => void handleDelete(task.id)}
+              onClick={() => void handleDelete(task)}
               className="p-2 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] rounded-lg"
               aria-label={`Move ${task.title} to Trash`}
             >

@@ -18,7 +18,7 @@ async function startServer() {
 
   app.use(securityHeaders);
   app.use(corsHandler);
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '5mb' }));
 
   // Health-check endpoints for load balancers, orchestrators and uptime monitoring
   const healthCheck = (_req: express.Request, res: express.Response) => {

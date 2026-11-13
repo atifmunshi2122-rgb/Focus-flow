@@ -18,9 +18,13 @@ import {
 } from 'lucide-react';
 
 export const DataRecoveryCenter: React.FC = () => {
-  const { showToast, refreshKey, triggerRefresh } = useApp();
+  const { showToast, refreshKey, triggerRefresh, offlineOutboxCount, reconcileOutboxNow, isOnline } = useApp();
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
+  const [loadingMoreLogs, setLoadingMoreLogs] = useState(false);
+  const [auditCursor, setAuditCursor] = useState<string | null>(null);
+  const [hasMoreLogs, setHasMoreLogs] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [searchLog, setSearchLog] = useState('');
   const [actionFilter, setActionFilter] = useState('all');
 
@@ -36,9 +40,12 @@ export const DataRecoveryCenter: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
     setLoadingLogs(true);
-    api.getAuditLogs(150)
-      .then((logs) => {
-        if (isMounted) setAuditLogs(logs);
+    api.getAuditLogsPage(25, null)
+      .then((page) => {
+        if (!isMounted) return;
+        setAuditLogs(page.items);
+        setAuditCursor(page.nextCursor);
+        setHasMoreLogs(page.hasMore);
       })
       .catch(() => {
         if (isMounted) showToast('Failed to load audit logs', 'error');
@@ -51,6 +58,34 @@ export const DataRecoveryCenter: React.FC = () => {
       isMounted = false;
     };
   }, [refreshKey, showToast]);
+
+  const handleLoadMoreLogs = async () => {
+    if (!hasMoreLogs || !auditCursor) return;
+    setLoadingMoreLogs(true);
+    try {
+      const page = await api.getAuditLogsPage(25, auditCursor);
+      setAuditCursor(page.nextCursor);
+      setHasMoreLogs(page.hasMore);
+      setAuditLogs((prev) => {
+        const seen = new Set(prev.map((l) => l.id));
+        const next = page.items.filter((l) => !seen.has(l.id));
+        return [...prev, ...next];
+      });
+    } catch {
+      showToast('Failed to load older audit logs', 'error');
+    } finally {
+      setLoadingMoreLogs(false);
+    }
+  };
+
+  const handleReconcileOutbox = async () => {
+    setReconciling(true);
+    try {
+      await reconcileOutboxNow();
+    } finally {
+      setReconciling(false);
+    }
+  };
 
   const handleExportBackup = async () => {
     try {
@@ -215,6 +250,39 @@ export const DataRecoveryCenter: React.FC = () => {
         </div>
       )}
 
+      {/* Firestore Offline Outbox Recovery Card */}
+      <ThemeCard>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-bold text-[var(--ff-text-primary)] flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-[var(--ff-accent)]" />
+              Firestore Offline Outbox &amp; Reconciliation
+              <ThemeBadge tone={offlineOutboxCount > 0 ? 'warning' : 'success'}>
+                {offlineOutboxCount > 0 ? `${offlineOutboxCount} Pending` : 'In Sync'}
+              </ThemeBadge>
+            </h3>
+            <p className="text-xs text-[var(--ff-text-muted)] mt-0.5">
+              {offlineOutboxCount > 0
+                ? 'Signed-in writes captured offline are queued securely in your per-user outbox awaiting Firestore replay (never diverted to local JSON fallback).'
+                : `Primary Firestore source of truth is up to date (${isOnline ? 'Online' : 'Offline'}).`}
+            </p>
+          </div>
+
+          <ThemeButton
+            type="button"
+            variant={offlineOutboxCount > 0 ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => void handleReconcileOutbox()}
+            disabled={reconciling || !isOnline}
+            loading={reconciling}
+            loadingText="Reconciling..."
+          >
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${reconciling ? 'animate-spin' : ''}`} />
+            Reconcile Now
+          </ThemeButton>
+        </div>
+      </ThemeCard>
+
       {/* Database Integrity Scanner Card */}
       <ThemeCard>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -358,6 +426,20 @@ export const DataRecoveryCenter: React.FC = () => {
                 </div>
               </div>
             ))}
+            {hasMoreLogs && (
+              <div className="p-3 text-center border-t ff-divider">
+                <ThemeButton
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void handleLoadMoreLogs()}
+                  loading={loadingMoreLogs}
+                  loadingText="Loading older entries..."
+                >
+                  Load Older Audit Logs
+                </ThemeButton>
+              </div>
+            )}
           </div>
         )}
       </ThemeCard>

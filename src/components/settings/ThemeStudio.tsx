@@ -96,6 +96,7 @@ export const ThemeStudio: React.FC = () => {
     toggleFavoriteTheme,
     settings,
     showToast,
+    confirmAction,
   } = useApp();
 
   // Draft config lets users explore & preview customizations before applying
@@ -1021,7 +1022,18 @@ export const ThemeStudio: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => void deleteSavedTheme(saved.id)}
+                            onClick={async () => {
+                              const confirmed = await confirmAction({
+                                title: 'Delete Saved Theme',
+                                message:
+                                  'Permanently delete this custom saved theme? This action cannot be undone.',
+                                itemLabel: saved.name,
+                                confirmLabel: 'Delete Theme',
+                                tone: 'danger',
+                              });
+                              if (!confirmed) return;
+                              await deleteSavedTheme(saved.id);
+                            }}
                             className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
                             title="Delete saved theme"
                             aria-label={`Delete ${saved.name}`}

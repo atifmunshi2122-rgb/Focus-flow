@@ -123,6 +123,8 @@ export interface Bill {
   paymentDate: string | null; // YYYY-MM-DD
   notes: string;
   periodKey: string; // e.g. "2026-11" to prevent duplicate recurring bills
+  lastPaymentId?: string | null;
+  lastPaymentIdempotencyKey?: string | null;
   deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -137,6 +139,7 @@ export interface PaymentHistory {
   paidDate: string;
   paymentMethod: 'credit_card' | 'debit_card' | 'upi_bank' | 'cash' | 'other';
   transactionRef: string;
+  idempotencyKey?: string;
   notes: string;
   status?: 'completed' | 'reversed';
   reversedAt?: string | null;
@@ -250,6 +253,7 @@ export interface DurableSyncOperation {
   action: string;
   sheetName: string;
   payload: unknown;
+  dedupeKey?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   attempts: number;
   lastAttemptAt?: string | null;
@@ -1127,17 +1131,21 @@ class DatabaseService {
     }
   }
 
-  // Transaction support: Mark bill as paid atomically
+  // Transaction support: Mark bill as paid atomically & idempotently
   public markBillAsPaid(
     userId: string,
     billId: string,
     paidDate?: string,
     paymentMethod: PaymentHistory['paymentMethod'] = 'upi_bank',
-    notes?: string
+    notes?: string,
+    idempotencyKey?: string
   ): { success: boolean; bill?: Bill; error?: string } {
     const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId);
     if (!bill) {
       return { success: false, error: 'Bill not found' };
+    }
+    if (idempotencyKey && bill.lastPaymentIdempotencyKey === idempotencyKey && bill.status === 'PAID') {
+      return { success: true, bill };
     }
     if (bill.status === 'PAID') {
       return { success: false, error: 'Bill is already marked as paid' };
@@ -1148,14 +1156,20 @@ class DatabaseService {
     const effectivePaidDate = paidDate || getTodayDateString(tz);
     const nowIso = new Date().toISOString();
 
+    const paymentId = `pay_${bill.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+
     // Atomic update
     bill.status = 'PAID';
     bill.paymentDate = effectivePaidDate;
+    bill.lastPaymentId = paymentId;
+    if (idempotencyKey) {
+      bill.lastPaymentIdempotencyKey = idempotencyKey;
+    }
     bill.updatedAt = nowIso;
 
-    // Add to PaymentHistory
+    // Add to PaymentHistory (unique immutable payment record ID)
     const paymentRecord: PaymentHistory = {
-      id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: paymentId,
       userId,
       billId: bill.id,
       billName: bill.name,
@@ -1163,28 +1177,44 @@ class DatabaseService {
       paidDate: effectivePaidDate,
       paymentMethod,
       transactionRef: `REF-${bill.id}-${Date.now().toString(36).toUpperCase()}`,
+      idempotencyKey,
       notes: notes || 'Bill payment recorded',
       status: 'completed',
       createdAt: nowIso,
     };
     this.db.paymentHistory.push(paymentRecord);
 
-    // Create corresponding ExpenseTransaction so it reflects in expenses
-    const expenseTx: ExpenseTransaction = {
-      id: `exp_bill_${bill.id}`,
-      userId,
-      billId: bill.id,
-      type: 'fixed',
-      categoryId: bill.categoryId,
-      amountPaise: bill.amountPaise,
-      date: effectivePaidDate,
-      description: `${bill.name} (Bill payment)`,
-      paymentMethod,
-      notes: notes || 'Paid bill expense',
-      deletedAt: null,
-      createdAt: nowIso,
-    };
-    this.db.expenseTransactions.push(expenseTx);
+    // Upsert corresponding ExpenseTransaction (never push duplicate exp_bill_*)
+    const existingExpense = this.db.expenseTransactions.find(
+      (e) => e.id === `exp_bill_${bill.id}` && e.userId === userId
+    );
+    if (existingExpense) {
+      existingExpense.billId = bill.id;
+      existingExpense.type = 'fixed';
+      existingExpense.categoryId = bill.categoryId;
+      existingExpense.amountPaise = bill.amountPaise;
+      existingExpense.date = effectivePaidDate;
+      existingExpense.description = `${bill.name} (Bill payment)`;
+      existingExpense.paymentMethod = paymentMethod;
+      existingExpense.notes = notes || 'Paid bill expense';
+      existingExpense.deletedAt = null;
+    } else {
+      const expenseTx: ExpenseTransaction = {
+        id: `exp_bill_${bill.id}`,
+        userId,
+        billId: bill.id,
+        type: 'fixed',
+        categoryId: bill.categoryId,
+        amountPaise: bill.amountPaise,
+        date: effectivePaidDate,
+        description: `${bill.name} (Bill payment)`,
+        paymentMethod,
+        notes: notes || 'Paid bill expense',
+        deletedAt: null,
+        createdAt: nowIso,
+      };
+      this.db.expenseTransactions.push(expenseTx);
+    }
 
     // Record audit log
     this.db.auditLogs.push({
@@ -1207,9 +1237,10 @@ class DatabaseService {
     billId: string,
     paidDate?: string,
     paymentMethod: PaymentHistory['paymentMethod'] = 'upi_bank',
-    notes?: string
+    notes?: string,
+    idempotencyKey?: string
   ): { success: boolean; bill?: Bill; error?: string } {
-    return this.markBillAsPaid(userId, billId, paidDate, paymentMethod, notes);
+    return this.markBillAsPaid(userId, billId, paidDate, paymentMethod, notes, idempotencyKey);
   }
 
   // Safe undo payment: preserve historical payment record with 'reversed' status
@@ -1502,6 +1533,25 @@ class DatabaseService {
     op: Omit<DurableSyncOperation, 'id' | 'userId' | 'status' | 'attempts' | 'createdAt'>
   ): DurableSyncOperation {
     this.db.syncQueue = this.db.syncQueue || [];
+    const dedupeKey = typeof op.dedupeKey === 'string' && op.dedupeKey.trim() ? op.dedupeKey.trim() : undefined;
+
+    if (dedupeKey) {
+      const existing = this.db.syncQueue.find(
+        (sq) => sq.userId === userId && sq.dedupeKey === dedupeKey && sq.status !== 'completed'
+      );
+      if (existing) {
+        existing.payload = op.payload;
+        existing.action = op.action;
+        existing.entityType = op.entityType;
+        existing.sheetName = op.sheetName;
+        existing.status = 'pending';
+        existing.nextRetryAt = null;
+        existing.errorMessage = null;
+        this.save();
+        return existing;
+      }
+    }
+
     const item: DurableSyncOperation = {
       id: `sync_op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       userId,
@@ -1509,6 +1559,7 @@ class DatabaseService {
       action: op.action,
       sheetName: op.sheetName,
       payload: op.payload,
+      dedupeKey,
       status: 'pending',
       attempts: 0,
       createdAt: new Date().toISOString(),

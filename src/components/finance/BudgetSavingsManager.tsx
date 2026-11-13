@@ -17,13 +17,14 @@ import {
   FinanceSummaryData,
   SavingsGoal,
 } from '../../types/index.ts';
+import { googleSheetsService } from '../../lib/googleSheetsService.ts';
 import { ThemeBadge, ThemeButton, ThemeCard, ThemeInput, ThemeSelect } from '../ui/ThemePrimitives.tsx';
 
 export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings?: boolean }> = ({
   showBudgets = true,
   showSavings = true,
 }) => {
-  const { settings, updateSettings, currency, refreshKey, showToast, triggerRefresh } = useApp();
+  const { settings, updateSettings, currency, refreshKey, showToast, triggerRefresh, confirmAction } = useApp();
   const [summary, setSummary] = useState<FinanceSummaryData | null>(null);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
@@ -96,12 +97,25 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
       return;
     }
     try {
-      await api.createSavingsGoal({
+      const created = await api.createSavingsGoal({
         title,
         targetPaise: toPaise(targetNum),
         targetDate: goalDate || null,
         color: '#10b981',
       });
+      void googleSheetsService.enqueueMutation(
+        'Savings_Goals',
+        [
+          created.id,
+          created.title,
+          created.targetPaise / 100,
+          created.savedPaise / 100,
+          0,
+          created.targetDate || 'No Deadline',
+        ],
+        'append',
+        `Savings_Goals_append_${created.id}`
+      );
       setGoalTitle('');
       setGoalTargetInput('');
       setGoalDate('');
@@ -134,7 +148,14 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
   };
 
   const handleDeleteGoal = async (goal: SavingsGoal) => {
-    if (!window.confirm(`Delete savings goal "${goal.title}"?`)) return;
+    const confirmed = await confirmAction({
+      title: 'Delete Savings Goal',
+      message: 'Remove this savings goal and its progress tracker?',
+      itemLabel: `${goal.title} · ${formatCurrency(goal.savedPaise, currency)} / ${formatCurrency(goal.targetPaise, currency)}`,
+      confirmLabel: 'Delete Goal',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await api.deleteSavingsGoal(goal.id);
       showToast('Savings goal deleted', 'info');

@@ -6,6 +6,11 @@ import {
   setDoc,
   deleteDoc,
   writeBatch,
+  runTransaction,
+  query,
+  orderBy,
+  limit,
+  startAfter,
   onSnapshot,
   Unsubscribe,
 } from 'firebase/firestore';
@@ -52,6 +57,7 @@ import {
   SubscriptionPlan,
   AuditLogEntry,
   DurableSyncOperation,
+  CursorPage,
 } from '../types/index.ts';
 
 const DEFAULT_CATEGORY_TEMPLATES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -474,7 +480,10 @@ export const firestoreService = {
     }
 
     const session: FocusSession = {
-      id: `foc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id:
+        typeof input.id === 'string' && /^[a-zA-Z0-9_-]{3,128}$/.test(input.id)
+          ? input.id
+          : `foc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId,
       taskId: input.taskId || null,
       ...(taskTitle ? { taskTitle } : {}),
@@ -588,7 +597,10 @@ export const firestoreService = {
         : 'none';
     const now = new Date().toISOString();
     const created: Task = {
-      id: `tsk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id:
+        typeof input.id === 'string' && /^[a-zA-Z0-9_-]{3,128}$/.test(input.id)
+          ? input.id
+          : `tsk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId,
       title,
       description: (input.description || '').trim(),
@@ -725,7 +737,10 @@ export const firestoreService = {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Valid amount is required');
 
     const created: IncomeTransaction = {
-      id: `inc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id:
+        typeof input.id === 'string' && /^[a-zA-Z0-9_-]{3,128}$/.test(input.id)
+          ? input.id
+          : `inc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId,
       source,
       amountPaise: Math.round(amount),
@@ -822,7 +837,10 @@ export const firestoreService = {
     const now = new Date().toISOString();
 
     const created: RecurringExpense = {
-      id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id:
+        typeof input.id === 'string' && /^[a-zA-Z0-9_-]{3,128}$/.test(input.id)
+          ? input.id
+          : `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId,
       name,
       amountPaise: Math.round(amount),
@@ -934,7 +952,10 @@ export const firestoreService = {
     const cats = await this.getCategories(userId);
     const categoryId = input.categoryId || cats[0]?.id || 'cat_1';
     const created: ExpenseTransaction = {
-      id: `exp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id:
+        typeof input.id === 'string' && /^[a-zA-Z0-9_-]{3,128}$/.test(input.id)
+          ? input.id
+          : `exp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId,
       billId: input.billId || null,
       type: input.type === 'fixed' ? 'fixed' : 'variable',
@@ -1124,7 +1145,10 @@ export const firestoreService = {
     const now = new Date().toISOString();
 
     const created: Bill = {
-      id: `bill_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id:
+        typeof input.id === 'string' && /^[a-zA-Z0-9_-]{3,128}$/.test(input.id)
+          ? input.id
+          : `bill_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId,
       recurringExpenseId: null,
       name,
@@ -1159,124 +1183,193 @@ export const firestoreService = {
     billId: string,
     paidDate?: string,
     paymentMethod: PaymentHistory['paymentMethod'] = 'upi_bank',
-    notes?: string
+    notes?: string,
+    idempotencyKey?: string
   ): Promise<{ success: boolean; bill: Bill }> {
     const billPath = `users/${userId}/bills/${billId}`;
-    const snap = await getDoc(doc(db, billPath));
-    if (!snap.exists()) throw new Error('Bill not found');
-    const bill = snap.data() as Bill;
-    if (bill.status === 'PAID') throw new Error('Bill is already paid');
-
-    const settings = await this.getSettings(userId);
+    const [settings, cats] = await Promise.all([this.getSettings(userId), this.getCategories(userId)]);
     const tz = settings?.timezone || DEFAULT_TIMEZONE;
     const effectivePaidDate = paidDate || getTodayDateString(tz);
     const nowIso = new Date().toISOString();
 
-    const updatedBill: Bill = {
-      ...bill,
-      status: 'PAID',
-      paymentDate: effectivePaidDate,
-      updatedAt: nowIso,
-    };
+    const billRef = doc(db, billPath);
+    const expId = `exp_bill_${billId}`;
+    const expRef = doc(db, `users/${userId}/expenses/${expId}`);
 
-    const payRecord: PaymentHistory = {
-      id: `pay_bill_${bill.id}`,
-      userId,
-      billId: bill.id,
-      billName: bill.name,
-      amountPaise: bill.amountPaise,
-      paidDate: effectivePaidDate,
-      paymentMethod,
-      transactionRef: `REF-${bill.id}-${Date.now().toString(36).toUpperCase()}`,
-      notes: notes || 'Bill payment recorded',
-      status: 'completed',
-      createdAt: nowIso,
-    };
+    let finalBill: Bill;
+    let replayed = false;
 
-    const expenseTx: ExpenseTransaction = {
-      id: `exp_bill_${bill.id}`,
-      userId,
-      billId: bill.id,
-      type: 'fixed',
-      categoryId: bill.categoryId,
-      amountPaise: bill.amountPaise,
-      date: effectivePaidDate,
-      description: `${bill.name} (Bill payment)`,
-      paymentMethod,
-      notes: notes || 'Paid bill expense',
-      deletedAt: null,
-      createdAt: nowIso,
-    };
+    try {
+      finalBill = await runTransaction(db, async (tx) => {
+        const billSnap = await tx.get(billRef);
+        if (!billSnap.exists()) {
+          throw new Error('Bill not found');
+        }
+        const bill = billSnap.data() as Bill;
 
-    // Atomic write batch guarantees consistent multi-document commit
-    const batch = writeBatch(db);
-    batch.set(doc(db, billPath), stripUndefined({ ...updatedBill }), { merge: true });
-    batch.set(doc(db, `users/${userId}/payment_history/${payRecord.id}`), stripUndefined({ ...payRecord }), { merge: true });
-    batch.set(doc(db, `users/${userId}/expenses/${expenseTx.id}`), stripUndefined({ ...expenseTx }), { merge: true });
-    await batch.commit();
+        if (
+          idempotencyKey &&
+          bill.lastPaymentIdempotencyKey === idempotencyKey &&
+          bill.status === 'PAID'
+        ) {
+          replayed = true;
+          return bill;
+        }
+        if (bill.status === 'PAID') {
+          throw new Error('Bill is already paid');
+        }
 
-    await this.recordAuditLog(userId, {
-      action: 'pay',
-      entityType: 'bill',
-      entityId: bill.id,
-      entityTitle: bill.name,
-      details: `Paid ${bill.amountPaise} paise via ${paymentMethod}`,
-    });
+        // Read linked expense inside transaction before writes
+        const expSnap = await tx.get(expRef);
 
-    const cats = await this.getCategories(userId);
+        const paymentId = `pay_${bill.id}_${Date.now().toString(36)}_${Math.random()
+          .toString(36)
+          .slice(2, 6)}`;
+
+        const updatedBill: Bill = {
+          ...bill,
+          status: 'PAID',
+          paymentDate: effectivePaidDate,
+          lastPaymentId: paymentId,
+          ...(idempotencyKey ? { lastPaymentIdempotencyKey: idempotencyKey } : {}),
+          updatedAt: nowIso,
+        };
+
+        const payRecord: PaymentHistory = {
+          id: paymentId,
+          userId,
+          billId: bill.id,
+          billName: bill.name,
+          amountPaise: bill.amountPaise,
+          paidDate: effectivePaidDate,
+          paymentMethod,
+          transactionRef: `REF-${bill.id}-${Date.now().toString(36).toUpperCase()}`,
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+          notes: notes || 'Bill payment recorded',
+          status: 'completed',
+          createdAt: nowIso,
+        };
+
+        const expenseTx: ExpenseTransaction = {
+          id: expId,
+          userId,
+          billId: bill.id,
+          type: 'fixed',
+          categoryId: bill.categoryId,
+          amountPaise: bill.amountPaise,
+          date: effectivePaidDate,
+          description: `${bill.name} (Bill payment)`,
+          paymentMethod,
+          notes: notes || 'Paid bill expense',
+          deletedAt: null,
+          createdAt: expSnap.exists()
+            ? ((expSnap.data() as ExpenseTransaction).createdAt || nowIso)
+            : nowIso,
+        };
+
+        tx.set(billRef, stripUndefined({ ...updatedBill }), { merge: true });
+        tx.set(
+          doc(db, `users/${userId}/payment_history/${paymentId}`),
+          stripUndefined({ ...payRecord }),
+          { merge: true }
+        );
+        tx.set(expRef, stripUndefined({ ...expenseTx }), { merge: true });
+
+        return updatedBill;
+      });
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message === 'Bill not found' || err.message === 'Bill is already paid')
+      ) {
+        throw err;
+      }
+      handleFirestoreError(err, OperationType.WRITE, billPath);
+    }
+
+    if (!replayed) {
+      await this.recordAuditLog(userId, {
+        action: 'pay',
+        entityType: 'bill',
+        entityId: finalBill.id,
+        entityTitle: finalBill.name,
+        details: `Paid ${finalBill.amountPaise} paise via ${paymentMethod}`,
+      });
+    }
+
     return {
       success: true,
       bill: {
-        ...updatedBill,
-        categoryName: cats.find((c) => c.id === updatedBill.categoryId)?.name || 'Bill',
+        ...finalBill,
+        categoryName: cats.find((c) => c.id === finalBill.categoryId)?.name || 'Bill',
       },
     };
   },
 
   async undoBillPayment(userId: string, billId: string): Promise<{ success: boolean; bill: Bill }> {
     const billPath = `users/${userId}/bills/${billId}`;
-    const snap = await getDoc(doc(db, billPath));
-    if (!snap.exists()) throw new Error('Bill not found');
-    const bill = snap.data() as Bill;
-    if (bill.status !== 'PAID') throw new Error('Bill is not marked as paid');
+    const [settings, historyItems, cats] = await Promise.all([
+      this.getSettings(userId),
+      this.getPaymentHistory(userId),
+      this.getCategories(userId),
+    ]);
 
-    const settings = await this.getSettings(userId);
     const tz = settings?.timezone || DEFAULT_TIMEZONE;
     const todayStr = getTodayDateString(tz);
     const nowIso = new Date().toISOString();
-
-    const revertedBill: Bill = {
-      ...bill,
-      status: bill.dueDate < todayStr ? 'OVERDUE' : 'UNPAID',
-      paymentDate: null,
-      updatedAt: nowIso,
-    };
-
-    const historyItems = await this.getPaymentHistory(userId);
     const linkedPayments = historyItems.filter((p) => p.billId === billId && p.status !== 'reversed');
+    const billRef = doc(db, billPath);
+    const expRef = doc(db, `users/${userId}/expenses/exp_bill_${billId}`);
 
-    // Atomic write batch: Revert bill, soft-delete expense, mark payment reversed (preserves audit trail)
-    const batch = writeBatch(db);
-    batch.set(doc(db, billPath), stripUndefined({ ...revertedBill }), { merge: true });
-    batch.set(doc(db, `users/${userId}/expenses/exp_bill_${billId}`), { deletedAt: nowIso }, { merge: true });
-    for (const p of linkedPayments) {
-      batch.set(
-        doc(db, `users/${userId}/payment_history/${p.id}`),
-        { status: 'reversed', reversedAt: nowIso },
-        { merge: true }
-      );
+    let revertedBill: Bill;
+    try {
+      revertedBill = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(billRef);
+        if (!snap.exists()) throw new Error('Bill not found');
+        const bill = snap.data() as Bill;
+        if (bill.status !== 'PAID') throw new Error('Bill is not marked as paid');
+        const expSnap = await tx.get(expRef);
+
+        const nextBill: Bill = {
+          ...bill,
+          status: bill.dueDate < todayStr ? 'OVERDUE' : 'UNPAID',
+          paymentDate: null,
+          lastPaymentId: null,
+          lastPaymentIdempotencyKey: null,
+          updatedAt: nowIso,
+        };
+
+        tx.set(billRef, stripUndefined({ ...nextBill }), { merge: true });
+        if (expSnap.exists()) {
+          tx.set(expRef, { deletedAt: nowIso }, { merge: true });
+        }
+        for (const p of linkedPayments) {
+          tx.set(
+            doc(db, `users/${userId}/payment_history/${p.id}`),
+            { status: 'reversed', reversedAt: nowIso },
+            { merge: true }
+          );
+        }
+        return nextBill;
+      });
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message === 'Bill not found' || err.message === 'Bill is not marked as paid')
+      ) {
+        throw err;
+      }
+      handleFirestoreError(err, OperationType.WRITE, billPath);
     }
-    await batch.commit();
 
     await this.recordAuditLog(userId, {
       action: 'undo_payment',
       entityType: 'bill',
-      entityId: bill.id,
-      entityTitle: bill.name,
-      details: `Reversed payment for bill "${bill.name}"`,
+      entityId: revertedBill.id,
+      entityTitle: revertedBill.name,
+      details: `Reversed payment for bill "${revertedBill.name}"`,
     });
 
-    const cats = await this.getCategories(userId);
     return {
       success: true,
       bill: {
@@ -1776,9 +1869,14 @@ export const firestoreService = {
       envelope: 'envelopes',
       subscription: 'subscriptions',
     };
-    await deleteDoc(doc(db, `users/${userId}/${colMap[entityType]}/${id}`));
-    if (entityType === 'bill') {
-      await deleteDoc(doc(db, `users/${userId}/expenses/exp_bill_${id}`)).catch(() => {});
+    const path = `users/${userId}/${colMap[entityType]}/${id}`;
+    try {
+      await deleteDoc(doc(db, path));
+      if (entityType === 'bill') {
+        await deleteDoc(doc(db, `users/${userId}/expenses/exp_bill_${id}`)).catch(() => {});
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, path);
     }
   },
 
@@ -1818,7 +1916,11 @@ export const firestoreService = {
     try {
       await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
     } catch {
-      await deleteDoc(doc(db, path));
+      try {
+        await deleteDoc(doc(db, path));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      }
     }
   },
 
@@ -1908,7 +2010,11 @@ export const firestoreService = {
     try {
       await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
     } catch {
-      await deleteDoc(doc(db, path));
+      try {
+        await deleteDoc(doc(db, path));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      }
     }
   },
 
@@ -1948,14 +2054,186 @@ export const firestoreService = {
     try {
       await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
     } catch {
-      await deleteDoc(doc(db, path));
+      try {
+        await deleteDoc(doc(db, path));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      }
+    }
+  },
+
+  // --- CURSOR PAGINATED QUERIES ---
+  async getExpensesPage(
+    userId: string,
+    pageSize = 25,
+    cursorDate?: string | null,
+    type?: 'fixed' | 'variable'
+  ): Promise<CursorPage<ExpenseTransaction>> {
+    const path = `users/${userId}/expenses`;
+    try {
+      const [cats, snap] = await Promise.all([
+        this.getCategories(userId),
+        getDocs(
+          cursorDate
+            ? query(
+                collection(db, path),
+                orderBy('date', 'desc'),
+                startAfter(cursorDate),
+                limit(pageSize + 15)
+              )
+            : query(collection(db, path), orderBy('date', 'desc'), limit(pageSize + 15))
+        ),
+      ]);
+      const docs = snap.docs;
+      const activeFiltered = docs
+        .map((d) => d.data() as ExpenseTransaction)
+        .filter((e) => !e.deletedAt && (!type || e.type === type));
+      const hasMore = activeFiltered.length > pageSize || docs.length >= pageSize + 15;
+      const items = activeFiltered.slice(0, pageSize).map((e) => ({
+        ...e,
+        categoryName: cats.find((c) => c.id === e.categoryId)?.name || 'Expense',
+        categoryColor: cats.find((c) => c.id === e.categoryId)?.color || '#6366f1',
+      }));
+
+      const lastDoc = items.length > 0 ? items[items.length - 1] : null;
+      return {
+        items,
+        nextCursor: hasMore && lastDoc ? lastDoc.date : null,
+        hasMore,
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, path);
+    }
+  },
+
+  async getIncomesPage(
+    userId: string,
+    pageSize = 25,
+    cursorDate?: string | null
+  ): Promise<CursorPage<IncomeTransaction>> {
+    const path = `users/${userId}/income`;
+    try {
+      const snap = await getDocs(
+        cursorDate
+          ? query(
+              collection(db, path),
+              orderBy('date', 'desc'),
+              startAfter(cursorDate),
+              limit(pageSize + 15)
+            )
+          : query(collection(db, path), orderBy('date', 'desc'), limit(pageSize + 15))
+      );
+      const docs = snap.docs;
+      const activeFiltered = docs
+        .map((d) => d.data() as IncomeTransaction)
+        .filter((i) => !i.deletedAt);
+      const hasMore = activeFiltered.length > pageSize || docs.length >= pageSize + 15;
+      const items = activeFiltered.slice(0, pageSize);
+      const lastDoc = items.length > 0 ? items[items.length - 1] : null;
+      return {
+        items,
+        nextCursor: hasMore && lastDoc ? lastDoc.date : null,
+        hasMore,
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, path);
+    }
+  },
+
+  async getAuditLogsPage(
+    userId: string,
+    pageSize = 25,
+    cursorTimestamp?: string | null
+  ): Promise<CursorPage<AuditLogEntry>> {
+    const path = `users/${userId}/audit_logs`;
+    try {
+      const snap = await getDocs(
+        cursorTimestamp
+          ? query(
+              collection(db, path),
+              orderBy('timestamp', 'desc'),
+              startAfter(cursorTimestamp),
+              limit(pageSize + 1)
+            )
+          : query(collection(db, path), orderBy('timestamp', 'desc'), limit(pageSize + 1))
+      );
+      const docs = snap.docs.map((d) => d.data() as AuditLogEntry);
+      const hasMore = docs.length > pageSize;
+      const items = docs.slice(0, pageSize);
+      return {
+        items,
+        nextCursor: hasMore && items.length > 0 ? items[items.length - 1].timestamp : null,
+        hasMore,
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, path);
+    }
+  },
+
+  async getTasksPage(
+    userId: string,
+    pageSize = 50,
+    cursorCreatedAt?: string | null
+  ): Promise<CursorPage<Task>> {
+    const path = `users/${userId}/tasks`;
+    try {
+      const snap = await getDocs(
+        cursorCreatedAt
+          ? query(
+              collection(db, path),
+              orderBy('createdAt', 'desc'),
+              startAfter(cursorCreatedAt),
+              limit(pageSize + 15)
+            )
+          : query(collection(db, path), orderBy('createdAt', 'desc'), limit(pageSize + 15))
+      );
+      const docs = snap.docs.map((d) => d.data() as Task);
+      const active = docs.filter((t) => !t.deletedAt).slice(0, pageSize);
+      const hasMore = docs.length >= pageSize + 15;
+      return {
+        items: active,
+        nextCursor: hasMore && active.length > 0 ? active[active.length - 1].createdAt : null,
+        hasMore,
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, path);
+    }
+  },
+
+  async getFocusSessionsPage(
+    userId: string,
+    pageSize = 50,
+    cursorStartedAt?: string | null
+  ): Promise<CursorPage<FocusSession>> {
+    const path = `users/${userId}/focus_sessions`;
+    try {
+      const snap = await getDocs(
+        cursorStartedAt
+          ? query(
+              collection(db, path),
+              orderBy('startedAt', 'desc'),
+              startAfter(cursorStartedAt),
+              limit(pageSize + 1)
+            )
+          : query(collection(db, path), orderBy('startedAt', 'desc'), limit(pageSize + 1))
+      );
+      const docs = snap.docs.map((d) => d.data() as FocusSession);
+      const hasMore = docs.length > pageSize;
+      const items = docs.slice(0, pageSize);
+      return {
+        items,
+        nextCursor: hasMore && items.length > 0 ? items[items.length - 1].startedAt : null,
+        hasMore,
+      };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, path);
     }
   },
 
   // --- AUDIT LOGS ---
   async getAuditLogs(userId: string, limitCount = 100): Promise<AuditLogEntry[]> {
-    const logs = await listSubcollection<AuditLogEntry>(`users/${userId}/audit_logs`);
-    return logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, limitCount);
+    const page = await this.getAuditLogsPage(userId, limitCount, null);
+    return page.items;
   },
 
   async recordAuditLog(
@@ -1987,7 +2265,14 @@ export const firestoreService = {
     userId: string,
     op: Omit<DurableSyncOperation, 'id' | 'userId' | 'status' | 'attempts' | 'createdAt'>
   ): Promise<DurableSyncOperation> {
-    const id = `sync_op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const dedupeKey = typeof op.dedupeKey === 'string' && op.dedupeKey.trim() ? op.dedupeKey.trim() : undefined;
+    const safeDedupeSuffix = dedupeKey
+      ? dedupeKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 110)
+      : '';
+    const id = safeDedupeSuffix
+      ? `sq_${safeDedupeSuffix}`
+      : `sync_op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
     const item: DurableSyncOperation = {
       id,
       userId,
@@ -1995,8 +2280,12 @@ export const firestoreService = {
       action: op.action,
       sheetName: op.sheetName,
       payload: op.payload,
+      ...(dedupeKey ? { dedupeKey } : {}),
       status: 'pending',
       attempts: 0,
+      lastAttemptAt: null,
+      nextRetryAt: null,
+      errorMessage: null,
       createdAt: new Date().toISOString(),
     };
     await setDoc(doc(db, `users/${userId}/sync_queue/${id}`), stripUndefined({ ...item }), { merge: true });
@@ -2030,6 +2319,7 @@ export const firestoreService = {
       const snap = await getDocs(collection(db, `users/${userId}/${sub}`));
       await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     }
+    await setDoc(doc(db, `users/${userId}/settings/savings_goals`), { items: [] }, { merge: true });
     await this.getCategories(userId);
   },
 };

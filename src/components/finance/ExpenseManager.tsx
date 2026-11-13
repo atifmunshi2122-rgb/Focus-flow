@@ -39,7 +39,7 @@ export const ExpenseManager: React.FC = () => {
     refreshKey,
     triggerRefresh,
     showToast,
-    firebaseUser,
+    confirmAction,
     googleSpreadsheetId,
     googleAccessToken,
   } = useApp();
@@ -137,15 +137,20 @@ export const ExpenseManager: React.FC = () => {
           notes: varNotes,
           type: 'variable',
         });
-        googleSheetsService.enqueueMutation('Variable_Expenses', [
-          created.id,
-          created.date,
-          created.description,
-          created.categoryName || 'General',
-          created.amountPaise / 100,
-          varMethod.replace('_', ' ').toUpperCase(),
-          created.notes || '',
-        ]);
+        void googleSheetsService.enqueueMutation(
+          'Variable_Expenses',
+          [
+            created.id,
+            created.date,
+            created.description,
+            created.categoryName || 'General',
+            created.amountPaise / 100,
+            varMethod.replace('_', ' ').toUpperCase(),
+            created.notes || '',
+          ],
+          'append',
+          `Variable_Expenses_append_${created.id}`
+        );
         if (googleSpreadsheetId && googleAccessToken) {
           googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
         }
@@ -166,11 +171,18 @@ export const ExpenseManager: React.FC = () => {
     }
   };
 
-  const handleDeleteVar = async (id: string) => {
-    if (!window.confirm('Delete this expense entry?')) return;
+  const handleDeleteVar = async (exp: ExpenseTransaction) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Expense Entry',
+      message: 'Move this variable expense entry to Trash? You can restore it later from the Trash Bin.',
+      itemLabel: `${exp.description} · -${formatCurrency(exp.amountPaise, currency)} (${exp.date})`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await api.deleteExpense(id);
-      showToast('Expense deleted', 'info');
+      await api.deleteExpense(exp.id);
+      showToast('Expense moved to Trash', 'info');
       triggerRefresh();
       loadData();
     } catch {
@@ -233,16 +245,21 @@ export const ExpenseManager: React.FC = () => {
           dueDay: Number(recDueDay),
           notes: recNotes,
         });
-        googleSheetsService.enqueueMutation('Fixed_Expenses', [
-          created.id,
-          created.name,
-          created.categoryName || 'Fixed Commitment',
-          created.amountPaise / 100,
-          created.recurrence.toUpperCase(),
-          created.dueDay,
-          'ACTIVE',
-          created.notes || '',
-        ]);
+        void googleSheetsService.enqueueMutation(
+          'Fixed_Expenses',
+          [
+            created.id,
+            created.name,
+            created.categoryName || 'Fixed Commitment',
+            created.amountPaise / 100,
+            created.recurrence.toUpperCase(),
+            created.dueDay,
+            'ACTIVE',
+            created.notes || '',
+          ],
+          'append',
+          `Fixed_Expenses_append_${created.id}`
+        );
         if (googleSpreadsheetId && googleAccessToken) {
           googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
         }
@@ -274,10 +291,17 @@ export const ExpenseManager: React.FC = () => {
     }
   };
 
-  const handleDeleteRec = async (id: string) => {
-    if (!window.confirm('Delete this recurring expense plan? Future recurring bills will no longer be generated.')) return;
+  const handleDeleteRec = async (rec: RecurringExpense) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Recurring Expense Plan',
+      message: 'Future recurring bills will no longer be automatically generated for this commitment.',
+      itemLabel: `${rec.name} · ${formatCurrency(rec.amountPaise, currency)} / ${rec.recurrence}`,
+      confirmLabel: 'Delete Plan',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await api.deleteRecurringExpense(id);
+      await api.deleteRecurringExpense(rec.id);
       showToast('Recurring plan removed', 'info');
       triggerRefresh();
       loadData();
@@ -451,7 +475,7 @@ export const ExpenseManager: React.FC = () => {
 
                           <button
                             type="button"
-                            onClick={() => void handleDeleteVar(exp.id)}
+                            onClick={() => void handleDeleteVar(exp)}
                             className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
                             title="Delete expense"
                             aria-label={`Delete ${exp.description}`}
@@ -607,7 +631,7 @@ export const ExpenseManager: React.FC = () => {
 
                           <button
                             type="button"
-                            onClick={() => void handleDeleteRec(rec.id)}
+                            onClick={() => void handleDeleteRec(rec)}
                             className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] transition-colors"
                             title="Delete recurring plan"
                             aria-label={`Delete ${rec.name}`}

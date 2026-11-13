@@ -25,7 +25,7 @@ const ENVELOPE_COLORS = [
 ];
 
 export const EnvelopeBudgetManager: React.FC = () => {
-  const { currency, settings, showToast, refreshKey, triggerRefresh } = useApp();
+  const { currency, settings, showToast, refreshKey, triggerRefresh, confirmAction } = useApp();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
   const currentMonthKey = useMemo(() => todayStr.slice(0, 7), [todayStr]);
@@ -174,9 +174,17 @@ export const EnvelopeBudgetManager: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (env: BudgetEnvelope) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Budget Envelope',
+      message: 'Move this budget envelope to Trash? You can restore it later from the Trash Bin.',
+      itemLabel: `${env.name} · ${formatCurrency(env.allocatedPaise, currency)} (${env.monthKey})`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await api.deleteEnvelope(id);
+      await api.deleteEnvelope(env.id);
       showToast('Envelope moved to trash', 'info');
       triggerRefresh();
     } catch {
@@ -358,23 +366,29 @@ export const EnvelopeBudgetManager: React.FC = () => {
 
                   <div className="flex items-center gap-1 shrink-0">
                     <button
+                      type="button"
                       onClick={() => openTransferModal(env.id)}
                       className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)]"
                       title="Transfer funds out"
+                      aria-label={`Transfer funds from ${env.name}`}
                     >
                       <ArrowRightLeft className="w-3.5 h-3.5" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => openEditModal(env)}
                       className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
                       title="Edit envelope"
+                      aria-label={`Edit ${env.name}`}
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => handleDelete(env.id)}
+                      type="button"
+                      onClick={() => void handleDelete(env)}
                       className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
                       title="Delete envelope"
+                      aria-label={`Delete ${env.name}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

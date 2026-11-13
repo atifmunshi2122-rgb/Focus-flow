@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 
 export const SubscriptionManager: React.FC = () => {
-  const { currency, settings, showToast, refreshKey, triggerRefresh } = useApp();
+  const { currency, settings, showToast, refreshKey, triggerRefresh, confirmAction } = useApp();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
 
@@ -158,9 +158,17 @@ export const SubscriptionManager: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (sub: SubscriptionPlan) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Subscription Plan',
+      message: 'Move this tracked subscription to Trash? You can restore it later from the Trash Bin.',
+      itemLabel: `${sub.name} · ${formatCurrency(sub.amountPaise, currency)}/${sub.billingCycle}`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await api.deleteSubscription(id);
+      await api.deleteSubscription(sub.id);
       showToast('Subscription moved to trash', 'info');
       triggerRefresh();
     } catch {
@@ -315,23 +323,29 @@ export const SubscriptionManager: React.FC = () => {
 
                   <div className="flex items-center gap-1 shrink-0">
                     <button
-                      onClick={() => handleToggleStatus(sub)}
+                      type="button"
+                      onClick={() => void handleToggleStatus(sub)}
                       className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)]"
                       title={isPaused ? 'Resume subscription' : 'Pause subscription'}
+                      aria-label={`${isPaused ? 'Resume' : 'Pause'} ${sub.name}`}
                     >
                       {isPaused ? <PlayCircle className="w-3.5 h-3.5" /> : <PauseCircle className="w-3.5 h-3.5" />}
                     </button>
                     <button
+                      type="button"
                       onClick={() => openEditModal(sub)}
                       className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
                       title="Edit subscription"
+                      aria-label={`Edit ${sub.name}`}
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => handleDelete(sub.id)}
+                      type="button"
+                      onClick={() => void handleDelete(sub)}
                       className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
                       title="Delete subscription"
+                      aria-label={`Delete ${sub.name}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

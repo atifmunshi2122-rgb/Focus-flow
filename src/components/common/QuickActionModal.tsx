@@ -12,7 +12,6 @@ import {
   CheckSquare,
 } from 'lucide-react';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
-import { firestoreService } from '../../lib/firestoreService.ts';
 import {
   ThemeButton,
   ThemeCard,
@@ -40,7 +39,6 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
     settings,
     startTimer,
     switchTimerMode,
-    firebaseUser,
     googleSpreadsheetId,
     googleAccessToken,
   } = useApp();
@@ -84,18 +82,20 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
           paymentMethod,
           type: 'variable',
         });
-        if (firebaseUser) {
-          firestoreService.saveExpense(firebaseUser.uid, createdExp).catch(console.error);
-        }
-        googleSheetsService.enqueueMutation('Variable_Expenses', [
-          createdExp.id,
-          createdExp.date,
-          createdExp.description,
-          createdExp.categoryName || 'General',
-          createdExp.amountPaise / 100,
-          paymentMethod.replace('_', ' ').toUpperCase(),
-          createdExp.notes || '',
-        ]);
+        googleSheetsService.enqueueMutation(
+          'Variable_Expenses',
+          [
+            createdExp.id,
+            createdExp.date,
+            createdExp.description,
+            createdExp.categoryName || 'General',
+            createdExp.amountPaise / 100,
+            paymentMethod.replace('_', ' ').toUpperCase(),
+            createdExp.notes || '',
+          ],
+          'append',
+          `Variable_Expenses_append_${createdExp.id}`
+        );
         showToast('Expense logged & synchronized', 'success');
         playCashSound(settings?.soundEnabled);
       } else if (activeType === 'income') {
@@ -110,17 +110,19 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
           date: new Date().toISOString().split('T')[0],
           category: category || 'Salary',
         });
-        if (firebaseUser) {
-          firestoreService.saveIncome(firebaseUser.uid, createdInc).catch(console.error);
-        }
-        googleSheetsService.enqueueMutation('Income', [
-          createdInc.id,
-          createdInc.date,
-          createdInc.source,
-          createdInc.category,
-          createdInc.amountPaise / 100,
-          createdInc.notes || '',
-        ]);
+        googleSheetsService.enqueueMutation(
+          'Income',
+          [
+            createdInc.id,
+            createdInc.date,
+            createdInc.source,
+            createdInc.category,
+            createdInc.amountPaise / 100,
+            createdInc.notes || '',
+          ],
+          'append',
+          `Income_append_${createdInc.id}`
+        );
         showToast('Income recorded & synchronized', 'success');
         playCashSound(settings?.soundEnabled);
       } else if (activeType === 'task') {
@@ -135,9 +137,22 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
           estimatedPomodoros: Number(estimatedPomodoros) || 1,
           dueDate: dueDate || null,
         });
-        if (firebaseUser) {
-          firestoreService.saveTask(firebaseUser.uid, createdTask).catch(console.error);
-        }
+        googleSheetsService.enqueueMutation(
+          'Tasks',
+          [
+            createdTask.id,
+            createdTask.title,
+            createdTask.priority,
+            createdTask.status,
+            createdTask.dueDate || '',
+            createdTask.estimatedPomodoros,
+            createdTask.completedPomodoros,
+            createdTask.createdAt,
+            createdTask.updatedAt,
+          ],
+          'append',
+          `Tasks_append_${createdTask.id}`
+        );
         showToast('Task added to backlog', 'success');
       } else if (activeType === 'bill') {
         if (!description.trim() || !amount || Number(amount) <= 0 || !dueDate) {
@@ -150,20 +165,22 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({ isOpen, onCl
           amountPaise: toPaise(amount),
           dueDate,
         });
-        if (firebaseUser) {
-          firestoreService.saveBill(firebaseUser.uid, createdBill).catch(console.error);
-        }
-        googleSheetsService.enqueueMutation('Bills_Payments', [
-          createdBill.id,
-          createdBill.dueDate,
-          createdBill.name,
-          createdBill.categoryName || 'General Bill',
-          createdBill.amountPaise / 100,
-          createdBill.status,
-          '',
-          createdBill.status === 'PAID' ? 'UPI / Bank' : '—',
-          createdBill.notes || '',
-        ]);
+        googleSheetsService.enqueueMutation(
+          'Bills_Payments',
+          [
+            createdBill.id,
+            createdBill.dueDate,
+            createdBill.name,
+            createdBill.categoryName || 'General Bill',
+            createdBill.amountPaise / 100,
+            createdBill.status,
+            '',
+            createdBill.status === 'PAID' ? 'UPI / Bank' : '—',
+            createdBill.notes || '',
+          ],
+          'append',
+          `Bills_Payments_append_${createdBill.id}`
+        );
         showToast('Bill registered to tracker & synchronized', 'success');
       }
 

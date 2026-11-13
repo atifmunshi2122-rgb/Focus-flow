@@ -11,6 +11,7 @@ import { ToastContainer } from './components/layout/ToastContainer.tsx';
 import { QuickActionModal } from './components/common/QuickActionModal.tsx';
 import { CommandCenter } from './components/common/CommandCenter.tsx';
 import { TrashRestoreModal } from './components/common/TrashRestoreModal.tsx';
+import { ConfirmDialogModal } from './components/common/ConfirmDialogModal.tsx';
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard.tsx';
 import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
 import { FocusAnalytics } from './components/focus/FocusAnalytics.tsx';
@@ -44,6 +45,8 @@ const MainContent: React.FC = () => {
     applyThemeConfig,
     stopFullAppPreview,
     resolvedThemeMode,
+    confirmDialogState,
+    resolveConfirmDialog,
   } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -206,9 +209,22 @@ const MainContent: React.FC = () => {
         onClose={() => setQuickActionOpen(false)}
       />
 
-      {/* Global Command Center & Trash Restore Modal */}
+      {/* Global Command Center, Trash Restore & In-App Confirmation Modal */}
       <CommandCenter onOpenQuickAction={() => setQuickActionOpen(true)} />
       <TrashRestoreModal />
+      {confirmDialogState && (
+        <ConfirmDialogModal
+          isOpen={confirmDialogState.isOpen}
+          title={confirmDialogState.title}
+          message={confirmDialogState.message}
+          itemLabel={confirmDialogState.itemLabel}
+          confirmLabel={confirmDialogState.confirmLabel}
+          cancelLabel={confirmDialogState.cancelLabel}
+          tone={confirmDialogState.tone}
+          onConfirm={() => resolveConfirmDialog(true)}
+          onCancel={() => resolveConfirmDialog(false)}
+        />
+      )}
 
       {/* Notification Toast Container */}
       <ToastContainer />

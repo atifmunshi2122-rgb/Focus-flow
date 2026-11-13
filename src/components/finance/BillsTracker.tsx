@@ -46,8 +46,8 @@ export const BillsTracker: React.FC = () => {
     refreshKey,
     triggerRefresh,
     showToast,
+    confirmAction,
     settings,
-    firebaseUser,
     googleSpreadsheetId,
     googleAccessToken,
   } = useApp();
@@ -69,12 +69,20 @@ export const BillsTracker: React.FC = () => {
   const [billFormError, setBillFormError] = useState<string | null>(null);
 
   const [payingBill, setPayingBill] = useState<Bill | null>(null);
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState<string>('');
   const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'debit_card' | 'upi_bank' | 'cash'>('upi_bank');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paying, setPaying] = useState(false);
   const [paySuccess, setPaySuccess] = useState(false);
   const [recentlyPaidBillId, setRecentlyPaidBillId] = useState<string | null>(null);
+
+  const openPayModal = (bill: Bill) => {
+    setPayingBill(bill);
+    setPaymentIdempotencyKey(`idem_${bill.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`);
+    setPaymentNotes('');
+    setPaySuccess(false);
+  };
 
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
@@ -136,26 +144,32 @@ export const BillsTracker: React.FC = () => {
 
   const handlePayConfirm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!payingBill) return;
+    if (!payingBill || paying) return;
 
     setPaying(true);
     const paidBillId = payingBill.id;
+    const idemKey = paymentIdempotencyKey || `idem_${paidBillId}_${Date.now().toString(36)}`;
     try {
-      const res = await api.payBill(paidBillId, payDate, paymentMethod, paymentNotes);
+      const res = await api.payBill(paidBillId, payDate, paymentMethod, paymentNotes, idemKey);
       playCashSound(settings?.soundEnabled);
       showToast(`Payment of ${formatCurrency(payingBill.amountPaise, currency)} recorded!`, 'success');
 
-      googleSheetsService.enqueueMutation('Bills_Payments', [
-        res.bill.id,
-        res.bill.dueDate,
-        res.bill.name,
-        res.bill.categoryName || 'Bill',
-        res.bill.amountPaise / 100,
-        'PAID',
-        payDate,
-        formatPaymentMethodLabel(paymentMethod, true),
-        paymentNotes || 'Settled via Tracker',
-      ]);
+      void googleSheetsService.enqueueMutation(
+        'Bills_Payments',
+        [
+          res.bill.id,
+          res.bill.dueDate,
+          res.bill.name,
+          res.bill.categoryName || 'Bill',
+          res.bill.amountPaise / 100,
+          'PAID',
+          payDate,
+          formatPaymentMethodLabel(paymentMethod, true),
+          paymentNotes || 'Settled via Tracker',
+        ],
+        'append',
+        `Bills_Payments_append_${res.bill.id}`
+      );
 
       if (googleSpreadsheetId && googleAccessToken) {
         googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
@@ -180,7 +194,14 @@ export const BillsTracker: React.FC = () => {
   };
 
   const handleUndoPayment = async (billId: string, billName: string) => {
-    if (!window.confirm(`Undo payment for "${billName}" and mark it as unpaid?`)) return;
+    const confirmed = await confirmAction({
+      title: 'Undo Bill Payment',
+      message: 'Revert this bill to pending/overdue status and remove its linked expense entry? Your audit trail will preserve the reversed payment history.',
+      itemLabel: billName,
+      confirmLabel: 'Undo Payment',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
 
     try {
       await api.undoBillPayment(billId);
@@ -192,11 +213,18 @@ export const BillsTracker: React.FC = () => {
     }
   };
 
-  const handleDeleteBill = async (billId: string) => {
-    if (!window.confirm('Delete this bill from the tracker?')) return;
+  const handleDeleteBill = async (bill: Bill) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Bill',
+      message: 'Move this bill to Trash? You can restore it later from the Trash Bin.',
+      itemLabel: `${bill.name} · ${formatCurrency(bill.amountPaise, currency)}`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await api.deleteBill(billId);
-      showToast('Bill deleted', 'info');
+      await api.deleteBill(bill.id);
+      showToast('Bill moved to Trash', 'info');
       triggerRefresh();
       loadData();
     } catch {
@@ -430,7 +458,7 @@ export const BillsTracker: React.FC = () => {
                       <motion.button
                         type="button"
                         onClick={() =>
-                          isPaid ? void handleUndoPayment(bill.id, bill.name) : setPayingBill(bill)
+                          isPaid ? void handleUndoPayment(bill.id, bill.name) : openPayModal(bill)
                         }
                         whileTap={isDisabled ? undefined : { scale: 0.85 }}
                         animate={{ scale: isPaid && !isDisabled ? [1, 1.15, 1] : 1 }}
@@ -507,7 +535,7 @@ export const BillsTracker: React.FC = () => {
                           <ThemeButton
                             variant="success"
                             size="xs"
-                            onClick={() => setPayingBill(bill)}
+                            onClick={() => openPayModal(bill)}
                             className="whitespace-nowrap"
                           >
                             Mark as Paid
@@ -526,7 +554,7 @@ export const BillsTracker: React.FC = () => {
 
                         <button
                           type="button"
-                          onClick={() => void handleDeleteBill(bill.id)}
+                          onClick={() => void handleDeleteBill(bill)}
                           className="p-1.5 text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] rounded-lg transition-colors"
                           title="Delete bill"
                           aria-label={`Delete ${bill.name}`}

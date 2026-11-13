@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Trash2, RotateCcw, AlertTriangle, X } from 'lucide-react';
+import { Trash2, RotateCcw, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency } from '../../lib/currency.ts';
@@ -10,11 +10,10 @@ import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 
 export const TrashRestoreModal: React.FC = () => {
-  const { trashModalOpen, setTrashModalOpen, showToast, triggerRefresh } = useApp();
+  const { trashModalOpen, setTrashModalOpen, showToast, triggerRefresh, confirmAction } = useApp();
   const { isDisabled } = useMotionPreferences();
   const [items, setItems] = useState<TrashRecord[]>([]);
   const [loading, setLoading] = useState(false);
-  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
 
   const loadTrash = async () => {
     setLoading(true);
@@ -30,7 +29,6 @@ export const TrashRestoreModal: React.FC = () => {
 
   useEffect(() => {
     if (trashModalOpen) {
-      setConfirmDeleteKey(null);
       void loadTrash();
     }
   }, [trashModalOpen]);
@@ -47,14 +45,17 @@ export const TrashRestoreModal: React.FC = () => {
   };
 
   const handlePermanentDelete = async (item: TrashRecord) => {
-    const key = `${item.entityType}:${item.id}`;
-    if (confirmDeleteKey !== key) {
-      setConfirmDeleteKey(key);
-      return;
-    }
+    const confirmed = await confirmAction({
+      title: 'Delete Forever?',
+      message:
+        'Permanently purge this item from your workspace? This cannot be undone or restored.',
+      itemLabel: `${item.entityType}: ${item.title}`,
+      confirmLabel: 'Delete Forever',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await api.permanentlyDeleteTrashItem(item.entityType, item.id);
-      setConfirmDeleteKey(null);
       showToast(`Permanently removed "${item.title}"`, 'info');
       triggerRefresh();
       void loadTrash();
@@ -124,7 +125,6 @@ export const TrashRestoreModal: React.FC = () => {
               ) : (
                 items.map((item) => {
                   const key = `${item.entityType}:${item.id}`;
-                  const armed = confirmDeleteKey === key;
                   return (
                     <div
                       key={key}
@@ -156,17 +156,11 @@ export const TrashRestoreModal: React.FC = () => {
                           <RotateCcw className="w-3.5 h-3.5" /> Restore
                         </ThemeButton>
                         <ThemeButton
-                          variant={armed ? 'danger' : 'ghost'}
+                          variant="danger"
                           size="sm"
                           onClick={() => void handlePermanentDelete(item)}
                         >
-                          {armed ? (
-                            <>
-                              <AlertTriangle className="w-3.5 h-3.5" /> Confirm Purge
-                            </>
-                          ) : (
-                            'Delete Forever'
-                          )}
+                          <Trash2 className="w-3.5 h-3.5" /> Delete Forever
                         </ThemeButton>
                       </div>
                     </div>

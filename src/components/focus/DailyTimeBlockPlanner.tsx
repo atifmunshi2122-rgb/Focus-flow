@@ -29,7 +29,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export const DailyTimeBlockPlanner: React.FC = () => {
-  const { settings, showToast, refreshKey, triggerRefresh } = useApp();
+  const { settings, showToast, refreshKey, triggerRefresh, confirmAction } = useApp();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
 
@@ -154,9 +154,17 @@ export const DailyTimeBlockPlanner: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (block: TimeBlock) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Time Block',
+      message: 'Move this scheduled time block to Trash? You can restore it later from the Trash Bin.',
+      itemLabel: `${block.title} (${minutesToTimeString(block.startMinute)}–${minutesToTimeString(block.endMinute)})`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
-      await api.deleteTimeBlock(id);
+      await api.deleteTimeBlock(block.id);
       showToast('Time block moved to trash', 'info');
       triggerRefresh();
     } catch {
@@ -313,6 +321,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                 <div className="flex-1 p-2 flex flex-wrap gap-2 items-center">
                   {activeInHour.length === 0 ? (
                     <button
+                      type="button"
                       onClick={() => openCreateModal(hourStr)}
                       className="opacity-0 hover:opacity-100 text-[11px] text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)] flex items-center gap-1 px-2 py-1 rounded transition-opacity"
                     >
@@ -339,6 +348,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <button
+                              type="button"
                               onClick={() => handleToggleComplete(b)}
                               className="text-[var(--ff-text-muted)] hover:text-[var(--ff-success)] shrink-0"
                               aria-label={b.completed ? 'Mark incomplete' : 'Mark completed'}
@@ -377,6 +387,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                               </span>
                             )}
                             <button
+                              type="button"
                               onClick={() => openEditModal(b)}
                               className="p-1 rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
                               aria-label="Edit time block"
@@ -384,7 +395,8 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => handleDelete(b.id)}
+                              type="button"
+                              onClick={() => void handleDelete(b)}
                               className="p-1 rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
                               aria-label="Delete time block"
                             >

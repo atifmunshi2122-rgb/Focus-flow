@@ -19,6 +19,8 @@ import {
 import { User as FirebaseUser } from 'firebase/auth';
 import { googleSheetsService } from '../lib/googleSheetsService.ts';
 import { firestoreService } from '../lib/firestoreService.ts';
+import { offlineOutbox } from '../lib/offlineOutbox.ts';
+import type { ConfirmDialogOptions } from '../components/common/ConfirmDialogModal.tsx';
 import {
   AmbientPreset,
   startSoundscape,
@@ -133,8 +135,15 @@ interface AppContextType {
   ambientVolume: number;
   setAmbientSound: (preset: AmbientPreset, volume?: number) => Promise<void>;
   isOnline: boolean;
+  offlineOutboxCount: number;
+  reconcileOutboxNow: () => Promise<{ reconciled: number; failed: number }>;
   syncLastError: string | null;
   notifications: AppNotificationItem[];
+
+  // In-app Confirmation Modal
+  confirmAction: (options: ConfirmDialogOptions) => Promise<boolean>;
+  confirmDialogState: (ConfirmDialogOptions & { isOpen: boolean }) | null;
+  resolveConfirmDialog: (confirmed: boolean) => void;
 
   // Firebase Auth
   firebaseUser: FirebaseUser | null;
@@ -151,6 +160,7 @@ interface AppContextType {
   createOrConnectSpreadsheet: () => Promise<string>;
   syncNowToGoogleSheets: () => Promise<void>;
   historicalResyncToGoogleSheets: () => Promise<void>;
+  reapplySheetFormatting: () => Promise<void>;
 
   // Timer State
   timerEngine: TimerEngineMode;
@@ -227,6 +237,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+  const [offlineOutboxCount, setOfflineOutboxCount] = useState<number>(0);
+  const [confirmDialogState, setConfirmDialogState] = useState<
+    (ConfirmDialogOptions & { isOpen: boolean }) | null
+  >(null);
+  const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const [syncLastError, setSyncLastError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotificationItem[]>([]);
 
@@ -262,6 +277,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const triggerRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setSyncQueueCount(googleSheetsService.getQueueLength());
+    void googleSheetsService.refreshQueueCount();
   }, []);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -275,6 +291,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  const resolveConfirmDialog = useCallback((confirmed: boolean) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmDialogState(null);
+    if (resolver) resolver(confirmed);
+  }, []);
+
+  const confirmAction = useCallback((options: ConfirmDialogOptions): Promise<boolean> => {
+    if (confirmResolverRef.current) {
+      confirmResolverRef.current(false);
+      confirmResolverRef.current = null;
+    }
+    return new Promise<boolean>((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmDialogState({ ...options, isOpen: true });
+    });
+  }, []);
+
+  const reconcileOutboxNow = useCallback(async () => {
+    const uid = firebaseUser?.uid;
+    if (!uid) return { reconciled: 0, failed: 0 };
+    const result = await api.reconcileOfflineOutbox(uid);
+    if (result.reconciled > 0) {
+      showToast(
+        `Reconciled ${result.reconciled} queued offline operation${result.reconciled > 1 ? 's' : ''} to Firestore.`,
+        'success'
+      );
+      triggerRefresh();
+    } else if (result.failed > 0) {
+      showToast(
+        `${result.failed} queued offline write${result.failed > 1 ? 's' : ''} still awaiting Firestore connectivity.`,
+        'info'
+      );
+    }
+    return result;
+  }, [firebaseUser?.uid, showToast, triggerRefresh]);
 
   // Listen to OS prefers-color-scheme changes
   useEffect(() => {
@@ -502,8 +555,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [ambientPreset, ambientVolume]
   );
 
+  const reconcileRef = useRef(reconcileOutboxNow);
+  reconcileRef.current = reconcileOutboxNow;
+
   useEffect(() => {
-    const onOnline = () => setIsOnline(true);
+    const onOnline = () => {
+      setIsOnline(true);
+      void reconcileRef.current();
+    };
     const onOffline = () => setIsOnline(false);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
@@ -513,6 +572,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       stopSoundscape();
     };
   }, []);
+
+  // Subscribe to real durable Google Sheets sync queue length & per-user offline outbox count
+  useEffect(() => {
+    const unsubQueue = googleSheetsService.subscribeQueue(setSyncQueueCount);
+    void googleSheetsService.refreshQueueCount();
+    return () => unsubQueue();
+  }, [firebaseUser?.uid]);
+
+  useEffect(() => {
+    if (!firebaseUser?.uid) {
+      setOfflineOutboxCount(0);
+      return;
+    }
+    return offlineOutbox.subscribe(firebaseUser.uid, setOfflineOutboxCount);
+  }, [firebaseUser?.uid]);
 
   const toggleTheme = useCallback(() => {
     const nextColorMode: 'light' | 'dark' = resolvedThemeMode === 'dark' ? 'light' : 'dark';
@@ -631,6 +705,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           } catch (err) {
             console.warn('Could not restore theme from Firestore (offline or unavailable):', err);
             setThemeSyncState('offline');
+          }
+          if (offlineOutbox.count(fbUser.uid) > 0) {
+            const recResult = await api.reconcileOfflineOutbox(fbUser.uid).catch(() => ({
+              reconciled: 0,
+              failed: 0,
+            }));
+            if (recResult.reconciled > 0) {
+              showToast(
+                `Synced ${recResult.reconciled} pending offline record${recResult.reconciled > 1 ? 's' : ''} to Firestore.`,
+                'success'
+              );
+            }
           }
           triggerRefresh();
         }
@@ -882,6 +968,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    const confirmed = await confirmAction({
+      title: 'Confirm Historical Resync',
+      message:
+        'This verifies your spreadsheet metadata, dynamically clears synced ledger ranges while preserving your charts, formatting, formulas, and column widths, and rebuilds all 23 worksheets from Firestore.',
+      itemLabel: `Spreadsheet ID: ${googleSpreadsheetId}`,
+      confirmLabel: 'Yes, Run Historical Resync',
+      cancelLabel: 'Cancel',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
+
     setSyncStatus('syncing');
     try {
       const [
@@ -912,21 +1009,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         api.getSyncQueue().catch(() => []),
       ]);
 
-      await googleSheetsService.historicalResync(googleSpreadsheetId, token, {
-        sessions,
-        focusStats,
-        incomes,
-        recurring,
-        expenses,
-        bills,
-        paymentHistory,
-        financeSummary,
-        tasks,
-        envelopes,
-        savingsGoals,
-        syncQueue,
-        userSettings: settings,
-      });
+      await googleSheetsService.historicalResync(
+        googleSpreadsheetId,
+        token,
+        {
+          sessions,
+          focusStats,
+          incomes,
+          recurring,
+          expenses,
+          bills,
+          paymentHistory,
+          financeSummary,
+          tasks,
+          envelopes,
+          savingsGoals,
+          syncQueue,
+          userSettings: settings,
+        },
+        true
+      );
 
       const nowIso = new Date().toISOString();
       setLastSyncedAt(nowIso);
@@ -935,12 +1037,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSyncQueueCount(activeOps.length);
       setSyncLastError(googleSheetsService.getLastError());
       await updateSettings({ lastSyncedAt: nowIso });
-      showToast('Historical resync completed — all 23 worksheets rebuilt!', 'success');
+      showToast('Historical resync completed — all 23 worksheets rebuilt safely!', 'success');
     } catch (err: unknown) {
       setSyncStatus('error');
       const msg = err instanceof Error ? err.message : 'Resync failed';
       setSyncLastError(msg);
       showToast(`Historical resync failed: ${msg}`, 'error');
+    }
+  };
+
+  const reapplySheetFormatting = async () => {
+    if (!googleSpreadsheetId) {
+      showToast('Please initialize your Google Sheets master workbook first', 'info');
+      return;
+    }
+    let token = googleAccessToken;
+    if (!token) {
+      token = await getAccessToken();
+    }
+    if (!token) {
+      showToast('Please sign in with Google to re-apply formatting', 'info');
+      return;
+    }
+    setSyncStatus('syncing');
+    try {
+      await googleSheetsService.applyFormatting(googleSpreadsheetId, token, true);
+      setSyncStatus('synced');
+      showToast('Worksheet styling, number formats, and column widths re-applied.', 'success');
+    } catch (err: unknown) {
+      setSyncStatus('error');
+      const msg = err instanceof Error ? err.message : 'Failed to apply formatting';
+      setSyncLastError(msg);
+      showToast(`Formatting update failed: ${msg}`, 'error');
     }
   };
 
@@ -1143,8 +1271,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         startedAt,
         endedAt,
       });
-      if (firebaseUser) {
-        firestoreService.saveFocusSession(firebaseUser.uid, created).catch(console.error);
+      void googleSheetsService.enqueueMutation(
+        'Focus_Sessions',
+        [
+          created.id,
+          created.startedAt.split('T')[0],
+          'WORK',
+          created.durationMinutes,
+          created.taskTitle || 'Stopwatch Focus',
+          'YES',
+          created.startedAt,
+          created.endedAt,
+        ],
+        'append',
+        `Focus_Sessions_append_${created.id}`
+      );
+      if (googleSpreadsheetId && googleAccessToken) {
+        googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
       }
       resetTimer();
       triggerRefresh();
@@ -1152,7 +1295,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       showToast('Failed to log stopwatch session', 'error');
     }
-  }, [activeTaskId, firebaseUser, resetTimer, showToast, triggerRefresh]);
+  }, [activeTaskId, googleSpreadsheetId, googleAccessToken, resetTimer, showToast, triggerRefresh]);
 
   const latestTimerDepsRef = useRef({
     timerMode,
@@ -1257,20 +1400,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             endedAt,
           })
           .then((newSession) => {
-            if (fbUserNow) {
-              firestoreService.saveFocusSession(fbUserNow.uid, newSession).catch(console.error);
-            }
-
-            googleSheetsService.enqueueMutation('Focus_Sessions', [
-              newSession.id,
-              newSession.startedAt.split('T')[0],
-              'WORK',
-              newSession.durationMinutes,
-              newSession.taskTitle || 'Focus Session',
-              'YES',
-              newSession.startedAt,
-              newSession.endedAt,
-            ]);
+            void googleSheetsService.enqueueMutation(
+              'Focus_Sessions',
+              [
+                newSession.id,
+                newSession.startedAt.split('T')[0],
+                'WORK',
+                newSession.durationMinutes,
+                newSession.taskTitle || 'Focus Session',
+                'YES',
+                newSession.startedAt,
+                newSession.endedAt,
+              ],
+              'append',
+              `Focus_Sessions_append_${newSession.id}`
+            );
 
             if (sheetIdNow && tokenNow) {
               googleSheetsService
@@ -1396,8 +1540,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ambientVolume,
         setAmbientSound,
         isOnline,
+        offlineOutboxCount,
+        reconcileOutboxNow,
         syncLastError,
         notifications,
+
+        // In-app Confirmation Modal
+        confirmAction,
+        confirmDialogState,
+        resolveConfirmDialog,
 
         // Firebase Auth
         firebaseUser,
@@ -1414,6 +1565,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createOrConnectSpreadsheet,
         syncNowToGoogleSheets,
         historicalResyncToGoogleSheets,
+        reapplySheetFormatting,
 
         // Timer
         timerEngine,
