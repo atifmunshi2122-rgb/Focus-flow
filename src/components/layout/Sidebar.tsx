@@ -224,6 +224,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 <motion.button
                   type="button"
+                  data-tab={item.id}
+                  data-nav-id={item.id}
                   data-active={isActive ? 'true' : 'false'}
                   onClick={() => handleNavClick(item.id)}
                   whileHover={isDisabled ? undefined : { x: collapsed || isActive ? 0 : 2 }}

@@ -55,6 +55,32 @@ export type NavTab =
   | 'recovery'
   | 'settings';
 
+export const VALID_NAV_TABS: readonly NavTab[] = [
+  'dashboard',
+  'calendar',
+  'focus',
+  'timeblocks',
+  'tasks',
+  'finance',
+  'transactions',
+  'bills',
+  'envelopes',
+  'subscriptions',
+  'analytics',
+  'recovery',
+  'settings',
+] as const;
+
+function readInitialTabFromHash(): NavTab {
+  if (typeof window !== 'undefined') {
+    const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
+    if (VALID_NAV_TABS.includes(rawHash as NavTab)) {
+      return rawHash as NavTab;
+    }
+  }
+  return 'dashboard';
+}
+
 export type TimerMode = 'work' | 'short_break' | 'long_break';
 export type TimerEngineMode = 'pomodoro' | 'stopwatch' | 'countdown';
 
@@ -194,7 +220,33 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const [currentTab, setCurrentTabState] = useState<NavTab>(() => readInitialTabFromHash());
+
+  const setCurrentTab = useCallback((tab: NavTab) => {
+    setCurrentTabState(tab);
+    if (typeof window !== 'undefined') {
+      const nextHash = `#${tab}`;
+      if (window.location.hash !== nextHash) {
+        window.history.pushState(null, '', nextHash);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onHashChange = () => {
+      const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
+      if (VALID_NAV_TABS.includes(rawHash as NavTab)) {
+        setCurrentTabState(rawHash as NavTab);
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    window.addEventListener('popstate', onHashChange);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('popstate', onHashChange);
+    };
+  }, []);
   const [user, setUser] = useState<User | null>(null);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [refreshKey, setRefreshKey] = useState<number>(0);

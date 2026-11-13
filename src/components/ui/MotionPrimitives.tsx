@@ -39,17 +39,15 @@ export const MotionPage: React.FC<MotionPageProps> = ({ routeKey, children }) =>
   const variants = getPageTransition(intensity, isDisabled);
 
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={routeKey}
-        variants={variants}
-        initial="initial"
-        animate="animate"
-        exit="exit"
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
+    <motion.div
+      key={routeKey}
+      variants={variants}
+      initial={isDisabled ? false : 'initial'}
+      animate="animate"
+      className="w-full"
+    >
+      {children}
+    </motion.div>
   );
 };
 

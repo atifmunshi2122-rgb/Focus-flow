@@ -78,9 +78,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
   };
 
   return (
-    <header className="ff-header sticky top-0 z-30 flex items-center justify-between gap-4 md:gap-8 h-16 px-4 md:px-8">
+    <header className="ff-header sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-4 md:gap-6 h-16 px-3 sm:px-4 md:px-6 lg:px-8 max-w-full">
       {/* Zone 1: Mobile Menu Trigger + Section Heading */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
         <button
           type="button"
           onClick={onOpenMobileMenu}
@@ -90,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2.5 overflow-hidden">
+        <div className="flex items-center gap-2 overflow-hidden">
           <AnimatePresence mode="wait" initial={false}>
             <motion.span
               key={currentTab}
@@ -98,7 +98,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               animate={{ opacity: 1, y: 0 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -5 }}
               transition={{ duration: MOTION_DURATION.dropdown * 0.8, ease: MOTION_EASING.decelerate }}
-              className="ff-heading text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap inline-block"
+              className="ff-heading text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap inline-block truncate max-w-[200px] sm:max-w-none"
             >
               {tabLabels[currentTab] || 'Dashboard'}
             </motion.span>
@@ -106,50 +106,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         </div>
       </div>
 
-      {/* Zone 2: Quick Navigation Links */}
-      <nav aria-label="Header Quick Links" className="hidden md:flex items-center gap-3 lg:gap-5 xl:gap-6 text-sm font-medium">
-        {[
-          { id: 'dashboard', label: 'Overview', className: '' },
-          { id: 'focus', label: 'Focus', className: '' },
-          { id: 'tasks', label: 'Tasks', className: '' },
-          { id: 'finance', label: 'Finance', className: '' },
-          { id: 'bills', label: 'Bills', className: '' },
-          { id: 'analytics', label: 'Analytics', className: 'hidden lg:inline-block' },
-          { id: 'calendar', label: 'Calendar', className: 'hidden xl:inline-block' },
-          { id: 'settings', label: 'Settings', className: 'hidden 2xl:inline-block' },
-        ].map((item) => {
-          const isActive = currentTab === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setCurrentTab(item.id as typeof currentTab)}
-              className={`relative py-1 transition-colors whitespace-nowrap shrink-0 hover:text-[var(--ff-text-primary)] ${item.className}`}
-              style={{
-                color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
-                fontWeight: isActive ? 700 : 500,
-              }}
-            >
-              {item.label}
-              {isActive && (
-                <motion.span
-                  layoutId="header-quick-nav-underline"
-                  transition={
-                    isDisabled
-                      ? { duration: 0.01 }
-                      : { type: 'spring', stiffness: 460, damping: 34 }
-                  }
-                  className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
-                  style={{ background: 'var(--ff-accent)' }}
-                />
-              )}
-            </button>
-          );
-        })}
-      </nav>
+      {/* Zone 2: Refined Breadcrumb & Workspace Context */}
+      <div className="hidden lg:flex items-center gap-2 text-xs text-[var(--ff-text-muted)] min-w-0 overflow-hidden">
+        <span className="font-semibold text-[var(--ff-text-muted)]/75">FocusFlow</span>
+        <span className="text-[var(--ff-text-muted)]/40 font-mono">/</span>
+        <span className="font-bold text-[var(--ff-text-primary)] truncate max-w-[220px]">
+          {tabLabels[currentTab] || 'Dashboard'}
+        </span>
+      </div>
 
       {/* Zone 3: Primary Action Cluster */}
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {!isOnline && (
           <span
             className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold border border-[var(--ff-warning)]/40 bg-[var(--ff-warning-soft)] text-[var(--ff-warning)]"
@@ -237,7 +204,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         <button
           type="button"
           onClick={() => setCurrentTab('settings')}
-          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border transition-colors"
+          className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border transition-colors"
           style={{
             borderRadius: 'var(--ff-radius-button)',
             background: 'var(--ff-accent-soft)',

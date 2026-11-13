@@ -551,12 +551,12 @@ export const PomodoroTimer: React.FC = () => {
             initial={isDisabled ? { opacity: 1 } : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[var(--ff-bg-canvas)]/95 backdrop-blur-xl overflow-y-auto"
+            className="fixed inset-0 z-50 flex flex-col items-center justify-start sm:justify-center p-4 sm:p-6 bg-[var(--ff-bg-canvas)]/95 backdrop-blur-xl overflow-y-auto"
             role="dialog"
             aria-modal="true"
             aria-label="Full-Screen Deep Focus Mode"
           >
-            <div className="relative w-full max-w-xl flex flex-col items-center justify-center p-8 ff-card-elevated">
+            <div className="relative w-full max-w-xl my-auto flex flex-col items-center justify-center p-6 sm:p-8 ff-card-elevated">
               <button
                 type="button"
                 onClick={() => setFullScreenFocus(false)}
