@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-11-13
+
+### Added
+- **Mobile-First UX Upgrades:**
+  - Sticky bottom navigation bar for mobile (`lg:hidden`) supporting one-handed access to Dashboard, Focus, Tasks, Finance, and Settings with spring indicators and safe-area inset padding.
+  - Native bottom-sheet presentation for modals (`ThemeModal`, `ConfirmDialogModal`, `QuickActionModal`, and Time-Block planner) on mobile screens with drag-handle indicators and keyboard-safe vertical scroll (`max-h-[85dvh]`).
+  - Mobile Card Views in `TransactionsLedger` and `BillsTracker` replacing horizontally clipped tables on `< 640px` screens.
+  - Dedicated touch drag handle (`GripVertical` with `touch-action: none`) and tap-to-edit interaction in `DailyTimeBlockPlanner`.
+- **Firebase Infrastructure Integration:**
+  - Active Firebase project migrated to `seismic-codex-m01dl`.
+  - Registered web application credentials (`1:363778207392:web:3aacc9711ed002ecd0e3c5`).
+  - Enterprise Native Mode Firestore database (`ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8`) rules and indexes deployed.
+  - Google Sign-In authentication deployed via Firebase CLI.
+  - Installed 14 official Firebase agent skills in `.agents/skills`.
+
+### Fixed
+- **Mobile Drawer Collapsed Width Bug:** Corrected responsive width in `Sidebar.tsx` (`w-64 ${collapsed ? 'lg:w-20' : 'lg:w-64'}`) ensuring the mobile drawer always renders at full width with complete navigation labels even if desktop sidebar was collapsed.
+- **Viewport Height Cutoff:** Replaced `h-screen` (100vh) with `h-[100dvh]` to prevent clipping under dynamic mobile address bars.
+- **Touch Target Ergonomics:** Elevated mobile buttons (hamburger trigger, table trash/edit buttons, bill payment buttons, modal actions) to meet the $\ge 44 \times 44\text{px}$ touch target guideline.
+- **Pomodoro Dial Fluid Scaling:** Replaced static pixel dimensions with responsive SVG `viewBox` and fluid boundaries (`max-w-[75vw] max-h-[75vw]`) preventing overflow on compact 360px mobile screens.
+- **Notch & PWA Safe-Area:** Configured `viewport-fit=cover` in `index.html` and applied `env(safe-area-inset-bottom)` with `-webkit-tap-highlight-color: transparent` in `index.css`.
+
+---
+
 ## [1.0.0] - 2026-11-12
 
 ### Added
@@ -54,6 +78,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-11-13
+
+### Added
+- **Mobile-First UX Upgrades:**
+  - Sticky bottom navigation bar for mobile (`lg:hidden`) supporting one-handed access to Dashboard, Focus, Tasks, Finance, and Settings with spring indicators and safe-area inset padding.
+  - Native bottom-sheet presentation for modals (`ThemeModal`, `ConfirmDialogModal`, `QuickActionModal`, and Time-Block planner) on mobile screens with drag-handle indicators and keyboard-safe vertical scroll (`max-h-[85dvh]`).
+  - Mobile Card Views in `TransactionsLedger` and `BillsTracker` replacing horizontally clipped tables on `< 640px` screens.
+  - Dedicated touch drag handle (`GripVertical` with `touch-action: none`) and tap-to-edit interaction in `DailyTimeBlockPlanner`.
+- **Firebase Infrastructure Integration:**
+  - Active Firebase project migrated to `seismic-codex-m01dl`.
+  - Registered web application credentials (`1:363778207392:web:3aacc9711ed002ecd0e3c5`).
+  - Enterprise Native Mode Firestore database (`ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8`) rules and indexes deployed.
+  - Google Sign-In authentication deployed via Firebase CLI.
+  - Installed 14 official Firebase agent skills in `.agents/skills`.
+
+### Fixed
+- **Mobile Drawer Collapsed Width Bug:** Corrected responsive width in `Sidebar.tsx` (`w-64 ${collapsed ? 'lg:w-20' : 'lg:w-64'}`) ensuring the mobile drawer always renders at full width with complete navigation labels even if desktop sidebar was collapsed.
+- **Viewport Height Cutoff:** Replaced `h-screen` (100vh) with `h-[100dvh]` to prevent clipping under dynamic mobile address bars.
+- **Touch Target Ergonomics:** Elevated mobile buttons (hamburger trigger, table trash/edit buttons, bill payment buttons, modal actions) to meet the $\ge 44 \times 44\text{px}$ touch target guideline.
+- **Pomodoro Dial Fluid Scaling:** Replaced static pixel dimensions with responsive SVG `viewBox` and fluid boundaries (`max-w-[75vw] max-h-[75vw]`) preventing overflow on compact 360px mobile screens.
+- **Notch & PWA Safe-Area:** Configured `viewport-fit=cover` in `index.html` and applied `env(safe-area-inset-bottom)` with `-webkit-tap-highlight-color: transparent` in `index.css`.
+
+---
+
 ## [0.9.0] - 2026-11-10
 
 ### Added
@@ -62,6 +110,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Income and Expense entry forms.
 - Basic Firestore schema integration.
 - Preliminary 12-sheet Google Sheets export prototype.
+
+---
+
+## [1.1.0] - 2026-11-13
+
+### Added
+- **Mobile-First UX Upgrades:**
+  - Sticky bottom navigation bar for mobile (`lg:hidden`) supporting one-handed access to Dashboard, Focus, Tasks, Finance, and Settings with spring indicators and safe-area inset padding.
+  - Native bottom-sheet presentation for modals (`ThemeModal`, `ConfirmDialogModal`, `QuickActionModal`, and Time-Block planner) on mobile screens with drag-handle indicators and keyboard-safe vertical scroll (`max-h-[85dvh]`).
+  - Mobile Card Views in `TransactionsLedger` and `BillsTracker` replacing horizontally clipped tables on `< 640px` screens.
+  - Dedicated touch drag handle (`GripVertical` with `touch-action: none`) and tap-to-edit interaction in `DailyTimeBlockPlanner`.
+- **Firebase Infrastructure Integration:**
+  - Active Firebase project migrated to `seismic-codex-m01dl`.
+  - Registered web application credentials (`1:363778207392:web:3aacc9711ed002ecd0e3c5`).
+  - Enterprise Native Mode Firestore database (`ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8`) rules and indexes deployed.
+  - Google Sign-In authentication deployed via Firebase CLI.
+  - Installed 14 official Firebase agent skills in `.agents/skills`.
+
+### Fixed
+- **Mobile Drawer Collapsed Width Bug:** Corrected responsive width in `Sidebar.tsx` (`w-64 ${collapsed ? 'lg:w-20' : 'lg:w-64'}`) ensuring the mobile drawer always renders at full width with complete navigation labels even if desktop sidebar was collapsed.
+- **Viewport Height Cutoff:** Replaced `h-screen` (100vh) with `h-[100dvh]` to prevent clipping under dynamic mobile address bars.
+- **Touch Target Ergonomics:** Elevated mobile buttons (hamburger trigger, table trash/edit buttons, bill payment buttons, modal actions) to meet the $\ge 44 \times 44\text{px}$ touch target guideline.
+- **Pomodoro Dial Fluid Scaling:** Replaced static pixel dimensions with responsive SVG `viewBox` and fluid boundaries (`max-w-[75vw] max-h-[75vw]`) preventing overflow on compact 360px mobile screens.
+- **Notch & PWA Safe-Area:** Configured `viewport-fit=cover` in `index.html` and applied `env(safe-area-inset-bottom)` with `-webkit-tap-highlight-color: transparent` in `index.css`.
 
 ---
 
