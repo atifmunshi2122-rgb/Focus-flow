@@ -15,6 +15,7 @@ import {
   signOut as fbSignOut,
   initAuthListener,
   getAccessToken,
+  setAccessToken as fbSetAccessToken,
   testConnection,
 } from '../lib/firebase.ts';
 import { User as FirebaseUser } from 'firebase/auth';
@@ -930,6 +931,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const handleSheetsSyncError = (err: unknown, fallbackLabel: string): string => {
+    setSyncStatus('error');
+    const msg = err instanceof Error ? err.message : fallbackLabel;
+    const code =
+      err && typeof err === 'object' && 'code' in err
+        ? String((err as { code?: unknown }).code || '')
+        : '';
+    const status =
+      err && typeof err === 'object' && 'status' in err
+        ? Number((err as { status?: unknown }).status || 0)
+        : 0;
+
+    setSyncLastError(msg);
+
+    if (
+      code === 'SHEETS_AUTH_REQUIRED' ||
+      status === 401 ||
+      /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials|insufficient authentication scopes/i.test(
+        msg
+      )
+    ) {
+      fbSetAccessToken(null);
+      setGoogleAccessToken(null);
+      setAuthError(
+        classifyFirebaseAuthError(
+          { code: 'auth/access-denied', message: msg },
+          { scopeMode: 'sheets', userEmail: firebaseUser?.email }
+        )
+      );
+    }
+
+    return msg;
+  };
+
   // Google Sheets Workbook Management
   const createOrConnectSpreadsheet = async (): Promise<string> => {
     let token: string | null = googleAccessToken;
@@ -960,8 +995,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSyncStatus('synced');
       return spreadsheetId;
     } catch (err: unknown) {
-      setSyncStatus('error');
-      const msg = err instanceof Error ? err.message : 'Spreadsheet setup failed';
+      const msg = handleSheetsSyncError(err, 'Spreadsheet setup failed');
       showToast(msg, 'error');
       throw err;
     }
@@ -1045,9 +1079,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await updateSettings({ lastSyncedAt: nowIso });
       showToast('Executive Google Sheets workbook synchronized successfully!', 'success');
     } catch (err: unknown) {
-      setSyncStatus('error');
-      const msg = err instanceof Error ? err.message : 'Sync failed';
-      setSyncLastError(msg);
+      const msg = handleSheetsSyncError(err, 'Sync failed');
       showToast(`Sync failed: ${msg}`, 'error');
     }
   };
@@ -1139,9 +1171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await updateSettings({ lastSyncedAt: nowIso });
       showToast('Historical resync completed — all 23 worksheets rebuilt safely!', 'success');
     } catch (err: unknown) {
-      setSyncStatus('error');
-      const msg = err instanceof Error ? err.message : 'Resync failed';
-      setSyncLastError(msg);
+      const msg = handleSheetsSyncError(err, 'Resync failed');
       showToast(`Historical resync failed: ${msg}`, 'error');
     }
   };
@@ -1167,9 +1197,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSyncStatus('synced');
       showToast('Worksheet styling, number formats, and column widths re-applied.', 'success');
     } catch (err: unknown) {
-      setSyncStatus('error');
-      const msg = err instanceof Error ? err.message : 'Failed to apply formatting';
-      setSyncLastError(msg);
+      const msg = handleSheetsSyncError(err, 'Failed to apply formatting');
       showToast(`Formatting update failed: ${msg}`, 'error');
     }
   };

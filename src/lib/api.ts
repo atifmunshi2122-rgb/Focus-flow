@@ -67,13 +67,18 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     let errorMsg = `API Error: ${response.status} ${response.statusText}`;
+    let errorCode: string | undefined;
     try {
-      const errorData = await response.json();
+      const errorData = (await response.json()) as { error?: string; code?: string };
       if (errorData.error) errorMsg = errorData.error;
+      if (typeof errorData.code === 'string') errorCode = errorData.code;
     } catch {
       // ignore non-JSON error body
     }
-    throw new Error(errorMsg);
+    const apiErr = new Error(errorMsg) as Error & { status?: number; code?: string };
+    apiErr.status = response.status;
+    if (errorCode) apiErr.code = errorCode;
+    throw apiErr;
   }
 
   return response.json();

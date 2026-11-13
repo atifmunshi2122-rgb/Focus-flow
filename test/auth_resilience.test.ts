@@ -145,3 +145,67 @@ test('Auth Architecture — basic Google Sign-In is decoupled from Sheets scopes
   assert.match(modalSource, /target="_blank"/);
   assert.doesNotMatch(modalSource, /window\.open\(|window\.alert\(/);
 });
+
+test('Server Security Headers — allows embedded preview iframe and cross-origin auth popups', async () => {
+  const { securityHeaders, corsHandler } = await import('../server/security.ts');
+  const setHeaders: Record<string, string> = {};
+  let nextCalled = false;
+
+  const mockReq = {
+    method: 'GET',
+    headers: {
+      host: 'ais-pre-276nqhz6z5gawkw7wlakr7-402945852829.asia-east1.run.app',
+      origin: 'https://ais-pre-276nqhz6z5gawkw7wlakr7-402945852829.asia-east1.run.app',
+    },
+  } as unknown as import('express').Request;
+
+  const mockRes = {
+    setHeader(name: string, value: string) {
+      setHeaders[name.toLowerCase()] = value;
+    },
+  } as unknown as import('express').Response;
+
+  securityHeaders(mockReq, mockRes, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(setHeaders['cross-origin-opener-policy'], 'same-origin-allow-popups');
+  assert.equal(setHeaders['x-frame-options'], undefined);
+  assert.equal(setHeaders['x-content-type-options'], 'nosniff');
+
+  const corsHeaders: Record<string, string> = {};
+  let corsNext = false;
+  corsHandler(
+    mockReq,
+    {
+      setHeader(name: string, value: string) {
+        corsHeaders[name.toLowerCase()] = value;
+      },
+    } as unknown as import('express').Response,
+    () => {
+      corsNext = true;
+    }
+  );
+  assert.equal(corsNext, true);
+  assert.equal(
+    corsHeaders['access-control-allow-origin'],
+    'https://ais-pre-276nqhz6z5gawkw7wlakr7-402945852829.asia-east1.run.app'
+  );
+  assert.match(corsHeaders['access-control-allow-headers'], /x-google-access-token/i);
+});
+
+test('Sheets OAuth Recovery — backend routes emit SHEETS_AUTH_REQUIRED and client clears only Sheets token', () => {
+  const routesSource = fs.readFileSync(path.resolve('server/routes.ts'), 'utf8');
+  const apiSource = fs.readFileSync(path.resolve('src/lib/api.ts'), 'utf8');
+  const sheetsServiceSource = fs.readFileSync(path.resolve('src/lib/googleSheetsService.ts'), 'utf8');
+  const appContextSource = fs.readFileSync(path.resolve('src/context/AppContext.tsx'), 'utf8');
+
+  assert.match(routesSource, /function sendSheetsError/);
+  assert.match(routesSource, /code:\s*'SHEETS_AUTH_REQUIRED'/);
+  assert.match(apiSource, /apiErr\.code = errorCode/);
+  assert.match(sheetsServiceSource, /wrapped\.code =/);
+  assert.match(appContextSource, /handleSheetsSyncError/);
+  assert.match(appContextSource, /fbSetAccessToken\(null\)/);
+});
+

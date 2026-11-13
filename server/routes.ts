@@ -2389,10 +2389,23 @@ function extractGoogleAccessToken(req: Request): string | null {
   return null;
 }
 
+function sendSheetsError(res: Response, err: unknown, fallbackMessage: string, defaultStatus = 502): void {
+  const message = err instanceof Error ? err.message : fallbackMessage;
+  const isAuthError =
+    /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials|insufficient authentication scopes/i.test(
+      message
+    );
+  if (isAuthError) {
+    res.status(401).json({ error: message, code: 'SHEETS_AUTH_REQUIRED' });
+    return;
+  }
+  res.status(defaultStatus).json({ error: message });
+}
+
 apiRouter.post('/sheets/verify', async (req: Request, res: Response) => {
   const accessToken = extractGoogleAccessToken(req);
   if (!accessToken) {
-    res.status(401).json({ error: 'Google authorization token header is required.' });
+    res.status(401).json({ error: 'Google authorization token header is required.', code: 'SHEETS_AUTH_REQUIRED' });
     return;
   }
   const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
@@ -2408,28 +2421,28 @@ apiRouter.post('/sheets/verify', async (req: Request, res: Response) => {
       sheetsCount: meta.sheets.length,
     });
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Spreadsheet verification failed.' });
+    sendSheetsError(res, err, 'Spreadsheet verification failed.', 400);
   }
 });
 
 apiRouter.post('/sheets/create-workbook', async (req: Request, res: Response) => {
   const accessToken = extractGoogleAccessToken(req);
   if (!accessToken) {
-    res.status(401).json({ error: 'Google authorization token header is required.' });
+    res.status(401).json({ error: 'Google authorization token header is required.', code: 'SHEETS_AUTH_REQUIRED' });
     return;
   }
   try {
     const created = await createMasterWorkbook(accessToken);
     res.status(201).json(created);
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Workbook creation failed.' });
+    sendSheetsError(res, err, 'Workbook creation failed.');
   }
 });
 
 apiRouter.post('/sheets/sync', async (req: Request, res: Response) => {
   const accessToken = extractGoogleAccessToken(req);
   if (!accessToken) {
-    res.status(401).json({ error: 'Google authorization token header is required.' });
+    res.status(401).json({ error: 'Google authorization token header is required.', code: 'SHEETS_AUTH_REQUIRED' });
     return;
   }
   const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
@@ -2442,14 +2455,14 @@ apiRouter.post('/sheets/sync', async (req: Request, res: Response) => {
     const result = await syncAllData(spreadsheetId, accessToken, data);
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Google Sheets sync failed.' });
+    sendSheetsError(res, err, 'Google Sheets sync failed.');
   }
 });
 
 apiRouter.post('/sheets/apply-formatting', async (req: Request, res: Response) => {
   const accessToken = extractGoogleAccessToken(req);
   if (!accessToken) {
-    res.status(401).json({ error: 'Google authorization token header is required.' });
+    res.status(401).json({ error: 'Google authorization token header is required.', code: 'SHEETS_AUTH_REQUIRED' });
     return;
   }
   const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
@@ -2465,14 +2478,14 @@ apiRouter.post('/sheets/apply-formatting', async (req: Request, res: Response) =
     });
     res.json({ success: true });
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Formatting update failed.' });
+    sendSheetsError(res, err, 'Formatting update failed.');
   }
 });
 
 apiRouter.post('/sheets/historical-resync', async (req: Request, res: Response) => {
   const accessToken = extractGoogleAccessToken(req);
   if (!accessToken) {
-    res.status(401).json({ error: 'Google authorization token header is required.' });
+    res.status(401).json({ error: 'Google authorization token header is required.', code: 'SHEETS_AUTH_REQUIRED' });
     return;
   }
   const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
@@ -2492,7 +2505,7 @@ apiRouter.post('/sheets/historical-resync', async (req: Request, res: Response) 
     const result = await historicalResync(spreadsheetId, accessToken, data, true);
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Historical resync failed.' });
+    sendSheetsError(res, err, 'Historical resync failed.');
   }
 });
 
@@ -2500,7 +2513,7 @@ apiRouter.post('/sheets/flush-queue', async (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const accessToken = extractGoogleAccessToken(req);
   if (!accessToken) {
-    res.status(401).json({ error: 'Google authorization token header is required.' });
+    res.status(401).json({ error: 'Google authorization token header is required.', code: 'SHEETS_AUTH_REQUIRED' });
     return;
   }
   const spreadsheetId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
@@ -2523,7 +2536,7 @@ apiRouter.post('/sheets/flush-queue', async (req: Request, res: Response) => {
     }
     res.json(summary);
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Queue flush failed.' });
+    sendSheetsError(res, err, 'Queue flush failed.');
   }
 });
 

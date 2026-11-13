@@ -80,8 +80,8 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   // Prevent MIME-sniffing
   res.setHeader('X-Content-Type-Options', 'nosniff');
 
-  // Prevent clickjacking via iframes
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  // Allow Firebase/Google Sign-In popups to communicate back to opener across origins
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
 
   // XSS protection for legacy browsers
   res.setHeader('X-XSS-Protection', '1; mode=block');
@@ -166,8 +166,18 @@ export function corsHandler(req: Request, res: Response, next: NextFunction): vo
   const allowedOriginsEnv = process.env.ALLOWED_ORIGINS;
   const appUrl = process.env.APP_URL;
 
+  const requestHost = req.headers.host;
+  let sameHostOrigin = false;
+  if (origin && requestHost) {
+    try {
+      sameHostOrigin = new URL(origin).host === requestHost;
+    } catch {
+      sameHostOrigin = false;
+    }
+  }
+
   let isAllowed = false;
-  if (!origin) {
+  if (!origin || sameHostOrigin) {
     isAllowed = true;
   } else if (allowedOriginsEnv) {
     const list = allowedOriginsEnv.split(',').map((o) => o.trim());

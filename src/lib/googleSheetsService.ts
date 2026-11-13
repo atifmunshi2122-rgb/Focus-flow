@@ -175,7 +175,16 @@ class GoogleSheetsService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Google Sheets synchronization failed.';
       this.lastError = msg;
-      throw new Error(msg);
+      const wrapped = new Error(msg) as Error & { code?: string; status?: number };
+      if (err && typeof err === 'object') {
+        if ('code' in err && typeof (err as { code?: unknown }).code === 'string') {
+          wrapped.code = (err as { code: string }).code;
+        }
+        if ('status' in err && typeof (err as { status?: unknown }).status === 'number') {
+          wrapped.status = (err as { status: number }).status;
+        }
+      }
+      throw wrapped;
     }
   }
 
@@ -199,7 +208,16 @@ class GoogleSheetsService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Historical resync failed.';
       this.lastError = msg;
-      throw new Error(msg);
+      const wrapped = new Error(msg) as Error & { code?: string; status?: number };
+      if (err && typeof err === 'object') {
+        if ('code' in err && typeof (err as { code?: unknown }).code === 'string') {
+          wrapped.code = (err as { code: string }).code;
+        }
+        if ('status' in err && typeof (err as { status?: unknown }).status === 'number') {
+          wrapped.status = (err as { status: number }).status;
+        }
+      }
+      throw wrapped;
     }
   }
 
@@ -330,7 +348,16 @@ class GoogleSheetsService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Queue flush failed.';
       this.lastError = msg;
-      throw new Error(msg);
+      const wrapped = new Error(msg) as Error & { code?: string; status?: number };
+      if (err && typeof err === 'object') {
+        if ('code' in err && typeof (err as { code?: unknown }).code === 'string') {
+          wrapped.code = (err as { code: string }).code;
+        }
+        if ('status' in err && typeof (err as { status?: unknown }).status === 'number') {
+          wrapped.status = (err as { status: number }).status;
+        }
+      }
+      throw wrapped;
     }
   }
 }
