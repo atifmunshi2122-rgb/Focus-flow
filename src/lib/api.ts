@@ -109,8 +109,16 @@ async function withPrimaryRead<T>(
   guestApiFn: () => Promise<T>
 ): Promise<T> {
   const fbUser = await waitForInitialAuth();
-  if (fbUser) {
-    return cloudFn(fbUser.uid);
+  if (fbUser && auth.currentUser?.uid === fbUser.uid) {
+    try {
+      return await cloudFn(fbUser.uid);
+    } catch (err) {
+      // Only route to guest mode if the user genuinely signed out while this read was in flight.
+      if (!auth.currentUser) {
+        return guestApiFn();
+      }
+      throw err;
+    }
   }
   return guestApiFn();
 }
@@ -131,7 +139,7 @@ async function withPrimaryWrite<T>(
   }
 ): Promise<T> {
   const fbUser = await waitForInitialAuth();
-  if (fbUser) {
+  if (fbUser && auth.currentUser?.uid === fbUser.uid) {
     try {
       return await cloudFn(fbUser.uid);
     } catch (err) {
@@ -292,8 +300,15 @@ export const api = {
   // Auth & Settings
   getMe: async (): Promise<{ user: User; settings: UserSettings }> => {
     const fbUser = await waitForInitialAuth();
-    if (fbUser) {
-      return firestoreService.getMe(fbUser);
+    if (fbUser && auth.currentUser?.uid === fbUser.uid) {
+      try {
+        return await firestoreService.getMe(fbUser);
+      } catch (err) {
+        if (!auth.currentUser) {
+          return request<{ user: User; settings: UserSettings }>('/auth/me');
+        }
+        throw err;
+      }
     }
     return request<{ user: User; settings: UserSettings }>('/auth/me');
   },

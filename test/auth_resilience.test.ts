@@ -209,3 +209,17 @@ test('Sheets OAuth Recovery — backend routes emit SHEETS_AUTH_REQUIRED and cli
   assert.match(appContextSource, /fbSetAccessToken\(null\)/);
 });
 
+test('Auth Readiness — waitForInitialAuth returns live auth.currentUser and guards prevent unauthenticated Firestore reads', () => {
+  const firebaseSource = fs.readFileSync(path.resolve('src/lib/firebase.ts'), 'utf8');
+  const apiSource = fs.readFileSync(path.resolve('src/lib/api.ts'), 'utf8');
+  const appContextSource = fs.readFileSync(path.resolve('src/context/AppContext.tsx'), 'utf8');
+
+  assert.match(firebaseSource, /authStateReady/);
+  assert.match(firebaseSource, /return auth\.currentUser;/);
+  assert.match(firebaseSource, /initialAuthPromise = null;/);
+  assert.match(apiSource, /fbUser && auth\.currentUser\?\.uid === fbUser\.uid/);
+  assert.match(apiSource, /if \(!auth\.currentUser\)/);
+  assert.match(appContextSource, /auth\.currentUser\?\.uid !== fbUser\.uid/);
+});
+
+

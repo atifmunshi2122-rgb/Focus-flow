@@ -10,6 +10,7 @@ import {
 import { api } from '../lib/api.ts';
 import { playFocusCompleteSound, playBreakEndSound, playClickSound, unlockAudioContext } from '../lib/sound.ts';
 import {
+  auth,
   signInWithGoogle as fbSignInWithGoogle,
   authorizeGoogleSheets as fbAuthorizeGoogleSheets,
   signOut as fbSignOut,
@@ -448,7 +449,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.error('Failed to persist theme to local API:', err);
       }
 
-      if (targetFbUser) {
+      if (targetFbUser && auth.currentUser?.uid === targetFbUser.uid) {
         setThemeSyncState('syncing');
         try {
           await firestoreService.saveSettings(targetFbUser.uid, payload);
@@ -723,7 +724,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           restoredFirebaseUidRef.current = fbUser.uid;
           setThemeSyncState('syncing');
           try {
+            if (auth.currentUser?.uid !== fbUser.uid) return;
             const remoteSettings = await firestoreService.getSettings(fbUser.uid);
+            if (auth.currentUser?.uid !== fbUser.uid) return;
+
             if (remoteSettings && (remoteSettings.themeConfig || remoteSettings.savedThemes || remoteSettings.theme)) {
               const restoredConfig = remoteSettings.themeConfig
                 ? sanitizeThemeConfig(remoteSettings.themeConfig)
@@ -740,18 +744,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setThemeConfig(restoredConfig);
               setSavedThemes(restoredSaved);
               setActiveSavedThemeId(restoredActiveId);
+              setSettings((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      theme: restoredConfig.colorMode,
+                      themeConfig: restoredConfig,
+                      savedThemes: restoredSaved,
+                      activeSavedThemeId: restoredActiveId,
+                    }
+                  : prev
+              );
               setThemeSyncState('cloud-synced');
-
-              // Mirror restored cloud theme into local API & settings state
-              api
-                .updateSettings({
-                  theme: restoredConfig.colorMode,
-                  themeConfig: restoredConfig,
-                  savedThemes: restoredSaved,
-                  activeSavedThemeId: restoredActiveId,
-                })
-                .then((res) => setSettings(res.settings))
-                .catch(console.error);
             } else {
               // First login for this user: back up current active theme config to Firestore
               const current = readCachedThemeConfig();
@@ -768,7 +772,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             console.warn('Could not restore theme from Firestore (offline or unavailable):', err);
             setThemeSyncState('offline');
           }
-          if (offlineOutbox.count(fbUser.uid) > 0) {
+          if (auth.currentUser?.uid === fbUser.uid && offlineOutbox.count(fbUser.uid) > 0) {
             const recResult = await api.reconcileOfflineOutbox(fbUser.uid).catch(() => ({
               reconciled: 0,
               failed: 0,
@@ -835,10 +839,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (newSettings.googleSpreadsheetId) setGoogleSpreadsheetId(newSettings.googleSpreadsheetId);
       if (newSettings.lastSyncedAt) setLastSyncedAt(newSettings.lastSyncedAt);
-
-      if (firebaseUser) {
-        firestoreService.saveSettings(firebaseUser.uid, newSettings).catch(console.error);
-      }
 
       showToast('Settings saved successfully', 'success');
       triggerRefresh();

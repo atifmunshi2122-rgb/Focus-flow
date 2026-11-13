@@ -203,6 +203,7 @@ export const setAccessToken = (token: string | null) => {
 export const signOut = async (): Promise<void> => {
   await firebaseSignOut(auth);
   cachedAccessToken = null;
+  initialAuthPromise = null;
 };
 
 export const initAuthListener = (
@@ -222,11 +223,14 @@ export const initAuthListener = (
 let initialAuthPromise: Promise<User | null> | null = null;
 
 /**
- * Resolves once Firebase Auth has restored persisted login state on boot.
+ * Resolves once Firebase Auth has restored persisted login state on boot,
+ * and always returns the live auth.currentUser (never a stale cached user after sign-out).
  */
-export function waitForInitialAuth(): Promise<User | null> {
-  if (auth.currentUser) {
-    return Promise.resolve(auth.currentUser);
+export async function waitForInitialAuth(): Promise<User | null> {
+  const authWithReady = auth as typeof auth & { authStateReady?: () => Promise<void> };
+  if (typeof authWithReady.authStateReady === 'function') {
+    await authWithReady.authStateReady();
+    return auth.currentUser;
   }
   if (!initialAuthPromise) {
     initialAuthPromise = new Promise<User | null>((resolve) => {
@@ -240,7 +244,8 @@ export function waitForInitialAuth(): Promise<User | null> {
       });
     });
   }
-  return initialAuthPromise;
+  await initialAuthPromise;
+  return auth.currentUser;
 }
 
 export async function getFirebaseIdToken(): Promise<string | null> {

@@ -264,10 +264,12 @@ export const firestoreService = {
       if (userSnap.exists()) {
         user = userSnap.data() as User;
       } else {
+        const safeEmail = (fbUser.email || 'user@focusflow.app').trim().slice(0, 256) || 'user@focusflow.app';
+        const safeName = (fbUser.displayName || 'Focus User').trim().slice(0, 128) || 'Focus User';
         user = {
           id: userId,
-          email: fbUser.email || 'user@focusflow.app',
-          name: fbUser.displayName || 'Focus User',
+          email: safeEmail,
+          name: safeName,
           avatarUrl: fbUser.photoURL || '',
           createdAt: new Date().toISOString(),
         };
