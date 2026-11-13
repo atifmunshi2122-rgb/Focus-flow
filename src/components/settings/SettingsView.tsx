@@ -5,6 +5,7 @@ import { api } from '../../lib/api.ts';
 import { CurrencyCode, NotificationPreferences } from '../../types/index.ts';
 import { ThemeStudio } from './ThemeStudio.tsx';
 import { DataRecoveryCenter } from './DataRecoveryCenter.tsx';
+import { detectEmbeddedIframe, getCurrentAppUrl } from '../../lib/authDiagnostics.ts';
 import {
   ThemeBadge,
   ThemeButton,
@@ -357,7 +358,10 @@ export const SettingsView: React.FC = () => {
     clearAllData,
     firebaseUser,
     isAuthenticated,
+    isSigningIn,
+    googleAccessToken,
     signInWithGoogle,
+    authorizeGoogleSheets,
     signOutGoogle,
     googleSpreadsheetId,
     syncStatus,
@@ -773,29 +777,75 @@ export const SettingsView: React.FC = () => {
                     Authentication &amp; Session Management
                   </h3>
                   <p className="text-xs text-[var(--ff-text-muted)]">
-                    Connect your Google Account to authorize Google Sheets synchronization and cloud backup syncing.
+                    Sign in with Google for Firebase &amp; Firestore cloud sync. Google Sheets &amp; Drive permissions are requested separately only when you initialize or sync a spreadsheet.
                   </p>
                   <div className="p-3.5 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                     <div>
                       <span className="font-semibold text-[var(--ff-text-primary)] block">
-                        OAuth Status: {isAuthenticated ? 'Authorized' : 'Guest / Local Session'}
+                        Account Status: {isAuthenticated ? 'Signed In (Firebase)' : 'Guest / Local Session'}
                       </span>
-                      <span className="text-[var(--ff-text-muted)] text-[11px]">
+                      <span className="text-[var(--ff-text-muted)] text-[11px] block">
                         {isAuthenticated
                           ? `Signed in as ${firebaseUser?.displayName || firebaseUser?.email}`
                           : 'You are currently using local storage and Firestore in guest mode.'}
                       </span>
+                      <span className="text-[var(--ff-text-muted)] text-[11px] block mt-0.5">
+                        Sheets OAuth Token: {googleAccessToken ? 'Granted for this session' : 'Requested on Sheets sync'}
+                      </span>
                     </div>
-                    {!isAuthenticated ? (
-                      <ThemeButton variant="primary" size="sm" onClick={signInWithGoogle}>
-                        Sign in with Google
-                      </ThemeButton>
-                    ) : (
-                      <ThemeButton variant="secondary" size="sm" onClick={signOutGoogle}>
-                        Switch Account / Sign Out
-                      </ThemeButton>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {!isAuthenticated ? (
+                        <ThemeButton
+                          variant="primary"
+                          size="sm"
+                          loading={isSigningIn}
+                          loadingText="Signing in..."
+                          onClick={signInWithGoogle}
+                        >
+                          Sign in with Google
+                        </ThemeButton>
+                      ) : (
+                        <>
+                          {!googleAccessToken && (
+                            <ThemeButton
+                              variant="secondary"
+                              size="sm"
+                              loading={isSigningIn}
+                              loadingText="Authorizing..."
+                              onClick={() => void authorizeGoogleSheets()}
+                            >
+                              Authorize Google Sheets
+                            </ThemeButton>
+                          )}
+                          <ThemeButton variant="secondary" size="sm" onClick={signOutGoogle}>
+                            Switch Account / Sign Out
+                          </ThemeButton>
+                        </>
+                      )}
+                    </div>
                   </div>
+                  {detectEmbeddedIframe() && !isAuthenticated && (
+                    <div
+                      className="p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                      style={{
+                        background: 'var(--ff-warning-soft)',
+                        borderColor: 'color-mix(in oklab, var(--ff-warning) 35%, transparent)',
+                      }}
+                    >
+                      <span className="text-[var(--ff-text-secondary)]">
+                        Running inside an embedded preview frame. If the Google Sign-In popup closes immediately or is blocked, open FocusFlow in a dedicated tab:
+                      </span>
+                      <a
+                        href={getCurrentAppUrl() || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ff-btn ff-btn-secondary px-3 py-1.5 text-xs inline-flex items-center gap-1.5 shrink-0"
+                      >
+                        <span>Open in New Tab</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  )}
                 </ThemeCard>
               </motion.div>
             )}

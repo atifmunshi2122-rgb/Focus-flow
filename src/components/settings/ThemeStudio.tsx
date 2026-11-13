@@ -81,6 +81,7 @@ export const ThemeStudio: React.FC = () => {
     activeSavedThemeId,
     themeSyncState,
     isAuthenticated,
+    isSigningIn,
     firebaseUser,
     signInWithGoogle,
     isFullAppPreview,
@@ -403,7 +404,13 @@ export const ThemeStudio: React.FC = () => {
               </span>
             </div>
           ) : (
-            <ThemeButton variant="secondary" size="sm" onClick={signInWithGoogle}>
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              loading={isSigningIn}
+              loadingText="Signing in..."
+              onClick={signInWithGoogle}
+            >
               <CloudOff className="w-3.5 h-3.5" />
               <span>Sign in to Sync Themes</span>
             </ThemeButton>

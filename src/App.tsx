@@ -12,6 +12,7 @@ import { QuickActionModal } from './components/common/QuickActionModal.tsx';
 import { CommandCenter } from './components/common/CommandCenter.tsx';
 import { TrashRestoreModal } from './components/common/TrashRestoreModal.tsx';
 import { ConfirmDialogModal } from './components/common/ConfirmDialogModal.tsx';
+import { AuthRecoveryModal } from './components/common/AuthRecoveryModal.tsx';
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard.tsx';
 import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
 import { FocusAnalytics } from './components/focus/FocusAnalytics.tsx';
@@ -47,6 +48,11 @@ const MainContent: React.FC = () => {
     resolvedThemeMode,
     confirmDialogState,
     resolveConfirmDialog,
+    authError,
+    clearAuthError,
+    isSigningIn,
+    signInWithGoogle,
+    authorizeGoogleSheets,
   } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -225,6 +231,18 @@ const MainContent: React.FC = () => {
           onCancel={() => resolveConfirmDialog(false)}
         />
       )}
+      <AuthRecoveryModal
+        diagnostic={authError}
+        isRetrying={isSigningIn}
+        onRetry={() => {
+          if (authError?.scopeMode === 'sheets') {
+            void authorizeGoogleSheets();
+          } else {
+            void signInWithGoogle();
+          }
+        }}
+        onClose={clearAuthError}
+      />
 
       {/* Notification Toast Container */}
       <ToastContainer />

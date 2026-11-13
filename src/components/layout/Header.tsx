@@ -41,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     toggleTheme,
     firebaseUser,
     isAuthenticated,
+    isSigningIn,
     signInWithGoogle,
     signOutGoogle,
     googleSpreadsheetId,
@@ -265,6 +266,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           <ThemeButton
             variant="secondary"
             size="sm"
+            loading={isSigningIn}
+            loadingText="Signing in..."
             onClick={signInWithGoogle}
             title="Sign in with Google"
           >

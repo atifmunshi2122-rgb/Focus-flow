@@ -11,12 +11,14 @@ import { api } from '../lib/api.ts';
 import { playFocusCompleteSound, playBreakEndSound, playClickSound, unlockAudioContext } from '../lib/sound.ts';
 import {
   signInWithGoogle as fbSignInWithGoogle,
+  authorizeGoogleSheets as fbAuthorizeGoogleSheets,
   signOut as fbSignOut,
   initAuthListener,
   getAccessToken,
   testConnection,
 } from '../lib/firebase.ts';
 import { User as FirebaseUser } from 'firebase/auth';
+import { AuthDiagnostic, classifyFirebaseAuthError } from '../lib/authDiagnostics.ts';
 import { googleSheetsService } from '../lib/googleSheetsService.ts';
 import { firestoreService } from '../lib/firestoreService.ts';
 import { offlineOutbox } from '../lib/offlineOutbox.ts';
@@ -174,8 +176,12 @@ interface AppContextType {
   // Firebase Auth
   firebaseUser: FirebaseUser | null;
   isAuthenticated: boolean;
+  isSigningIn: boolean;
+  authError: AuthDiagnostic | null;
+  clearAuthError: () => void;
   googleAccessToken: string | null;
   signInWithGoogle: () => Promise<void>;
+  authorizeGoogleSheets: () => Promise<string | null>;
   signOutGoogle: () => Promise<void>;
 
   // Google Sheets Integration
@@ -269,6 +275,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Firebase Auth state
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<AuthDiagnostic | null>(null);
+  const clearAuthError = useCallback(() => setAuthError(null), []);
 
   // Google Sheets Sync state
   const [googleSpreadsheetId, setGoogleSpreadsheetId] = useState<string | null>(null);
@@ -857,17 +866,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Google Sign-In & Sign-Out handlers
+  // Google Sign-In, Incremental Sheets Auth & Sign-Out handlers
   const signInWithGoogle = async () => {
+    setIsSigningIn(true);
+    setAuthError(null);
     try {
       const { user: fbUser, accessToken } = await fbSignInWithGoogle();
       setFirebaseUser(fbUser);
-      setGoogleAccessToken(accessToken);
+      if (accessToken) {
+        setGoogleAccessToken(accessToken);
+      }
       showToast(`Welcome back, ${fbUser.displayName || 'User'}!`, 'success');
       triggerRefresh();
     } catch (err: unknown) {
       console.error('Sign in failed:', err);
-      showToast('Google Sign-In was cancelled or failed', 'error');
+      const diagnostic = classifyFirebaseAuthError(err, {
+        scopeMode: 'basic',
+        userEmail: firebaseUser?.email,
+      });
+      setAuthError(diagnostic);
+      showToast(`${diagnostic.title} (${diagnostic.code})`, 'error');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const authorizeGoogleSheets = async (): Promise<string | null> => {
+    setIsSigningIn(true);
+    setAuthError(null);
+    try {
+      const { user: fbUser, accessToken } = await fbAuthorizeGoogleSheets(firebaseUser?.email);
+      setFirebaseUser(fbUser);
+      setGoogleAccessToken(accessToken);
+      showToast('Google Sheets permissions granted!', 'success');
+      triggerRefresh();
+      return accessToken;
+    } catch (err: unknown) {
+      console.error('Google Sheets authorization failed:', err);
+      const diagnostic = classifyFirebaseAuthError(err, {
+        scopeMode: 'sheets',
+        userEmail: firebaseUser?.email,
+      });
+      setAuthError(diagnostic);
+      showToast(`${diagnostic.title} (${diagnostic.code})`, 'error');
+      return null;
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
@@ -876,6 +920,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await fbSignOut();
       setFirebaseUser(null);
       setGoogleAccessToken(null);
+      setAuthError(null);
       restoredFirebaseUidRef.current = null;
       setThemeSyncState('local');
       showToast('Signed out of Google account', 'info');
@@ -887,16 +932,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Google Sheets Workbook Management
   const createOrConnectSpreadsheet = async (): Promise<string> => {
-    let token = googleAccessToken;
+    let token: string | null = googleAccessToken;
     if (!token) {
       token = await getAccessToken();
     }
     if (!token) {
-      await signInWithGoogle();
-      token = await getAccessToken();
+      token = await authorizeGoogleSheets();
     }
     if (!token) {
-      throw new Error('Google authentication required to create spreadsheet');
+      return '';
     }
 
     setSyncStatus('syncing');
@@ -925,13 +969,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const syncNowToGoogleSheets = async (targetSheetId?: string, overrideToken?: string) => {
     const sId = targetSheetId || googleSpreadsheetId;
-    let token = overrideToken || googleAccessToken;
+    let token: string | null = overrideToken || googleAccessToken;
 
     if (!token) {
       token = await getAccessToken();
     }
     if (!token) {
-      showToast('Please sign in with Google to sync to Google Sheets', 'info');
+      token = await authorizeGoogleSheets();
+    }
+    if (!token) {
       return;
     }
     if (!sId) {
@@ -1011,12 +1057,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast('Please initialize your Google Sheets master workbook first', 'info');
       return;
     }
-    let token = googleAccessToken;
+    let token: string | null = googleAccessToken;
     if (!token) {
       token = await getAccessToken();
     }
     if (!token) {
-      showToast('Please sign in with Google to perform historical resync', 'info');
+      token = await authorizeGoogleSheets();
+    }
+    if (!token) {
       return;
     }
 
@@ -1103,12 +1151,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast('Please initialize your Google Sheets master workbook first', 'info');
       return;
     }
-    let token = googleAccessToken;
+    let token: string | null = googleAccessToken;
     if (!token) {
       token = await getAccessToken();
     }
     if (!token) {
-      showToast('Please sign in with Google to re-apply formatting', 'info');
+      token = await authorizeGoogleSheets();
+    }
+    if (!token) {
       return;
     }
     setSyncStatus('syncing');
@@ -1605,8 +1655,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Firebase Auth
         firebaseUser,
         isAuthenticated: !!firebaseUser,
+        isSigningIn,
+        authError,
+        clearAuthError,
         googleAccessToken,
         signInWithGoogle,
+        authorizeGoogleSheets,
         signOutGoogle,
 
         // Google Sheets

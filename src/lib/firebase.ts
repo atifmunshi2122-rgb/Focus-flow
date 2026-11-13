@@ -3,6 +3,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  reauthenticateWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   User,
@@ -14,6 +15,7 @@ import {
   Firestore,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { createSingleFlightRunner } from './authDiagnostics.ts';
 
 // Support production runtime overrides via Vite environment variables
 export const activeFirebaseConfig = {
@@ -34,12 +36,34 @@ export const db: Firestore = getFirestore(app, activeFirebaseConfig.firestoreDat
 
 export const auth = getAuth(app);
 
-// Configure Google Auth Provider with Google Sheets & Drive scopes
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/spreadsheets');
-googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+export const GOOGLE_SHEETS_SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.file',
+] as const;
 
-// In-memory access token cache
+// Basic Google Auth Provider (identity only — Workspace scopes requested separately on demand)
+export const basicGoogleProvider = new GoogleAuthProvider();
+basicGoogleProvider.setCustomParameters({ prompt: 'select_account' });
+
+// Backward-compatible alias for basic identity provider
+export const googleProvider = basicGoogleProvider;
+
+export function createSheetsGoogleProvider(loginHint?: string | null): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  for (const scope of GOOGLE_SHEETS_SCOPES) {
+    provider.addScope(scope);
+  }
+  const params: Record<string, string> = {
+    prompt: loginHint ? 'consent' : 'select_account consent',
+  };
+  if (loginHint) {
+    params.login_hint = loginHint;
+  }
+  provider.setCustomParameters(params);
+  return provider;
+}
+
+// In-memory access token cache (Sheets/Drive OAuth access token only)
 let cachedAccessToken: string | null = null;
 let isSigningIn = false;
 
@@ -111,27 +135,62 @@ export async function testConnection(): Promise<boolean> {
   }
 }
 
-// Sign in with Google Popup
-export const signInWithGoogle = async (): Promise<{ user: User; accessToken: string }> => {
-  try {
-    isSigningIn = true;
-    const result = await signInWithPopup(auth, googleProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    const accessToken = credential?.accessToken || null;
-
-    if (!accessToken) {
-      console.warn('No Google OAuth access token returned in credential, proceeding with user authentication');
+// Sign in with Google Popup (basic profile/email identity only — no Sheets/Drive scopes upfront)
+export const signInWithGoogle = createSingleFlightRunner(
+  async (): Promise<{ user: User; accessToken: string }> => {
+    const previousUid = auth.currentUser?.uid || null;
+    try {
+      isSigningIn = true;
+      const result = await signInWithPopup(auth, basicGoogleProvider);
+      if (previousUid && result.user.uid !== previousUid) {
+        cachedAccessToken = null;
+      }
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken || '';
+      if (accessToken) {
+        cachedAccessToken = accessToken;
+      }
+      return { user: result.user, accessToken: cachedAccessToken || '' };
+    } catch (error) {
+      console.error('Sign in error:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
     }
-
-    cachedAccessToken = accessToken;
-    return { user: result.user, accessToken: accessToken || '' };
-  } catch (error) {
-    console.error('Sign in error:', error);
-    throw error;
-  } finally {
-    isSigningIn = false;
   }
-};
+);
+
+// Incremental Google Sheets & Drive authorization requested only when connecting or syncing Sheets
+export const authorizeGoogleSheets = createSingleFlightRunner(
+  async (loginHint?: string | null): Promise<{ user: User; accessToken: string }> => {
+    try {
+      isSigningIn = true;
+      const activeUser = auth.currentUser;
+      const provider = createSheetsGoogleProvider(loginHint || activeUser?.email || null);
+      const result = activeUser
+        ? await reauthenticateWithPopup(activeUser, provider)
+        : await signInWithPopup(auth, provider);
+
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken || '';
+      if (!accessToken) {
+        const err = new Error(
+          'Google did not return an OAuth access token for Sheets. Please retry and approve spreadsheet access.'
+        ) as Error & { code?: string };
+        err.code = 'auth/missing-access-token';
+        throw err;
+      }
+
+      cachedAccessToken = accessToken;
+      return { user: result.user, accessToken };
+    } catch (error) {
+      console.error('Google Sheets authorization error:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
+    }
+  }
+);
 
 export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
