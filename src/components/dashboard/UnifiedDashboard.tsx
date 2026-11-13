@@ -79,7 +79,12 @@ const LAYOUT_PRESETS: Record<DashboardLayoutPreset, { label: string; config: Das
       preset: 'executive',
       widgetOrder: DEFAULT_ORDER,
       hiddenWidgets: [],
-      widgetSizes: {},
+      widgetSizes: {
+        productivity_goals: 'compact',
+        gamification: 'compact',
+        upcoming_bills: 'compact',
+        recent_transactions: 'compact',
+      },
     },
   },
   focus_first: {
@@ -249,8 +254,18 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   }
 
   const sizeClassFor = (id: DashboardWidgetId) => {
-    const size = layoutConfig.widgetSizes[id] || 'standard';
-    if (size === 'compact') return 'lg:col-span-6';
+    const customSize = layoutConfig.widgetSizes[id];
+    if (customSize === 'compact') return 'lg:col-span-6';
+    if (customSize === 'wide') return 'lg:col-span-12';
+    // Adaptive multi-column layout for balanced dashboard experience on full screen
+    if (
+      id === 'productivity_goals' ||
+      id === 'gamification' ||
+      id === 'upcoming_bills' ||
+      id === 'recent_transactions'
+    ) {
+      return 'lg:col-span-6';
+    }
     return 'lg:col-span-12';
   };
 

@@ -522,7 +522,7 @@ export const SettingsView: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 w-full max-w-[1920px] mx-auto pb-12">
       {/* Settings Center Header & Universal Search */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--ff-border-color)]">
         <div>
@@ -677,7 +677,7 @@ export const SettingsView: React.FC = () => {
         {/* Left-Side Settings Navigation Sidebar (Desktop) */}
         <nav
           aria-label="Settings Categories"
-          className="hidden lg:block lg:col-span-4 xl:col-span-3 sticky top-24 space-y-1 bg-[var(--ff-surface-subtle)] p-2 rounded-2xl border border-[var(--ff-border-color)]"
+          className="hidden lg:block lg:col-span-4 xl:col-span-3 sticky top-24 space-y-1 bg-[var(--ff-surface-subtle)] p-2 rounded-2xl border border-[var(--ff-border-color)] max-h-[calc(100dvh-7rem)] overflow-y-auto scrollbar-thin"
         >
           <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
             Settings Directory

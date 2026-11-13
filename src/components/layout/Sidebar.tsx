@@ -198,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </AnimatePresence>
 
         {/* Nav Items List */}
-        <nav aria-label="Primary Sidebar" className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
+        <nav aria-label="Primary Sidebar" className="flex-1 px-3 py-3 space-y-1 overflow-y-auto scrollbar-thin">
           {navItems.map((item, index) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;

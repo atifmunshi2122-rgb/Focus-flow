@@ -161,6 +161,7 @@ test('Settings Search Engine — Keyword and Substring Resolution Queries', () =
 test('Non-Destructive UserSettings Integrity — 100% Schema Preservation', () => {
   // Mock full pristine UserSettings object
   const sampleSettings: UserSettings = {
+    userId: 'usr_default',
     currency: 'INR',
     timezone: 'Asia/Kolkata',
     pomodoroWorkDuration: 25,
@@ -170,13 +171,18 @@ test('Non-Destructive UserSettings Integrity — 100% Schema Preservation', () =
     soundEnabled: true,
     theme: 'system',
     themeConfig: {
-      designStyle: 'glassmorphism',
-      colorPalette: 'ocean-breeze',
-      customAccent: '#0ea5e9',
-      fontPairing: 'inter-geist',
-      backgroundGradient: 'gradient-indigo-slate',
-      lightDarkStrategy: 'system',
-      customThemes: [],
+      styleId: 'glassmorphism',
+      colorMode: 'system',
+      accentColor: '#0ea5e9',
+      secondaryAccentColor: null,
+      cardRadius: null,
+      fontPairing: 'inter',
+      shadowIntensity: 'auto',
+      backgroundMode: 'auto',
+      customGradient: null,
+      fontScale: 'default',
+      animationIntensity: 'standard',
+      density: 'comfortable',
     },
     savedThemes: [],
     activeSavedThemeId: undefined,
@@ -185,12 +191,16 @@ test('Non-Destructive UserSettings Integrity — 100% Schema Preservation', () =
     dailyFocusGoalMinutes: 120,
     weeklyFocusGoalMinutes: 600,
     notificationPrefs: {
-      dailyFocusReminder: true,
-      dailyFocusReminderTime: '09:00',
-      billDueDateLeadDays: 3,
-      budgetThresholdWarningPercent: 80,
-      recurringBillGenerationAlert: true,
-      syncErrorAlerts: true,
+      enabled: true,
+      taskDeadlines: true,
+      upcomingBills: true,
+      billLeadDays: 3,
+      overdueBills: true,
+      focusCompletion: true,
+      dailyFocusGoal: true,
+      budgetWarnings: true,
+      budgetWarningPercent: 80,
+      syncFailures: true,
     },
     keyboardShortcutsEnabled: true,
   };
@@ -198,6 +208,7 @@ test('Non-Destructive UserSettings Integrity — 100% Schema Preservation', () =
   // Verify that all keys exist and types remain invariant
   const keys = Object.keys(sampleSettings) as (keyof UserSettings)[];
   const expectedKeys: (keyof UserSettings)[] = [
+    'userId',
     'currency',
     'timezone',
     'pomodoroWorkDuration',
@@ -222,12 +233,14 @@ test('Non-Destructive UserSettings Integrity — 100% Schema Preservation', () =
   }
 
   // Ensure notification preferences retain all sub-keys
-  const notifKeys = Object.keys(sampleSettings.notificationPrefs);
-  assert.ok(notifKeys.includes('dailyFocusReminder'));
-  assert.ok(notifKeys.includes('dailyFocusReminderTime'));
-  assert.ok(notifKeys.includes('billDueDateLeadDays'));
-  assert.ok(notifKeys.includes('budgetThresholdWarningPercent'));
-  assert.ok(notifKeys.includes('recurringBillGenerationAlert'));
-  assert.ok(notifKeys.includes('syncErrorAlerts'));
+  const notifKeys = Object.keys(sampleSettings.notificationPrefs || {});
+  assert.ok(notifKeys.includes('enabled'));
+  assert.ok(notifKeys.includes('taskDeadlines'));
+  assert.ok(notifKeys.includes('upcomingBills'));
+  assert.ok(notifKeys.includes('billLeadDays'));
+  assert.ok(notifKeys.includes('overdueBills'));
+  assert.ok(notifKeys.includes('budgetWarnings'));
+  assert.ok(notifKeys.includes('budgetWarningPercent'));
+  assert.ok(notifKeys.includes('syncFailures'));
 });
 

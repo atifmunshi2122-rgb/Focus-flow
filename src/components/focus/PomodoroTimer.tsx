@@ -29,6 +29,7 @@ import {
   Minimize2,
   Music,
   Save,
+  X,
 } from 'lucide-react';
 
 const AMBIENT_OPTIONS: Array<{ id: AmbientPreset; label: string }> = [
@@ -550,15 +551,31 @@ export const PomodoroTimer: React.FC = () => {
             initial={isDisabled ? { opacity: 1 } : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[var(--ff-bg-primary)]/95 backdrop-blur-xl overflow-y-auto"
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[var(--ff-bg-canvas)]/95 backdrop-blur-xl overflow-y-auto"
             role="dialog"
             aria-modal="true"
             aria-label="Full-Screen Deep Focus Mode"
           >
-            <div className="relative w-full max-w-lg flex flex-col items-center justify-center p-8 ff-card-elevated">
+            <div className="relative w-full max-w-xl flex flex-col items-center justify-center p-8 ff-card-elevated">
+              <button
+                type="button"
+                onClick={() => setFullScreenFocus(false)}
+                className="absolute top-4 right-4 p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+                title="Exit full-screen focus (Esc)"
+                aria-label="Exit full-screen focus"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              {activeTask && (
+                <div className="mb-4 px-3.5 py-1.5 rounded-full bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-xs text-center max-w-sm flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                  <span className="text-[var(--ff-text-muted)]">Objective:</span>
+                  <span className="font-semibold text-[var(--ff-text-primary)] truncate">{activeTask.title}</span>
+                </div>
+              )}
               {timerBody}
-              <p className="text-[11px] text-[var(--ff-text-muted)] mt-4">
-                Press <kbd className="px-1.5 py-0.5 rounded border border-[var(--ff-border-color)]">ESC</kbd> to exit full-screen focus mode
+              <p className="text-[11px] text-[var(--ff-text-muted)] mt-5">
+                Press <kbd className="px-1.5 py-0.5 rounded border border-[var(--ff-border-color)]">ESC</kbd> or click ✕ to exit full-screen focus mode
               </p>
             </div>
           </motion.div>

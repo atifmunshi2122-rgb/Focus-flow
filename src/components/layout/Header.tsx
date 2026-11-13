@@ -107,13 +107,16 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
       </div>
 
       {/* Zone 2: Quick Navigation Links */}
-      <nav aria-label="Header Quick Links" className="hidden md:flex items-center gap-6 text-sm font-medium">
+      <nav aria-label="Header Quick Links" className="hidden md:flex items-center gap-3 lg:gap-5 xl:gap-6 text-sm font-medium">
         {[
-          { id: 'dashboard', label: 'Overview' },
-          { id: 'focus', label: 'Focus' },
-          { id: 'finance', label: 'Finance' },
-          { id: 'bills', label: 'Bills' },
-          { id: 'analytics', label: 'Analytics' },
+          { id: 'dashboard', label: 'Overview', className: '' },
+          { id: 'focus', label: 'Focus', className: '' },
+          { id: 'tasks', label: 'Tasks', className: '' },
+          { id: 'finance', label: 'Finance', className: '' },
+          { id: 'bills', label: 'Bills', className: '' },
+          { id: 'analytics', label: 'Analytics', className: 'hidden lg:inline-block' },
+          { id: 'calendar', label: 'Calendar', className: 'hidden xl:inline-block' },
+          { id: 'settings', label: 'Settings', className: 'hidden 2xl:inline-block' },
         ].map((item) => {
           const isActive = currentTab === item.id;
           return (
@@ -121,7 +124,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               key={item.id}
               type="button"
               onClick={() => setCurrentTab(item.id as typeof currentTab)}
-              className="relative py-1 transition-colors whitespace-nowrap shrink-0 hover:text-[var(--ff-text-primary)]"
+              className={`relative py-1 transition-colors whitespace-nowrap shrink-0 hover:text-[var(--ff-text-primary)] ${item.className}`}
               style={{
                 color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
                 fontWeight: isActive ? 700 : 500,
