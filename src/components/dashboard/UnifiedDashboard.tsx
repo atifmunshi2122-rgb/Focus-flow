@@ -286,7 +286,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                 })}
               </p>
               <h2 className="ff-heading text-xl sm:text-2xl font-extrabold text-[var(--ff-text-primary)]">
-                {greetingText}, {user?.name || 'Operator'}
+                {greetingText}, {user?.name || 'Atif Munshi'}
               </h2>
               <p className="text-xs text-[var(--ff-text-muted)]">
                 {data?.pendingTasksCount || 0} pending tasks ·{' '}

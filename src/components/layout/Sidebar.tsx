@@ -351,7 +351,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             style={{ borderRadius: 'var(--ff-radius-button)' }}
             title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
           >
-            <AnimatePresence mode="wait" initial={false}>
+            <AnimatePresence mode="popLayout" initial={false}>
               <motion.span
                 key={theme}
                 initial={isDisabled ? false : { rotate: -35, scale: 0.7, opacity: 0 }}

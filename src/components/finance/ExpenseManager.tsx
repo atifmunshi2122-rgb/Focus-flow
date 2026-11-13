@@ -378,7 +378,7 @@ export const ExpenseManager: React.FC = () => {
         )}
       </ThemeCard>
 
-      <AnimatePresence mode="wait" initial={false}>
+      <AnimatePresence mode="popLayout" initial={false}>
         {/* SECTION 1: VARIABLE EXPENSES LIST */}
         {activeTab === 'variable' ? (
           <motion.div

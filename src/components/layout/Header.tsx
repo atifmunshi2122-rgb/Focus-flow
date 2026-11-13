@@ -91,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         </button>
 
         <div className="flex items-center gap-2 overflow-hidden">
-          <AnimatePresence mode="wait" initial={false}>
+          <AnimatePresence mode="popLayout" initial={false}>
             <motion.span
               key={currentTab}
               initial={isDisabled ? false : { opacity: 0, y: 5 }}
@@ -106,12 +106,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         </div>
       </div>
 
-      {/* Zone 2: Refined Breadcrumb & Workspace Context */}
-      <div className="hidden lg:flex items-center gap-2 text-xs text-[var(--ff-text-muted)] min-w-0 overflow-hidden">
-        <span className="font-semibold text-[var(--ff-text-muted)]/75">FocusFlow</span>
-        <span className="text-[var(--ff-text-muted)]/40 font-mono">/</span>
-        <span className="font-bold text-[var(--ff-text-primary)] truncate max-w-[220px]">
-          {tabLabels[currentTab] || 'Dashboard'}
+      {/* Zone 2: Refined Workspace Context */}
+      <div className="hidden lg:flex items-center gap-2 text-xs text-[var(--ff-text-muted)] min-w-0 shrink-0">
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)] border border-[var(--ff-accent-border)]">
+          Pro Workspace
         </span>
       </div>
 
@@ -185,7 +183,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
             title={isRunning ? 'Pause timer' : 'Start timer'}
             aria-label={isRunning ? 'Pause timer' : 'Start timer'}
           >
-            <AnimatePresence mode="wait" initial={false}>
+            <AnimatePresence mode="popLayout" initial={false}>
               <motion.span
                 key={isRunning ? 'pause' : 'play'}
                 initial={isDisabled ? false : { scale: 0.7, opacity: 0 }}
@@ -333,7 +331,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           className="lg:hidden p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
           aria-label="Toggle light or dark mode"
         >
-          <AnimatePresence mode="wait" initial={false}>
+          <AnimatePresence mode="popLayout" initial={false}>
             <motion.span
               key={theme}
               initial={isDisabled ? false : { rotate: -35, scale: 0.7, opacity: 0 }}

@@ -718,7 +718,7 @@ export const SettingsView: React.FC = () => {
 
         {/* Main Content Area */}
         <div className="lg:col-span-8 xl:col-span-9 min-w-0">
-          <AnimatePresence mode="wait" initial={false}>
+          <AnimatePresence mode="popLayout" initial={false}>
             {/* CATEGORY A: ACCOUNT & PROFILE */}
             {activeCategory === 'account' && (
               <motion.div

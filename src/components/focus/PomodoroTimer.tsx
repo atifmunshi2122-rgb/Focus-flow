@@ -264,7 +264,7 @@ export const PomodoroTimer: React.FC = () => {
 
       {/* Linked Task Indicator */}
       <div className="relative z-10 mb-5 min-h-[2rem] flex items-center justify-center">
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence mode="popLayout" initial={false}>
           {activeTask ? (
             <motion.div
               key={`linked-${activeTask.id}`}
