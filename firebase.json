@@ -1,5 +1,19 @@
 {
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "FocusFlow and Finance",
+        "supportEmail": "atifmunshi2122@gmail.com",
+        "authorizedRedirectUris": [
+          "https://seismic-codex-m01dl.firebaseapp.com/__/auth/handler",
+          "http://localhost:3000",
+          "http://localhost:5173"
+        ]
+      }
+    }
+  },
   "firestore": {
+    "database": "ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },

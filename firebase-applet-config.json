@@ -1,12 +1,12 @@
 {
-  "projectId": "gen-lang-client-0390447756",
-  "appId": "1:55251634676:web:718fb152658643fdad91a1",
-  "apiKey": "AIzaSyCViZen1LHwvypQuzw7ylWHdy-97WVkjoE",
-  "authDomain": "gen-lang-client-0390447756.firebaseapp.com",
+  "projectId": "seismic-codex-m01dl",
+  "appId": "1:363778207392:web:3aacc9711ed002ecd0e3c5",
+  "apiKey": "AIzaSyCL5Kl1TjvvkiotpLiL68W6u_yQtw5n7bk",
+  "authDomain": "seismic-codex-m01dl.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8",
-  "storageBucket": "gen-lang-client-0390447756.firebasestorage.app",
-  "messagingSenderId": "55251634676",
+  "storageBucket": "seismic-codex-m01dl.firebasestorage.app",
+  "messagingSenderId": "363778207392",
   "measurementId": "",
-  "oAuthClientId": "55251634676-pbs09s51eivsr79j5en7l6hbdg4mhgvg.apps.googleusercontent.com",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }
