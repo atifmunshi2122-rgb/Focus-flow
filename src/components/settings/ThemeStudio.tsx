@@ -35,8 +35,16 @@ import {
 } from '../ui/ThemePrimitives.tsx';
 import { ColorEcosystemStudio } from './ColorEcosystemStudio.tsx';
 import { StyleFusionMixer } from './StyleFusionMixer.tsx';
+import { SignatureThemeCollection } from './SignatureThemeCollection.tsx';
+import { AdvancedColorCustomizer } from './AdvancedColorCustomizer.tsx';
+import { BackgroundStudioPanel } from './BackgroundStudioPanel.tsx';
+import { SurfaceDepthCustomizer } from './SurfaceDepthCustomizer.tsx';
+import { AnimationControlCenter } from './AnimationControlCenter.tsx';
+import { LiveThemePreviewPanel } from './LiveThemePreviewPanel.tsx';
+import { ThemeManagementLibrary } from './ThemeManagementLibrary.tsx';
 import {
   BookmarkPlus,
+  Box,
   Check,
   Cloud,
   CloudOff,
@@ -89,6 +97,7 @@ export const ThemeStudio: React.FC = () => {
     stopFullAppPreview,
     applyThemeConfig,
     saveCustomTheme,
+    renameCustomTheme,
     applySavedTheme,
     duplicateSavedTheme,
     deleteSavedTheme,
@@ -104,7 +113,18 @@ export const ThemeStudio: React.FC = () => {
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
   const [draftConfig, setDraftConfig] = useState<ThemeConfig>(themeConfig);
-  const [studioTab, setStudioTab] = useState<'palettes' | 'design-styles' | 'fusion' | 'tokens'>('palettes');
+  const [studioTab, setStudioTab] = useState<
+    | 'themes'
+    | 'colors'
+    | 'background'
+    | 'surface'
+    | 'animation'
+    | 'palettes'
+    | 'design-styles'
+    | 'fusion'
+    | 'tokens'
+    | 'saved'
+  >('themes');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<DesignStyleCategory>('all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -423,13 +443,31 @@ export const ThemeStudio: React.FC = () => {
         </div>
       </ThemeCard>
 
+      {/* Interactive 3D Live Theme Preview & Full-App Preview Control */}
+      <LiveThemePreviewPanel
+        draftConfig={draftConfig}
+        resolvedMode={draftResolvedMode}
+        isFullAppPreview={isFullAppPreview}
+        startFullAppPreview={startFullAppPreview}
+        stopFullAppPreview={stopFullAppPreview}
+        onApplyDraft={handleApplyDraft}
+        onDiscardDraft={handleDiscardDraft}
+        hasUnappliedChanges={hasUnappliedChanges}
+      />
+
       {/* Studio Mode Selector */}
       <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
         {[
-          { id: 'palettes', label: '100+ Color Ecosystem & 3D Generator', badge: '100 Palettes', badgeTone: 'accent' as const, icon: Palette },
+          { id: 'themes', label: '20 Signature Themes', badge: '20 Themes', badgeTone: 'accent' as const, icon: Sparkles },
+          { id: 'colors', label: 'Color Studio & Contrast', badge: '6 Channels', badgeTone: 'accent' as const, icon: Palette },
+          { id: 'background', label: 'Backdrop & Lighting', badge: '3D Physics', badgeTone: 'accent' as const, icon: Sun },
+          { id: 'surface', label: 'Surface & Geometry', badge: 'Glass & Depth', badgeTone: 'accent' as const, icon: Box },
+          { id: 'animation', label: 'Animation Kinetics', badge: 'Springs', badgeTone: 'accent' as const, icon: Zap },
+          { id: 'palettes', label: '100+ Palettes Ecosystem', badge: '100 Palettes', badgeTone: 'accent' as const, icon: Palette },
           { id: 'design-styles', label: '19 Design Systems & Hybrids', badge: '19 Styles', badgeTone: 'accent' as const, icon: Layers },
           { id: 'fusion', label: 'Style Fusion Mixer (Glass + Clay)', badge: 'Hybrid Mixer', badgeTone: 'accent' as const, icon: Wand2 },
-          { id: 'tokens', label: 'Tokens, Shapes & Typography', icon: Sliders },
+          { id: 'tokens', label: 'Tokens & Typography', icon: Sliders },
+          { id: 'saved', label: 'Theme Library', badge: `${savedThemes.length} Saved`, badgeTone: 'accent' as const, icon: BookmarkPlus },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = studioTab === tab.id;
@@ -464,6 +502,79 @@ export const ThemeStudio: React.FC = () => {
           );
         })}
       </div>
+
+      {/* TAB 0: 20 SIGNATURE THEMES COLLECTION */}
+      {studioTab === 'themes' && (
+        <SignatureThemeCollection
+          currentConfig={themeConfig}
+          draftConfig={draftConfig}
+          onSelectTheme={(theme) => {
+            updateDraft(theme.config);
+          }}
+          onApplyDirectly={async (theme) => {
+            updateDraft(theme.config);
+            await applyThemeConfig(theme.config, null);
+          }}
+          favoriteThemeIds={favoriteThemeIds}
+          onToggleFavorite={(themeId) => void toggleFavoriteTheme(themeId)}
+        />
+      )}
+
+      {/* TAB: ADVANCED COLOR CUSTOMIZATION */}
+      {studioTab === 'colors' && (
+        <AdvancedColorCustomizer
+          draftConfig={draftConfig}
+          updateDraft={updateDraft}
+          resolvedMode={draftResolvedMode}
+        />
+      )}
+
+      {/* TAB: BACKGROUND STUDIO & LIGHTING */}
+      {studioTab === 'background' && (
+        <BackgroundStudioPanel
+          draftConfig={draftConfig}
+          updateDraft={updateDraft}
+          showToast={showToast}
+        />
+      )}
+
+      {/* TAB: SURFACE GEOMETRY & 3D DEPTH */}
+      {studioTab === 'surface' && (
+        <SurfaceDepthCustomizer
+          draftConfig={draftConfig}
+          updateDraft={updateDraft}
+          showToast={showToast}
+        />
+      )}
+
+      {/* TAB: ANIMATION CONTROL CENTER */}
+      {studioTab === 'animation' && (
+        <AnimationControlCenter
+          draftConfig={draftConfig}
+          updateDraft={updateDraft}
+          showToast={showToast}
+        />
+      )}
+
+      {/* TAB: THEME MANAGEMENT & PRESET LIBRARY */}
+      {studioTab === 'saved' && (
+        <ThemeManagementLibrary
+          draftConfig={draftConfig}
+          savedThemes={savedThemes}
+          activeSavedThemeId={activeSavedThemeId}
+          favoriteThemeIds={favoriteThemeIds}
+          saveCustomTheme={saveCustomTheme}
+          renameCustomTheme={renameCustomTheme}
+          duplicateSavedTheme={duplicateSavedTheme}
+          deleteSavedTheme={deleteSavedTheme}
+          applySavedTheme={applySavedTheme}
+          resetThemeToDefault={resetThemeToDefault}
+          toggleFavoriteTheme={toggleFavoriteTheme}
+          onPreviewTheme={(cfg) => updateDraft(cfg)}
+          showToast={showToast}
+          confirmAction={confirmAction}
+        />
+      )}
 
       {/* TAB 1: 100+ COLOR ECOSYSTEM, HARMONY GENERATOR & 3D GRADIENTS */}
       {studioTab === 'palettes' && (

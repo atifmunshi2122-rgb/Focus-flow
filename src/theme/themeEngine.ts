@@ -37,7 +37,10 @@ export function sanitizeThemeConfig(partial?: Partial<ThemeConfig> | null): Them
   const styleDef = getStyleDefinition(partial.styleId || DEFAULT_THEME_CONFIG.styleId);
   return {
     styleId: styleDef.id,
-    colorMode: partial.colorMode || DEFAULT_THEME_CONFIG.colorMode,
+    colorMode:
+      partial.colorMode && ['light', 'dark', 'system'].includes(partial.colorMode)
+        ? partial.colorMode
+        : DEFAULT_THEME_CONFIG.colorMode,
     accentColor: partial.accentColor ?? null,
     secondaryAccentColor: partial.secondaryAccentColor ?? null,
     fontPairing: partial.fontPairing || 'auto',
@@ -46,11 +49,26 @@ export function sanitizeThemeConfig(partial?: Partial<ThemeConfig> | null): Them
       typeof partial.cardRadius === 'number' && !Number.isNaN(partial.cardRadius)
         ? Math.max(0, Math.min(32, partial.cardRadius))
         : null,
-    shadowIntensity: partial.shadowIntensity || 'auto',
-    backgroundMode: partial.backgroundMode || 'auto',
+    shadowIntensity:
+      partial.shadowIntensity &&
+      ['auto', 'none', 'subtle', 'elevated', 'dramatic'].includes(partial.shadowIntensity)
+        ? partial.shadowIntensity
+        : 'auto',
+    backgroundMode:
+      partial.backgroundMode &&
+      ['auto', 'solid', 'gradient', 'mesh', 'grid', 'aurora'].includes(partial.backgroundMode)
+        ? partial.backgroundMode
+        : 'auto',
     customGradient: partial.customGradient ?? null,
-    animationIntensity: partial.animationIntensity || 'standard',
-    density: partial.density || 'comfortable',
+    animationIntensity:
+      partial.animationIntensity &&
+      ['none', 'subtle', 'standard', 'expressive'].includes(partial.animationIntensity)
+        ? partial.animationIntensity
+        : 'standard',
+    density:
+      partial.density && ['compact', 'comfortable', 'spacious'].includes(partial.density)
+        ? partial.density
+        : 'comfortable',
     activePaletteId: partial.activePaletteId ?? null,
     customPalette: partial.customPalette ?? null,
     gradientConfig: partial.gradientConfig ?? null,

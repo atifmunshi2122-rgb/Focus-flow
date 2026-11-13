@@ -152,6 +152,7 @@ interface AppContextType {
   ) => Promise<SavedCustomTheme>;
   applySavedTheme: (themeId: string) => Promise<void>;
   duplicateSavedTheme: (themeId: string) => Promise<SavedCustomTheme | null>;
+  renameCustomTheme: (themeId: string, newName: string) => Promise<void>;
   deleteSavedTheme: (themeId: string) => Promise<void>;
   resetThemeToDefault: () => Promise<void>;
   toggleFavoriteStyle: (styleId: string) => Promise<void>;
@@ -568,6 +569,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     },
     [savedThemes, saveCustomTheme]
+  );
+
+  const renameCustomTheme = useCallback(
+    async (themeId: string, newName: string) => {
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      const nextList = savedThemes.map((t) =>
+        t.id === themeId ? { ...t, name: trimmed, updatedAt: new Date().toISOString() } : t
+      );
+      setSavedThemes(nextList);
+      await persistThemeState(themeConfig, nextList, activeSavedThemeId, firebaseUser);
+      showToast(`Renamed theme to "${trimmed}"`, 'success');
+    },
+    [savedThemes, activeSavedThemeId, themeConfig, firebaseUser, persistThemeState, showToast]
   );
 
   const toggleFavoriteStyle = useCallback(
@@ -1663,6 +1678,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saveCustomTheme,
         applySavedTheme,
         duplicateSavedTheme,
+        renameCustomTheme,
         deleteSavedTheme,
         resetThemeToDefault,
         toggleFavoriteStyle,
