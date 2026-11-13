@@ -8,6 +8,11 @@ import { AnalyticsCharts } from './AnalyticsCharts.tsx';
 import { IncomeManager } from './IncomeManager.tsx';
 import { ExpenseManager } from './ExpenseManager.tsx';
 import { BudgetSavingsManager } from './BudgetSavingsManager.tsx';
+import { DailyExpenseTracker } from './DailyExpenseTracker.tsx';
+import { FinancialCalendarView } from './FinancialCalendarView.tsx';
+import { SmartSpendingInsightsCard } from './SmartSpendingInsightsCard.tsx';
+import { FinancialReportsView } from './FinancialReportsView.tsx';
+import type { ExpenseTransaction, IncomeTransaction } from '../../types/index.ts';
 import {
   ThemeButton,
   ThemeCard,
@@ -37,7 +42,14 @@ interface FinanceOverviewProps {
   onOpenQuickAction: () => void;
 }
 
-type FinanceSubTab = 'overview' | 'income' | 'expenses' | 'savings';
+type FinanceSubTab =
+  | 'overview'
+  | 'daily'
+  | 'calendar'
+  | 'income'
+  | 'expenses'
+  | 'savings'
+  | 'reports';
 
 export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAction }) => {
   const { currency, refreshKey, setTrashModalOpen, setCurrentTab } = useApp();
@@ -45,6 +57,8 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
   const [summary, setSummary] = useState<FinanceSummaryData | null>(null);
+  const [allExpenses, setAllExpenses] = useState<ExpenseTransaction[]>([]);
+  const [allIncomes, setAllIncomes] = useState<IncomeTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('this_month');
   const [customStart, setCustomStart] = useState('');
@@ -54,9 +68,16 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
 
   const fetchSummary = (f = filter, start?: string, end?: string) => {
     setLoading(true);
-    api
-      .getFinanceSummary(f, start, end)
-      .then(setSummary)
+    Promise.all([
+      api.getFinanceSummary(f, start, end).catch(() => null),
+      api.getExpenses().catch(() => []),
+      api.getIncomes().catch(() => []),
+    ])
+      .then(([sum, exps, incs]) => {
+        setSummary(sum);
+        setAllExpenses(exps);
+        setAllIncomes(incs);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -100,9 +121,12 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
           onChange={setSubTab}
           options={[
             { id: 'overview', label: 'Overview & Budgets' },
+            { id: 'daily', label: 'Daily Tracker' },
+            { id: 'calendar', label: 'Calendar' },
             { id: 'income', label: 'Income' },
-            { id: 'expenses', label: 'Expenses & Recurring' },
+            { id: 'expenses', label: 'Expenses' },
             { id: 'savings', label: 'Savings Goals' },
+            { id: 'reports', label: 'Reports' },
           ]}
         />
         <div className="flex items-center gap-2">
@@ -115,12 +139,18 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
         </div>
       </div>
 
-      {subTab === 'income' ? (
+      {subTab === 'daily' ? (
+        <DailyExpenseTracker onOpenQuickAction={onOpenQuickAction} />
+      ) : subTab === 'calendar' ? (
+        <FinancialCalendarView onOpenQuickAction={onOpenQuickAction} />
+      ) : subTab === 'income' ? (
         <IncomeManager />
       ) : subTab === 'expenses' ? (
         <ExpenseManager />
       ) : subTab === 'savings' ? (
         <BudgetSavingsManager showBudgets={false} showSavings={true} />
+      ) : subTab === 'reports' ? (
+        <FinancialReportsView />
       ) : (
         <>
           {/* Top Filter Bar */}
@@ -359,6 +389,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
         <SkeletonDashboard />
       ) : summary ? (
         <>
+          <SmartSpendingInsightsCard expenses={allExpenses} incomes={allIncomes} />
           <BudgetSavingsManager showBudgets={true} showSavings={false} />
           <AnalyticsCharts data={summary} />
         </>

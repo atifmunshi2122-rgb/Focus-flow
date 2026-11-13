@@ -810,8 +810,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       api.getBills().catch(() => []),
       api.getDashboard().catch(() => null),
       api.getFinanceSummary().catch(() => null),
+      api.getSavingsGoals().catch(() => []),
+      api.getExpenses().catch(() => []),
     ])
-      .then(([taskList, billList, dashData, finSummary]) => {
+      .then(([taskList, billList, dashData, finSummary, goalList, expenseList]) => {
         setTasks(taskList);
         const items = evaluateDeterministicNotifications({
           settings,
@@ -819,6 +821,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           bills: billList,
           dashboard: dashData,
           financeSummary: finSummary,
+          savingsGoals: goalList,
+          expenses: expenseList,
           syncLastError,
         });
         setNotifications(items);

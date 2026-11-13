@@ -1,8 +1,10 @@
 import type {
   Bill,
   DashboardData,
+  ExpenseTransaction,
   FinanceSummaryData,
   NotificationPreferences,
+  SavingsGoal,
   Task,
   UserSettings,
 } from '../types/index.ts';
@@ -39,6 +41,8 @@ export function evaluateDeterministicNotifications(input: {
   bills: Bill[];
   dashboard: DashboardData | null;
   financeSummary: FinanceSummaryData | null;
+  savingsGoals?: SavingsGoal[];
+  expenses?: ExpenseTransaction[];
   syncLastError?: string | null;
 }): AppNotificationItem[] {
   const prefs: NotificationPreferences = {
@@ -159,6 +163,105 @@ export function evaluateDeterministicNotifications(input: {
           message: `${formatCurrency(cat.amountPaise)} spent vs ${formatCurrency(cap)} target.`,
           targetTab: 'finance',
           actionLabel: 'Manage Budgets',
+        });
+      }
+    }
+  }
+
+  // Daily Spending Limit Alert
+  if (
+    prefs.budgetWarnings &&
+    input.settings?.dailySpendingLimitPaise &&
+    input.settings.dailySpendingLimitPaise > 0 &&
+    input.dashboard?.todayExpensesPaise !== undefined
+  ) {
+    const dailyLimit = input.settings.dailySpendingLimitPaise;
+    const spentToday = input.dashboard.todayExpensesPaise;
+    if (spentToday >= dailyLimit) {
+      items.push({
+        id: `daily_limit_reached_${todayStr}`,
+        severity: 'danger',
+        category: 'budget',
+        title: 'Daily Spending Limit Reached',
+        message: `Spent ${formatCurrency(spentToday)} today against your ${formatCurrency(dailyLimit)} daily ceiling.`,
+        targetTab: 'finance',
+        actionLabel: 'Inspect Spending',
+      });
+    }
+  }
+
+  // Weekly Spending Limit Alert
+  if (
+    prefs.budgetWarnings &&
+    input.settings?.weeklySpendingLimitPaise &&
+    input.settings.weeklySpendingLimitPaise > 0 &&
+    input.expenses
+  ) {
+    const weeklyLimit = input.settings.weeklySpendingLimitPaise;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
+    const spentWeek = input.expenses
+      .filter((e) => !e.deletedAt && e.date >= sevenDaysAgoStr && e.date <= todayStr)
+      .reduce((sum, e) => sum + e.amountPaise, 0);
+    const pct = Math.round((spentWeek / weeklyLimit) * 100);
+    const threshold = Math.max(50, Math.min(100, prefs.budgetWarningPercent || 80));
+    if (pct >= 100) {
+      items.push({
+        id: `weekly_limit_exceeded_${todayStr.slice(0, 7)}`,
+        severity: 'danger',
+        category: 'budget',
+        title: 'Weekly Budget Exceeded',
+        message: `Spent ${formatCurrency(spentWeek)} this week against your ${formatCurrency(weeklyLimit)} budget (${pct}%).`,
+        targetTab: 'finance',
+        actionLabel: 'View Budgets',
+      });
+    } else if (pct >= threshold) {
+      items.push({
+        id: `weekly_limit_warning_${todayStr.slice(0, 7)}`,
+        severity: 'warning',
+        category: 'budget',
+        title: `Weekly Budget at ${pct}%`,
+        message: `${formatCurrency(weeklyLimit - spentWeek)} remaining in this week's spending allowance.`,
+        targetTab: 'finance',
+        actionLabel: 'View Budgets',
+      });
+    }
+  }
+
+  // Savings Goal Milestones
+  if (input.savingsGoals) {
+    for (const goal of input.savingsGoals) {
+      if (goal.targetPaise > 0) {
+        const pct = Math.round((goal.savedPaise / goal.targetPaise) * 100);
+        if (pct >= 100) {
+          items.push({
+            id: `goal_achieved_${goal.id}`,
+            severity: 'success',
+            category: 'budget',
+            title: `Goal Achieved: ${goal.title}!`,
+            message: `Congratulations! You've reached 100% of your ${formatCurrency(goal.targetPaise)} target.`,
+            targetTab: 'finance',
+            actionLabel: 'View Goals',
+          });
+        }
+      }
+    }
+  }
+
+  // Unusual Single Expense Detection
+  if (input.expenses && input.expenses.length > 0) {
+    const todayExpenses = input.expenses.filter((e) => !e.deletedAt && e.date === todayStr);
+    for (const exp of todayExpenses) {
+      if (exp.amountPaise >= 1000000) {
+        items.push({
+          id: `unusual_expense_${exp.id}`,
+          severity: 'info',
+          category: 'budget',
+          title: 'Large Expense Recorded',
+          message: `${exp.description}: ${formatCurrency(exp.amountPaise)} logged today.`,
+          targetTab: 'finance',
+          actionLabel: 'Inspect Ledger',
         });
       }
     }

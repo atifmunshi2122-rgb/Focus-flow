@@ -62,6 +62,8 @@ export interface UserSettings {
   dailyFocusGoalMinutes?: number;
   weeklyFocusGoalMinutes?: number;
   monthlyBudgetPaise?: number;
+  dailySpendingLimitPaise?: number;
+  weeklySpendingLimitPaise?: number;
   categoryBudgets?: Record<string, number>;
   dashboardLayout?: DashboardLayoutConfig;
   notificationPrefs?: NotificationPreferences;
@@ -318,6 +320,7 @@ export interface DashboardData {
   pendingTasksCount?: number;
   todayIncomePaise?: number;
   todayExpensesPaise?: number;
+  weeklyExpensesPaise?: number;
   monthlyIncomePaise: number;
   monthlyExpensesPaise: number;
   fixedExpensesPaise: number;
@@ -365,6 +368,15 @@ export interface FinanceSummaryData {
     expensePaise: number;
   }>;
 }
+
+export type FinancialReportType =
+  | 'daily'
+  | 'weekly'
+  | 'monthly'
+  | 'category'
+  | 'income'
+  | 'expense'
+  | 'budget';
 
 export interface FocusStatsData {
   last7Days: Array<{

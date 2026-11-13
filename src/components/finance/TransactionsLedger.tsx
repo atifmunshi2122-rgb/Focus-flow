@@ -2,13 +2,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { formatCurrency } from '../../lib/currency.ts';
+import { formatCurrency, toPaise } from '../../lib/currency.ts';
 import {
+  ThemeBadge,
   ThemeButton,
   ThemeCard,
   ThemeInput,
+  ThemeModal,
   ThemeSegmentedControl,
+  ThemeSelect,
 } from '../ui/ThemePrimitives.tsx';
+import { buildCsvContent, downloadCsvFile } from '../../lib/exportReports.ts';
 import {
   EmptyStateIllustration,
   SkeletonList,
@@ -26,6 +30,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
+  Edit2,
+  Eye,
+  Download,
+  ArrowUpDown,
+  Filter,
 } from 'lucide-react';
 
 interface UnifiedTransaction {
@@ -53,13 +62,102 @@ export const TransactionsLedger: React.FC = () => {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'fixed' | 'variable'>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc' | 'name_asc'>('date_desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
+
+  // Detail Modal
+  const [selectedTxForDetails, setSelectedTxForDetails] = useState<UnifiedTransaction | null>(null);
+
+  // Edit Modal
+  const [editingTx, setEditingTx] = useState<UnifiedTransaction | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editPaymentMethod, setEditPaymentMethod] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Reset to first page when filtering or searching
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, typeFilter, dateFilter]);
+  }, [search, typeFilter, dateFilter, categoryFilter, paymentMethodFilter, sortBy]);
+
+  const uniqueCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of transactions) {
+      if (t.category) set.add(t.category);
+    }
+    return Array.from(set).sort();
+  }, [transactions]);
+
+  const handleOpenEdit = (t: UnifiedTransaction) => {
+    setEditingTx(t);
+    setEditName(t.name);
+    setEditAmount(String(Math.round(t.amountPaise / 100)));
+    setEditDate(t.date);
+    setEditCategory(t.category);
+    setEditPaymentMethod(t.paymentMethod || 'upi_bank');
+    setEditNotes(t.notes || '');
+    setSelectedTxForDetails(null);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTx) return;
+    const amountNum = Number(editAmount);
+    if (!editName.trim() || !Number.isFinite(amountNum) || amountNum <= 0) {
+      showToast('Enter a valid description and positive amount', 'error');
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      if (editingTx.type === 'income') {
+        await api.updateIncome(editingTx.id, {
+          source: editName.trim(),
+          amountPaise: toPaise(amountNum),
+          date: editDate,
+          category: editCategory,
+          notes: editNotes,
+        });
+      } else {
+        await api.updateExpense(editingTx.id, {
+          description: editName.trim(),
+          amountPaise: toPaise(amountNum),
+          date: editDate,
+          categoryName: editCategory,
+          paymentMethod: editPaymentMethod as any,
+          notes: editNotes,
+        });
+      }
+      showToast(`Updated transaction "${editName}"`, 'success');
+      setEditingTx(null);
+      triggerRefresh();
+      loadTransactions();
+    } catch {
+      showToast('Failed to save transaction changes', 'error');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleExportFilteredCsv = () => {
+    const headers = ['Type', 'Date', 'Description / Source', 'Category', 'Payment Method', 'Amount (INR)', 'Notes'];
+    const rows = filtered.map((t) => [
+      t.type,
+      t.date,
+      t.name,
+      t.category,
+      t.paymentMethod || '',
+      ((t.type === 'income' ? t.amountPaise : -t.amountPaise) / 100).toFixed(2),
+      t.notes || '',
+    ]);
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCsvFile(`transactions-ledger-${dateStamp}.csv`, buildCsvContent(headers, rows));
+  };
 
   const mapUnified = (
     incomes: Awaited<ReturnType<typeof api.getIncomesPage>>['items'],
@@ -206,7 +304,17 @@ export const TransactionsLedger: React.FC = () => {
     if (dateFilter === 'week' && t.date < oneWeekAgoStr) return false;
     if (dateFilter === 'month' && !t.date.startsWith(currentMonthStr)) return false;
 
+    if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
+    if (paymentMethodFilter !== 'all' && t.paymentMethod !== paymentMethodFilter) return false;
+
     return true;
+  }).sort((a, b) => {
+    if (sortBy === 'date_desc') return b.date.localeCompare(a.date);
+    if (sortBy === 'date_asc') return a.date.localeCompare(b.date);
+    if (sortBy === 'amount_desc') return b.amountPaise - a.amountPaise;
+    if (sortBy === 'amount_asc') return a.amountPaise - b.amountPaise;
+    if (sortBy === 'name_asc') return a.name.localeCompare(b.name);
+    return 0;
   });
 
   const filteredInflowPaise = useMemo(
@@ -263,6 +371,64 @@ export const TransactionsLedger: React.FC = () => {
               <span>Clear All</span>
             </ThemeButton>
           )}
+        </div>
+      </div>
+
+      {/* Secondary Filters & Sort Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-[var(--ff-surface-subtle)] p-2.5 rounded-xl border border-[var(--ff-border-color)]">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <Filter className="w-3.5 h-3.5 text-[var(--ff-text-muted)]" />
+            <ThemeSelect
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="text-xs py-1 px-2"
+              aria-label="Filter by category"
+            >
+              <option value="all">All Categories</option>
+              {uniqueCategories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </ThemeSelect>
+          </div>
+
+          <ThemeSelect
+            value={paymentMethodFilter}
+            onChange={(e) => setPaymentMethodFilter(e.target.value)}
+            className="text-xs py-1 px-2"
+            aria-label="Filter by payment method"
+          >
+            <option value="all">All Payment Methods</option>
+            <option value="upi_bank">UPI / NetBanking</option>
+            <option value="credit_card">Credit Card</option>
+            <option value="debit_card">Debit Card</option>
+            <option value="cash">Cash</option>
+            <option value="other">Other</option>
+          </ThemeSelect>
+
+          <div className="flex items-center gap-1.5">
+            <ArrowUpDown className="w-3.5 h-3.5 text-[var(--ff-text-muted)]" />
+            <ThemeSelect
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="text-xs py-1 px-2"
+              aria-label="Sort transactions"
+            >
+              <option value="date_desc">Newest Date First</option>
+              <option value="date_asc">Oldest Date First</option>
+              <option value="amount_desc">Highest Amount</option>
+              <option value="amount_asc">Lowest Amount</option>
+              <option value="name_asc">Title (A-Z)</option>
+            </ThemeSelect>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <ThemeButton variant="secondary" size="xs" onClick={handleExportFilteredCsv}>
+            <Download className="w-3.5 h-3.5" /> Export CSV ({filtered.length})
+          </ThemeButton>
         </div>
       </div>
 
@@ -403,15 +569,35 @@ export const TransactionsLedger: React.FC = () => {
                           )}
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteTransaction(t)}
-                          className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] transition-colors shrink-0"
-                          title={`Delete ${t.name}`}
-                          aria-label={`Delete ${t.name}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTxForDetails(t)}
+                            className="min-w-[40px] min-h-[40px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] hover:bg-[var(--ff-surface-subtle)] transition-colors shrink-0"
+                            title="View Details"
+                            aria-label={`View details of ${t.name}`}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(t)}
+                            className="min-w-[40px] min-h-[40px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] hover:bg-[var(--ff-surface-subtle)] transition-colors shrink-0"
+                            title="Edit"
+                            aria-label={`Edit ${t.name}`}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteTransaction(t)}
+                            className="min-w-[40px] min-h-[40px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] transition-colors shrink-0"
+                            title={`Delete ${t.name}`}
+                            aria-label={`Delete ${t.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -488,15 +674,35 @@ export const TransactionsLedger: React.FC = () => {
                             {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteTransaction(t)}
-                          className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] transition-colors"
-                          title={`Delete ${t.name}`}
-                          aria-label={`Delete ${t.name}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTxForDetails(t)}
+                            className="min-w-[36px] min-h-[36px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] hover:bg-[var(--ff-surface-subtle)] transition-colors"
+                            title="View Details"
+                            aria-label={`View details of ${t.name}`}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(t)}
+                            className="min-w-[36px] min-h-[36px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] hover:bg-[var(--ff-surface-subtle)] transition-colors"
+                            title="Edit"
+                            aria-label={`Edit ${t.name}`}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteTransaction(t)}
+                            className="min-w-[36px] min-h-[36px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] hover:bg-[var(--ff-danger-soft)] transition-colors"
+                            title={`Delete ${t.name}`}
+                            aria-label={`Delete ${t.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </motion.div>
@@ -583,6 +789,198 @@ export const TransactionsLedger: React.FC = () => {
           </div>
         )}
       </ThemeCard>
+
+      {/* Transaction Details Modal */}
+      {selectedTxForDetails && (
+        <ThemeModal
+          isOpen={Boolean(selectedTxForDetails)}
+          onClose={() => setSelectedTxForDetails(null)}
+          title="Transaction Details"
+          subtitle={`Verified ledger entry #${selectedTxForDetails.id.slice(0, 8)}`}
+        >
+          <div className="space-y-4 pt-1">
+            <div className="p-4 rounded-xl text-center space-y-1 bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
+              <span className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider block">
+                {selectedTxForDetails.type === 'income' ? 'Income Credited' : selectedTxForDetails.type === 'fixed' ? 'Fixed Obligation' : 'Variable Expense'}
+              </span>
+              <div
+                className="text-3xl font-bold font-mono"
+                style={{
+                  color: selectedTxForDetails.type === 'income' ? 'var(--ff-success)' : 'var(--ff-danger)',
+                }}
+              >
+                {selectedTxForDetails.type === 'income' ? '+' : '-'}
+                {formatCurrency(selectedTxForDetails.amountPaise, currency)}
+              </div>
+              <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mt-1">
+                {selectedTxForDetails.name}
+              </h3>
+            </div>
+
+            <div className="divide-y ff-divider text-xs">
+              <div className="py-2.5 flex items-center justify-between">
+                <span className="text-[var(--ff-text-muted)]">Category</span>
+                <span className="font-semibold text-[var(--ff-text-primary)]">{selectedTxForDetails.category}</span>
+              </div>
+              <div className="py-2.5 flex items-center justify-between">
+                <span className="text-[var(--ff-text-muted)]">Transaction Date</span>
+                <span className="font-mono font-semibold text-[var(--ff-text-primary)]">{selectedTxForDetails.date}</span>
+              </div>
+              {selectedTxForDetails.paymentMethod && (
+                <div className="py-2.5 flex items-center justify-between">
+                  <span className="text-[var(--ff-text-muted)]">Payment Method</span>
+                  <span className="uppercase font-semibold text-[var(--ff-text-primary)]">
+                    {selectedTxForDetails.paymentMethod.replace('_', ' ')}
+                  </span>
+                </div>
+              )}
+              {selectedTxForDetails.notes && (
+                <div className="py-2.5 space-y-1">
+                  <span className="text-[var(--ff-text-muted)] block">Notes &amp; Details</span>
+                  <p className="text-[var(--ff-text-secondary)] bg-[var(--ff-surface-subtle)] p-2 rounded-lg italic">
+                    {selectedTxForDetails.notes}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--ff-border-color)]">
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                onClick={() => handleOpenEdit(selectedTxForDetails)}
+              >
+                <Edit2 className="w-3.5 h-3.5" /> Edit Record
+              </ThemeButton>
+              <ThemeButton
+                variant="danger"
+                size="sm"
+                onClick={() => {
+                  const tx = selectedTxForDetails;
+                  setSelectedTxForDetails(null);
+                  void handleDeleteTransaction(tx);
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </ThemeButton>
+            </div>
+          </div>
+        </ThemeModal>
+      )}
+
+      {/* Transaction Edit Modal */}
+      {editingTx && (
+        <ThemeModal
+          isOpen={Boolean(editingTx)}
+          onClose={() => setEditingTx(null)}
+          title={`Edit ${editingTx.type === 'income' ? 'Income' : 'Expense'}`}
+          subtitle="Updates will recalculate all budgets and analytics automatically"
+        >
+          <form onSubmit={handleSaveEdit} className="space-y-3.5 pt-1">
+            <div>
+              <label className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider block mb-1">
+                Description / Source
+              </label>
+              <ThemeInput
+                required
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Description"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider block mb-1">
+                  Amount (₹)
+                </label>
+                <ThemeInput
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value)}
+                  placeholder="Amount"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider block mb-1">
+                  Date
+                </label>
+                <ThemeInput
+                  type="date"
+                  required
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider block mb-1">
+                  Category
+                </label>
+                <ThemeInput
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  placeholder="Category"
+                />
+              </div>
+
+              {editingTx.type !== 'income' && (
+                <div>
+                  <label className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider block mb-1">
+                    Payment Method
+                  </label>
+                  <ThemeSelect
+                    value={editPaymentMethod}
+                    onChange={(e) => setEditPaymentMethod(e.target.value)}
+                  >
+                    <option value="upi_bank">UPI / Bank</option>
+                    <option value="credit_card">Credit Card</option>
+                    <option value="debit_card">Debit Card</option>
+                    <option value="cash">Cash</option>
+                    <option value="other">Other</option>
+                  </ThemeSelect>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider block mb-1">
+                Notes
+              </label>
+              <ThemeInput
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                placeholder="Optional memo or transaction ref"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--ff-border-color)]">
+              <ThemeButton
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setEditingTx(null)}
+              >
+                Cancel
+              </ThemeButton>
+              <ThemeButton
+                type="submit"
+                variant="primary"
+                size="sm"
+                loading={isSavingEdit}
+              >
+                Save Changes
+              </ThemeButton>
+            </div>
+          </form>
+        </ThemeModal>
+      )}
     </div>
   );
 };
