@@ -46,7 +46,9 @@ import {
   CalendarDays,
   History,
   X,
+  AlertCircle,
 } from 'lucide-react';
+import { getOverdueTasks } from '../../lib/productivityIntelligence.ts';
 
 type TaskViewMode =
   | 'list'
@@ -356,6 +358,25 @@ export const TaskManager: React.FC = () => {
     });
   }, [tasks, searchQuery, categoryFilter, priorityFilter]);
 
+  const [isCarryingForward, setIsCarryingForward] = useState(false);
+  const overdueTasks = useMemo(() => getOverdueTasks(tasks, todayStr), [tasks, todayStr]);
+
+  const handleCarryForwardOverdue = async () => {
+    if (overdueTasks.length === 0 || isCarryingForward) return;
+    setIsCarryingForward(true);
+    try {
+      await Promise.all(
+        overdueTasks.map((t) => api.updateTask(t.id, { dueDate: todayStr }))
+      );
+      triggerRefresh();
+      await loadTasks();
+    } catch (err) {
+      console.error('Failed to carry forward overdue tasks:', err);
+    } finally {
+      setIsCarryingForward(false);
+    }
+  };
+
   const visibleTasks = useMemo(() => {
     if (viewMode === 'today') {
       return baseFiltered.filter(
@@ -598,6 +619,33 @@ export const TaskManager: React.FC = () => {
           </ThemeButton>
         </div>
       </div>
+
+      {/* Overdue Task Carry-Forward Banner */}
+      {overdueTasks.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+            <div className="text-xs">
+              <span className="font-bold text-[var(--ff-text-primary)]">
+                {overdueTasks.length} Overdue Task{overdueTasks.length > 1 ? 's' : ''}
+              </span>
+              <span className="text-[var(--ff-text-muted)] ml-1.5 hidden sm:inline">
+                Keep your agenda realistic by carrying them forward to today.
+              </span>
+            </div>
+          </div>
+
+          <ThemeButton
+            variant="secondary"
+            size="xs"
+            onClick={handleCarryForwardOverdue}
+            disabled={isCarryingForward}
+            className="text-xs font-semibold text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20 shrink-0"
+          >
+            {isCarryingForward ? 'Updating...' : `Carry Forward All to Today (${overdueTasks.length})`}
+          </ThemeButton>
+        </div>
+      )}
 
       {/* Quick Inline Task Bar */}
       <form

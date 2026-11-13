@@ -3,22 +3,24 @@ import type {
   DashboardData,
   ExpenseTransaction,
   FinanceSummaryData,
+  Habit,
   NotificationPreferences,
   SavingsGoal,
   Task,
   UserSettings,
 } from '../types/index.ts';
 import { formatCurrency } from './currency.ts';
+import { isHabitScheduledOnDate } from './productivityIntelligence.ts';
 
 export type NotificationSeverity = 'info' | 'warning' | 'danger' | 'success';
 
 export interface AppNotificationItem {
   id: string;
   severity: NotificationSeverity;
-  category: 'task' | 'bill' | 'focus' | 'budget' | 'sync';
+  category: 'task' | 'bill' | 'focus' | 'budget' | 'sync' | 'habit';
   title: string;
   message: string;
-  targetTab: 'dashboard' | 'focus' | 'tasks' | 'finance' | 'bills' | 'analytics' | 'settings';
+  targetTab: 'dashboard' | 'focus' | 'tasks' | 'finance' | 'bills' | 'analytics' | 'settings' | 'habits';
   actionLabel: string;
 }
 
@@ -44,6 +46,7 @@ export function evaluateDeterministicNotifications(input: {
   savingsGoals?: SavingsGoal[];
   expenses?: ExpenseTransaction[];
   syncLastError?: string | null;
+  habits?: Habit[];
 }): AppNotificationItem[] {
   const prefs: NotificationPreferences = {
     ...DEFAULT_PREFS,
@@ -280,6 +283,47 @@ export function evaluateDeterministicNotifications(input: {
         actionLabel: 'View Stats',
       });
     }
+  }
+
+  // Pending Habits Reminder
+  if (input.habits && input.habits.length > 0) {
+    const pendingHabits = input.habits.filter(
+      (h) =>
+        !h.deletedAt &&
+        !h.archived &&
+        isHabitScheduledOnDate(h, todayStr) &&
+        !(h.completedDates || []).includes(todayStr)
+    );
+    if (pendingHabits.length > 0) {
+      items.push({
+        id: `habits_pending_${todayStr}`,
+        severity: 'info',
+        category: 'habit',
+        title: `${pendingHabits.length} Habit${pendingHabits.length > 1 ? 's' : ''} Remaining Today`,
+        message: `${pendingHabits[0].title}${pendingHabits.length > 1 ? ` and ${pendingHabits.length - 1} more` : ''} scheduled for today.`,
+        targetTab: 'habits',
+        actionLabel: 'Complete Habits',
+      });
+    }
+  }
+
+  // Daily Planning Reminder: If active tasks exist but none are scheduled for today
+  const activeUncompletedTasks = input.tasks.filter((t) => !t.deletedAt && t.status !== 'completed');
+  const todayTasks = input.tasks.filter(
+    (t) =>
+      !t.deletedAt &&
+      (t.dueDate === todayStr || (t.completedAt && t.completedAt.slice(0, 10) === todayStr))
+  );
+  if (todayTasks.length === 0 && activeUncompletedTasks.length > 0) {
+    items.push({
+      id: `daily_plan_needed_${todayStr}`,
+      severity: 'info',
+      category: 'task',
+      title: 'Plan Your Day',
+      message: 'No tasks scheduled for today yet. Review and set your daily priority list.',
+      targetTab: 'tasks',
+      actionLabel: 'Plan Today',
+    });
   }
 
   if (prefs.syncFailures && input.syncLastError) {

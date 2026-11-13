@@ -17,6 +17,7 @@ import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard.tsx';
 import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
 import { FocusAnalytics } from './components/focus/FocusAnalytics.tsx';
 import { TaskManager } from './components/tasks/TaskManager.tsx';
+import { HabitTrackerView } from './components/focus/HabitTrackerView.tsx';
 import { FinanceOverview } from './components/finance/FinanceOverview.tsx';
 import { BillsTracker } from './components/finance/BillsTracker.tsx';
 import { TransactionsLedger } from './components/finance/TransactionsLedger.tsx';
@@ -86,6 +87,8 @@ const MainContent: React.FC = () => {
           '6': 'bills',
           '7': 'analytics',
           '8': 'settings',
+          'h': 'habits',
+          'H': 'habits',
         };
         const target = map[e.key];
         if (target) {
@@ -153,6 +156,8 @@ const MainContent: React.FC = () => {
             {currentTab === 'timeblocks' && <DailyTimeBlockPlanner />}
 
             {currentTab === 'tasks' && <TaskManager />}
+
+            {currentTab === 'habits' && <HabitTrackerView />}
 
             {currentTab === 'finance' && (
               <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />

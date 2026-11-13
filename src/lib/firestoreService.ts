@@ -53,6 +53,7 @@ import {
   NotificationPreferences,
   DashboardLayoutConfig,
   TimeBlock,
+  Habit,
   BudgetEnvelope,
   SubscriptionPlan,
   AuditLogEntry,
@@ -1753,7 +1754,7 @@ export const firestoreService = {
 
   // Trash & Restore
   async getTrashItems(userId: string): Promise<TrashRecord[]> {
-    const [tasks, incomes, expenses, bills, timeBlocks, envelopes, subscriptions] = await Promise.all([
+    const [tasks, incomes, expenses, bills, timeBlocks, envelopes, subscriptions, habits] = await Promise.all([
       listSubcollection<Task>(`users/${userId}/tasks`),
       listSubcollection<IncomeTransaction>(`users/${userId}/income`),
       listSubcollection<ExpenseTransaction>(`users/${userId}/expenses`),
@@ -1761,6 +1762,7 @@ export const firestoreService = {
       listSubcollection<TimeBlock>(`users/${userId}/time_blocks`),
       listSubcollection<BudgetEnvelope>(`users/${userId}/envelopes`),
       listSubcollection<SubscriptionPlan>(`users/${userId}/subscriptions`),
+      listSubcollection<Habit>(`users/${userId}/habits`),
     ]);
 
     const records: TrashRecord[] = [
@@ -1832,6 +1834,15 @@ export const firestoreService = {
           amountPaise: s.amountPaise,
           deletedAt: s.deletedAt!,
         })),
+      ...habits
+        .filter((h) => Boolean(h.deletedAt))
+        .map((h) => ({
+          id: h.id,
+          entityType: 'habit' as const,
+          title: h.title,
+          subtitle: `Habit • ${h.frequency}`,
+          deletedAt: h.deletedAt!,
+        })),
     ];
 
     return records.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
@@ -1846,6 +1857,7 @@ export const firestoreService = {
       time_block: 'time_blocks',
       envelope: 'envelopes',
       subscription: 'subscriptions',
+      habit: 'habits',
     };
     const path = `users/${userId}/${colMap[entityType]}/${id}`;
     await setDoc(doc(db, path), { deletedAt: null }, { merge: true });
@@ -1870,6 +1882,7 @@ export const firestoreService = {
       time_block: 'time_blocks',
       envelope: 'envelopes',
       subscription: 'subscriptions',
+      habit: 'habits',
     };
     const path = `users/${userId}/${colMap[entityType]}/${id}`;
     try {
@@ -1915,6 +1928,81 @@ export const firestoreService = {
   async deleteTimeBlock(userId: string, id: string): Promise<void> {
     const nowIso = new Date().toISOString();
     const path = `users/${userId}/time_blocks/${id}`;
+    try {
+      await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
+    } catch {
+      try {
+        await deleteDoc(doc(db, path));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      }
+    }
+  },
+
+  // --- HABITS ---
+  async getHabits(userId: string): Promise<Habit[]> {
+    const list = await listSubcollection<Habit>(`users/${userId}/habits`);
+    return list
+      .filter((h) => !h.deletedAt)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  async saveHabit(userId: string, input: Partial<Habit>): Promise<Habit> {
+    const id = input.id || `habit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const habit: Habit = {
+      id,
+      userId,
+      title: (input.title || 'Daily Habit').trim(),
+      description: input.description || '',
+      category: input.category || 'General',
+      color: input.color || '#10b981',
+      frequency: input.frequency || 'daily',
+      targetDaysPerWeek: Math.max(1, Math.min(7, Number(input.targetDaysPerWeek) || 7)),
+      customDays: input.customDays || [0, 1, 2, 3, 4, 5, 6],
+      completedDates: Array.isArray(input.completedDates) ? input.completedDates : [],
+      bestStreakDays: Number(input.bestStreakDays) || 0,
+      reminderTime: input.reminderTime || '',
+      archived: Boolean(input.archived),
+      deletedAt: input.deletedAt || null,
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+    const path = `users/${userId}/habits/${id}`;
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...habit }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return habit;
+  },
+
+  async toggleHabitCompletion(userId: string, habitId: string, dateStr: string): Promise<Habit | null> {
+    const habits = await this.getHabits(userId);
+    const target = habits.find((h) => h.id === habitId);
+    if (!target) return null;
+    const completedSet = new Set(target.completedDates || []);
+    if (completedSet.has(dateStr)) {
+      completedSet.delete(dateStr);
+    } else {
+      completedSet.add(dateStr);
+    }
+    const updatedDates = Array.from(completedSet).sort();
+    const nowIso = new Date().toISOString();
+    const bestStreak = Math.max(target.bestStreakDays || 0, updatedDates.length);
+    const updated: Habit = {
+      ...target,
+      completedDates: updatedDates,
+      bestStreakDays: bestStreak,
+      updatedAt: nowIso,
+    };
+    await this.saveHabit(userId, updated);
+    return updated;
+  },
+
+  async deleteHabit(userId: string, habitId: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/habits/${habitId}`;
     try {
       await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
     } catch {

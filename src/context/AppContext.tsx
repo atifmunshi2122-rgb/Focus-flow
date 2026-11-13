@@ -3,6 +3,7 @@ import {
   User,
   UserSettings,
   Task,
+  Habit,
   CurrencyCode,
   ThemeConfig,
   SavedCustomTheme,
@@ -50,6 +51,7 @@ export type NavTab =
   | 'focus'
   | 'timeblocks'
   | 'tasks'
+  | 'habits'
   | 'finance'
   | 'transactions'
   | 'bills'
@@ -65,6 +67,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'focus',
   'timeblocks',
   'tasks',
+  'habits',
   'finance',
   'transactions',
   'bills',
@@ -812,8 +815,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       api.getFinanceSummary().catch(() => null),
       api.getSavingsGoals().catch(() => []),
       api.getExpenses().catch(() => []),
+      api.getHabits().catch(() => [] as Habit[]),
     ])
-      .then(([taskList, billList, dashData, finSummary, goalList, expenseList]) => {
+      .then(([taskList, billList, dashData, finSummary, goalList, expenseList, habitList]) => {
         setTasks(taskList);
         const items = evaluateDeterministicNotifications({
           settings,
@@ -824,6 +828,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           savingsGoals: goalList,
           expenses: expenseList,
           syncLastError,
+          habits: habitList,
         });
         setNotifications(items);
       })

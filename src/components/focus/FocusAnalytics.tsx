@@ -1,8 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { FocusSession, FocusStatsData } from '../../types/index.ts';
+import { FocusSession, FocusStatsData, Habit, Task, TimeBlock } from '../../types/index.ts';
+import {
+  computeProductivityAnalytics,
+  computeProductivityScore,
+} from '../../lib/productivityIntelligence.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
@@ -14,26 +19,77 @@ import {
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
-import { Clock, CheckCircle2, Flame, Calendar, History, Sparkles, Grid3X3 } from 'lucide-react';
+import {
+  Clock,
+  CheckCircle2,
+  Flame,
+  Calendar,
+  History,
+  Sparkles,
+  Grid3X3,
+  BarChart3,
+  ListTodo,
+  TrendingUp,
+} from 'lucide-react';
+import { ProductivityScoreCard } from './ProductivityScoreCard.tsx';
+import { DailyProductivityTimeline } from './DailyProductivityTimeline.tsx';
+import { SmartDailyPlanner } from './SmartDailyPlanner.tsx';
 
 export const FocusAnalytics: React.FC = () => {
   const { refreshKey, settings } = useApp();
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
+
+  const [subTab, setSubTab] = useState<'analytics' | 'timeline' | 'planner'>('analytics');
   const [stats, setStats] = useState<FocusStatsData | null>(null);
   const [sessions, setSessions] = useState<FocusSession[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const todayStr = useMemo(() => getTodayDateString(DEFAULT_TIMEZONE), []);
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([api.getFocusStats(), api.getFocusSessions()])
-      .then(([statsData, sessionsData]) => {
+    Promise.all([
+      api.getFocusStats(),
+      api.getFocusSessions(),
+      api.getTasks().catch(() => [] as Task[]),
+      api.getHabits().catch(() => [] as Habit[]),
+      api.getTimeBlocks(todayStr).catch(() => [] as TimeBlock[]),
+    ])
+      .then(([statsData, sessionsData, taskList, habitList, blockList]) => {
         setStats(statsData);
         setSessions(sessionsData);
+        setTasks(taskList);
+        setHabits(habitList);
+        setTimeBlocks(blockList);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [refreshKey]);
+  }, [refreshKey, todayStr]);
+
+  const productivityScore = useMemo(() => {
+    return computeProductivityScore({
+      tasks,
+      sessions,
+      habits,
+      settings,
+      referenceDateStr: todayStr,
+    });
+  }, [tasks, sessions, habits, settings, todayStr]);
+
+  const productivityAnalytics = useMemo(() => {
+    return computeProductivityAnalytics({
+      tasks,
+      sessions,
+      habits,
+      timeBlocks,
+      settings,
+      referenceDateStr: todayStr,
+    });
+  }, [tasks, sessions, habits, timeBlocks, settings, todayStr]);
 
   if (loading && !stats) {
     return <SkeletonDashboard />;
@@ -62,7 +118,57 @@ export const FocusAnalytics: React.FC = () => {
 
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-grid-gap)' }}>
-      {/* KPI Cards Row */}
+      {/* Productivity Suite Sub-Navigation */}
+      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] rounded-xl w-fit">
+        <button
+          type="button"
+          onClick={() => setSubTab('analytics')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            subTab === 'analytics'
+              ? 'bg-[var(--ff-surface-card)] text-[var(--ff-accent-text)] shadow-xs'
+              : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+          }`}
+        >
+          <BarChart3 className="w-3.5 h-3.5" />
+          Analytics & Score
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSubTab('timeline')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            subTab === 'timeline'
+              ? 'bg-[var(--ff-surface-card)] text-[var(--ff-accent-text)] shadow-xs'
+              : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5" />
+          Daily Timeline
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSubTab('planner')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            subTab === 'planner'
+              ? 'bg-[var(--ff-surface-card)] text-[var(--ff-accent-text)] shadow-xs'
+              : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+          }`}
+        >
+          <ListTodo className="w-3.5 h-3.5" />
+          Daily Planner
+        </button>
+      </div>
+
+      {subTab === 'timeline' && <DailyProductivityTimeline />}
+      {subTab === 'planner' && <SmartDailyPlanner />}
+
+      {subTab === 'analytics' && (
+        <>
+          {/* Transparent Deterministic Productivity Score Card */}
+          <ProductivityScoreCard scoreData={productivityScore} />
+
+          {/* KPI Cards Row */}
       <MotionStaggerGrid className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 'var(--ff-grid-gap)' }}>
         <MotionStaggerItem>
           <ThemeCard variant="interactive" className="h-full">
@@ -466,6 +572,8 @@ export const FocusAnalytics: React.FC = () => {
           </div>
         )}
       </ThemeCard>
+        </>
+      )}
     </div>
   );
 };

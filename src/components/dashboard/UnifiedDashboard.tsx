@@ -10,12 +10,20 @@ import {
   DashboardWidgetId,
   DashboardWidgetSize,
   FocusSession,
+  Habit,
   SavingsGoal,
   Task,
 } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import { GamificationCard } from './GamificationCard.tsx';
+import { ProductivityScoreCard } from '../focus/ProductivityScoreCard.tsx';
+import {
+  computeHabitStreak,
+  computeProductivityScore,
+  isHabitScheduledOnDate,
+} from '../../lib/productivityIntelligence.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import {
   AnimatedNumber,
   AnimatedProgressBar,
@@ -145,6 +153,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     updateSettings,
     currency,
     refreshKey,
+    triggerRefresh,
     setCurrentTab,
     startTimer,
     switchTimerMode,
@@ -157,9 +166,12 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const [data, setData] = useState<DashboardData | null>(null);
   const [sessions, setSessions] = useState<FocusSession[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const todayStr = useMemo(() => getTodayDateString(DEFAULT_TIMEZONE), []);
 
   const [nowClock, setNowClock] = useState<Date>(() => new Date());
   const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly'>('daily');
@@ -192,17 +204,50 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       api.getTasks().catch(() => [] as Task[]),
       api.getBills().catch(() => [] as Bill[]),
       api.getSavingsGoals().catch(() => [] as SavingsGoal[]),
+      api.getHabits().catch(() => [] as Habit[]),
     ])
-      .then(([dash, sess, tsk, b, sg]) => {
+      .then(([dash, sess, tsk, b, sg, hab]) => {
         setData(dash);
         setSessions(sess);
         setTasks(tsk);
         setBills(b);
         setSavingsGoals(sg);
+        setHabits(hab);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [refreshKey]);
+
+  const productivityScore = useMemo(() => {
+    return computeProductivityScore({
+      tasks,
+      sessions,
+      habits,
+      settings,
+      referenceDateStr: todayStr,
+    });
+  }, [tasks, sessions, habits, settings, todayStr]);
+
+  const handleToggleHabitFromDashboard = async (habitId: string) => {
+    setHabits((prev) =>
+      prev.map((h) => {
+        if (h.id !== habitId) return h;
+        const set = new Set(h.completedDates || []);
+        if (set.has(todayStr)) {
+          set.delete(todayStr);
+        } else {
+          set.add(todayStr);
+        }
+        return { ...h, completedDates: Array.from(set).sort() };
+      })
+    );
+    try {
+      await api.toggleHabit(habitId, todayStr);
+      triggerRefresh();
+    } catch (err) {
+      console.error('Failed to toggle habit from dashboard:', err);
+    }
+  };
 
   const layoutConfig = useMemo<DashboardLayoutConfig>(() => {
     const saved = settings?.dashboardLayout;
@@ -792,55 +837,106 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
 
       case 'productivity_goals':
         return (
-          <ThemeCard className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Target className="w-4 h-4 text-[var(--ff-accent-text)]" />
-                <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                  Daily Productivity Goal &amp; Weekly Progress
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCurrentTab('settings')}
-                className="text-xs font-semibold text-[var(--ff-accent-text)] hover:underline"
-              >
-                Adjust Targets
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div>
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="font-semibold text-[var(--ff-text-secondary)]">Daily Focus Target</span>
-                  <span className="font-mono font-bold text-[var(--ff-text-primary)]">
-                    {data?.todayFocusMinutes || 0} / {dailyGoalMin} min ({dailyGoalPct}%)
-                  </span>
+          <div className="space-y-4">
+            <ProductivityScoreCard scoreData={productivityScore} />
+
+            <ThemeCard className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                    Daily Productivity Goal &amp; Weekly Progress
+                  </h3>
                 </div>
-                <AnimatedProgressBar
-                  value={dailyGoalPct}
-                  showShimmer={true}
-                  tone={dailyGoalPct >= 100 ? 'success' : 'accent'}
-                  heightClass="h-2.5"
-                  ariaLabel="Daily Focus Target"
-                />
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('settings')}
+                  className="text-xs font-semibold text-[var(--ff-accent-text)] hover:underline"
+                >
+                  Adjust Targets
+                </button>
               </div>
-              <div>
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="font-semibold text-[var(--ff-text-secondary)]">Weekly Deep Work Goal</span>
-                  <span className="font-mono font-bold text-[var(--ff-text-primary)]">
-                    {data?.weeklyFocusMinutes || 0} / {weeklyGoalMin} min ({weeklyGoalPct}%)
-                  </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <span className="font-semibold text-[var(--ff-text-secondary)]">Daily Focus Target</span>
+                    <span className="font-mono font-bold text-[var(--ff-text-primary)]">
+                      {data?.todayFocusMinutes || 0} / {dailyGoalMin} min ({dailyGoalPct}%)
+                    </span>
+                  </div>
+                  <AnimatedProgressBar
+                    value={dailyGoalPct}
+                    showShimmer={true}
+                    tone={dailyGoalPct >= 100 ? 'success' : 'accent'}
+                    heightClass="h-2.5"
+                    ariaLabel="Daily Focus Target"
+                  />
                 </div>
-                <AnimatedProgressBar
-                  value={weeklyGoalPct}
-                  showShimmer={true}
-                  tone={weeklyGoalPct >= 100 ? 'success' : 'accent'}
-                  heightClass="h-2.5"
-                  ariaLabel="Weekly Deep Work Goal"
-                />
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <span className="font-semibold text-[var(--ff-text-secondary)]">Weekly Deep Work Goal</span>
+                    <span className="font-mono font-bold text-[var(--ff-text-primary)]">
+                      {data?.weeklyFocusMinutes || 0} / {weeklyGoalMin} min ({weeklyGoalPct}%)
+                    </span>
+                  </div>
+                  <AnimatedProgressBar
+                    value={weeklyGoalPct}
+                    showShimmer={true}
+                    tone={weeklyGoalPct >= 100 ? 'success' : 'accent'}
+                    heightClass="h-2.5"
+                    ariaLabel="Weekly Deep Work Goal"
+                  />
+                </div>
               </div>
-            </div>
-          </ThemeCard>
+
+              {/* Today's Habits Quick Check-off */}
+              {habits.length > 0 && (
+                <div className="pt-3 border-t border-[var(--ff-border-color)]">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
+                      <Flame className="w-3.5 h-3.5 text-amber-500" /> Today's Scheduled Habits
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentTab('habits')}
+                      className="text-xs font-semibold text-[var(--ff-accent-text)] hover:underline"
+                    >
+                      View All Habits
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {habits
+                      .filter((h) => !h.deletedAt && isHabitScheduledOnDate(h, todayStr))
+                      .map((h) => {
+                        const isDone = (h.completedDates || []).includes(todayStr);
+                        return (
+                          <button
+                            key={h.id}
+                            type="button"
+                            onClick={() => handleToggleHabitFromDashboard(h.id)}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                              isDone
+                                ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-600 dark:text-emerald-400'
+                                : 'bg-[var(--ff-surface-subtle)] border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:border-emerald-400'
+                            }`}
+                          >
+                            <div
+                              className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
+                                isDone ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-current opacity-40'
+                              }`}
+                            >
+                              {isDone && <CheckCircle2 className="w-3.5 h-3.5" />}
+                            </div>
+                            <span className={isDone ? 'line-through opacity-80' : ''}>{h.title}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </ThemeCard>
+          </div>
         );
 
       case 'gamification':

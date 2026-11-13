@@ -15,6 +15,7 @@ import {
   SavingsGoal,
   TrashRecord,
   TimeBlock,
+  Habit,
   BudgetEnvelope,
   SubscriptionPlan,
   AuditLogEntry,
@@ -255,6 +256,15 @@ async function applyOfflineOutboxOp(userId: string, op: OfflineOutboxOperation):
       return;
     case 'delete_savings_goal':
       await firestoreService.deleteSavingsGoal(userId, String(p.id));
+      return;
+    case 'save_habit':
+      await firestoreService.saveHabit(userId, p as Partial<Habit>);
+      return;
+    case 'toggle_habit':
+      await firestoreService.toggleHabitCompletion(userId, String(p.id), String(p.dateStr));
+      return;
+    case 'delete_habit':
+      await firestoreService.deleteHabit(userId, String(p.id));
       return;
   }
 }
@@ -1083,6 +1093,101 @@ export const api = {
       {
         operationType: 'delete_time_block',
         dedupeKey: `delete_tb_${id}`,
+        payload: { id },
+        optimisticResult: () => ({ success: true }),
+      }
+    ),
+
+  // Habits
+  getHabits: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getHabits(uid),
+      () => request<Habit[]>('/habits')
+    ),
+
+  createHabit: (habit: Partial<Habit>) => {
+    const clientId = habit.id || `habit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const withId = { ...habit, id: clientId };
+    return withPrimaryWrite(
+      (uid) => firestoreService.saveHabit(uid, withId),
+      () =>
+        request<Habit>('/habits', {
+          method: 'POST',
+          body: JSON.stringify(withId),
+        }),
+      {
+        operationType: 'save_habit',
+        dedupeKey: `habit_${clientId}`,
+        payload: withId as Record<string, unknown>,
+        optimisticResult: (uid) => {
+          const nowIso = new Date().toISOString();
+          return {
+            id: clientId,
+            userId: uid,
+            title: (habit.title || 'Daily Habit').trim(),
+            description: habit.description || '',
+            category: habit.category || 'General',
+            color: habit.color || '#10b981',
+            frequency: habit.frequency || 'daily',
+            targetDaysPerWeek: Number(habit.targetDaysPerWeek) || 7,
+            customDays: habit.customDays || [0, 1, 2, 3, 4, 5, 6],
+            completedDates: habit.completedDates || [],
+            bestStreakDays: habit.bestStreakDays || 0,
+            reminderTime: habit.reminderTime || '',
+            archived: false,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          } as Habit;
+        },
+      }
+    );
+  },
+
+  updateHabit: (id: string, updates: Partial<Habit>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveHabit(uid, { ...updates, id }),
+      () =>
+        request<Habit>(`/habits/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(updates),
+        }),
+      {
+        operationType: 'save_habit',
+        dedupeKey: `habit_${id}`,
+        payload: { ...updates, id },
+        optimisticResult: (uid) => ({ id, userId: uid, ...updates } as Habit),
+      }
+    ),
+
+  toggleHabit: (id: string, dateStr: string) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.toggleHabitCompletion(uid, id, dateStr),
+      () =>
+        request<Habit>(`/habits/${encodeURIComponent(id)}/toggle`, {
+          method: 'POST',
+          body: JSON.stringify({ dateStr }),
+        }),
+      {
+        operationType: 'toggle_habit',
+        dedupeKey: `toggle_habit_${id}_${dateStr}`,
+        payload: { id, dateStr },
+        optimisticResult: (uid) => ({ id, userId: uid } as Habit),
+      }
+    ),
+
+  deleteHabit: (id: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteHabit(uid, id);
+        return { success: true };
+      },
+      () =>
+        request<{ success: boolean }>(`/habits/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        }),
+      {
+        operationType: 'delete_habit',
+        dedupeKey: `delete_habit_${id}`,
         payload: { id },
         optimisticResult: () => ({ success: true }),
       }

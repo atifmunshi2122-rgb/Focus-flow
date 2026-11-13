@@ -231,6 +231,25 @@ export interface TimeBlock {
   updatedAt: string;
 }
 
+export interface Habit {
+  id: string;
+  userId: string;
+  title: string;
+  description?: string;
+  category: string;
+  color: string;
+  frequency: 'daily' | 'weekly' | 'custom';
+  targetDaysPerWeek: number;
+  customDays?: number[]; // 0 = Sunday, 6 = Saturday
+  completedDates: string[]; // YYYY-MM-DD
+  bestStreakDays: number;
+  reminderTime?: string;
+  archived?: boolean;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BudgetEnvelope {
   id: string;
   userId: string;
@@ -269,7 +288,7 @@ export interface AuditLogEntry {
   id: string;
   userId: string;
   action: 'create' | 'update' | 'delete' | 'restore' | 'pay' | 'undo_payment' | 'import_backup' | 'purge' | 'envelope_transfer' | 'backup_restore';
-  entityType: 'task' | 'income' | 'expense' | 'bill' | 'time_block' | 'envelope' | 'subscription' | 'settings' | 'backup';
+  entityType: 'task' | 'income' | 'expense' | 'bill' | 'time_block' | 'envelope' | 'subscription' | 'habit' | 'settings' | 'backup';
   entityId: string;
   entityTitle?: string;
   details?: string;
@@ -303,7 +322,7 @@ export interface DurableSyncOperation {
 
 export interface TrashRecord {
   id: string;
-  entityType: 'task' | 'income' | 'expense' | 'bill' | 'time_block' | 'envelope' | 'subscription';
+  entityType: 'task' | 'income' | 'expense' | 'bill' | 'time_block' | 'envelope' | 'subscription' | 'habit';
   title: string;
   subtitle: string;
   amountPaise?: number;
@@ -435,6 +454,9 @@ export interface OfflineOutboxOperation {
     | 'update_savings_goal'
     | 'contribute_savings_goal'
     | 'delete_savings_goal'
+    | 'save_habit'
+    | 'toggle_habit'
+    | 'delete_habit'
     | 'update_settings';
   payload: Record<string, unknown>;
   createdAt: string;

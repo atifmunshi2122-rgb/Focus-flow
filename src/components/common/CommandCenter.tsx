@@ -27,6 +27,7 @@ import {
   ShieldAlert,
   Download,
   RefreshCw,
+  Flame,
 } from 'lucide-react';
 import { useApp, NavTab } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -129,6 +130,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
       { tab: 'focus', label: 'Focus & Pomodoro System', key: 'Alt+2', icon: Timer },
       { tab: 'timeblocks', label: 'Daily Time-block Planner', key: 'Alt+B', icon: Clock },
       { tab: 'tasks', label: 'Task Management Workspace', key: 'Alt+3', icon: CheckSquare },
+      { tab: 'habits', label: 'Habits & Streaks Tracker', key: 'Alt+H', icon: Flame },
       { tab: 'finance', label: 'Finance Overview', key: 'Alt+4', icon: Wallet },
       { tab: 'transactions', label: 'Transactions Ledger', key: 'Alt+5', icon: ReceiptText },
       { tab: 'bills', label: 'Bills & Payments Tracker', key: 'Alt+6', icon: CreditCard },
