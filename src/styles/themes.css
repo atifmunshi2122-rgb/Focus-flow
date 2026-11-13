@@ -41,6 +41,21 @@
   --ff-shadow-inset: none;
   --ff-neu-light: #27272a;
   --ff-neu-dark: #000000;
+
+  /* Backward-compatible semantic aliases & lighting tokens */
+  --ff-card-bg: var(--ff-surface-card, #111114);
+  --ff-border: var(--ff-border-color, #27272a);
+  --ff-border-hover: var(--ff-border-strong, #3f3f46);
+  --ff-muted: var(--ff-surface-muted, #1c1c21);
+  --ff-bg-primary: var(--ff-bg-canvas, #09090b);
+  --ff-bg-secondary: var(--ff-surface-card, #111114);
+  --ff-ambient-light: rgba(99, 102, 241, 0.08);
+  --ff-shadow-tint: rgba(0, 0, 0, 0.45);
+  --ff-highlight-color: rgba(255, 255, 255, 0.1);
+  --ff-card-elevation: 12px;
+  --ff-depth-intensity: 1;
+  --ff-glow-color: rgba(99, 102, 241, 0.3);
+  --ff-glass-blur: var(--ff-backdrop-blur, 0px);
   --ff-accent: #6366f1;
   --ff-accent-secondary: #8b5cf6;
   --ff-accent-hover: #4f46e5;

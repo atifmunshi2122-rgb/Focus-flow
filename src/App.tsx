@@ -126,7 +126,7 @@ const MainContent: React.FC = () => {
             {currentTab === 'focus' && (
               <div className="space-y-8">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                  <div className="lg:col-span-5 lg:sticky lg:top-24">
+                  <div className="lg:col-span-5 lg:sticky lg:top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto scrollbar-thin">
                     <PomodoroTimer />
                   </div>
                   <div className="lg:col-span-7">
