@@ -454,7 +454,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           variant="primary"
           size="sm"
           onClick={onOpenQuickAction}
-          className="whitespace-nowrap shrink-0"
+          className="whitespace-nowrap shrink-0 ff-header-quick-action"
         >
           <Plus className="w-4 h-4" />
           <span className="hidden sm:inline">Quick Action</span>

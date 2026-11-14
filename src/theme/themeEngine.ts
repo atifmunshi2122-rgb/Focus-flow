@@ -10,8 +10,11 @@ import {
   getStyleDefinition,
 } from './stylesRegistry.ts';
 import {
+  deepenColorForWhiteText,
   ensureReadableAccentOnSurface,
   getAccessibleContrastText,
+  getContrastRatio,
+  getRelativeLuminance,
   hexToRgba,
   mixColors,
   normalizeHex,
@@ -185,6 +188,36 @@ export function buildThemeCssVariables(
   const accentHover = mixColors(accent, isDark ? '#ffffff' : '#000000', 0.85);
   const accentSoft = hexToRgba(accent, isDark ? 0.18 : 0.11);
   const accentBorder = hexToRgba(accent, isDark ? 0.44 : 0.30);
+
+  // Primary action button contrast-safe tokens (preserves >=4.5:1 across solid, gradient & hover)
+  const accentLum = getRelativeLuminance(accent);
+  const btnPrimaryBg =
+    accentLum > 0.175 && accentLum <= 0.32
+      ? deepenColorForWhiteText(accent, 4.6)
+      : accent;
+  const btnPrimaryContrast = getAccessibleContrastText(btnPrimaryBg);
+  const btnHoverTarget = btnPrimaryContrast === '#09090b' ? '#ffffff' : '#000000';
+  const rawBtnHover = mixColors(btnPrimaryBg, btnHoverTarget, 0.86);
+  const btnPrimaryHover =
+    getContrastRatio(rawBtnHover, btnPrimaryContrast) >= 4.6
+      ? rawBtnHover
+      : btnPrimaryContrast === '#ffffff'
+        ? deepenColorForWhiteText(rawBtnHover, 4.6)
+        : ensureReadableAccentOnSurface(rawBtnHover, btnPrimaryContrast, 4.6);
+
+  const btnPrimarySecondary =
+    getContrastRatio(secondary, btnPrimaryContrast) >= 4.5
+      ? secondary
+      : btnPrimaryContrast === '#ffffff'
+        ? deepenColorForWhiteText(secondary, 4.5)
+        : ensureReadableAccentOnSurface(secondary, btnPrimaryContrast, 4.5);
+  const rawBtnSecHover = mixColors(btnPrimarySecondary, btnHoverTarget, 0.86);
+  const btnPrimarySecondaryHover =
+    getContrastRatio(rawBtnSecHover, btnPrimaryContrast) >= 4.5
+      ? rawBtnSecHover
+      : btnPrimaryContrast === '#ffffff'
+        ? deepenColorForWhiteText(rawBtnSecHover, 4.5)
+        : ensureReadableAccentOnSurface(rawBtnSecHover, btnPrimaryContrast, 4.5);
 
   // Shape / Radius
   const effectiveRadius =
@@ -413,6 +446,11 @@ export function buildThemeCssVariables(
     '--ff-accent-border': accentBorder,
     '--ff-accent-contrast': accentContrast,
     '--ff-accent-text': accentText,
+    '--ff-btn-primary-bg': btnPrimaryBg,
+    '--ff-btn-primary-hover': btnPrimaryHover,
+    '--ff-btn-primary-secondary': btnPrimarySecondary,
+    '--ff-btn-primary-secondary-hover': btnPrimarySecondaryHover,
+    '--ff-btn-primary-contrast': btnPrimaryContrast,
     '--ff-success': palette.success,
     '--ff-success-soft': hexToRgba(palette.success, isDark ? 0.18 : 0.12),
     '--ff-warning': palette.warning,

@@ -463,6 +463,41 @@
   background: var(--ff-accent-hover);
 }
 
+.ff-btn-primary.ff-header-quick-action {
+  background: var(--ff-btn-primary-bg, var(--ff-accent));
+  color: var(--ff-btn-primary-contrast, var(--ff-accent-contrast));
+}
+.ff-btn-primary.ff-header-quick-action:hover:not(:disabled) {
+  background: var(--ff-btn-primary-hover, var(--ff-accent-hover));
+  color: var(--ff-btn-primary-contrast, var(--ff-accent-contrast));
+}
+[data-design-style="glassmorphism"] .ff-btn-primary.ff-header-quick-action {
+  background: linear-gradient(135deg, var(--ff-btn-primary-bg, var(--ff-accent)), var(--ff-btn-primary-secondary, var(--ff-accent-secondary)));
+}
+[data-design-style="glassmorphism"] .ff-btn-primary.ff-header-quick-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--ff-btn-primary-hover, var(--ff-accent-hover)), var(--ff-btn-primary-secondary-hover, var(--ff-accent-secondary)));
+}
+[data-design-style="claymorphism"] .ff-btn-primary.ff-header-quick-action {
+  background: linear-gradient(145deg, var(--ff-btn-primary-bg, var(--ff-accent)), var(--ff-btn-primary-secondary, var(--ff-accent-secondary)));
+}
+[data-design-style="claymorphism"] .ff-btn-primary.ff-header-quick-action:hover:not(:disabled) {
+  background: linear-gradient(145deg, var(--ff-btn-primary-hover, var(--ff-accent-hover)), var(--ff-btn-primary-secondary-hover, var(--ff-accent-secondary)));
+}
+[data-design-style="skeuomorphism"] .ff-btn-primary.ff-header-quick-action {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ff-btn-primary-bg, var(--ff-accent)) 88%, white) 0%, var(--ff-btn-primary-bg, var(--ff-accent)) 55%, color-mix(in oklab, var(--ff-btn-primary-bg, var(--ff-accent)) 88%, black) 100%);
+}
+[data-design-style="skeuomorphism"] .ff-btn-primary.ff-header-quick-action:hover:not(:disabled) {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ff-btn-primary-hover, var(--ff-accent-hover)) 88%, white) 0%, var(--ff-btn-primary-hover, var(--ff-accent-hover)) 55%, color-mix(in oklab, var(--ff-btn-primary-hover, var(--ff-accent-hover)) 88%, black) 100%);
+}
+[data-design-style="gradient3d"] .ff-btn-primary.ff-header-quick-action,
+[data-design-style="glazed_clay"] .ff-btn-primary.ff-header-quick-action {
+  background: linear-gradient(135deg, var(--ff-btn-primary-bg, var(--ff-accent)) 0%, var(--ff-btn-primary-secondary, var(--ff-accent-secondary)) 100%);
+}
+[data-design-style="gradient3d"] .ff-btn-primary.ff-header-quick-action:hover:not(:disabled),
+[data-design-style="glazed_clay"] .ff-btn-primary.ff-header-quick-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--ff-btn-primary-hover, var(--ff-accent-hover)) 0%, var(--ff-btn-primary-secondary-hover, var(--ff-accent-secondary)) 100%);
+}
+
 .ff-btn-secondary {
   background: var(--ff-surface-elevated);
   color: var(--ff-text-primary);

@@ -128,3 +128,40 @@ export function ensureReadableAccentOnSurface(
 
   return best;
 }
+
+/**
+ * Deepens a mid-tone vivid color while preserving hue & saturation so pure white
+ * text achieves at least `minRatio` contrast (falls back to neutral mixing if needed).
+ */
+export function deepenColorForWhiteText(hex: string, minRatio = 4.6): string {
+  const norm = normalizeHex(hex) || '#6366f1';
+  if (getContrastRatio(norm, '#ffffff') >= minRatio) {
+    return norm;
+  }
+  const rgb = parseHex(norm);
+  if (!rgb) return norm;
+
+  let low = 1.0;
+  let high = 6.0;
+  let best = norm;
+
+  for (let i = 0; i < 14; i++) {
+    const mid = (low + high) / 2;
+    const candidate = rgbToHex({
+      r: Math.pow(rgb.r / 255, mid) * 255,
+      g: Math.pow(rgb.g / 255, mid) * 255,
+      b: Math.pow(rgb.b / 255, mid) * 255,
+    });
+    if (getContrastRatio(candidate, '#ffffff') >= minRatio) {
+      best = candidate;
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  if (getContrastRatio(best, '#ffffff') >= minRatio) {
+    return best;
+  }
+  return ensureReadableAccentOnSurface(norm, '#ffffff', minRatio);
+}
