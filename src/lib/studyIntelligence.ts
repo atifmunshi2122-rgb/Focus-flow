@@ -244,3 +244,261 @@ export function computeStudyProgressSummary(input: {
     subjectBreakdown,
   };
 }
+
+// ==========================================
+// PHASE 16 STUDY INTELLIGENCE EXTENSIONS
+// ==========================================
+
+import type {
+  StudyGoal,
+  StudyPlan,
+  StudyPlanTask,
+  StudyResource,
+  StudyExam,
+  StudyNote,
+  StudyFlashcard,
+  StudyQuiz,
+  StudyExportPayload,
+} from '../types/study.ts';
+
+export interface StudyPlanAnalytics {
+  totalPlannedMinutes: number;
+  totalActualMinutes: number;
+  completedTasksCount: number;
+  pendingTasksCount: number;
+  adherencePercentage: number;
+}
+
+export function computeStudyPlanAnalytics(
+  tasks: StudyPlanTask[],
+  focusSessions: FocusSession[] = []
+): StudyPlanAnalytics {
+  const activeTasks = tasks.filter((t) => !t.deletedAt);
+  const totalPlannedMinutes = activeTasks.reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
+
+  // Authoritative actual minutes derived from task records or completed focus sessions
+  const taskActualMinutes = activeTasks.reduce((sum, t) => sum + (t.actualMinutes || 0), 0);
+  const sessionMins = focusSessions
+    .filter((fs) => fs.completed && fs.mode === 'work')
+    .reduce((sum, fs) => {
+      const mins =
+        typeof fs.durationSeconds === 'number' && fs.durationSeconds > 0
+          ? Math.round(fs.durationSeconds / 60)
+          : (fs.durationMinutes || 0);
+      return sum + mins;
+    }, 0);
+
+  const totalActualMinutes = Math.max(taskActualMinutes, sessionMins);
+  const completedTasksCount = activeTasks.filter((t) => t.status === 'completed').length;
+  const pendingTasksCount = activeTasks.filter((t) => t.status === 'pending' || t.status === 'in_progress').length;
+
+  const adherencePercentage =
+    totalPlannedMinutes > 0
+      ? Math.min(100, Math.round((totalActualMinutes / totalPlannedMinutes) * 100))
+      : 100;
+
+  return {
+    totalPlannedMinutes,
+    totalActualMinutes,
+    completedTasksCount,
+    pendingTasksCount,
+    adherencePercentage,
+  };
+}
+
+export function computeStudyGoalProgress(goal: StudyGoal): {
+  percentage: number;
+  isComplete: boolean;
+  milestonesDone: number;
+  milestonesTotal: number;
+} {
+  const target = Math.max(1, goal.targetValue || 1);
+  const current = Math.max(0, goal.currentValue || 0);
+  const milestones = goal.milestones || [];
+  const milestonesDone = milestones.filter((m) => m.completed).length;
+  const milestonesTotal = milestones.length;
+
+  let percentage = Math.min(100, Math.round((current / target) * 100));
+  if (milestonesTotal > 0 && current === 0) {
+    percentage = Math.round((milestonesDone / milestonesTotal) * 100);
+  }
+
+  return {
+    percentage,
+    isComplete: percentage >= 100 || goal.status === 'completed',
+    milestonesDone,
+    milestonesTotal,
+  };
+}
+
+export function computeStudyExamReadiness(
+  exam: StudyExam,
+  topics: StudyTopic[]
+): {
+  coveredTopicsCount: number;
+  totalSyllabusTopicsCount: number;
+  readinessPct: number;
+  daysRemaining: number;
+} {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const examDate = new Date(`${exam.examDate}T00:00:00Z`);
+  const today = new Date(`${todayStr}T00:00:00Z`);
+  const diffDays = Math.ceil((examDate.getTime() - today.getTime()) / 86400000);
+
+  const syllabusSet = new Set(exam.syllabusTopicIds || []);
+  const relevantTopics = topics.filter((t) => !t.deletedAt && (syllabusSet.has(t.id) || (exam.subjectIds || []).includes(t.subjectCode)));
+  const total = relevantTopics.length;
+  const covered = relevantTopics.filter((t) => t.theory && t.practice).length;
+  const readinessPct = total > 0 ? Math.min(100, Math.round((covered / total) * 100)) : 0;
+
+  return {
+    coveredTopicsCount: covered,
+    totalSyllabusTopicsCount: total,
+    readinessPct,
+    daysRemaining: diffDays,
+  };
+}
+
+export interface StudySearchResult {
+  id: string;
+  type: 'subject' | 'topic' | 'note' | 'resource' | 'exam' | 'plan' | 'flashcard';
+  title: string;
+  subtitle: string;
+  tag?: string;
+  matchedField: string;
+}
+
+export function searchStudyWorkspace(
+  query: string,
+  workspace: {
+    subjects: StudySubject[];
+    topics: StudyTopic[];
+    notes: StudyNote[];
+    resources: StudyResource[];
+    exams: StudyExam[];
+    plans: StudyPlan[];
+    flashcards: StudyFlashcard[];
+  }
+): StudySearchResult[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  const results: StudySearchResult[] = [];
+
+  // Search Subjects
+  for (const s of workspace.subjects.filter((s) => !s.deletedAt)) {
+    if (s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q)) {
+      results.push({
+        id: s.id,
+        type: 'subject',
+        title: s.name,
+        subtitle: `${s.code} • ${s.semesterOrDomain || 'Subject'}`,
+        tag: s.code,
+        matchedField: 'name',
+      });
+    }
+  }
+
+  // Search Topics
+  for (const t of workspace.topics.filter((t) => !t.deletedAt)) {
+    if (
+      t.topic.toLowerCase().includes(q) ||
+      t.subtopic.toLowerCase().includes(q) ||
+      t.unit.toLowerCase().includes(q)
+    ) {
+      results.push({
+        id: t.id,
+        type: 'topic',
+        title: t.subtopic,
+        subtitle: `${t.subjectCode} • ${t.unit} • ${t.topic}`,
+        tag: t.priority,
+        matchedField: 'topic',
+      });
+    }
+  }
+
+  // Search Notes
+  for (const n of workspace.notes.filter((n) => !n.deletedAt)) {
+    if (n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q)) {
+      results.push({
+        id: n.id,
+        type: 'note',
+        title: n.title,
+        subtitle: n.content.slice(0, 60),
+        tag: n.isPinned ? 'Pinned' : undefined,
+        matchedField: 'title/content',
+      });
+    }
+  }
+
+  // Search Resources
+  for (const r of workspace.resources.filter((r) => !r.deletedAt)) {
+    if (r.title.toLowerCase().includes(q) || (r.url && r.url.toLowerCase().includes(q))) {
+      results.push({
+        id: r.id,
+        type: 'resource',
+        title: r.title,
+        subtitle: r.resourceType.toUpperCase(),
+        tag: r.resourceType,
+        matchedField: 'title',
+      });
+    }
+  }
+
+  // Search Exams
+  for (const e of workspace.exams.filter((e) => !e.deletedAt)) {
+    if (e.title.toLowerCase().includes(q) || e.examType.toLowerCase().includes(q)) {
+      results.push({
+        id: e.id,
+        type: 'exam',
+        title: e.title,
+        subtitle: `Exam on ${e.examDate} • ${e.examType}`,
+        tag: e.preparationStatus,
+        matchedField: 'title',
+      });
+    }
+  }
+
+  // Search Flashcards
+  for (const f of workspace.flashcards.filter((f) => !f.deletedAt)) {
+    if (f.question.toLowerCase().includes(q) || f.answer.toLowerCase().includes(q)) {
+      results.push({
+        id: f.id,
+        type: 'flashcard',
+        title: f.question,
+        subtitle: `Answer: ${f.answer.slice(0, 60)}`,
+        tag: f.difficulty,
+        matchedField: 'question',
+      });
+    }
+  }
+
+  return results.slice(0, 25);
+}
+
+export function validateStudyExportPayload(data: unknown): StudyExportPayload | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const obj = data as Record<string, unknown>;
+
+  if (typeof obj.version !== 'number' || typeof obj.userId !== 'string') {
+    return null;
+  }
+
+  return {
+    version: obj.version,
+    exportedAt: typeof obj.exportedAt === 'string' ? obj.exportedAt : new Date().toISOString(),
+    userId: obj.userId,
+    subjects: Array.isArray(obj.subjects) ? (obj.subjects as StudySubject[]) : [],
+    topics: Array.isArray(obj.topics) ? (obj.topics as StudyTopic[]) : [],
+    revisions: Array.isArray(obj.revisions) ? (obj.revisions as StudyRevision[]) : [],
+    mistakes: Array.isArray(obj.mistakes) ? (obj.mistakes as StudyMistake[]) : [],
+    goals: Array.isArray(obj.goals) ? (obj.goals as StudyGoal[]) : [],
+    plans: Array.isArray(obj.plans) ? (obj.plans as StudyPlan[]) : [],
+    planTasks: Array.isArray(obj.planTasks) ? (obj.planTasks as StudyPlanTask[]) : [],
+    resources: Array.isArray(obj.resources) ? (obj.resources as StudyResource[]) : [],
+    exams: Array.isArray(obj.exams) ? (obj.exams as StudyExam[]) : [],
+    notes: Array.isArray(obj.notes) ? (obj.notes as StudyNote[]) : [],
+    flashcards: Array.isArray(obj.flashcards) ? (obj.flashcards as StudyFlashcard[]) : [],
+    quizzes: Array.isArray(obj.quizzes) ? (obj.quizzes as StudyQuiz[]) : [],
+  };
+}

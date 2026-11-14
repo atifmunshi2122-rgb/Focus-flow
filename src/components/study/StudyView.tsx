@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import {
@@ -7,12 +7,26 @@ import {
   StudyRevision,
   StudyMistake,
   RevisionDifficulty,
+  StudyGoal,
+  StudyPlan,
+  StudyPlanTask,
+  StudyResource,
+  StudyExam,
+  StudyNote,
+  StudyActivityLog,
+  StudyFlashcard,
+  StudyQuiz,
+  StudyExportPayload,
 } from '../../types/study.ts';
 import { FocusSession } from '../../types/index.ts';
-import { DEFAULT_ACADEMIC_TIERS, buildDefaultStudyWorkspace } from '../../data/studySeedData.ts';
+import { DEFAULT_ACADEMIC_TIERS } from '../../data/studySeedData.ts';
 import {
   categorizeRevisions,
   computeStudyProgressSummary,
+  computeStudyPlanAnalytics,
+  computeStudyGoalProgress,
+  computeStudyExamReadiness,
+  searchStudyWorkspace,
 } from '../../lib/studyIntelligence.ts';
 import { saveTimerState } from '../../lib/timerEngine.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
@@ -29,6 +43,22 @@ import { AddStudySubjectModal } from './AddStudySubjectModal.tsx';
 import { AddStudyTopicModal } from './AddStudyTopicModal.tsx';
 import { ScheduleRevisionModal } from './ScheduleRevisionModal.tsx';
 import { LogStudyMistakeModal } from './LogStudyMistakeModal.tsx';
+import { AddStudyGoalModal } from './AddStudyGoalModal.tsx';
+import { AddStudyPlanModal } from './AddStudyPlanModal.tsx';
+import { AddStudyExamModal } from './AddStudyExamModal.tsx';
+import { AddStudyNoteModal } from './AddStudyNoteModal.tsx';
+import { AddStudyResourceModal } from './AddStudyResourceModal.tsx';
+import { AddStudyFlashcardModal } from './AddStudyFlashcardModal.tsx';
+import { TakeStudyQuizModal } from './TakeStudyQuizModal.tsx';
+import { ExportRestoreStudyModal } from './ExportRestoreStudyModal.tsx';
+import { StudyPlansTab } from './StudyPlansTab.tsx';
+import { StudyGoalsTab } from './StudyGoalsTab.tsx';
+import { StudyExamsTab } from './StudyExamsTab.tsx';
+import { StudyFlashcardsTab } from './StudyFlashcardsTab.tsx';
+import { StudyNotesTab } from './StudyNotesTab.tsx';
+import { StudyResourcesTab } from './StudyResourcesTab.tsx';
+import { StudyQuizzesTab } from './StudyQuizzesTab.tsx';
+import { StudyActivityTab } from './StudyActivityTab.tsx';
 import {
   GraduationCap,
   BookOpen,
@@ -49,9 +79,34 @@ import {
   ArrowRight,
   RefreshCw,
   Timer,
+  Target,
+  FileText,
+  Link2,
+  HelpCircle,
+  History,
+  Download,
+  Bookmark,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Award,
+  Pin,
 } from 'lucide-react';
 
-type StudySubTab = 'syllabus' | 'revisions' | 'mistakes' | 'habits' | 'analytics';
+type StudySubTab =
+  | 'syllabus'
+  | 'plans'
+  | 'goals'
+  | 'exams'
+  | 'revisions'
+  | 'flashcards'
+  | 'notes'
+  | 'resources'
+  | 'quizzes'
+  | 'mistakes'
+  | 'habits'
+  | 'analytics'
+  | 'activity';
 
 export const StudyView: React.FC = () => {
   const {
@@ -83,7 +138,26 @@ export const StudyView: React.FC = () => {
   const [revisions, setRevisions] = useState<StudyRevision[]>([]);
   const [mistakes, setMistakes] = useState<StudyMistake[]>([]);
   const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
+  const [goals, setGoals] = useState<StudyGoal[]>([]);
+  const [plans, setPlans] = useState<StudyPlan[]>([]);
+  const [planTasks, setPlanTasks] = useState<StudyPlanTask[]>([]);
+  const [resources, setResources] = useState<StudyResource[]>([]);
+  const [exams, setExams] = useState<StudyExam[]>([]);
+  const [notes, setNotes] = useState<StudyNote[]>([]);
+  const [activityLogs, setActivityLogs] = useState<StudyActivityLog[]>([]);
+  const [flashcards, setFlashcards] = useState<StudyFlashcard[]>([]);
+  const [quizzes, setQuizzes] = useState<StudyQuiz[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Global search & filters state
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [isBookmarksOnly, setIsBookmarksOnly] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(new Date().toISOString().slice(0, 10));
+
+  // Interactive flashcard deck state
+  const [activeFlashcardIdx, setActiveFlashcardIdx] = useState(0);
+  const [flashcardFlipped, setFlashcardFlipped] = useState(false);
 
   // Modals state
   const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false);
@@ -91,82 +165,128 @@ export const StudyView: React.FC = () => {
   const [isScheduleRevisionOpen, setIsScheduleRevisionOpen] = useState(false);
   const [isLogMistakeOpen, setIsLogMistakeOpen] = useState(false);
   const [activeTopicForRevision, setActiveTopicForRevision] = useState<StudyTopic | null>(null);
-  const isSeedingRef = useRef(false);
+  const [isAddGoalOpen, setIsAddGoalOpen] = useState(false);
+  const [isAddPlanOpen, setIsAddPlanOpen] = useState(false);
+  const [isAddExamOpen, setIsAddExamOpen] = useState(false);
+  const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
+  const [isAddResourceOpen, setIsAddResourceOpen] = useState(false);
+  const [isAddFlashcardOpen, setIsAddFlashcardOpen] = useState(false);
+  const [isExportRestoreOpen, setIsExportRestoreOpen] = useState(false);
+  const [selectedQuizForAttempt, setSelectedQuizForAttempt] = useState<StudyQuiz | null>(null);
+
+  // User isolation & cancellation tracker (FIX 1 & FIX 2)
+  const activeUserIdRef = useRef<string | null>(null);
+  const loadGenerationRef = useRef<number>(0);
 
   // Load study entities
   const loadData = async () => {
+    const currentUid = user?.id ?? null;
+    const generation = ++loadGenerationRef.current;
+    activeUserIdRef.current = currentUid;
+
+    // FIX 1: Immediately clear all Study data from view when user changes, refreshes, or logs out
+    setSubjects([]);
+    setTopics([]);
+    setRevisions([]);
+    setMistakes([]);
+    setFocusSessions([]);
+    setLoadError(null);
+    setGoals([]);
+    setPlans([]);
+    setPlanTasks([]);
+    setResources([]);
+    setExams([]);
+    setNotes([]);
+    setActivityLogs([]);
+    setFlashcards([]);
+    setQuizzes([]);
+
+    // If user is not resolved or logged out, do not execute unauthenticated fetch or seed
+    if (!currentUid) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
+
     try {
-      const [subs, tops, revs, mists, sess] = await Promise.all([
-        api.getStudySubjects().catch(() => [] as StudySubject[]),
-        api.getStudyTopics().catch(() => [] as StudyTopic[]),
-        api.getStudyRevisions().catch(() => [] as StudyRevision[]),
-        api.getStudyMistakes().catch(() => [] as StudyMistake[]),
-        api.getFocusSessions().catch(() => [] as FocusSession[]),
+      // FIX 2: Do NOT swallow network errors into empty arrays via .catch(() => [])
+      const [
+        subs,
+        tops,
+        revs,
+        mists,
+        sess,
+        goalsData,
+        plansData,
+        tasksData,
+        resData,
+        examsData,
+        notesData,
+        logsData,
+        flashcardsData,
+        quizzesData,
+      ] = await Promise.all([
+        api.getStudySubjects(),
+        api.getStudyTopics(),
+        api.getStudyRevisions(),
+        api.getStudyMistakes(),
+        api.getFocusSessions(),
+        api.getStudyGoals(),
+        api.getStudyPlans(),
+        api.getStudyPlanTasks(),
+        api.getStudyResources(),
+        api.getStudyExams(),
+        api.getStudyNotes(),
+        api.getStudyActivityLogs(50),
+        api.getStudyFlashcards(),
+        api.getStudyQuizzes(),
       ]);
 
-      setFocusSessions(sess);
-
-      if (subs.length === 0) {
-        if (!isSeedingRef.current) {
-          isSeedingRef.current = true;
-          // Auto-seed initial syllabus for user
-          const seed = buildDefaultStudyWorkspace(user?.id || 'guest');
-          setSubjects(seed.subjects);
-          setTopics(seed.topics);
-          setRevisions(seed.revisions);
-          setMistakes(seed.mistakes);
-
-          // Background persist seed data
-          Promise.all([
-            ...seed.subjects.map((s) => api.saveStudySubject(s)),
-            ...seed.topics.map((t) => api.saveStudyTopic(t)),
-            ...seed.revisions.map((r) => api.saveStudyRevision(r)),
-            ...seed.mistakes.map((m) => api.saveStudyMistake(m)),
-          ])
-            .catch((err) => console.error('Error auto-seeding study records:', err))
-            .finally(() => {
-              isSeedingRef.current = false;
-            });
-        }
-      } else if (tops.length === 0) {
-        // Subjects exist, but topics are empty (partial data state)
-        // Recover topics idempotently from default syllabus without duplicating subjects
-        setSubjects(subs);
-        setRevisions(revs);
-        setMistakes(mists);
-
-        if (!isSeedingRef.current) {
-          isSeedingRef.current = true;
-          const seed = buildDefaultStudyWorkspace(user?.id || 'guest');
-          const existingCodes = new Set(subs.map((s) => s.code));
-          const relevantTopics = seed.topics.filter((t) => existingCodes.has(t.subjectCode));
-          const recoveredTopics = relevantTopics.length > 0 ? relevantTopics : seed.topics;
-
-          setTopics(recoveredTopics);
-          Promise.all(recoveredTopics.map((t) => api.saveStudyTopic(t)))
-            .catch((err) => console.error('Error auto-seeding missing topics:', err))
-            .finally(() => {
-              isSeedingRef.current = false;
-            });
-        }
-      } else {
-        setSubjects(subs);
-        setTopics(tops);
-        setRevisions(revs);
-        setMistakes(mists);
+      // FIX 1: If user switched or another load triggered while waiting, ignore stale response
+      if (generation !== loadGenerationRef.current || activeUserIdRef.current !== currentUid) {
+        return;
       }
-    } catch (err) {
+
+      setSubjects(subs);
+      setTopics(tops);
+      setRevisions(revs);
+      setMistakes(mists);
+      setFocusSessions(sess);
+      setGoals(goalsData);
+      setPlans(plansData);
+      setPlanTasks(tasksData);
+      setResources(resData);
+      setExams(examsData);
+      setNotes(notesData);
+      setActivityLogs(logsData);
+      setFlashcards(flashcardsData);
+      setQuizzes(quizzesData);
+      setLoadError(null);
+    } catch (err: unknown) {
+      if (generation !== loadGenerationRef.current || activeUserIdRef.current !== currentUid) {
+        return;
+      }
       console.error('Failed to load study data:', err);
-      showToast('Error loading study data. Running offline fallback.', 'error');
+      const msg = err instanceof Error ? err.message : 'Error loading study data.';
+      setLoadError(msg);
+      showToast('Error loading study data. Please retry.', 'error');
     } finally {
-      setLoading(false);
+      if (generation === loadGenerationRef.current && activeUserIdRef.current === currentUid) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     loadData();
   }, [user, refreshKey]);
+
+  useEffect(() => {
+    return () => {
+      loadGenerationRef.current++;
+    };
+  }, []);
 
   // Derived calculations
   const progressSummary = useMemo(() => {
@@ -192,10 +312,11 @@ export const StudyView: React.FC = () => {
     });
   }, [subjects, selectedTier]);
 
-  // Filtered topics by subject and search query
+  // Filtered topics by subject, search query, and bookmarks
   const visibleTopics = useMemo(() => {
     return topics.filter((t) => {
       if (t.deletedAt) return false;
+      if (isBookmarksOnly && !t.isBookmarked) return false;
       if (selectedSubjectCode !== 'all' && t.subjectCode !== selectedSubjectCode) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -207,7 +328,7 @@ export const StudyView: React.FC = () => {
       }
       return true;
     });
-  }, [topics, selectedSubjectCode, searchQuery]);
+  }, [topics, selectedSubjectCode, searchQuery, isBookmarksOnly]);
 
   // Filtered mistakes
   const visibleMistakes = useMemo(() => {
@@ -353,6 +474,476 @@ export const StudyView: React.FC = () => {
     }
   };
 
+  // Topic Bookmark Toggle
+  const handleToggleTopicBookmark = async (topicId: string) => {
+    const existing = topics.find((t) => t.id === topicId);
+    if (!existing) return;
+    const updated: StudyTopic = {
+      ...existing,
+      isBookmarked: !existing.isBookmarked,
+      updatedAt: new Date().toISOString(),
+    };
+    setTopics((prev) => prev.map((t) => (t.id === topicId ? updated : t)));
+    try {
+      await api.saveStudyTopic(updated);
+      showToast(updated.isBookmarked ? 'Topic bookmarked' : 'Bookmark removed', 'info');
+    } catch (err) {
+      setTopics((prev) => prev.map((t) => (t.id === topicId ? existing : t)));
+    }
+  };
+
+  // Global Workspace Search
+  const searchResults = useMemo(() => {
+    if (!globalSearchQuery.trim()) return [];
+    return searchStudyWorkspace(globalSearchQuery, {
+      subjects,
+      topics,
+      notes,
+      resources,
+      exams,
+      plans,
+      flashcards,
+    });
+  }, [globalSearchQuery, subjects, topics, notes, resources, exams, plans, flashcards]);
+
+  // Data Export & Restore Handlers
+  const handleExportWorkspace = async (): Promise<StudyExportPayload> => {
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      userId: user?.id || 'guest',
+      subjects,
+      topics,
+      revisions,
+      mistakes,
+      goals,
+      plans,
+      planTasks,
+      resources,
+      exams,
+      notes,
+      flashcards,
+      quizzes,
+    };
+  };
+
+  const handleRestoreWorkspace = async (payload: StudyExportPayload) => {
+    setLoading(true);
+    try {
+      for (const s of payload.subjects) await api.saveStudySubject(s);
+      for (const t of payload.topics) await api.saveStudyTopic(t);
+      for (const r of payload.revisions) await api.saveStudyRevision(r);
+      for (const m of payload.mistakes) await api.saveStudyMistake(m);
+      for (const g of payload.goals) await api.saveStudyGoal(g);
+      for (const p of payload.plans) await api.saveStudyPlan(p);
+      for (const pt of payload.planTasks) await api.saveStudyPlanTask(pt);
+      for (const res of payload.resources) await api.saveStudyResource(res);
+      for (const ex of payload.exams) await api.saveStudyExam(ex);
+      for (const n of payload.notes) await api.saveStudyNote(n);
+      for (const fc of payload.flashcards) await api.saveStudyFlashcard(fc);
+      for (const q of payload.quizzes) await api.saveStudyQuiz(q);
+      await loadData();
+      showToast('Study workspace successfully restored!', 'success');
+    } catch (err) {
+      console.error('Failed to restore study workspace:', err);
+      showToast('Failed to restore workspace items', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Goal handlers
+  const handleCreateGoal = async (goalData: Partial<StudyGoal>) => {
+    const newGoal: StudyGoal = {
+      id: `goal_${Date.now()}`,
+      userId: user?.id || 'guest',
+      title: goalData.title!,
+      description: goalData.description || '',
+      goalType: goalData.goalType || 'monthly',
+      subjectId: goalData.subjectCode || null,
+      subjectCode: goalData.subjectCode || null,
+      targetValue: goalData.targetValue || 1,
+      currentValue: 0,
+      unit: goalData.unit || 'topics',
+      startDate: goalData.startDate || new Date().toISOString().slice(0, 10),
+      endDate: goalData.endDate || new Date().toISOString().slice(0, 10),
+      status: 'active',
+      priority: goalData.priority || 'medium',
+      milestones: goalData.milestones || [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await api.saveStudyGoal(newGoal);
+    setGoals((prev) => [newGoal, ...prev]);
+    showToast(`Goal "${newGoal.title}" created!`, 'success');
+  };
+
+  const handleToggleGoalMilestone = async (goalId: string, milestoneId: string) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+    const updatedMilestones = (goal.milestones || []).map((m) =>
+      m.id === milestoneId ? { ...m, completed: !m.completed } : m
+    );
+    const updated: StudyGoal = {
+      ...goal,
+      milestones: updatedMilestones,
+      updatedAt: new Date().toISOString(),
+    };
+    setGoals((prev) => prev.map((g) => (g.id === goalId ? updated : g)));
+    try {
+      await api.saveStudyGoal(updated);
+      playStudyMilestoneSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+    } catch (err) {
+      setGoals((prev) => prev.map((g) => (g.id === goalId ? goal : g)));
+    }
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    if (!window.confirm('Delete this academic goal?')) return;
+    setGoals((prev) => prev.filter((g) => g.id !== goalId));
+    try {
+      await api.deleteStudyGoal(goalId);
+      showToast('Goal removed', 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Plan & Task Handlers
+  const handleCreatePlan = async (planData: Partial<StudyPlan>) => {
+    const newPlan: StudyPlan = {
+      id: `plan_${Date.now()}`,
+      userId: user?.id || 'guest',
+      title: planData.title!,
+      description: planData.description || '',
+      planType: planData.planType || 'weekly',
+      subjectIds: planData.subjectIds || [],
+      startDate: planData.startDate || new Date().toISOString().slice(0, 10),
+      endDate: planData.endDate || new Date().toISOString().slice(0, 10),
+      dailyTargetMinutes: planData.dailyTargetMinutes || 120,
+      weeklyTargetMinutes: planData.weeklyTargetMinutes || 600,
+      recurringPattern: planData.recurringPattern || 'none',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await api.saveStudyPlan(newPlan);
+    setPlans((prev) => [newPlan, ...prev]);
+    showToast(`Study plan "${newPlan.title}" created!`, 'success');
+  };
+
+  const handleDeletePlan = async (planId: string) => {
+    if (!window.confirm('Delete this study plan?')) return;
+    setPlans((prev) => prev.filter((p) => p.id !== planId));
+    try {
+      await api.deleteStudyPlan(planId);
+      showToast('Study plan deleted', 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleQuickAddTask = async (title: string, estimatedMinutes: number, subjectCode?: string) => {
+    const activePlan = plans.find((p) => !p.deletedAt);
+    const newTask: StudyPlanTask = {
+      id: `task_${Date.now()}`,
+      planId: activePlan?.id || 'general',
+      userId: user?.id || 'guest',
+      title,
+      description: '',
+      subjectId: subjectCode || null,
+      topicId: null,
+      scheduledDate: selectedCalendarDate,
+      startTime: null,
+      endTime: null,
+      estimatedMinutes,
+      actualMinutes: 0,
+      priority: 'medium',
+      status: 'pending',
+      completedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await api.saveStudyPlanTask(newTask);
+    setPlanTasks((prev) => [newTask, ...prev]);
+    showToast('Task added to schedule!', 'success');
+  };
+
+  const handleToggleTaskStatus = async (task: StudyPlanTask) => {
+    const nextStatus = task.status === 'completed' ? 'pending' : 'completed';
+    const updated: StudyPlanTask = {
+      ...task,
+      status: nextStatus,
+      completedAt: nextStatus === 'completed' ? new Date().toISOString() : null,
+      actualMinutes: nextStatus === 'completed' ? (task.actualMinutes || task.estimatedMinutes || 30) : 0,
+      updatedAt: new Date().toISOString(),
+    };
+    setPlanTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)));
+    try {
+      await api.saveStudyPlanTask(updated);
+      if (nextStatus === 'completed') {
+        playStudyMilestoneSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+        showToast('Plan task marked complete!', 'success');
+      }
+    } catch (err) {
+      setPlanTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
+    }
+  };
+
+  const handleDeletePlanTask = async (taskId: string) => {
+    setPlanTasks((prev) => prev.filter((t) => t.id !== taskId));
+    try {
+      await api.deleteStudyPlanTask(taskId);
+      showToast('Task removed', 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Exam Handlers
+  const handleCreateExam = async (examData: Partial<StudyExam>) => {
+    const newExam: StudyExam = {
+      id: `exam_${Date.now()}`,
+      userId: user?.id || 'guest',
+      title: examData.title!,
+      examType: examData.examType || 'Semester Final',
+      subjectIds: examData.subjectIds || [],
+      syllabusTopicIds: examData.syllabusTopicIds || [],
+      examDate: examData.examDate || new Date().toISOString().slice(0, 10),
+      startTime: examData.startTime || null,
+      durationMinutes: examData.durationMinutes || 180,
+      totalMarks: examData.totalMarks || 100,
+      obtainedMarks: null,
+      preparationStatus: examData.preparationStatus || 'preparing',
+      resultStatus: 'pending',
+      notes: examData.notes || '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await api.saveStudyExam(newExam);
+    setExams((prev) => [newExam, ...prev]);
+    showToast(`Exam "${newExam.title}" scheduled!`, 'success');
+  };
+
+  const handleDeleteExam = async (examId: string) => {
+    if (!window.confirm('Delete this exam entry?')) return;
+    setExams((prev) => prev.filter((e) => e.id !== examId));
+    try {
+      await api.deleteStudyExam(examId);
+      showToast('Exam schedule deleted', 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Note Handlers
+  const handleCreateNote = async (noteData: Partial<StudyNote>) => {
+    const newNote: StudyNote = {
+      id: `note_${Date.now()}`,
+      userId: user?.id || 'guest',
+      title: noteData.title!,
+      content: noteData.content || '',
+      subjectId: noteData.subjectId || subjects[0]?.code || null,
+      topicId: noteData.topicId || null,
+      tags: noteData.tags || [],
+      isPinned: noteData.isPinned || false,
+      isBookmarked: noteData.isBookmarked || false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await api.saveStudyNote(newNote);
+    setNotes((prev) => [newNote, ...prev]);
+    showToast(`Note "${newNote.title}" saved!`, 'success');
+  };
+
+  const handleToggleNotePin = async (note: StudyNote) => {
+    const updated: StudyNote = {
+      ...note,
+      isPinned: !note.isPinned,
+      updatedAt: new Date().toISOString(),
+    };
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)));
+    try {
+      await api.saveStudyNote(updated);
+    } catch (err) {
+      setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
+    }
+  };
+
+  const handleToggleNoteBookmark = async (note: StudyNote) => {
+    const updated: StudyNote = {
+      ...note,
+      isBookmarked: !note.isBookmarked,
+      updatedAt: new Date().toISOString(),
+    };
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)));
+    try {
+      await api.saveStudyNote(updated);
+      showToast(updated.isBookmarked ? 'Note bookmarked' : 'Bookmark removed', 'info');
+    } catch (err) {
+      setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (!window.confirm('Delete this note?')) return;
+    setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    try {
+      await api.deleteStudyNote(noteId);
+      showToast('Note deleted', 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Resource Handlers
+  const handleCreateResource = async (resData: Partial<StudyResource>) => {
+    const newRes: StudyResource = {
+      id: `res_${Date.now()}`,
+      userId: user?.id || 'guest',
+      title: resData.title!,
+      description: resData.description || '',
+      resourceType: resData.resourceType || 'link',
+      url: resData.url || null,
+      subjectId: resData.subjectId || null,
+      topicId: resData.topicId || null,
+      storagePath: null,
+      tags: resData.tags || [],
+      isBookmarked: resData.isBookmarked || false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await api.saveStudyResource(newRes);
+    setResources((prev) => [newRes, ...prev]);
+    showToast(`Resource "${newRes.title}" saved!`, 'success');
+  };
+
+  const handleToggleResourceBookmark = async (resource: StudyResource) => {
+    const updated: StudyResource = {
+      ...resource,
+      isBookmarked: !resource.isBookmarked,
+      updatedAt: new Date().toISOString(),
+    };
+    setResources((prev) => prev.map((r) => (r.id === resource.id ? updated : r)));
+    try {
+      await api.saveStudyResource(updated);
+      showToast(updated.isBookmarked ? 'Resource bookmarked' : 'Bookmark removed', 'info');
+    } catch (err) {
+      setResources((prev) => prev.map((r) => (r.id === resource.id ? resource : r)));
+    }
+  };
+
+  const handleDeleteResource = async (resId: string) => {
+    if (!window.confirm('Delete this resource?')) return;
+    setResources((prev) => prev.filter((r) => r.id !== resId));
+    try {
+      await api.deleteStudyResource(resId);
+      showToast('Resource removed', 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Flashcard Handlers
+  const handleCreateFlashcard = async (cardData: Partial<StudyFlashcard>) => {
+    const newCard: StudyFlashcard = {
+      id: `card_${Date.now()}`,
+      userId: user?.id || 'guest',
+      question: cardData.question!,
+      answer: cardData.answer!,
+      subjectId: cardData.subjectId || subjects[0]?.code || null,
+      topicId: cardData.topicId || null,
+      difficulty: cardData.difficulty || 'medium',
+      reviewCount: 0,
+      lastReviewedAt: null,
+      nextReviewAt: new Date().toISOString().slice(0, 10),
+      isBookmarked: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await api.saveStudyFlashcard(newCard);
+    setFlashcards((prev) => [newCard, ...prev]);
+    showToast('Flashcard created!', 'success');
+  };
+
+  const handleReviewFlashcard = async (cardId: string, diff: 'easy' | 'medium' | 'hard') => {
+    try {
+      const updated = await api.reviewStudyFlashcard(cardId, diff);
+      if (updated) {
+        setFlashcards((prev) => prev.map((c) => (c.id === cardId ? updated : c)));
+      }
+      playStudyMilestoneSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+      showToast(
+        diff === 'easy' ? 'Card Mastered!' : diff === 'medium' ? 'Review Logged!' : 'Needs Revision!',
+        'success'
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleFlashcardBookmark = async (card: StudyFlashcard) => {
+    const updated: StudyFlashcard = {
+      ...card,
+      isBookmarked: !card.isBookmarked,
+      updatedAt: new Date().toISOString(),
+    };
+    setFlashcards((prev) => prev.map((c) => (c.id === card.id ? updated : c)));
+    try {
+      await api.saveStudyFlashcard(updated);
+      showToast(updated.isBookmarked ? 'Flashcard bookmarked' : 'Bookmark removed', 'info');
+    } catch (err) {
+      setFlashcards((prev) => prev.map((c) => (c.id === card.id ? card : c)));
+    }
+  };
+
+  const handleDeleteFlashcard = async (cardId: string) => {
+    if (!window.confirm('Delete this flashcard?')) return;
+    setFlashcards((prev) => prev.filter((c) => c.id !== cardId));
+    try {
+      await api.deleteStudyFlashcard(cardId);
+      showToast('Flashcard removed', 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Quiz Handlers
+  const handleRecordQuizAttempt = async (
+    quizId: string,
+    attempt: { score: number; totalQuestions: number; timeTakenSeconds: number }
+  ) => {
+    try {
+      const updated = await api.recordStudyQuizAttempt(quizId, attempt);
+      if (updated) {
+        setQuizzes((prev) => prev.map((q) => (q.id === quizId ? updated : q)));
+      }
+      playStudyMilestoneSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+      showToast(`Quiz completed! Score: ${attempt.score}/${attempt.totalQuestions}`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to record attempt', 'error');
+    }
+  };
+
+  const handleDeleteQuiz = async (quizId: string) => {
+    if (!window.confirm('Delete this quiz?')) return;
+    setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
+    try {
+      await api.deleteStudyQuiz(quizId);
+      showToast('Quiz deleted', 'info');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* View Header with Academic Branding and Quick Actions */}
@@ -377,6 +968,86 @@ export const StudyView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Global Search Bar */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ff-text-muted)]" />
+            <input
+              type="text"
+              value={globalSearchQuery}
+              onChange={(e) => setGlobalSearchQuery(e.target.value)}
+              placeholder="Global Search..."
+              className="w-36 sm:w-48 pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
+            />
+            {searchResults.length > 0 && (
+              <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 max-h-72 overflow-y-auto rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-xl z-50 p-2 space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] px-2 py-1 block">
+                  Search Results ({searchResults.length})
+                </span>
+                {searchResults.map((res) => (
+                  <div
+                    key={`${res.type}_${res.id}`}
+                    onClick={() => {
+                      if (res.type === 'subject') {
+                        setSelectedSubjectCode(res.tag || 'all');
+                        setActiveSubTab('syllabus');
+                      } else if (res.type === 'topic') {
+                        setActiveSubTab('syllabus');
+                      } else if (res.type === 'note') {
+                        setActiveSubTab('notes');
+                      } else if (res.type === 'resource') {
+                        setActiveSubTab('resources');
+                      } else if (res.type === 'exam') {
+                        setActiveSubTab('exams');
+                      } else if (res.type === 'plan') {
+                        setActiveSubTab('plans');
+                      } else if (res.type === 'flashcard') {
+                        setActiveSubTab('flashcards');
+                      }
+                      setGlobalSearchQuery('');
+                    }}
+                    className="p-2 rounded-xl hover:bg-[var(--ff-surface-muted)] cursor-pointer text-xs transition-colors flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="font-semibold text-[var(--ff-text-primary)] truncate max-w-[200px]">
+                        {res.title}
+                      </div>
+                      <div className="text-[10px] text-[var(--ff-text-muted)] truncate max-w-[200px]">
+                        {res.subtitle}
+                      </div>
+                    </div>
+                    <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-accent-text)]">
+                      {res.type}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Bookmarks Toggle */}
+          <ThemeButton
+            variant={isBookmarksOnly ? 'primary' : 'ghost'}
+            size="sm"
+            onClick={() => setIsBookmarksOnly(!isBookmarksOnly)}
+            className={isBookmarksOnly ? 'text-amber-300' : 'text-[var(--ff-text-muted)]'}
+            title="Filter by bookmarked items"
+          >
+            <Bookmark className="w-3.5 h-3.5 mr-1" fill={isBookmarksOnly ? 'currentColor' : 'none'} />
+            Bookmarks
+          </ThemeButton>
+
+          {/* Export / Restore */}
+          <ThemeButton
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsExportRestoreOpen(true)}
+            className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+            title="Export / Restore study data"
+          >
+            <Download className="w-3.5 h-3.5 mr-1" />
+            Portability
+          </ThemeButton>
+
           <ThemeButton
             variant="ghost"
             size="sm"
@@ -523,12 +1194,24 @@ export const StudyView: React.FC = () => {
           {(
             [
               { id: 'syllabus', label: 'Syllabus & Topics', icon: BookOpen },
+              { id: 'plans', label: 'Study Plans & Tasks', icon: Calendar },
+              { id: 'goals', label: 'Academic Goals', icon: Target },
+              { id: 'exams', label: 'Exams & Countdown', icon: Award },
               {
                 id: 'revisions',
                 label: 'Spaced Repetition',
                 icon: RotateCcw,
                 badge: progressSummary.dueRevisionsCount > 0 ? progressSummary.dueRevisionsCount : undefined,
               },
+              {
+                id: 'flashcards',
+                label: 'Flashcards',
+                icon: Sparkles,
+                badge: flashcards.filter((f) => !f.deletedAt && f.difficulty === 'hard').length || undefined,
+              },
+              { id: 'notes', label: 'Notes', icon: FileText },
+              { id: 'resources', label: 'Resources', icon: Link2 },
+              { id: 'quizzes', label: 'Quizzes', icon: HelpCircle },
               {
                 id: 'mistakes',
                 label: 'Mistake Log',
@@ -537,6 +1220,7 @@ export const StudyView: React.FC = () => {
               },
               { id: 'habits', label: 'Academic Habits', icon: CheckSquare },
               { id: 'analytics', label: 'Analytics & Mastery', icon: TrendingUp },
+              { id: 'activity', label: 'Activity Log', icon: History },
             ] as Array<{
               id: StudySubTab;
               label: string;
@@ -576,11 +1260,24 @@ export const StudyView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 pl-4">
-          <ThemeButton variant="ghost" size="sm" onClick={loadData} title="Refresh data">
+          <ThemeButton variant="ghost" size="sm" onClick={() => void loadData()} title="Refresh data">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </ThemeButton>
         </div>
       </div>
+
+      {/* Network / Load Error Alert */}
+      {loadError && (
+        <div className="flex items-center justify-between p-3.5 rounded-2xl border border-red-500/30 bg-red-500/10 text-xs text-red-300">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+            <span>{loadError}</span>
+          </div>
+          <ThemeButton variant="secondary" size="sm" onClick={() => void loadData()}>
+            Retry
+          </ThemeButton>
+        </div>
+      )}
 
       {/* SUB-VIEW 1: SYLLABUS & TOPICS */}
       {activeSubTab === 'syllabus' && (
@@ -669,6 +1366,11 @@ export const StudyView: React.FC = () => {
 
           {/* Subject Overview Cards Carousel / Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            {visibleSubjects.length === 0 && (
+              <div className="col-span-full p-8 text-center text-xs text-[var(--ff-text-muted)] border border-dashed border-[var(--ff-border-color)] rounded-2xl">
+                No study subjects found. Click &quot;+ Add Subject&quot; above to create one.
+              </div>
+            )}
             {visibleSubjects.map((sub) => {
               const subTopics = topics.filter((t) => t.subjectCode === sub.code && !t.deletedAt);
               const completed = subTopics.filter((t) => t.theory && t.practice).length;
@@ -887,6 +1589,17 @@ export const StudyView: React.FC = () => {
                         >
                           <Timer className="w-3.5 h-3.5" />
                         </ThemeButton>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTopicBookmark(item.id)}
+                          className={`p-1.5 transition-colors ${
+                            item.isBookmarked ? 'text-amber-400' : 'text-[var(--ff-text-muted)] hover:text-amber-400'
+                          }`}
+                          title={item.isBookmarked ? 'Bookmarked' : 'Add bookmark'}
+                        >
+                          <Bookmark className="w-3.5 h-3.5" fill={item.isBookmarked ? 'currentColor' : 'none'} />
+                        </button>
 
                         <button
                           type="button"
@@ -1512,6 +2225,94 @@ export const StudyView: React.FC = () => {
         </div>
       )}
 
+      {/* SUB-VIEW 6: STUDY PLANS & TASKS */}
+      {activeSubTab === 'plans' && (
+        <StudyPlansTab
+          plans={plans}
+          planTasks={planTasks}
+          focusSessions={focusSessions}
+          subjects={subjects}
+          selectedDate={selectedCalendarDate}
+          onSelectDate={setSelectedCalendarDate}
+          onOpenAddPlan={() => setIsAddPlanOpen(true)}
+          onToggleTask={handleToggleTaskStatus}
+          onDeleteTask={handleDeletePlanTask}
+          onDeletePlan={handleDeletePlan}
+          onQuickAddTask={handleQuickAddTask}
+        />
+      )}
+
+      {/* SUB-VIEW 7: ACADEMIC GOALS */}
+      {activeSubTab === 'goals' && (
+        <StudyGoalsTab
+          goals={goals}
+          subjects={subjects}
+          onOpenAddGoal={() => setIsAddGoalOpen(true)}
+          onToggleMilestone={handleToggleGoalMilestone}
+          onDeleteGoal={handleDeleteGoal}
+        />
+      )}
+
+      {/* SUB-VIEW 8: EXAMS & COUNTDOWN */}
+      {activeSubTab === 'exams' && (
+        <StudyExamsTab
+          exams={exams}
+          topics={topics}
+          subjects={subjects}
+          onOpenAddExam={() => setIsAddExamOpen(true)}
+          onDeleteExam={handleDeleteExam}
+        />
+      )}
+
+      {/* SUB-VIEW 9: ACTIVE RECALL FLASHCARDS */}
+      {activeSubTab === 'flashcards' && (
+        <StudyFlashcardsTab
+          flashcards={isBookmarksOnly ? flashcards.filter((f) => f.isBookmarked) : flashcards}
+          subjects={subjects}
+          onOpenAddFlashcard={() => setIsAddFlashcardOpen(true)}
+          onReviewFlashcard={handleReviewFlashcard}
+          onToggleBookmark={handleToggleFlashcardBookmark}
+          onDeleteFlashcard={handleDeleteFlashcard}
+        />
+      )}
+
+      {/* SUB-VIEW 10: STUDY NOTES */}
+      {activeSubTab === 'notes' && (
+        <StudyNotesTab
+          notes={isBookmarksOnly ? notes.filter((n) => n.isBookmarked) : notes}
+          subjects={subjects}
+          onOpenAddNote={() => setIsAddNoteOpen(true)}
+          onTogglePin={handleToggleNotePin}
+          onToggleBookmark={handleToggleNoteBookmark}
+          onDeleteNote={handleDeleteNote}
+        />
+      )}
+
+      {/* SUB-VIEW 11: RESOURCES & MATERIALS */}
+      {activeSubTab === 'resources' && (
+        <StudyResourcesTab
+          resources={isBookmarksOnly ? resources.filter((r) => r.isBookmarked) : resources}
+          subjects={subjects}
+          onOpenAddResource={() => setIsAddResourceOpen(true)}
+          onToggleBookmark={handleToggleResourceBookmark}
+          onDeleteResource={handleDeleteResource}
+        />
+      )}
+
+      {/* SUB-VIEW 12: QUIZZES */}
+      {activeSubTab === 'quizzes' && (
+        <StudyQuizzesTab
+          quizzes={quizzes}
+          onTakeQuiz={(quiz) => setSelectedQuizForAttempt(quiz)}
+          onDeleteQuiz={handleDeleteQuiz}
+        />
+      )}
+
+      {/* SUB-VIEW 13: ACTIVITY AUDIT TRAIL */}
+      {activeSubTab === 'activity' && (
+        <StudyActivityTab activityLogs={activityLogs} />
+      )}
+
       {/* MODALS */}
       <AddStudySubjectModal
         isOpen={isAddSubjectOpen}
@@ -1626,6 +2427,66 @@ export const StudyView: React.FC = () => {
           setMistakes((prev) => [newMistake, ...prev]);
           showToast(`Logged trap: Golden Rule saved!`, 'success');
         }}
+      />
+
+      <AddStudyGoalModal
+        isOpen={isAddGoalOpen}
+        onClose={() => setIsAddGoalOpen(false)}
+        subjects={subjects}
+        onAdd={handleCreateGoal}
+      />
+
+      <AddStudyPlanModal
+        isOpen={isAddPlanOpen}
+        onClose={() => setIsAddPlanOpen(false)}
+        subjects={subjects}
+        onAdd={handleCreatePlan}
+      />
+
+      <AddStudyExamModal
+        isOpen={isAddExamOpen}
+        onClose={() => setIsAddExamOpen(false)}
+        subjects={subjects}
+        topics={topics}
+        onAdd={handleCreateExam}
+      />
+
+      <AddStudyNoteModal
+        isOpen={isAddNoteOpen}
+        onClose={() => setIsAddNoteOpen(false)}
+        subjects={subjects}
+        topics={topics}
+        onAdd={handleCreateNote}
+      />
+
+      <AddStudyResourceModal
+        isOpen={isAddResourceOpen}
+        onClose={() => setIsAddResourceOpen(false)}
+        subjects={subjects}
+        topics={topics}
+        onAdd={handleCreateResource}
+      />
+
+      <AddStudyFlashcardModal
+        isOpen={isAddFlashcardOpen}
+        onClose={() => setIsAddFlashcardOpen(false)}
+        subjects={subjects}
+        topics={topics}
+        onAdd={handleCreateFlashcard}
+      />
+
+      <TakeStudyQuizModal
+        quiz={selectedQuizForAttempt}
+        isOpen={!!selectedQuizForAttempt}
+        onClose={() => setSelectedQuizForAttempt(null)}
+        onRecordAttempt={handleRecordQuizAttempt}
+      />
+
+      <ExportRestoreStudyModal
+        isOpen={isExportRestoreOpen}
+        onClose={() => setIsExportRestoreOpen(false)}
+        exportData={handleExportWorkspace}
+        onRestore={handleRestoreWorkspace}
       />
     </div>
   );

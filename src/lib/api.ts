@@ -26,6 +26,15 @@ import {
   StudyTopic,
   StudyRevision,
   StudyMistake,
+  StudyGoal,
+  StudyPlan,
+  StudyPlanTask,
+  StudyResource,
+  StudyExam,
+  StudyNote,
+  StudyActivityLog,
+  StudyFlashcard,
+  StudyQuiz,
 } from '../types/index.ts';
 import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
@@ -1873,6 +1882,299 @@ export const api = {
         payload: { id: mistakeId },
         dedupeKey: `del_mistake_${mistakeId}`,
         optimisticResult: () => true,
+      }
+    ),
+
+  // --- STUDY GOALS (PHASE 16) ---
+  getStudyGoals: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyGoals(uid),
+      () => request<StudyGoal[]>('/study/goals').catch(() => [])
+    ),
+
+  saveStudyGoal: (goal: Partial<StudyGoal>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyGoal(uid, goal),
+      () =>
+        request<StudyGoal>('/study/goals', {
+          method: 'POST',
+          body: JSON.stringify(goal),
+        }).catch(() => goal as StudyGoal)
+    ),
+
+  deleteStudyGoal: (goalId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyGoal(uid, goalId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/goals/${encodeURIComponent(goalId)}`, {
+          method: 'DELETE',
+        }).catch(() => ({ success: true }));
+        return Boolean(res?.success);
+      }
+    ),
+
+  // --- STUDY PLANS (PHASE 16) ---
+  getStudyPlans: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyPlans(uid),
+      () => request<StudyPlan[]>('/study/plans').catch(() => [])
+    ),
+
+  saveStudyPlan: (plan: Partial<StudyPlan>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyPlan(uid, plan),
+      () =>
+        request<StudyPlan>('/study/plans', {
+          method: 'POST',
+          body: JSON.stringify(plan),
+        }).catch(() => plan as StudyPlan)
+    ),
+
+  deleteStudyPlan: (planId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyPlan(uid, planId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/plans/${encodeURIComponent(planId)}`, {
+          method: 'DELETE',
+        }).catch(() => ({ success: true }));
+        return Boolean(res?.success);
+      }
+    ),
+
+  // --- STUDY PLAN TASKS (PHASE 16) ---
+  getStudyPlanTasks: (planId?: string) =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyPlanTasks(uid, planId),
+      () => request<StudyPlanTask[]>(`/study/plan-tasks${planId ? `?planId=${encodeURIComponent(planId)}` : ''}`).catch(() => [])
+    ),
+
+  saveStudyPlanTask: (task: Partial<StudyPlanTask>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyPlanTask(uid, task),
+      () =>
+        request<StudyPlanTask>('/study/plan-tasks', {
+          method: 'POST',
+          body: JSON.stringify(task),
+        }).catch(() => task as StudyPlanTask)
+    ),
+
+  deleteStudyPlanTask: (taskId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyPlanTask(uid, taskId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/plan-tasks/${encodeURIComponent(taskId)}`, {
+          method: 'DELETE',
+        }).catch(() => ({ success: true }));
+        return Boolean(res?.success);
+      }
+    ),
+
+  // --- STUDY RESOURCES (PHASE 16) ---
+  getStudyResources: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyResources(uid),
+      () => request<StudyResource[]>('/study/resources').catch(() => [])
+    ),
+
+  saveStudyResource: (resource: Partial<StudyResource>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyResource(uid, resource),
+      () =>
+        request<StudyResource>('/study/resources', {
+          method: 'POST',
+          body: JSON.stringify(resource),
+        }).catch(() => resource as StudyResource)
+    ),
+
+  deleteStudyResource: (resourceId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyResource(uid, resourceId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/resources/${encodeURIComponent(resourceId)}`, {
+          method: 'DELETE',
+        }).catch(() => ({ success: true }));
+        return Boolean(res?.success);
+      }
+    ),
+
+  // --- STUDY EXAMS (PHASE 16) ---
+  getStudyExams: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyExams(uid),
+      () => request<StudyExam[]>('/study/exams').catch(() => [])
+    ),
+
+  saveStudyExam: (exam: Partial<StudyExam>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyExam(uid, exam),
+      () =>
+        request<StudyExam>('/study/exams', {
+          method: 'POST',
+          body: JSON.stringify(exam),
+        }).catch(() => exam as StudyExam)
+    ),
+
+  deleteStudyExam: (examId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyExam(uid, examId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/exams/${encodeURIComponent(examId)}`, {
+          method: 'DELETE',
+        }).catch(() => ({ success: true }));
+        return Boolean(res?.success);
+      }
+    ),
+
+  // --- STUDY NOTES (PHASE 16) ---
+  getStudyNotes: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyNotes(uid),
+      () => request<StudyNote[]>('/study/notes').catch(() => [])
+    ),
+
+  saveStudyNote: (note: Partial<StudyNote>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyNote(uid, note),
+      () =>
+        request<StudyNote>('/study/notes', {
+          method: 'POST',
+          body: JSON.stringify(note),
+        }).catch(() => note as StudyNote)
+    ),
+
+  deleteStudyNote: (noteId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyNote(uid, noteId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/notes/${encodeURIComponent(noteId)}`, {
+          method: 'DELETE',
+        }).catch(() => ({ success: true }));
+        return Boolean(res?.success);
+      }
+    ),
+
+  // --- STUDY ACTIVITY LOGS (PHASE 16) ---
+  getStudyActivityLogs: (limitCount?: number) =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyActivityLogs(uid, limitCount),
+      () => request<StudyActivityLog[]>(`/study/activity-logs${limitCount ? `?limit=${limitCount}` : ''}`).catch(() => [])
+    ),
+
+  recordStudyActivityLog: (entry: Omit<StudyActivityLog, 'id' | 'userId' | 'createdAt'>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.recordStudyActivityLog(uid, entry),
+      () =>
+        request<StudyActivityLog>('/study/activity-logs', {
+          method: 'POST',
+          body: JSON.stringify(entry),
+        }).catch(() => ({
+          id: `act_${Date.now()}`,
+          userId: 'guest',
+          createdAt: new Date().toISOString(),
+          ...entry,
+        }))
+    ),
+
+  // --- STUDY FLASHCARDS (PHASE 16) ---
+  getStudyFlashcards: (topicId?: string) =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyFlashcards(uid, topicId),
+      () => request<StudyFlashcard[]>(`/study/flashcards${topicId ? `?topicId=${encodeURIComponent(topicId)}` : ''}`).catch(() => [])
+    ),
+
+  saveStudyFlashcard: (card: Partial<StudyFlashcard>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyFlashcard(uid, card),
+      () =>
+        request<StudyFlashcard>('/study/flashcards', {
+          method: 'POST',
+          body: JSON.stringify(card),
+        }).catch(() => card as StudyFlashcard)
+    ),
+
+  reviewStudyFlashcard: (id: string, difficulty: 'easy' | 'medium' | 'hard') =>
+    withPrimaryWrite(
+      (uid) => firestoreService.reviewStudyFlashcard(uid, id, difficulty),
+      () =>
+        request<StudyFlashcard>(`/study/flashcards/${encodeURIComponent(id)}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ difficulty }),
+        }).catch(() => null)
+    ),
+
+  deleteStudyFlashcard: (cardId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyFlashcard(uid, cardId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/flashcards/${encodeURIComponent(cardId)}`, {
+          method: 'DELETE',
+        }).catch(() => ({ success: true }));
+        return Boolean(res?.success);
+      }
+    ),
+
+  // --- STUDY QUIZZES (PHASE 16) ---
+  getStudyQuizzes: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyQuizzes(uid),
+      () => request<StudyQuiz[]>('/study/quizzes').catch(() => [])
+    ),
+
+  saveStudyQuiz: (quiz: Partial<StudyQuiz>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyQuiz(uid, quiz),
+      () =>
+        request<StudyQuiz>('/study/quizzes', {
+          method: 'POST',
+          body: JSON.stringify(quiz),
+        }).catch(() => quiz as StudyQuiz)
+    ),
+
+  recordStudyQuizAttempt: (
+    quizId: string,
+    attempt: { score: number; totalQuestions: number; timeTakenSeconds: number }
+  ) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.recordStudyQuizAttempt(uid, quizId, attempt),
+      () =>
+        request<StudyQuiz>(`/study/quizzes/${encodeURIComponent(quizId)}/attempt`, {
+          method: 'POST',
+          body: JSON.stringify(attempt),
+        }).catch(() => null)
+    ),
+
+  deleteStudyQuiz: (quizId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyQuiz(uid, quizId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/quizzes/${encodeURIComponent(quizId)}`, {
+          method: 'DELETE',
+        }).catch(() => ({ success: true }));
+        return Boolean(res?.success);
       }
     ),
 };

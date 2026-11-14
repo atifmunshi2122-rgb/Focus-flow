@@ -54,6 +54,15 @@ import {
   StudyTopic,
   StudyRevision,
   StudyMistake,
+  StudyGoal,
+  StudyPlan,
+  StudyPlanTask,
+  StudyResource,
+  StudyExam,
+  StudyNote,
+  StudyActivityLog,
+  StudyFlashcard,
+  StudyQuiz,
 } from '../types/index.ts';
 import { buildDefaultStudyWorkspace } from '../data/studySeedData.ts';
 import { processRevisionRecall } from './studyIntelligence.ts';
@@ -2455,6 +2464,7 @@ export const firestoreService = {
       await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     }
     await setDoc(doc(db, `users/${userId}/settings/savings_goals`), { items: [] }, { merge: true });
+    await setDoc(doc(db, `users/${userId}/settings/study_meta`), { initialized: true, clearedAt: new Date().toISOString() }, { merge: true });
     await this.getCategories(userId);
   },
 
@@ -2462,13 +2472,57 @@ export const firestoreService = {
   async getStudySubjects(userId: string): Promise<StudySubject[]> {
     const list = await listSubcollection<StudySubject>(`users/${userId}/study_subjects`);
     const active = list.filter((s) => !s.deletedAt);
-    if (active.length === 0) {
-      const { subjects, topics } = buildDefaultStudyWorkspace(userId);
-      for (const s of subjects) await this.saveStudySubject(userId, s);
-      for (const t of topics) await this.saveStudyTopic(userId, t);
-      return subjects;
+
+    // FIX 3: If any records exist in the subcollection (active or soft-deleted),
+    // the workspace has already been initialized. Do not resurrect intentionally deleted subjects.
+    if (list.length > 0) {
+      return active.sort((a, b) => a.code.localeCompare(b.code));
     }
-    return active.sort((a, b) => a.code.localeCompare(b.code));
+
+    // Check if the user has an existing study_meta initialization marker in settings
+    let isInitialized = false;
+    try {
+      const metaSnap = await getDoc(doc(db, `users/${userId}/settings/study_meta`));
+      isInitialized = metaSnap.exists() && Boolean(metaSnap.data()?.initialized);
+    } catch {
+      // Proceed gracefully if settings doc read fails
+    }
+
+    // If previously initialized (e.g. all subjects were deleted or cleared), preserve empty state
+    if (isInitialized) {
+      return [];
+    }
+
+    // Genuinely new user with uninitialized workspace:
+    // FIX 4: Atomically initialize default subjects, topics, revisions, and mistakes via writeBatch
+    try {
+      const batch = writeBatch(db);
+      const { subjects, topics, revisions, mistakes } = buildDefaultStudyWorkspace(userId);
+
+      for (const s of subjects) {
+        batch.set(doc(db, `users/${userId}/study_subjects/${s.id}`), stripUndefined({ ...s }), { merge: true });
+      }
+      for (const t of topics) {
+        batch.set(doc(db, `users/${userId}/study_topics/${t.id}`), stripUndefined({ ...t }), { merge: true });
+      }
+      for (const r of revisions) {
+        batch.set(doc(db, `users/${userId}/study_revisions/${r.id}`), stripUndefined({ ...r }), { merge: true });
+      }
+      for (const m of mistakes) {
+        batch.set(doc(db, `users/${userId}/study_mistakes/${m.id}`), stripUndefined({ ...m }), { merge: true });
+      }
+      batch.set(
+        doc(db, `users/${userId}/settings/study_meta`),
+        { initialized: true, seededAt: new Date().toISOString() },
+        { merge: true }
+      );
+
+      await batch.commit();
+      return subjects;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${userId}/study_subjects`);
+      return [];
+    }
   },
 
   async saveStudySubject(userId: string, input: Partial<StudySubject>): Promise<StudySubject> {
@@ -2684,6 +2738,515 @@ export const firestoreService = {
   async deleteStudyMistake(userId: string, id: string): Promise<void> {
     await setDoc(
       doc(db, `users/${userId}/study_mistakes/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  // --- STUDY GOALS & MILESTONES (PHASE 16) ---
+  async getStudyGoals(userId: string): Promise<StudyGoal[]> {
+    const list = await listSubcollection<StudyGoal>(`users/${userId}/study_goals`);
+    return list.filter((g) => !g.deletedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  async saveStudyGoal(userId: string, input: Partial<StudyGoal>): Promise<StudyGoal> {
+    const id = input.id || `goal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_goals/${id}`;
+    let existing: Partial<StudyGoal> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as StudyGoal;
+      } catch {
+        // proceed
+      }
+    }
+    const item: StudyGoal = {
+      id,
+      userId,
+      title: (input.title ?? existing.title ?? 'Academic Goal').trim(),
+      description: input.description ?? existing.description ?? '',
+      goalType: input.goalType ?? existing.goalType ?? 'monthly',
+      subjectId: input.subjectId !== undefined ? input.subjectId : (existing.subjectId ?? null),
+      subjectCode: input.subjectCode !== undefined ? input.subjectCode : (existing.subjectCode ?? null),
+      targetValue: Number(input.targetValue ?? existing.targetValue ?? 10) || 1,
+      currentValue: Number(input.currentValue ?? existing.currentValue ?? 0) || 0,
+      unit: input.unit ?? existing.unit ?? 'topics',
+      startDate: input.startDate ?? existing.startDate ?? nowIso.slice(0, 10),
+      endDate: input.endDate ?? existing.endDate ?? nowIso.slice(0, 10),
+      status: input.status ?? existing.status ?? 'active',
+      priority: input.priority ?? existing.priority ?? 'medium',
+      milestones: Array.isArray(input.milestones) ? input.milestones : (existing.milestones ?? []),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async deleteStudyGoal(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_goals/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  // --- STUDY PLANS & RECURRING SCHEDULES (PHASE 16) ---
+  async getStudyPlans(userId: string): Promise<StudyPlan[]> {
+    const list = await listSubcollection<StudyPlan>(`users/${userId}/study_plans`);
+    return list.filter((p) => !p.deletedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  async saveStudyPlan(userId: string, input: Partial<StudyPlan>): Promise<StudyPlan> {
+    const id = input.id || `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_plans/${id}`;
+    let existing: Partial<StudyPlan> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as StudyPlan;
+      } catch {
+        // proceed
+      }
+    }
+    const item: StudyPlan = {
+      id,
+      userId,
+      title: (input.title ?? existing.title ?? 'Study Plan').trim(),
+      description: input.description ?? existing.description ?? '',
+      planType: input.planType ?? existing.planType ?? 'weekly',
+      subjectIds: Array.isArray(input.subjectIds) ? input.subjectIds : (existing.subjectIds ?? []),
+      startDate: input.startDate ?? existing.startDate ?? nowIso.slice(0, 10),
+      endDate: input.endDate ?? existing.endDate ?? nowIso.slice(0, 10),
+      dailyTargetMinutes: Number(input.dailyTargetMinutes ?? existing.dailyTargetMinutes ?? 120) || 0,
+      weeklyTargetMinutes: Number(input.weeklyTargetMinutes ?? existing.weeklyTargetMinutes ?? 600) || 0,
+      recurringPattern: input.recurringPattern ?? existing.recurringPattern ?? 'none',
+      status: input.status ?? existing.status ?? 'active',
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async deleteStudyPlan(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_plans/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  // --- STUDY PLAN TASKS (PHASE 16) ---
+  async getStudyPlanTasks(userId: string, planId?: string): Promise<StudyPlanTask[]> {
+    const list = await listSubcollection<StudyPlanTask>(`users/${userId}/study_plan_tasks`);
+    return list
+      .filter((t) => !t.deletedAt && (!planId || t.planId === planId))
+      .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+  },
+
+  async saveStudyPlanTask(userId: string, input: Partial<StudyPlanTask>): Promise<StudyPlanTask> {
+    const id = input.id || `ptask_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_plan_tasks/${id}`;
+    let existing: Partial<StudyPlanTask> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as StudyPlanTask;
+      } catch {
+        // proceed
+      }
+    }
+    const item: StudyPlanTask = {
+      id,
+      userId,
+      planId: input.planId ?? existing.planId ?? 'default_plan',
+      subjectId: input.subjectId !== undefined ? input.subjectId : (existing.subjectId ?? null),
+      topicId: input.topicId !== undefined ? input.topicId : (existing.topicId ?? null),
+      title: (input.title ?? existing.title ?? 'Plan Task').trim(),
+      description: input.description ?? existing.description ?? '',
+      scheduledDate: input.scheduledDate ?? existing.scheduledDate ?? nowIso.slice(0, 10),
+      startTime: input.startTime !== undefined ? input.startTime : (existing.startTime ?? null),
+      endTime: input.endTime !== undefined ? input.endTime : (existing.endTime ?? null),
+      estimatedMinutes: Number(input.estimatedMinutes ?? existing.estimatedMinutes ?? 45) || 0,
+      actualMinutes: Number(input.actualMinutes ?? existing.actualMinutes ?? 0) || 0,
+      priority: input.priority ?? existing.priority ?? 'medium',
+      status: input.status ?? existing.status ?? 'pending',
+      completedAt: input.completedAt !== undefined ? input.completedAt : (existing.completedAt ?? null),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async deleteStudyPlanTask(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_plan_tasks/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  // --- STUDY RESOURCES & REFERENCES (PHASE 16) ---
+  async getStudyResources(userId: string): Promise<StudyResource[]> {
+    const list = await listSubcollection<StudyResource>(`users/${userId}/study_resources`);
+    return list.filter((r) => !r.deletedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  async saveStudyResource(userId: string, input: Partial<StudyResource>): Promise<StudyResource> {
+    const id = input.id || `res_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_resources/${id}`;
+    let existing: Partial<StudyResource> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as StudyResource;
+      } catch {
+        // proceed
+      }
+    }
+    const item: StudyResource = {
+      id,
+      userId,
+      title: (input.title ?? existing.title ?? 'Study Resource').trim(),
+      description: input.description ?? existing.description ?? '',
+      resourceType: input.resourceType ?? existing.resourceType ?? 'link',
+      subjectId: input.subjectId !== undefined ? input.subjectId : (existing.subjectId ?? null),
+      topicId: input.topicId !== undefined ? input.topicId : (existing.topicId ?? null),
+      url: input.url !== undefined ? input.url : (existing.url ?? null),
+      storagePath: input.storagePath !== undefined ? input.storagePath : (existing.storagePath ?? null),
+      tags: Array.isArray(input.tags) ? input.tags : (existing.tags ?? []),
+      isBookmarked: input.isBookmarked !== undefined ? Boolean(input.isBookmarked) : Boolean(existing.isBookmarked),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async deleteStudyResource(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_resources/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  // --- STUDY EXAMS & RESULTS (PHASE 16) ---
+  async getStudyExams(userId: string): Promise<StudyExam[]> {
+    const list = await listSubcollection<StudyExam>(`users/${userId}/study_exams`);
+    return list.filter((e) => !e.deletedAt).sort((a, b) => a.examDate.localeCompare(b.examDate));
+  },
+
+  async saveStudyExam(userId: string, input: Partial<StudyExam>): Promise<StudyExam> {
+    const id = input.id || `exam_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_exams/${id}`;
+    let existing: Partial<StudyExam> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as StudyExam;
+      } catch {
+        // proceed
+      }
+    }
+    const item: StudyExam = {
+      id,
+      userId,
+      title: (input.title ?? existing.title ?? 'Academic Exam').trim(),
+      examType: input.examType ?? existing.examType ?? 'Semester',
+      subjectIds: Array.isArray(input.subjectIds) ? input.subjectIds : (existing.subjectIds ?? []),
+      examDate: input.examDate ?? existing.examDate ?? nowIso.slice(0, 10),
+      startTime: input.startTime !== undefined ? input.startTime : (existing.startTime ?? null),
+      durationMinutes: Number(input.durationMinutes ?? existing.durationMinutes ?? 180) || 60,
+      totalMarks: Number(input.totalMarks ?? existing.totalMarks ?? 100) || 100,
+      obtainedMarks: input.obtainedMarks !== undefined ? (input.obtainedMarks === null ? null : Number(input.obtainedMarks)) : (existing.obtainedMarks ?? null),
+      syllabusTopicIds: Array.isArray(input.syllabusTopicIds) ? input.syllabusTopicIds : (existing.syllabusTopicIds ?? []),
+      preparationStatus: input.preparationStatus ?? existing.preparationStatus ?? 'not_started',
+      resultStatus: input.resultStatus ?? existing.resultStatus ?? 'pending',
+      notes: input.notes ?? existing.notes ?? '',
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async deleteStudyExam(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_exams/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  // --- STUDY NOTES (PHASE 16) ---
+  async getStudyNotes(userId: string): Promise<StudyNote[]> {
+    const list = await listSubcollection<StudyNote>(`users/${userId}/study_notes`);
+    return list.filter((n) => !n.deletedAt).sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0) || b.updatedAt.localeCompare(a.updatedAt));
+  },
+
+  async saveStudyNote(userId: string, input: Partial<StudyNote>): Promise<StudyNote> {
+    const id = input.id || `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_notes/${id}`;
+    let existing: Partial<StudyNote> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as StudyNote;
+      } catch {
+        // proceed
+      }
+    }
+    const item: StudyNote = {
+      id,
+      userId,
+      title: (input.title ?? existing.title ?? 'Untitled Note').trim(),
+      content: input.content ?? existing.content ?? '',
+      subjectId: input.subjectId !== undefined ? input.subjectId : (existing.subjectId ?? null),
+      topicId: input.topicId !== undefined ? input.topicId : (existing.topicId ?? null),
+      tags: Array.isArray(input.tags) ? input.tags : (existing.tags ?? []),
+      isPinned: input.isPinned !== undefined ? Boolean(input.isPinned) : Boolean(existing.isPinned),
+      isBookmarked: input.isBookmarked !== undefined ? Boolean(input.isBookmarked) : Boolean(existing.isBookmarked),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async deleteStudyNote(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_notes/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  // --- STUDY ACTIVITY LOGS (PHASE 16 APPEND-ONLY) ---
+  async getStudyActivityLogs(userId: string, limitCount = 50): Promise<StudyActivityLog[]> {
+    const list = await listSubcollection<StudyActivityLog>(`users/${userId}/study_activity_logs`);
+    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limitCount);
+  },
+
+  async recordStudyActivityLog(
+    userId: string,
+    entry: Omit<StudyActivityLog, 'id' | 'userId' | 'createdAt'>
+  ): Promise<StudyActivityLog> {
+    const id = `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_activity_logs/${id}`;
+    const logItem: StudyActivityLog = {
+      id,
+      userId,
+      activityType: entry.activityType,
+      subjectId: entry.subjectId || null,
+      topicId: entry.topicId || null,
+      planId: entry.planId || null,
+      taskId: entry.taskId || null,
+      description: entry.description,
+      metadata: entry.metadata || {},
+      activityDate: entry.activityDate || nowIso.slice(0, 10),
+      createdAt: nowIso,
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...logItem }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return logItem;
+  },
+
+  // --- STUDY FLASHCARDS (PHASE 16 ACTIVE RECALL) ---
+  async getStudyFlashcards(userId: string, topicId?: string): Promise<StudyFlashcard[]> {
+    const list = await listSubcollection<StudyFlashcard>(`users/${userId}/study_flashcards`);
+    return list
+      .filter((c) => !c.deletedAt && (!topicId || c.topicId === topicId))
+      .sort((a, b) => (a.nextReviewAt || '').localeCompare(b.nextReviewAt || ''));
+  },
+
+  async saveStudyFlashcard(userId: string, input: Partial<StudyFlashcard>): Promise<StudyFlashcard> {
+    const id = input.id || `card_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_flashcards/${id}`;
+    let existing: Partial<StudyFlashcard> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as StudyFlashcard;
+      } catch {
+        // proceed
+      }
+    }
+    const item: StudyFlashcard = {
+      id,
+      userId,
+      subjectId: input.subjectId !== undefined ? input.subjectId : (existing.subjectId ?? null),
+      topicId: input.topicId !== undefined ? input.topicId : (existing.topicId ?? null),
+      question: (input.question ?? existing.question ?? '').trim(),
+      answer: (input.answer ?? existing.answer ?? '').trim(),
+      difficulty: input.difficulty ?? existing.difficulty ?? 'medium',
+      reviewCount: Number(input.reviewCount ?? existing.reviewCount ?? 0) || 0,
+      lastReviewedAt: input.lastReviewedAt !== undefined ? input.lastReviewedAt : (existing.lastReviewedAt ?? null),
+      nextReviewAt: input.nextReviewAt !== undefined ? input.nextReviewAt : (existing.nextReviewAt ?? nowIso.slice(0, 10)),
+      isBookmarked: input.isBookmarked !== undefined ? Boolean(input.isBookmarked) : Boolean(existing.isBookmarked),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async reviewStudyFlashcard(
+    userId: string,
+    id: string,
+    difficulty: 'easy' | 'medium' | 'hard'
+  ): Promise<StudyFlashcard | null> {
+    const path = `users/${userId}/study_flashcards/${id}`;
+    const snap = await getDoc(doc(db, path));
+    if (!snap.exists()) return null;
+    const existing = snap.data() as StudyFlashcard;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const ladderDays = difficulty === 'easy' ? 7 : difficulty === 'medium' ? 3 : 1;
+    const nextDate = new Date(now.getTime() + ladderDays * 86400000).toISOString().slice(0, 10);
+
+    const updated: Partial<StudyFlashcard> = {
+      ...existing,
+      difficulty,
+      reviewCount: (existing.reviewCount || 0) + 1,
+      lastReviewedAt: todayStr,
+      nextReviewAt: nextDate,
+      updatedAt: now.toISOString(),
+    };
+    await setDoc(doc(db, path), stripUndefined({ ...updated }), { merge: true });
+    return updated as StudyFlashcard;
+  },
+
+  async deleteStudyFlashcard(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_flashcards/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  // --- STUDY QUIZZES (PHASE 16 SELF-ASSESSMENT) ---
+  async getStudyQuizzes(userId: string): Promise<StudyQuiz[]> {
+    const list = await listSubcollection<StudyQuiz>(`users/${userId}/study_quizzes`);
+    return list.filter((q) => !q.deletedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  async saveStudyQuiz(userId: string, input: Partial<StudyQuiz>): Promise<StudyQuiz> {
+    const id = input.id || `quiz_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_quizzes/${id}`;
+    let existing: Partial<StudyQuiz> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as StudyQuiz;
+      } catch {
+        // proceed
+      }
+    }
+    const item: StudyQuiz = {
+      id,
+      userId,
+      title: (input.title ?? existing.title ?? 'Practice Quiz').trim(),
+      subjectId: input.subjectId !== undefined ? input.subjectId : (existing.subjectId ?? null),
+      topicId: input.topicId !== undefined ? input.topicId : (existing.topicId ?? null),
+      questions: Array.isArray(input.questions) ? input.questions : (existing.questions ?? []),
+      attempts: Array.isArray(input.attempts) ? input.attempts : (existing.attempts ?? []),
+      highestScore: Number(input.highestScore ?? existing.highestScore ?? 0) || 0,
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async recordStudyQuizAttempt(
+    userId: string,
+    quizId: string,
+    attempt: { score: number; totalQuestions: number; timeTakenSeconds: number }
+  ): Promise<StudyQuiz | null> {
+    const path = `users/${userId}/study_quizzes/${quizId}`;
+    const snap = await getDoc(doc(db, path));
+    if (!snap.exists()) return null;
+    const existing = snap.data() as StudyQuiz;
+    const percentage = Math.round((attempt.score / Math.max(1, attempt.totalQuestions)) * 100);
+    const newAttempt = {
+      id: `att_${Date.now()}`,
+      attemptedAt: new Date().toISOString(),
+      score: attempt.score,
+      totalQuestions: attempt.totalQuestions,
+      percentage,
+      timeTakenSeconds: attempt.timeTakenSeconds,
+    };
+    const attempts = [...(existing.attempts || []), newAttempt];
+    const highestScore = Math.max(existing.highestScore || 0, percentage);
+    const updated = {
+      ...existing,
+      attempts,
+      highestScore,
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(doc(db, path), stripUndefined({ ...updated }), { merge: true });
+    return updated as StudyQuiz;
+  },
+
+  async deleteStudyQuiz(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_quizzes/${id}`),
       { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { merge: true }
     );

@@ -437,6 +437,155 @@ service cloud.firestore {
           );
         allow delete: if isOwner(userId);
       }
+
+      // Study goals subcollection (Phase 16 Academic Goals & Milestones)
+      match /study_goals/{goalId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(goalId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.title, 256)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study plans subcollection (Phase 16 Structured Study Plans)
+      match /study_plans/{planId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(planId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256)
+          && request.resource.data.planType in ['daily', 'weekly', 'monthly', 'semester', 'exam'];
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.title, 256)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study plan tasks subcollection (Phase 16 Plan Tasks & Calendar)
+      match /study_plan_tasks/{taskId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(taskId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256)
+          && isIsoDate(request.resource.data.scheduledDate);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.title, 256)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study resources subcollection (Phase 16 Reference Materials & Links)
+      match /study_resources/{resourceId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(resourceId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256)
+          && request.resource.data.resourceType in ['pdf', 'video', 'link', 'document', 'image', 'other'];
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.title, 256)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study exams subcollection (Phase 16 Exam Schedules & Results)
+      match /study_exams/{examId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(examId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256)
+          && isIsoDate(request.resource.data.examDate);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.title, 256)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study notes subcollection (Phase 16 Topic Notes & Bookmarks)
+      match /study_notes/{noteId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(noteId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.title, 256)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study activity logs subcollection (Phase 16 Append-only Historical Audit)
+      match /study_activity_logs/{logId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(logId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.activityType, 64);
+        allow update: if false; // Append-only historical log
+        allow delete: if false; // Immutable audit log
+      }
+
+      // Study flashcards subcollection (Phase 16 Active Recall & Spaced Repetition)
+      match /study_flashcards/{cardId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(cardId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.question, 1024);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study quizzes subcollection (Phase 16 Self-Assessment & Performance)
+      match /study_quizzes/{quizId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(quizId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
     }
   }
 }

@@ -551,7 +551,7 @@ export const PomodoroTimer: React.FC = () => {
             strokeLinecap="round"
           />
 
-          {progressRatio > 0.01 && (
+          {(isRunning || progressRatio > 0) && (
             <motion.circle
               r={strokeWidth * 0.62}
               fill="var(--ff-bg-canvas)"

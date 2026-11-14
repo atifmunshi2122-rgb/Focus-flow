@@ -43,6 +43,7 @@ export interface StudyTopic {
   revisionCount: number; // Ebbinghaus spaced interval count
   notes?: string;
   rowIndex?: number;
+  isBookmarked?: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
@@ -112,4 +113,223 @@ export interface StudyProgressSummary {
     color?: string;
     studyMinutes?: number;
   }>;
+}
+
+// ==========================================
+// PHASE 16 STUDY MANAGEMENT EXTENSIONS
+// ==========================================
+
+export interface StudyGoalMilestone {
+  id: string;
+  title: string;
+  targetValue: number;
+  completed: boolean;
+  completedAt?: string | null;
+}
+
+export type StudyGoalStatus = 'active' | 'completed' | 'paused' | 'cancelled';
+export type StudyGoalPriority = 'low' | 'medium' | 'high';
+export type StudyGoalType = 'long_term' | 'semester' | 'monthly' | 'weekly' | 'daily';
+
+export interface StudyGoal {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  goalType: string;
+  subjectId: string | null;
+  subjectCode: string | null;
+  targetValue: number;
+  currentValue: number;
+  unit: string;
+  startDate: string;
+  endDate: string;
+  status: StudyGoalStatus;
+  priority: StudyGoalPriority;
+  milestones?: StudyGoalMilestone[];
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export type StudyPlanType = 'daily' | 'weekly' | 'monthly' | 'semester' | 'exam';
+export type StudyPlanStatus = 'active' | 'completed' | 'paused' | 'archived';
+
+export interface StudyPlan {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  planType: StudyPlanType;
+  subjectIds: string[];
+  startDate: string;
+  endDate: string;
+  dailyTargetMinutes: number;
+  weeklyTargetMinutes: number;
+  recurringPattern?: 'none' | 'daily' | 'weekdays' | 'weekends' | 'weekly';
+  status: StudyPlanStatus;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export type StudyPlanTaskPriority = 'low' | 'medium' | 'high';
+export type StudyPlanTaskStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
+
+export interface StudyPlanTask {
+  id: string;
+  userId: string;
+  planId: string;
+  subjectId: string | null;
+  topicId: string | null;
+  title: string;
+  description: string;
+  scheduledDate: string; // YYYY-MM-DD
+  startTime: string | null; // HH:mm
+  endTime: string | null; // HH:mm
+  estimatedMinutes: number;
+  actualMinutes: number;
+  priority: StudyPlanTaskPriority;
+  status: StudyPlanTaskStatus;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export type StudyResourceType = 'pdf' | 'video' | 'link' | 'document' | 'image' | 'other';
+
+export interface StudyResource {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  resourceType: StudyResourceType;
+  subjectId: string | null;
+  topicId: string | null;
+  url: string | null;
+  storagePath: string | null;
+  tags: string[];
+  isBookmarked?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export type StudyExamPrepStatus = 'not_started' | 'preparing' | 'ready' | 'completed';
+export type StudyExamResultStatus = 'pending' | 'published';
+
+export interface StudyExam {
+  id: string;
+  userId: string;
+  title: string;
+  examType: string;
+  subjectIds: string[];
+  examDate: string; // YYYY-MM-DD
+  startTime: string | null;
+  durationMinutes: number;
+  totalMarks: number;
+  obtainedMarks: number | null;
+  syllabusTopicIds: string[];
+  preparationStatus: StudyExamPrepStatus;
+  resultStatus: StudyExamResultStatus;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface StudyNote {
+  id: string;
+  userId: string;
+  title: string;
+  content: string;
+  subjectId: string | null;
+  topicId: string | null;
+  tags: string[];
+  isPinned: boolean;
+  isBookmarked?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface StudyActivityLog {
+  id: string;
+  userId: string;
+  activityType: string;
+  subjectId: string | null;
+  topicId: string | null;
+  planId: string | null;
+  taskId: string | null;
+  description: string;
+  metadata: Record<string, unknown>;
+  activityDate: string; // YYYY-MM-DD
+  createdAt: string;
+}
+
+export interface StudyFlashcard {
+  id: string;
+  userId: string;
+  subjectId: string | null;
+  topicId: string | null;
+  question: string;
+  answer: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  reviewCount: number;
+  lastReviewedAt: string | null;
+  nextReviewAt: string | null;
+  isBookmarked?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface StudyQuizQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+  correctOptionIndex: number;
+  explanation?: string;
+}
+
+export interface StudyQuizAttempt {
+  id: string;
+  attemptedAt: string;
+  score: number;
+  totalQuestions: number;
+  percentage: number;
+  timeTakenSeconds: number;
+}
+
+export interface StudyQuiz {
+  id: string;
+  userId: string;
+  title: string;
+  subjectId: string | null;
+  topicId: string | null;
+  questions: StudyQuizQuestion[];
+  attempts: StudyQuizAttempt[];
+  highestScore: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface StudyExportPayload {
+  version: number;
+  exportedAt: string;
+  userId: string;
+  subjects: StudySubject[];
+  topics: StudyTopic[];
+  revisions: StudyRevision[];
+  mistakes: StudyMistake[];
+  goals: StudyGoal[];
+  plans: StudyPlan[];
+  planTasks: StudyPlanTask[];
+  resources: StudyResource[];
+  exams: StudyExam[];
+  notes: StudyNote[];
+  flashcards: StudyFlashcard[];
+  quizzes: StudyQuiz[];
 }

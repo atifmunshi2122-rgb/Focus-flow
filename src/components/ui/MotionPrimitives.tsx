@@ -638,21 +638,15 @@ interface RollingTimerDigitsProps {
 }
 
 /**
- * Per-character rolling tabular digit readout. Each digit transitions vertically
- * in-place inside a clipped slot while maintaining strict tabular alignment.
+ * Per-character tabular digit readout. Ensures digits remain 100% visible,
+ * centered, and rock-solid during active countdown without layout popping or clipping.
  */
 export const RollingTimerDigits: React.FC<RollingTimerDigitsProps> = ({
   value,
   className = '',
 }) => {
-  const { isDisabled, profile } = useMotionPreferences();
-
-  if (isDisabled) {
-    return <span className={`tabular-nums ${className}`.trim()}>{value}</span>;
-  }
-
   return (
-    <span className={`inline-flex items-baseline tabular-nums ${className}`.trim()}>
+    <span className={`inline-flex items-center font-mono tabular-nums select-none ${className}`.trim()}>
       {Array.from(value).map((ch, idx) => {
         const isDigit = ch >= '0' && ch <= '9';
         if (!isDigit) {
@@ -665,21 +659,10 @@ export const RollingTimerDigits: React.FC<RollingTimerDigitsProps> = ({
         return (
           <span
             key={`slot-${idx}`}
-            className="relative inline-flex justify-center overflow-hidden leading-none"
-            style={{ width: '0.62em', height: '1.08em' }}
+            className="inline-flex justify-center items-center leading-none"
+            style={{ width: '0.62em' }}
           >
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.span
-                key={`${idx}-${ch}`}
-                initial={{ y: '45%', opacity: 0 }}
-                animate={{ y: '0%', opacity: 1 }}
-                exit={{ y: '-45%', opacity: 0 }}
-                transition={profile.microSpring}
-                className="inline-block leading-none"
-              >
-                {ch}
-              </motion.span>
-            </AnimatePresence>
+            {ch}
           </span>
         );
       })}
