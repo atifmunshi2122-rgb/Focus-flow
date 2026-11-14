@@ -98,6 +98,8 @@ export const FocusAnalytics: React.FC = () => {
     });
   }, [tasks, sessions, habits, timeBlocks, settings, todayStr]);
 
+  const subjectBreakdown = useMemo(() => computeSubjectFocusBreakdown(sessions), [sessions]);
+
   if (loading && !stats) {
     return <SkeletonDashboard />;
   }
@@ -113,8 +115,6 @@ export const FocusAnalytics: React.FC = () => {
   const dailyGoalMin = Math.max(15, settings?.dailyFocusGoalMinutes || 100);
   const todayMinutes = stats?.last7Days[stats.last7Days.length - 1]?.minutes || 0;
   const dailyPct = Math.min(100, Math.round((todayMinutes / dailyGoalMin) * 100));
-
-  const subjectBreakdown = useMemo(() => computeSubjectFocusBreakdown(sessions), [sessions]);
 
   const heatmapDays = stats?.dailyHeatmap || [];
   const heatColor = (mins: number) => {
