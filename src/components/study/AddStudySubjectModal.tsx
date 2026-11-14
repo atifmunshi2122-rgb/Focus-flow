@@ -93,7 +93,7 @@ export const AddStudySubjectModal: React.FC<AddStudySubjectModalProps> = ({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Distributed Systems & Cloud"
-            className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+            className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
           />
         </div>
 
@@ -107,7 +107,7 @@ export const AddStudySubjectModal: React.FC<AddStudySubjectModalProps> = ({
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="e.g. Sub_Cloud"
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             />
           </div>
 
@@ -118,7 +118,7 @@ export const AddStudySubjectModal: React.FC<AddStudySubjectModalProps> = ({
             <select
               value={tierId}
               onChange={(e) => setTierId(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             >
               {DEFAULT_ACADEMIC_TIERS.map((tier) => (
                 <option key={tier.id} value={tier.id}>
@@ -140,7 +140,7 @@ export const AddStudySubjectModal: React.FC<AddStudySubjectModalProps> = ({
               value={semesterOrDomain}
               onChange={(e) => setSemesterOrDomain(e.target.value)}
               placeholder="e.g. Semester 4 / Core"
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             />
           </div>
 
@@ -153,7 +153,7 @@ export const AddStudySubjectModal: React.FC<AddStudySubjectModalProps> = ({
               value={targetExam}
               onChange={(e) => setTargetExam(e.target.value)}
               placeholder="e.g. GATE 2028 / Finals"
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             />
           </div>
         </div>
@@ -162,27 +162,31 @@ export const AddStudySubjectModal: React.FC<AddStudySubjectModalProps> = ({
           <label className="block text-xs font-medium text-[var(--ff-text-muted)] mb-1">
             Accent Badge Color
           </label>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {COLOR_PRESETS.map((c) => (
               <button
                 type="button"
                 key={c}
                 onClick={() => setColor(c)}
-                style={{ backgroundColor: c }}
-                className={`w-7 h-7 rounded-full transition-transform ${
-                  color === c ? 'ring-2 ring-white scale-110' : 'opacity-80 hover:opacity-100'
-                }`}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center p-1.5 rounded-xl hover:bg-[var(--ff-surface-muted)] transition-colors"
                 aria-label={`Select color ${c}`}
-              />
+              >
+                <span
+                  style={{ backgroundColor: c }}
+                  className={`w-7 h-7 rounded-full transition-transform ${
+                    color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--ff-surface-elevated)] scale-110' : 'opacity-80 hover:opacity-100'
+                  }`}
+                />
+              </button>
             ))}
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--ff-border-color)]">
-          <ThemeButton type="button" variant="ghost" onClick={onClose}>
+          <ThemeButton type="button" variant="ghost" onClick={onClose} className="min-h-[44px] px-4">
             Cancel
           </ThemeButton>
-          <ThemeButton type="submit" variant="primary" loading={submitting}>
+          <ThemeButton type="submit" variant="primary" loading={submitting} className="min-h-[44px] px-4">
             Add Subject
           </ThemeButton>
         </div>
