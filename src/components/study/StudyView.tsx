@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import {
@@ -67,16 +67,17 @@ export const StudyView: React.FC = () => {
   const [isScheduleRevisionOpen, setIsScheduleRevisionOpen] = useState(false);
   const [isLogMistakeOpen, setIsLogMistakeOpen] = useState(false);
   const [activeTopicForRevision, setActiveTopicForRevision] = useState<StudyTopic | null>(null);
+  const isSeedingRef = useRef(false);
 
   // Load study entities
   const loadData = async () => {
     setLoading(true);
     try {
       const [subs, tops, revs, mists, habs, sess] = await Promise.all([
-        api.getStudySubjects(),
-        api.getStudyTopics(),
-        api.getStudyRevisions(),
-        api.getStudyMistakes(),
+        api.getStudySubjects().catch(() => [] as StudySubject[]),
+        api.getStudyTopics().catch(() => [] as StudyTopic[]),
+        api.getStudyRevisions().catch(() => [] as StudyRevision[]),
+        api.getStudyMistakes().catch(() => [] as StudyMistake[]),
         api.getHabits().catch(() => [] as Habit[]),
         api.getFocusSessions().catch(() => [] as FocusSession[]),
       ]);
@@ -85,20 +86,48 @@ export const StudyView: React.FC = () => {
       setFocusSessions(sess);
 
       if (subs.length === 0) {
-        // Auto-seed initial syllabus for user
-        const seed = buildDefaultStudyWorkspace(user?.id || 'guest');
-        setSubjects(seed.subjects);
-        setTopics(seed.topics);
-        setRevisions(seed.revisions);
-        setMistakes(seed.mistakes);
+        if (!isSeedingRef.current) {
+          isSeedingRef.current = true;
+          // Auto-seed initial syllabus for user
+          const seed = buildDefaultStudyWorkspace(user?.id || 'guest');
+          setSubjects(seed.subjects);
+          setTopics(seed.topics);
+          setRevisions(seed.revisions);
+          setMistakes(seed.mistakes);
 
-        // Background persist seed data
-        Promise.all([
-          ...seed.subjects.map((s) => api.saveStudySubject(s)),
-          ...seed.topics.map((t) => api.saveStudyTopic(t)),
-          ...seed.revisions.map((r) => api.saveStudyRevision(r)),
-          ...seed.mistakes.map((m) => api.saveStudyMistake(m)),
-        ]).catch((err) => console.error('Error auto-seeding study records:', err));
+          // Background persist seed data
+          Promise.all([
+            ...seed.subjects.map((s) => api.saveStudySubject(s)),
+            ...seed.topics.map((t) => api.saveStudyTopic(t)),
+            ...seed.revisions.map((r) => api.saveStudyRevision(r)),
+            ...seed.mistakes.map((m) => api.saveStudyMistake(m)),
+          ])
+            .catch((err) => console.error('Error auto-seeding study records:', err))
+            .finally(() => {
+              isSeedingRef.current = false;
+            });
+        }
+      } else if (tops.length === 0) {
+        // Subjects exist, but topics are empty (partial data state)
+        // Recover topics idempotently from default syllabus without duplicating subjects
+        setSubjects(subs);
+        setRevisions(revs);
+        setMistakes(mists);
+
+        if (!isSeedingRef.current) {
+          isSeedingRef.current = true;
+          const seed = buildDefaultStudyWorkspace(user?.id || 'guest');
+          const existingCodes = new Set(subs.map((s) => s.code));
+          const relevantTopics = seed.topics.filter((t) => existingCodes.has(t.subjectCode));
+          const recoveredTopics = relevantTopics.length > 0 ? relevantTopics : seed.topics;
+
+          setTopics(recoveredTopics);
+          Promise.all(recoveredTopics.map((t) => api.saveStudyTopic(t)))
+            .catch((err) => console.error('Error auto-seeding missing topics:', err))
+            .finally(() => {
+              isSeedingRef.current = false;
+            });
+        }
       } else {
         setSubjects(subs);
         setTopics(tops);

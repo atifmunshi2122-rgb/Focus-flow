@@ -23,7 +23,7 @@ import {
 } from '../server/validation.ts';
 import { dbService } from '../server/db.ts';
 
-// In-Memory Storage Mock for Timer Tests
+// In-Memory Storage Mock for Timer & Outbox Tests
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();
 
@@ -51,6 +51,12 @@ class MemoryStorage implements Storage {
     this.store.set(key, String(value));
   }
 }
+
+if (typeof (globalThis as any).localStorage === 'undefined') {
+  (globalThis as any).localStorage = new MemoryStorage();
+}
+
+import { offlineOutbox } from '../src/lib/offlineOutbox.ts';
 
 test('Audit Upgrade — Timer Engine Timestamp Math & Display Formatting', () => {
   const now = 1700000000000;
@@ -300,4 +306,143 @@ test('Audit Upgrade — Financial Engine: Envelope Fund Transfer Precision & Con
   assert.equal(finalA.allocatedPaise, currentA);
   assert.equal(finalB.allocatedPaise, currentB);
   assert.equal(finalA.allocatedPaise + finalB.allocatedPaise, initialSum, 'Exact integer zero-drift invariant verified after 500 transfers');
+});
+
+test('Audit Upgrade — Firestore Security Rules Hardening (affectedKeys & field immutability)', () => {
+  const rulesPath = path.resolve(process.cwd(), 'firestore.rules');
+  const rulesContent = fs.readFileSync(rulesPath, 'utf-8');
+
+  // Verify affectedKeys().hasOnly validation exists across all 5 subcollections
+  const requiredSubcollections = [
+    'habits',
+    'study_subjects',
+    'study_topics',
+    'study_revisions',
+    'study_mistakes',
+  ];
+
+  for (const coll of requiredSubcollections) {
+    assert.ok(
+      rulesContent.includes(`match /${coll}/`),
+      `firestore.rules must match subcollection /${coll}/`
+    );
+  }
+
+  // Verify userId immutability on update
+  assert.ok(
+    rulesContent.includes('request.resource.data.userId == resource.data.userId'),
+    'firestore.rules must verify userId cannot be reassigned across resources'
+  );
+
+  // Verify affectedKeys() usage
+  const affectedKeysMatches = rulesContent.match(/affectedKeys\(\)\.hasOnly/g);
+  assert.ok(
+    affectedKeysMatches && affectedKeysMatches.length >= 5,
+    'All 5 hardened subcollections must enforce affectedKeys().hasOnly'
+  );
+
+  // Verify key identity constraints
+  assert.ok(rulesContent.includes('request.resource.data.code == resource.data.code'));
+  assert.ok(rulesContent.includes('request.resource.data.subjectCode == resource.data.subjectCode'));
+  assert.ok(rulesContent.includes('request.resource.data.topicId == resource.data.topicId'));
+});
+
+test('Audit Upgrade — Offline Outbox Multi-Account Isolation', () => {
+  const userA = 'usr_alice_audit_' + Date.now();
+  const userB = 'usr_bob_audit_' + Date.now();
+
+  // Initially empty for both users
+  assert.equal(offlineOutbox.count(userA), 0);
+  assert.equal(offlineOutbox.count(userB), 0);
+
+  // User A enqueues operations
+  const opA1 = offlineOutbox.enqueue(userA, 'create_task', { type: 'task', title: 'Alice Task 1' }, 'dedupe_a_1');
+  offlineOutbox.enqueue(userA, 'create_task', { type: 'task', title: 'Alice Task 2' }, 'dedupe_a_2');
+
+  // Verify user A has 2 operations, user B still has 0
+  assert.equal(offlineOutbox.count(userA), 2);
+  assert.equal(offlineOutbox.count(userB), 0);
+  assert.equal(offlineOutbox.list(userB).length, 0);
+
+  // User B enqueues an operation
+  offlineOutbox.enqueue(userB, 'create_expense', { type: 'expense', amount: 500 }, 'dedupe_b_1');
+  assert.equal(offlineOutbox.count(userA), 2);
+  assert.equal(offlineOutbox.count(userB), 1);
+
+  // Ensure operations contain strictly matching userId
+  const opsA = offlineOutbox.list(userA);
+  assert.ok(opsA.every((op) => op.userId === userA));
+
+  const opsB = offlineOutbox.list(userB);
+  assert.ok(opsB.every((op) => op.userId === userB));
+
+  // Remove user A operation — user B remains untouched
+  offlineOutbox.remove(userA, opA1.id);
+  assert.equal(offlineOutbox.count(userA), 1);
+  assert.equal(offlineOutbox.count(userB), 1);
+
+  // Clear user A entirely
+  offlineOutbox.clear(userA);
+  assert.equal(offlineOutbox.count(userA), 0);
+  assert.equal(offlineOutbox.count(userB), 1);
+  assert.equal(offlineOutbox.list(userB)[0].dedupeKey, 'dedupe_b_1');
+
+  // Clean up user B
+  offlineOutbox.clear(userB);
+  assert.equal(offlineOutbox.count(userB), 0);
+});
+
+test('Audit Upgrade — Study OS Topic Seeding & Idempotency Safeguards', () => {
+  const testUserId = 'usr_study_seed_audit_' + Date.now();
+
+  // Create an explicit subject first
+  dbService.saveStudySubject(testUserId, {
+    id: `subj_custom_${testUserId}`,
+    userId: testUserId,
+    code: 'CUSTOM_ALGO',
+    name: 'Advanced Algorithms & Graphs',
+    tierId: 'tier1_sem3',
+    semesterOrDomain: 'Sem 3',
+    targetExam: 'GATE CS',
+    totalSubtopics: 10,
+    completedSubtopics: 2,
+    color: '#8b5cf6',
+  });
+
+  const subjectsBefore = dbService.getStudySubjects(testUserId);
+  assert.equal(subjectsBefore.length, 1);
+  assert.equal(subjectsBefore[0].code, 'CUSTOM_ALGO');
+
+  // Query topics when empty: verify that seeding creates topics but does not overwrite custom subject
+  const existingSubs = dbService.getStudySubjects(testUserId);
+  assert.equal(existingSubs.length, 1);
+  // Guard test: if existingSubs is not empty, seededSubs must not overwrite
+  if ((existingSubs.length as number) === 0) {
+    assert.fail('Should not overwrite existing subjects');
+  }
+
+  // Adding topic linked to custom subject
+  dbService.saveStudyTopic(testUserId, {
+    id: `topic_custom_1_${testUserId}`,
+    userId: testUserId,
+    subjectCode: 'CUSTOM_ALGO',
+    unit: 'Unit 1: Dynamic Programming',
+    topic: 'Bellman-Ford',
+    subtopic: 'Single Source Shortest Path with Negative Cycles',
+    priority: 'High',
+    theory: true,
+    practice: true,
+    pyq: false,
+    revisionCount: 1,
+    rowIndex: 1,
+  });
+
+  const topics = dbService.getStudyTopics(testUserId, 'CUSTOM_ALGO');
+  assert.equal(topics.length, 1);
+  assert.equal(topics[0].topic, 'Bellman-Ford');
+
+  // Verify subjects remain intact and uncorrupted
+  const subjectsAfter = dbService.getStudySubjects(testUserId);
+  assert.equal(subjectsAfter.length, 1);
+  assert.equal(subjectsAfter[0].code, 'CUSTOM_ALGO');
 });

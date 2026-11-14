@@ -2401,8 +2401,11 @@ apiRouter.get('/study/topics', (req: Request, res: Response) => {
   const subjectCode = typeof req.query.subjectCode === 'string' ? req.query.subjectCode : undefined;
   let topics = dbService.getStudyTopics(userId, subjectCode);
   if (topics.length === 0 && !subjectCode) {
+    const existingSubs = dbService.getStudySubjects(userId);
     const { subjects: seededSubs, topics: seededTopics } = buildDefaultStudyWorkspace(userId);
-    for (const s of seededSubs) dbService.saveStudySubject(userId, s);
+    if (existingSubs.length === 0) {
+      for (const s of seededSubs) dbService.saveStudySubject(userId, s);
+    }
     for (const t of seededTopics) dbService.saveStudyTopic(userId, t);
     topics = dbService.getStudyTopics(userId);
   }
