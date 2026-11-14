@@ -17,6 +17,7 @@ import {
 import { ThemeCard, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { playHabitCompleteSound } from '../../lib/sound.ts';
 import {
+  AnimatedCheckmark,
   AnimatedNumber,
   AnimatedProgressBar,
   EmptyStateIllustration,
