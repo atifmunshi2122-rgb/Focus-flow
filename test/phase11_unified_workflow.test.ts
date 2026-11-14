@@ -44,6 +44,7 @@ test('Phase 11 — FocusSession and TimeBlock Data Model Extensions', () => {
   const session: FocusSession = {
     id: 'fs_test_1',
     userId: 'user_p11',
+    taskId: null,
     mode: 'work',
     durationMinutes: 25,
     durationSeconds: 1500,
@@ -72,6 +73,8 @@ test('Phase 11 — FocusSession and TimeBlock Data Model Extensions', () => {
     endMinute: 9 * 60 + 45,
     completed: false,
     revisionId: 'rev_123',
+    createdAt: '2026-11-14T10:00:00.000Z',
+    updatedAt: '2026-11-14T10:00:00.000Z',
   };
 
   assert.equal(block.revisionId, 'rev_123');
@@ -132,6 +135,7 @@ test('Phase 11 — Study Progress Analytics Uses Actual Completed Duration', () 
     {
       id: 's1',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 50,
       durationSeconds: 3000,
@@ -146,6 +150,7 @@ test('Phase 11 — Study Progress Analytics Uses Actual Completed Duration', () 
     {
       id: 's2',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 25,
       durationSeconds: 1500,
@@ -159,6 +164,7 @@ test('Phase 11 — Study Progress Analytics Uses Actual Completed Duration', () 
     {
       id: 's3',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 30,
       durationSeconds: 1800,
@@ -171,6 +177,7 @@ test('Phase 11 — Study Progress Analytics Uses Actual Completed Duration', () 
     {
       id: 's4',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 45,
       durationSeconds: 2700,
