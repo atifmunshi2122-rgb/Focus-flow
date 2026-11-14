@@ -106,6 +106,10 @@ export interface FocusSession {
   userId: string;
   taskId: string | null;
   taskTitle?: string;
+  subjectCode?: string | null;
+  subjectId?: string | null;
+  topicId?: string | null;
+  activityType?: 'study' | 'practice' | 'theory' | 'revision' | null;
   mode: 'work' | 'short_break' | 'long_break';
   durationMinutes: number;
   durationSeconds: number;
@@ -225,6 +229,7 @@ export interface TimeBlock {
   endMinute: number;   // 0 - 1440
   category: string;
   taskId?: string | null;
+  revisionId?: string | null;
   completed: boolean;
   notes?: string;
   deletedAt?: string | null;

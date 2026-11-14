@@ -39,12 +39,23 @@ import {
   CheckSquare,
   ArrowRight,
   RefreshCw,
+  Timer,
 } from 'lucide-react';
 
 type StudySubTab = 'syllabus' | 'revisions' | 'mistakes' | 'habits' | 'analytics';
 
 export const StudyView: React.FC = () => {
-  const { user, habits, refreshKey, triggerRefresh, showToast, setCurrentTab } = useApp();
+  const {
+    user,
+    habits,
+    refreshKey,
+    triggerRefresh,
+    showToast,
+    setCurrentTab,
+    setActiveStudySubjectCode,
+    setActiveStudyTopicId,
+    setActiveStudyActivityType,
+  } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<StudySubTab>('syllabus');
   const [selectedTier, setSelectedTier] = useState<string>('all');
@@ -796,6 +807,21 @@ export const StudyView: React.FC = () => {
                           <RotateCcw className="w-3.5 h-3.5" />
                         </ThemeButton>
 
+                        <ThemeButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setActiveStudySubjectCode(item.subjectCode);
+                            setActiveStudyTopicId(item.id);
+                            setActiveStudyActivityType('study');
+                            setCurrentTab('focus');
+                          }}
+                          className="h-8 px-2 text-indigo-400 hover:bg-indigo-500/10"
+                          title="Start Focus Session for this topic"
+                        >
+                          <Timer className="w-3.5 h-3.5" />
+                        </ThemeButton>
+
                         <button
                           type="button"
                           onClick={() => handleDeleteTopic(item.id)}
@@ -1488,9 +1514,11 @@ export const StudyView: React.FC = () => {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
-          await api.saveStudyRevision(newRev);
-          setRevisions((prev) => [...prev, newRev]);
-          showToast(`Scheduled spaced revision for "${newRev.topicTitle}"`, 'success');
+          const saved = await api.saveStudyRevision(newRev);
+          const finalRev = saved || newRev;
+          setRevisions((prev) => [...prev, finalRev]);
+          showToast(`Scheduled spaced revision for "${finalRev.topicTitle}"`, 'success');
+          return finalRev;
         }}
       />
 

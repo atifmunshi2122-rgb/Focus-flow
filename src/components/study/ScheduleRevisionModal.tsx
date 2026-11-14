@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudySubject, StudyTopic, StudyRevision, RevisionDifficulty } from '../../types/study.ts';
 import { REVISION_INTERVAL_LADDER, calculateNextRevisionDate } from '../../lib/studyIntelligence.ts';
-import { Calendar, Repeat, BookOpen, AlertCircle } from 'lucide-react';
+import { api } from '../../lib/api.ts';
+import { Calendar, Repeat, BookOpen, AlertCircle, Clock } from 'lucide-react';
 
 interface ScheduleRevisionModalProps {
   isOpen: boolean;
@@ -11,7 +12,7 @@ interface ScheduleRevisionModalProps {
   topics: StudyTopic[];
   defaultSubjectCode?: string;
   defaultTopicId?: string;
-  onSchedule: (revision: Partial<StudyRevision>) => Promise<void>;
+  onSchedule: (revision: Partial<StudyRevision>) => Promise<StudyRevision | void>;
 }
 
 export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
@@ -30,6 +31,9 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
   const [intervalDays, setIntervalDays] = useState<number>(REVISION_INTERVAL_LADDER[0]);
   const [nextDate, setNextDate] = useState(() => calculateNextRevisionDate(REVISION_INTERVAL_LADDER[0]));
   const [notes, setNotes] = useState('');
+  const [addToPlanner, setAddToPlanner] = useState(true);
+  const [plannerStartTime, setPlannerStartTime] = useState('09:00');
+  const [plannerDuration, setPlannerDuration] = useState<number>(45);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,7 +89,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
     const todayStr = new Date().toISOString().split('T')[0];
 
     try {
-      await onSchedule({
+      const savedRev = await onSchedule({
         subjectCode,
         topicId: topicId || `custom_${Date.now()}`,
         topicTitle: finalTitle,
@@ -97,6 +101,38 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
         status: nextDate <= todayStr ? 'due' : 'scheduled',
         notes: notes.trim() || undefined,
       });
+
+      const revisionId =
+        savedRev && typeof savedRev === 'object' && 'id' in savedRev && savedRev.id
+          ? savedRev.id
+          : `rev_${Date.now()}`;
+
+      if (addToPlanner) {
+        try {
+          const [startH, startM] = plannerStartTime.split(':').map(Number);
+          const safeH = Number.isFinite(startH) ? Math.min(23, Math.max(0, startH)) : 9;
+          const safeM = Number.isFinite(startM) ? Math.min(59, Math.max(0, startM)) : 0;
+          const startMinute = safeH * 60 + safeM;
+          const safeDuration = Number.isFinite(plannerDuration) ? Math.max(15, plannerDuration) : 45;
+          const endMinute = Math.min(24 * 60 - 1, startMinute + safeDuration);
+
+          await api.createTimeBlock({
+            id: `tb_rev_${revisionId}`,
+            date: nextDate,
+            title: `[Revision] ${finalTitle}`,
+            category: 'Learning',
+            startMinute,
+            endMinute,
+            revisionId: revisionId,
+            notes: notes.trim() ? `Subject: ${subjectCode}\n${notes.trim()}` : `Subject: ${subjectCode}`,
+            completed: false,
+          });
+        } catch (plannerErr) {
+          // Graceful fallback: do NOT fail or rollback the revision if time block creation fails
+          console.warn('Could not insert time block for revision:', plannerErr);
+        }
+      }
+
       setNotes('');
       onClose();
     } catch (err: unknown) {
@@ -255,6 +291,55 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
             placeholder="What should you quiz yourself on? e.g. Draw the B+ tree after deleting key 15."
             className="w-full px-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)] resize-none"
           />
+        </div>
+
+        {/* Time Block Planner Integration */}
+        <div className="p-3 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] space-y-2.5">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={addToPlanner}
+              onChange={(e) => setAddToPlanner(e.target.checked)}
+              className="w-4 h-4 rounded text-[var(--ff-accent)] border-[var(--ff-border-color)] focus:ring-0"
+            />
+            <span className="text-xs font-semibold text-[var(--ff-text-primary)] flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-[var(--ff-accent)]" />
+              Add to Daily Time Block Planner ({nextDate})
+            </span>
+          </label>
+
+          {addToPlanner && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">
+                  Start Time
+                </label>
+                <input
+                  type="time"
+                  value={plannerStartTime}
+                  onChange={(e) => setPlannerStartTime(e.target.value)}
+                  className="w-full px-3 py-2 text-base sm:text-sm rounded-lg bg-[var(--ff-card-bg)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">
+                  Duration
+                </label>
+                <select
+                  value={plannerDuration}
+                  onChange={(e) => setPlannerDuration(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-base sm:text-sm rounded-lg bg-[var(--ff-card-bg)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+                >
+                  <option value={15}>15 minutes</option>
+                  <option value={30}>30 minutes</option>
+                  <option value={45}>45 minutes</option>
+                  <option value={60}>1 hour</option>
+                  <option value={90}>1.5 hours</option>
+                  <option value={120}>2 hours</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--ff-border-color)]">

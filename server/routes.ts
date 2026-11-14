@@ -454,7 +454,7 @@ apiRouter.post('/focus/sessions', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-  const { taskId, mode, durationMinutes, durationSeconds, completed, startedAt, endedAt } = body;
+  const { taskId, subjectCode, subjectId, topicId, activityType, mode, durationMinutes, durationSeconds, completed, startedAt, endedAt } = body;
 
   const parsedMode = mode === undefined ? 'work' : parseEnum(mode, ALLOWED_FOCUS_MODES);
   if (!parsedMode) {
@@ -510,11 +510,22 @@ apiRouter.post('/focus/sessions', (req: Request, res: Response) => {
     }
   }
 
+  const resolvedSubjectCode = typeof subjectCode === 'string' && subjectCode.trim() ? subjectCode.trim() : null;
+  const resolvedSubjectId = typeof subjectId === 'string' && subjectId.trim() ? subjectId.trim() : null;
+  const resolvedTopicId = typeof topicId === 'string' && topicId.trim() ? topicId.trim() : null;
+  const resolvedActivityType = typeof activityType === 'string' && ['study', 'practice', 'theory', 'revision'].includes(activityType)
+    ? (activityType as 'study' | 'practice' | 'theory' | 'revision')
+    : null;
+
   const session: FocusSession = {
     id: `foc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     userId,
     taskId: resolvedTaskId,
     taskTitle,
+    subjectCode: resolvedSubjectCode,
+    subjectId: resolvedSubjectId,
+    topicId: resolvedTopicId,
+    activityType: resolvedActivityType,
     mode: parsedMode,
     durationMinutes: parsedMinutes,
     durationSeconds: parsedSeconds,
