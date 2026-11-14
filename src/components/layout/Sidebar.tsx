@@ -246,24 +246,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="my-1.5 mx-2 border-t border-[var(--ff-border-color)] opacity-40" />
                 )}
 
-                <motion.button
-                  type="button"
-                  data-tab={item.id}
-                  data-nav-id={item.id}
+                <motion.div
                   data-active={isActive ? 'true' : 'false'}
-                  onClick={() => handleNavClick(item.id)}
                   onMouseEnter={() => setHoveredTab(item.id)}
                   onMouseLeave={() => setHoveredTab(null)}
                   whileHover={isDisabled ? undefined : { x: !isExpanded || isActive ? 0 : 2 }}
-                  whileTap={isDisabled ? undefined : { scale: 0.98 }}
                   transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
-                  className="ff-sidebar-item group relative w-full flex items-center gap-2.5 px-2.5 py-2 text-sm font-medium transition-colors hover:bg-[var(--ff-surface-hover)]"
+                  className="ff-sidebar-item group relative w-full flex items-center text-sm font-medium transition-colors hover:bg-[var(--ff-surface-hover)]"
                   style={{
                     borderRadius: 'var(--ff-radius-button)',
                     color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
                     fontWeight: isActive ? 700 : 500,
                   }}
-                  title={!isExpanded ? item.label : undefined}
                 >
                   {/* Floating Tooltip when Collapsed */}
                   {!isExpanded && hoveredTab === item.id && !isDisabled && (
@@ -318,43 +312,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     />
                   )}
 
-                  {/* Icon Box */}
-                  <span
-                    className="relative z-10 w-7 h-7 flex items-center justify-center shrink-0 rounded-md transition-all"
-                    style={{
-                      color: isActive ? 'var(--ff-accent)' : 'inherit',
-                      background: isActive ? 'var(--ff-accent-soft)' : 'transparent',
-                    }}
+                  <motion.button
+                    type="button"
+                    data-tab={item.id}
+                    data-nav-id={item.id}
+                    data-active={isActive ? 'true' : 'false'}
+                    onClick={() => handleNavClick(item.id)}
+                    whileTap={isDisabled ? undefined : { scale: 0.98 }}
+                    transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
+                    className={`relative z-10 flex-1 min-w-0 flex items-center gap-2.5 py-2 text-left rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ff-accent)] ${
+                      isExpanded ? 'pl-2.5 pr-1.5' : 'px-2.5'
+                    }`}
+                    title={!isExpanded ? item.label : undefined}
                   >
-                    <Icon className="w-4 h-4 transition-transform group-hover:scale-105" />
-                  </span>
-
-                  {/* Text Label */}
-                  {isExpanded && (
+                    {/* Icon Box */}
                     <span
-                      className="relative z-10 flex-1 text-left truncate whitespace-nowrap text-xs transition-colors"
+                      className="w-7 h-7 flex items-center justify-center shrink-0 rounded-md transition-all"
                       style={{
-                        color: isActive ? 'var(--ff-accent-text)' : 'inherit',
-                        fontWeight: isActive ? 700 : 500,
+                        color: isActive ? 'var(--ff-accent)' : 'inherit',
+                        background: isActive ? 'var(--ff-accent-soft)' : 'transparent',
                       }}
                     >
-                      {item.label}
+                      <Icon className="w-4 h-4 transition-transform group-hover:scale-105" />
                     </span>
-                  )}
 
-                  {/* Tag Badge */}
-                  {isExpanded && item.tag && (
-                    <span
-                      className="relative z-10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded"
-                      style={{
-                        background: 'var(--ff-accent)',
-                        color: 'var(--ff-accent-contrast)',
-                        boxShadow: 'var(--ff-shadow-button)',
-                      }}
-                    >
-                      {item.tag}
-                    </span>
-                  )}
+                    {/* Text Label */}
+                    {isExpanded && (
+                      <span
+                        className="flex-1 text-left truncate whitespace-nowrap text-xs transition-colors"
+                        style={{
+                          color: isActive ? 'var(--ff-accent-text)' : 'inherit',
+                          fontWeight: isActive ? 700 : 500,
+                        }}
+                      >
+                        {item.label}
+                      </span>
+                    )}
+
+                    {/* Tag Badge */}
+                    {isExpanded && item.tag && (
+                      <span
+                        className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded"
+                        style={{
+                          background: 'var(--ff-accent)',
+                          color: 'var(--ff-accent-contrast)',
+                          boxShadow: 'var(--ff-shadow-button)',
+                        }}
+                      >
+                        {item.tag}
+                      </span>
+                    )}
+                  </motion.button>
 
                   {/* Favorite Pinned Star */}
                   {isExpanded && (
@@ -364,17 +372,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         e.stopPropagation();
                         toggleFavoriteTab(item.id);
                       }}
-                      className={`relative z-10 p-1 rounded hover:bg-[var(--ff-surface-hover)] transition-opacity ${
+                      className={`relative z-10 mr-2.5 p-1 rounded hover:bg-[var(--ff-surface-hover)] transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ff-accent)] ${
                         favoriteTabs.includes(item.id)
                           ? 'opacity-100 text-amber-400'
                           : 'opacity-0 group-hover:opacity-60 text-[var(--ff-text-muted)] hover:text-amber-400'
                       }`}
                       title={favoriteTabs.includes(item.id) ? 'Pinned favorite' : 'Pin to favorites'}
+                      aria-label={
+                        favoriteTabs.includes(item.id)
+                          ? `Unpin ${item.label} from favorites`
+                          : `Pin ${item.label} to favorites`
+                      }
+                      aria-pressed={favoriteTabs.includes(item.id)}
                     >
                       <Star className={`w-3 h-3 ${favoriteTabs.includes(item.id) ? 'fill-amber-400' : ''}`} />
                     </button>
                   )}
-                </motion.button>
+                </motion.div>
               </React.Fragment>
             );
           })}

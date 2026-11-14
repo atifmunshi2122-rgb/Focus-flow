@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { DESIGN_STYLES, DEFAULT_THEME_CONFIG } from '../src/theme/stylesRegistry.ts';
 import { MOTION_DURATION, getIntensityFactor } from '../src/theme/motionTokens.ts';
 
@@ -67,4 +69,78 @@ test('Cross-Device — Reduced Motion & Animation Duration Safety', () => {
   assert.ok(MOTION_DURATION.control <= 0.25, 'Control transitions must not exceed 250ms');
   assert.ok(MOTION_DURATION.card <= 0.35, 'Card transitions must not exceed 350ms');
   assert.ok(MOTION_DURATION.page <= 0.45, 'Page transitions must not exceed 450ms');
+});
+
+test('Cross-Device — Valid HTML Interactive Nesting (No Nested Buttons/Anchors)', () => {
+  const walk = (dir: string): string[] => {
+    const res: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) res.push(...walk(full));
+      else if (/\.(tsx|jsx)$/.test(entry.name)) res.push(full);
+    }
+    return res;
+  };
+
+  const violations: string[] = [];
+  for (const file of walk(path.resolve('src'))) {
+    const src = fs.readFileSync(file, 'utf8');
+    const stack: Array<{ name: string; line: number }> = [];
+    let inTag = false;
+    let tagBuf = '';
+    let tagStartLine = 0;
+    let braceDepth = 0;
+    let inStr: string | null = null;
+
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i];
+      const next = src[i + 1];
+      if (inStr) {
+        if (ch === '\\') {
+          i++;
+          continue;
+        }
+        if (ch === inStr) inStr = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === '`') {
+        inStr = ch;
+        continue;
+      }
+      if (!inTag && ch === '<' && /[A-Za-z/]/.test(next || '')) {
+        inTag = true;
+        tagBuf = '<';
+        tagStartLine = src.slice(0, i).split('\n').length;
+        braceDepth = 0;
+        continue;
+      }
+      if (inTag) {
+        tagBuf += ch;
+        if (ch === '{') braceDepth++;
+        else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+        else if (ch === '>' && braceDepth === 0) {
+          inTag = false;
+          const mClose = tagBuf.match(/^<\/\s*([A-Za-z0-9_.]+)\s*>/);
+          const mOpen = tagBuf.match(/^<\s*([A-Za-z0-9_.]+)\b/);
+          const selfClose = tagBuf.endsWith('/>');
+          if (mClose) {
+            if (/^(?:motion\.)?button$|^Button$|^a$|^motion\.a$/.test(mClose[1]) && stack.length > 0) {
+              stack.pop();
+            }
+          } else if (mOpen && !selfClose) {
+            const name = mOpen[1];
+            if (/^(?:motion\.)?button$|^Button$|^a$|^motion\.a$/.test(name)) {
+              if (stack.length > 0) {
+                const parent = stack[stack.length - 1];
+                violations.push(`${path.relative(process.cwd(), file)}:${tagStartLine} <${name}> nested inside <${parent.name}> (line ${parent.line})`);
+              }
+              stack.push({ name, line: tagStartLine });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(violations, [], `Found invalid nested interactive HTML tags:\n${violations.join('\n')}`);
 });
