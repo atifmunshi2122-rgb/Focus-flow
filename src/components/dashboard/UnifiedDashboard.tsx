@@ -21,6 +21,7 @@ import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import { GamificationCard } from './GamificationCard.tsx';
 import { ProductivityScoreCard } from '../focus/ProductivityScoreCard.tsx';
+import { AnalogClockDial } from '../focus/RealClock.tsx';
 import {
   computeProductivityScore,
   isHabitScheduledOnDate,
@@ -399,13 +400,22 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
 
             <div className="flex flex-wrap items-center gap-3">
               <div
-                className="px-4 py-2 border font-mono text-lg font-extrabold tabular-nums text-[var(--ff-text-primary)]"
+                className="flex items-center gap-2.5 px-3.5 py-2 border font-mono text-lg font-extrabold tabular-nums text-[var(--ff-text-primary)]"
                 style={{
                   borderRadius: 'var(--ff-radius-button)',
                   borderColor: 'var(--ff-border-color)',
                   background: 'var(--ff-surface-subtle)',
                 }}
               >
+                <AnalogClockDial
+                  hour={nowClock.getHours()}
+                  minute={nowClock.getMinutes()}
+                  second={nowClock.getSeconds()}
+                  sweep={false}
+                  showNumerals={false}
+                  showDateWindow={false}
+                  sizeClassName="w-8 h-8 shrink-0"
+                />
                 <RollingTimerDigits
                   value={nowClock.toLocaleTimeString([], {
                     hour: '2-digit',
@@ -414,6 +424,10 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                   })}
                 />
               </div>
+              <ThemeButton variant="secondary" size="sm" onClick={() => setCurrentTab('clock')}>
+                <Clock className="w-3.5 h-3.5" />
+                <span>Real Clock</span>
+              </ThemeButton>
               <ThemeButton variant="primary" size="sm" onClick={handleStartQuickFocus}>
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Start Focus</span>

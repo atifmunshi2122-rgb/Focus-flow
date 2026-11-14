@@ -665,11 +665,23 @@ export const ThemeStudio: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <button type="button" className="ff-btn ff-btn-primary px-3 py-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => void handleApplyDraft()}
+                  className="ff-btn ff-btn-primary px-3 py-1.5 text-xs"
+                >
                   <Zap className="w-3.5 h-3.5" />
                   <span>Primary CTA</span>
                 </button>
-                <button type="button" className="ff-btn ff-btn-secondary px-3 py-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPreviewSampleTab((prev) =>
+                      prev === 'overview' ? 'focus' : prev === 'focus' ? 'bills' : 'overview'
+                    )
+                  }
+                  className="ff-btn ff-btn-secondary px-3 py-1.5 text-xs"
+                >
                   <span>Secondary</span>
                 </button>
               </div>

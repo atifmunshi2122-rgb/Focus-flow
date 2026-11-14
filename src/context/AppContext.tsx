@@ -57,6 +57,7 @@ export type NavTab =
   | 'dashboard'
   | 'calendar'
   | 'focus'
+  | 'clock'
   | 'timeblocks'
   | 'tasks'
   | 'habits'
@@ -74,6 +75,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'dashboard',
   'calendar',
   'focus',
+  'clock',
   'timeblocks',
   'tasks',
   'habits',

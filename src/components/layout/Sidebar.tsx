@@ -77,6 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Overview' },
     { id: 'calendar', label: 'Calendar', icon: Calendar, section: 'Overview' },
     { id: 'focus', label: 'Focus & Timer', icon: Timer, tag: isRunning ? 'Active' : undefined, section: 'Focus & Productivity' },
+    { id: 'clock', label: 'Real Clock', icon: Clock, section: 'Focus & Productivity' },
     { id: 'timeblocks', label: 'Time Blocks', icon: Clock, section: 'Focus & Productivity' },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, section: 'Focus & Productivity' },
     { id: 'habits', label: 'Habits & Streaks', icon: Flame, section: 'Focus & Productivity' },

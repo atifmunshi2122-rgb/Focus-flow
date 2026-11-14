@@ -62,6 +62,7 @@ export const StyleFusionMixer: React.FC<StyleFusionMixerProps> = ({
   );
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [themeName, setThemeName] = useState('');
+  const [previewPeriod, setPreviewPeriod] = useState<'day' | 'week' | 'month'>('day');
 
   const primaryDef = getStyleDefinition(currentFusion.primaryStyleId);
   const secondaryDef = getStyleDefinition(currentFusion.secondaryStyleId);
@@ -547,6 +548,7 @@ export const StyleFusionMixer: React.FC<StyleFusionMixerProps> = ({
               <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
+                  onClick={() => void handleApplyLive()}
                   className="ff-btn ff-btn-primary px-3 py-1.5 text-xs flex-1"
                 >
                   <Zap className="w-3 h-3" />
@@ -554,6 +556,11 @@ export const StyleFusionMixer: React.FC<StyleFusionMixerProps> = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() =>
+                    setPreviewPeriod((prev) =>
+                      prev === 'day' ? 'week' : prev === 'week' ? 'month' : 'day'
+                    )
+                  }
                   className="ff-btn ff-btn-secondary px-3 py-1.5 text-xs flex-1"
                 >
                   <span>Secondary</span>
@@ -563,27 +570,17 @@ export const StyleFusionMixer: React.FC<StyleFusionMixerProps> = ({
 
             {/* Segmented Control */}
             <div className="ff-segmented w-full justify-between relative z-10">
-              <button
-                type="button"
-                data-active="true"
-                className="ff-segmented-item flex-1 py-1 text-center text-xs"
-              >
-                Day
-              </button>
-              <button
-                type="button"
-                data-active="false"
-                className="ff-segmented-item flex-1 py-1 text-center text-xs"
-              >
-                Week
-              </button>
-              <button
-                type="button"
-                data-active="false"
-                className="ff-segmented-item flex-1 py-1 text-center text-xs"
-              >
-                Month
-              </button>
+              {(['day', 'week', 'month'] as const).map((period) => (
+                <button
+                  key={period}
+                  type="button"
+                  data-active={previewPeriod === period ? 'true' : 'false'}
+                  onClick={() => setPreviewPeriod(period)}
+                  className="ff-segmented-item flex-1 py-1 text-center text-xs capitalize"
+                >
+                  {period}
+                </button>
+              ))}
             </div>
           </div>
         </div>

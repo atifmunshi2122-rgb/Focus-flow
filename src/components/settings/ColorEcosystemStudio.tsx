@@ -93,6 +93,7 @@ export const ColorEcosystemStudio: React.FC<ColorEcosystemStudioProps> = ({
 }) => {
   // Navigation sub-tab inside Color Ecosystem
   const [activeSubTab, setActiveSubTab] = useState<'library' | 'harmony' | '3d-gradient'>('library');
+  const [previewTimerPaused, setPreviewTimerPaused] = useState(false);
 
   // Favorites state
   const [favoriteIds, setFavoriteIds] = useState<string[]>(getStoredFavorites);
@@ -978,16 +979,26 @@ export const ColorEcosystemStudio: React.FC<ColorEcosystemStudioProps> = ({
                       <div className="flex items-center gap-2 pt-1">
                         <button
                           type="button"
+                          onClick={() => {
+                            setPreviewTimerPaused((p) => !p);
+                            showToast(
+                              previewTimerPaused ? 'Preview timer resumed' : 'Preview timer paused',
+                              'info'
+                            );
+                          }}
                           className="px-3 py-1 text-xs font-bold rounded-lg"
                           style={{
                             backgroundColor: editableTokens.accent,
                             color: '#ffffff',
                           }}
                         >
-                          Pause Timer
+                          {previewTimerPaused ? 'Resume Timer' : 'Pause Timer'}
                         </button>
                         <button
                           type="button"
+                          onClick={() =>
+                            showToast('Preview sample action: $140 expense style verified', 'success')
+                          }
                           className="px-3 py-1 text-xs font-semibold rounded-lg border"
                           style={{
                             borderColor: editableTokens.borderColor,

@@ -289,11 +289,23 @@ export const LiveThemePreviewPanel: React.FC<LiveThemePreviewPanelProps> = ({
 
           {/* Action Buttons Showcase */}
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="ff-btn ff-btn-primary px-3 py-2 text-xs">
+            <button
+              type="button"
+              onClick={() => void onApplyDraft()}
+              className="ff-btn ff-btn-primary px-3 py-2 text-xs"
+            >
               <Sparkles className="w-3.5 h-3.5" />
               <span>Primary CTA</span>
             </button>
-            <button type="button" className="ff-btn ff-btn-secondary px-3 py-2 text-xs">
+            <button
+              type="button"
+              onClick={() =>
+                setActiveNavTab((prev) =>
+                  prev === 'overview' ? 'focus' : prev === 'focus' ? 'finance' : 'overview'
+                )
+              }
+              className="ff-btn ff-btn-secondary px-3 py-2 text-xs"
+            >
               <span>Secondary</span>
             </button>
             <button

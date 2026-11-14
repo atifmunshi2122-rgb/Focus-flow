@@ -59,7 +59,12 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
     settings,
   } = useApp();
 
-  const [activeType, setActiveType] = useState<QuickActionType>(initialType);
+  const safeInitialType: QuickActionType =
+    typeof initialType === 'string' && ACTION_TABS.some((tab) => tab.id === initialType)
+      ? initialType
+      : 'task';
+
+  const [activeType, setActiveType] = useState<QuickActionType>(safeInitialType);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [showConfirmStep, setShowConfirmStep] = useState(false);
@@ -87,10 +92,10 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   // Sync initial type when opened
   useEffect(() => {
     if (isOpen) {
-      setActiveType(initialType);
+      setActiveType(safeInitialType);
       resetFields();
     }
-  }, [isOpen, initialType]);
+  }, [isOpen, safeInitialType]);
 
   const resetFields = () => {
     setTitle('');

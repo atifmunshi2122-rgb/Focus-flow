@@ -359,6 +359,7 @@ export function searchUniversalWorkspace(
     { tab: 'dashboard', label: 'Executive Dashboard', desc: 'Personalized daily productivity & wealth overview', shortcut: 'Alt+1', icon: 'LayoutDashboard' },
     { tab: 'calendar', label: 'Productivity Calendar', desc: 'Schedule activities & financial transaction calendar', shortcut: 'Alt+C', icon: 'Calendar' },
     { tab: 'focus', label: 'Focus & Pomodoro Timer', desc: 'Deep work sessions, break intervals & focus analytics', shortcut: 'Alt+2', icon: 'Timer' },
+    { tab: 'clock', label: 'Real Clock & World Time', desc: 'Live analog & digital clock, sweep hand & world timezones', shortcut: 'Alt+0', icon: 'Clock' },
     { tab: 'timeblocks', label: 'Daily Time-Block Planner', desc: 'Hourly schedule timeline & task distribution', shortcut: 'Alt+B', icon: 'Clock' },
     { tab: 'tasks', label: 'Task Management Workspace', desc: 'Priority matrix, checklists & drag-and-drop tasks', shortcut: 'Alt+3', icon: 'CheckSquare' },
     { tab: 'habits', label: 'Habit Tracker & Streaks', desc: 'Daily completion calendar & consistency scores', shortcut: 'Alt+H', icon: 'Flame' },

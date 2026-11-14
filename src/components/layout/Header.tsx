@@ -6,6 +6,7 @@ import { ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { RollingTimerDigits, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 import { NotificationCenter } from '../common/NotificationCenter.tsx';
+import type { QuickActionType } from '../common/QuickActionModal.tsx';
 import {
   Menu,
   Play,
@@ -24,7 +25,7 @@ import {
 
 interface HeaderProps {
   onOpenMobileMenu: () => void;
-  onOpenQuickAction: (initialType?: any) => void;
+  onOpenQuickAction: (initialType?: QuickActionType) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAction }) => {
@@ -72,6 +73,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     dashboard: 'Executive Dashboard',
     calendar: 'Productivity Calendar',
     focus: 'Focus & Pomodoro Timer',
+    clock: 'Real Clock & World Time',
     timeblocks: 'Daily Time-Block Planner',
     tasks: 'Task Management',
     habits: 'Habit Tracker & Streaks',
@@ -90,6 +92,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     dashboard: 'Overview',
     calendar: 'Overview',
     focus: 'Focus Lab',
+    clock: 'Focus Lab',
     timeblocks: 'Focus Lab',
     tasks: 'Focus Lab',
     habits: 'Focus Lab',
@@ -453,7 +456,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         <ThemeButton
           variant="primary"
           size="sm"
-          onClick={onOpenQuickAction}
+          onClick={() => onOpenQuickAction()}
           className="whitespace-nowrap shrink-0 ff-header-quick-action"
         >
           <Plus className="w-4 h-4" />

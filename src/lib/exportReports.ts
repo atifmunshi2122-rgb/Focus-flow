@@ -114,6 +114,66 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
+function printHtmlDocument(html: string, fallbackFilename: string): boolean {
+  if (typeof document === 'undefined') return false;
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.visibility = 'hidden';
+
+    const cleanHtml = html.replace(/<script>[\s\S]*?<\/script>/gi, '');
+    document.body.appendChild(iframe);
+
+    const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (frameDoc) {
+      frameDoc.open();
+      frameDoc.write(cleanHtml);
+      frameDoc.close();
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch {
+          // Ignore print errors in headless environments
+        } finally {
+          setTimeout(() => {
+            if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+          }, 1500);
+        }
+      }, 200);
+      return true;
+    }
+
+    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+  } catch {
+    // Fallback below
+  }
+
+  // Fallback: download clean printable HTML file directly if iframe printing is blocked
+  try {
+    const blob = new Blob([html.replace(/<script>[\s\S]*?<\/script>/gi, '')], {
+      type: 'text/html;charset=utf-8;',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fallbackFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function openPrintableReport(input: {
   userName: string;
   rangeLabel: string;
@@ -125,8 +185,6 @@ export function openPrintableReport(input: {
   savingsGoals: SavingsGoal[];
   topCategories: Array<{ name: string; amountPaise: number }>;
 }): boolean {
-  const win = window.open('', '_blank', 'width=900,height=750');
-  if (!win) return false;
 
   const netPaise = input.totalIncomePaise - input.totalExpensePaise;
   const catRows = input.topCategories
@@ -181,10 +239,10 @@ export function openPrintableReport(input: {
 </body>
 </html>`;
 
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  return true;
+  return printHtmlDocument(
+    html,
+    `focusflow-report-${new Date().toISOString().slice(0, 10)}.html`
+  );
 }
 
 export interface SpecificReportInput {
@@ -324,9 +382,6 @@ export function exportSpecificFinancialReportCsv(input: SpecificReportInput): vo
 }
 
 export function openPrintableSpecificFinancialReport(input: SpecificReportInput): boolean {
-  const win = window.open('', '_blank', 'width=900,height=750');
-  if (!win) return false;
-
   const { reportType, incomes, expenses, monthlyBudgetPaise, userName } = input;
   const activeIncomes = incomes.filter((i) => !i.deletedAt);
   const activeExpenses = expenses.filter((e) => !e.deletedAt);
@@ -374,8 +429,8 @@ export function openPrintableSpecificFinancialReport(input: SpecificReportInput)
 </body>
 </html>`;
 
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  return true;
+  return printHtmlDocument(
+    html,
+    `focusflow-${reportType}-statement-${new Date().toISOString().slice(0, 10)}.html`
+  );
 }

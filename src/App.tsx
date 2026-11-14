@@ -16,6 +16,7 @@ import { AuthRecoveryModal } from './components/common/AuthRecoveryModal.tsx';
 import { KeyboardShortcutsModal } from './components/common/KeyboardShortcutsModal.tsx';
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard.tsx';
 import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
+import { RealClock } from './components/focus/RealClock.tsx';
 import { FocusAnalytics } from './components/focus/FocusAnalytics.tsx';
 import { TaskManager } from './components/tasks/TaskManager.tsx';
 import { HabitTrackerView } from './components/focus/HabitTrackerView.tsx';
@@ -66,6 +67,7 @@ interface MobileMoreItem {
 
 const MORE_GRID_ITEMS: MobileMoreItem[] = [
   { id: 'calendar', label: 'Calendar', icon: Calendar },
+  { id: 'clock', label: 'Real Clock', icon: Clock },
   { id: 'timeblocks', label: 'Time Blocks', icon: Clock },
   { id: 'bills', label: 'Bills & Payments', icon: CreditCard },
   { id: 'transactions', label: 'Transactions', icon: ReceiptText },
@@ -144,6 +146,7 @@ const MainContent: React.FC = () => {
           '7': 'analytics',
           '8': 'settings',
           '9': 'study',
+          '0': 'clock',
           'o': 'study',
           'O': 'study',
           'h': 'habits',
@@ -246,7 +249,7 @@ const MainContent: React.FC = () => {
         <Header
           onOpenMobileMenu={() => setMobileOpen(true)}
           onOpenQuickAction={(initialType) => {
-            if (initialType) setQuickActionInitialType(initialType);
+            if (typeof initialType === 'string') setQuickActionInitialType(initialType);
             setQuickActionOpen(true);
           }}
         />
@@ -276,6 +279,8 @@ const MainContent: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {currentTab === 'clock' && <RealClock />}
 
               {currentTab === 'timeblocks' && <DailyTimeBlockPlanner />}
 
@@ -379,6 +384,8 @@ const MainContent: React.FC = () => {
                   ? Settings
                   : currentTab === 'calendar'
                   ? Calendar
+                  : currentTab === 'clock'
+                  ? Clock
                   : MoreHorizontal;
 
               const moreLabel =
@@ -390,6 +397,8 @@ const MainContent: React.FC = () => {
                   ? 'Settings'
                   : currentTab === 'calendar'
                   ? 'Calendar'
+                  : currentTab === 'clock'
+                  ? 'Clock'
                   : 'More';
 
               const Icon = moreIcon;
@@ -629,7 +638,7 @@ const MainContent: React.FC = () => {
       {/* Global Command Center, Trash Restore & In-App Confirmation Modal */}
       <CommandCenter
         onOpenQuickAction={(initialType) => {
-          if (initialType) setQuickActionInitialType(initialType);
+          if (typeof initialType === 'string') setQuickActionInitialType(initialType);
           setQuickActionOpen(true);
         }}
       />
