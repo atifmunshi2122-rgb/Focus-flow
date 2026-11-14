@@ -10,35 +10,26 @@ import {
   addDays,
   DEFAULT_TIMEZONE,
   getTodayDateString,
-  parseDateString,
 } from '../../lib/dateTime.ts';
-import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import {
-  AnimatedCheckmark,
-  AnimatedNumber,
   AnimatedProgressBar,
   EmptyStateIllustration,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
 import {
   AlertCircle,
-  ArrowRight,
   Calendar,
-  CheckCircle2,
   Clock,
-  Flame,
   Layers,
   Play,
   Plus,
-  RotateCcw,
-  Sparkles,
   Zap,
   CalendarDays,
   Check,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 
 export const SmartDailyPlanner: React.FC = () => {
   const {

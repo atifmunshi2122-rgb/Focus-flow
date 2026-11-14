@@ -38,26 +38,19 @@ import {
 import {
   Check,
   Copy,
-  Download,
   Eye,
   EyeOff,
-  Flame,
   Heart,
   Layers,
   Lightbulb,
-  Maximize2,
   Minus,
   Palette,
   Plus,
   RefreshCw,
-  Save,
   Search,
   ShieldCheck,
-  Sliders,
   Sparkles,
-  Sun,
   Wand2,
-  Zap,
 } from 'lucide-react';
 
 const FAVORITES_STORAGE_KEY = 'ff_fav_palettes_v1';

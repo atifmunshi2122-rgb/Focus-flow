@@ -10,9 +10,6 @@ import {
   ArrowDownRight,
   CheckCircle2,
   History,
-  Calendar,
-  Sliders,
-  Sparkles,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';

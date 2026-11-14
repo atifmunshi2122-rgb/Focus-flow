@@ -2,8 +2,8 @@ import React from 'react';
 import { ThemeConfig } from '../../types/theme.ts';
 import { ACCENT_PRESETS, getStyleDefinition } from '../../theme/stylesRegistry.ts';
 import { getAccessibleContrastText, getContrastRatio, normalizeHex } from '../../theme/colorUtils.ts';
-import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
-import { Check, Palette, RefreshCw, RotateCcw, ShieldCheck, Sparkles } from 'lucide-react';
+import { ThemeBadge, ThemeCard } from '../ui/ThemePrimitives.tsx';
+import { RotateCcw, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface AdvancedColorCustomizerProps {
   draftConfig: ThemeConfig;

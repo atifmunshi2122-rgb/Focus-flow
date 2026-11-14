@@ -1,7 +1,5 @@
 import {
-  DesignStyleId,
   ModePalette,
-  StyleDefinition,
   StyleFusionConfig,
 } from '../types/theme.ts';
 import { getStyleDefinition } from './stylesRegistry.ts';

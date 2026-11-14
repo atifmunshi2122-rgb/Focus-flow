@@ -32,6 +32,7 @@ export interface UserSettings {
   longBreakDuration: number;
   autoSwitchSessions: boolean;
   soundEnabled: boolean;
+  soundVolume?: number;
   theme: 'light' | 'dark' | 'system';
   themeConfig?: Record<string, unknown>;
   savedThemes?: Array<Record<string, unknown>>;

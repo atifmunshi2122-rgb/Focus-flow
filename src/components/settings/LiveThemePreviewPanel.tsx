@@ -13,10 +13,8 @@ import {
   Clock,
   Wallet,
   CheckCircle2,
-  AlertCircle,
   X,
   Layers,
-  ArrowUpRight,
 } from 'lucide-react';
 import { ThemeBadge, ThemeButton } from '../ui/ThemePrimitives.tsx';
 

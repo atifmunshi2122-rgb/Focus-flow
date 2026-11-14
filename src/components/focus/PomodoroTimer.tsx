@@ -35,7 +35,6 @@ import {
   Music,
   Save,
   X,
-  BookOpen,
   GraduationCap,
 } from 'lucide-react';
 

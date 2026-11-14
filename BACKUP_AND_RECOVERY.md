@@ -1,5 +1,8 @@
 # FocusFlow & Finance — Backup & Disaster Recovery Guide
 
+> [!NOTE]
+> **DEPRECATION NOTICE:** This document has been superseded by the canonical [BACKUP_RECOVERY_GUIDE.md](BACKUP_RECOVERY_GUIDE.md). Please refer to the updated guide for current architecture, Point-in-Time Recovery (PITR), and disaster recovery procedures.
+
 This document defines the data protection, backup schedules, recovery protocols, and disaster recovery objectives for FocusFlow & Finance.
 
 ---

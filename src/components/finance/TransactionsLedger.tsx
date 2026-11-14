@@ -4,7 +4,6 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
 import {
-  ThemeBadge,
   ThemeButton,
   ThemeCard,
   ThemeInput,

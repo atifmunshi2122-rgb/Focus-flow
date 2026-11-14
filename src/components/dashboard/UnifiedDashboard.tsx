@@ -22,7 +22,6 @@ import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import { GamificationCard } from './GamificationCard.tsx';
 import { ProductivityScoreCard } from '../focus/ProductivityScoreCard.tsx';
 import {
-  computeHabitStreak,
   computeProductivityScore,
   isHabitScheduledOnDate,
 } from '../../lib/productivityIntelligence.ts';
@@ -64,7 +63,6 @@ import {
   GraduationCap,
   RotateCcw,
   AlertTriangle,
-  BookOpen,
 } from 'lucide-react';
 
 interface UnifiedDashboardProps {

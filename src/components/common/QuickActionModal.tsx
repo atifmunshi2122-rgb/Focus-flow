@@ -4,15 +4,12 @@ import { api } from '../../lib/api.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
 import { playCashSound } from '../../lib/sound.ts';
 import {
-  Timer,
-  PlusCircle,
   Receipt,
   CreditCard,
   CheckSquare,
   Flame,
   Layers,
   Target,
-  Sparkles,
   ArrowRight,
   Check,
   AlertCircle,
@@ -21,11 +18,9 @@ import {
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
 import {
   ThemeButton,
-  ThemeCard,
   ThemeModal,
   ThemeSegmentedControl,
 } from '../ui/ThemePrimitives.tsx';
-import { ValidationMessage, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 
 export type QuickActionType =
   | 'task'

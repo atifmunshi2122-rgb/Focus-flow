@@ -1,6 +1,6 @@
 import React from 'react';
 import { ThemeModal, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
-import { Command, Keyboard, Zap, Layers, Sparkles, X } from 'lucide-react';
+import { Command, Zap, Layers } from 'lucide-react';
 
 interface KeyboardShortcutsModalProps {
   isOpen: boolean;

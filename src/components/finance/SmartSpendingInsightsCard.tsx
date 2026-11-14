@@ -6,9 +6,6 @@ import {
   Calendar,
   AlertCircle,
   PieChart,
-  ArrowUpRight,
-  ShieldCheck,
-  CheckCircle2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { formatCurrency } from '../../lib/currency.ts';
@@ -16,7 +13,6 @@ import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { computeSpendingInsights } from '../../lib/financeIntelligence.ts';
 import type { ExpenseTransaction, IncomeTransaction } from '../../types/index.ts';
 import { ThemeBadge, ThemeCard } from '../ui/ThemePrimitives.tsx';
-import { AnimatedProgressBar } from '../ui/MotionPrimitives.tsx';
 
 interface SmartSpendingInsightsCardProps {
   expenses: ExpenseTransaction[];

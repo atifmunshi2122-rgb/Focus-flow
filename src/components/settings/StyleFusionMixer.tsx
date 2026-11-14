@@ -8,7 +8,6 @@ import {
   DEFAULT_FUSION_CONFIG,
   FUSION_PRESET_TEMPLATES,
   FusionPresetTemplate,
-  computeFusedTokens,
 } from '../../theme/styleFusionEngine.ts';
 import { DESIGN_STYLES, getStyleDefinition } from '../../theme/stylesRegistry.ts';
 import { buildThemeCssVariables, sanitizeThemeConfig } from '../../theme/themeEngine.ts';
@@ -20,16 +19,11 @@ import {
 } from '../ui/ThemePrimitives.tsx';
 import {
   Check,
-  ChevronRight,
   Eye,
   EyeOff,
-  Flame,
-  Layers,
-  Palette,
   RotateCcw,
   Save,
   Sliders,
-  Sparkles,
   Wand2,
   Zap,
 } from 'lucide-react';

@@ -29,7 +29,6 @@ import {
   Grid3X3,
   BarChart3,
   ListTodo,
-  TrendingUp,
 } from 'lucide-react';
 import { ProductivityScoreCard } from './ProductivityScoreCard.tsx';
 import { DailyProductivityTimeline } from './DailyProductivityTimeline.tsx';

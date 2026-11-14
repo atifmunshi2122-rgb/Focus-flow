@@ -3,13 +3,6 @@ import {
   FileText,
   Download,
   Printer,
-  Calendar,
-  Layers,
-  TrendingUp,
-  TrendingDown,
-  Target,
-  BarChart3,
-  PieChart,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';

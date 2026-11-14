@@ -7,14 +7,10 @@ import {
   DEFAULT_TIMEZONE,
   getTodayDateString,
   getDaysInMonth,
-  getStartOfMonth,
-  getEndOfMonth,
   getStartOfWeek,
-  getEndOfWeek,
-  formatDateInTimezone,
 } from '../../lib/dateTime.ts';
 import { formatCurrency } from '../../lib/currency.ts';
-import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
 import {
@@ -23,9 +19,6 @@ import {
   ChevronRight,
   Clock,
   CheckCircle2,
-  AlertCircle,
-  TrendingUp,
-  TrendingDown,
   X,
   CreditCard,
   CheckSquare,

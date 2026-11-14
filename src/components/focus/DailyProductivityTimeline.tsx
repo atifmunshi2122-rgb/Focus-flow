@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { FocusSession, Habit, Task, TimeBlock } from '../../types/index.ts';
@@ -10,30 +10,23 @@ import {
 import {
   addDays,
   DEFAULT_TIMEZONE,
-  formatDateInTimezone,
   getTodayDateString,
   parseDateString,
 } from '../../lib/dateTime.ts';
-import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
   EmptyStateIllustration,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
 import {
-  Calendar,
   ChevronLeft,
   ChevronRight,
   Clock,
   CheckCircle2,
   Flame,
   Layers,
-  Sparkles,
-  ArrowRight,
-  RotateCcw,
-  Plus,
 } from 'lucide-react';
-import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 
 export const DailyProductivityTimeline: React.FC = () => {
   const { refreshKey, triggerRefresh, setCurrentTab } = useApp();

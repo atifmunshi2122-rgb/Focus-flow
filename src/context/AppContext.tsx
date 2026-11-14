@@ -15,7 +15,6 @@ import {
   playClickSound,
   playTimerStartSound,
   playTimerPauseSound,
-  playSaveSuccessSound,
   playErrorSound,
   unlockAudioContext,
 } from '../lib/sound.ts';

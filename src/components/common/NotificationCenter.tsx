@@ -10,17 +10,15 @@ import {
   CheckCheck,
   Trash2,
   Clock,
-  Wallet,
   CreditCard,
   Flame,
   Layers,
-  Sparkles,
   ExternalLink,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
-import { ThemeBadge, ThemeButton } from '../ui/ThemePrimitives.tsx';
+import { ThemeBadge } from '../ui/ThemePrimitives.tsx';
 
 type NotificationFilter = 'all' | 'unread' | 'urgent';
 

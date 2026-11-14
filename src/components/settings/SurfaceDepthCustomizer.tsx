@@ -9,7 +9,7 @@ import {
 } from '../../types/theme.ts';
 import { FONT_PAIRINGS, getStyleDefinition } from '../../theme/stylesRegistry.ts';
 import { ThemeBadge, ThemeButton, ThemeCard, ThemeSegmentedControl } from '../ui/ThemePrimitives.tsx';
-import { Layers, Box, Sliders, Type, RotateCcw, Eye } from 'lucide-react';
+import { Layers, Box, Sliders, Type, RotateCcw } from 'lucide-react';
 
 interface SurfaceDepthCustomizerProps {
   draftConfig: ThemeConfig;

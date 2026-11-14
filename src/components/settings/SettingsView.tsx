@@ -11,11 +11,10 @@ import {
   ThemeButton,
   ThemeCard,
   ThemeInput,
-  ThemeSegmentedControl,
   ThemeSelect,
 } from '../ui/ThemePrimitives.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
-import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
+import { MOTION_DURATION, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
   playClickSound,
   playSaveSuccessSound,
@@ -36,7 +35,6 @@ import {
   Info,
   Keyboard,
   LayoutDashboard,
-  Lock,
   Moon,
   Palette,
   RefreshCw,
@@ -44,12 +42,10 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
-  Sliders,
   Sun,
   Target,
   Timer,
   Trash2,
-  Upload,
   User,
   Volume2,
   VolumeX,

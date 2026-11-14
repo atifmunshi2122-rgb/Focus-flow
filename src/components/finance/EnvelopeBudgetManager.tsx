@@ -5,7 +5,7 @@ import { api } from '../../lib/api.ts';
 import { BudgetEnvelope, ExpenseCategory } from '../../types/index.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise, toMajorCurrency } from '../../lib/currency.ts';
-import { ThemeCard, ThemeButton, ThemeInput, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard, ThemeButton, ThemeInput } from '../ui/ThemePrimitives.tsx';
 import { AnimatedProgressBar, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
 import {
@@ -15,11 +15,8 @@ import {
   Trash2,
   Edit2,
   AlertTriangle,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  TrendingDown,
-  PieChart,
 } from 'lucide-react';
 
 const ENVELOPE_COLORS = [

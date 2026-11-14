@@ -8,7 +8,7 @@ import {
   StudyMistake,
   RevisionDifficulty,
 } from '../../types/study.ts';
-import { Habit, FocusSession } from '../../types/index.ts';
+import { FocusSession } from '../../types/index.ts';
 import { DEFAULT_ACADEMIC_TIERS, buildDefaultStudyWorkspace } from '../../data/studySeedData.ts';
 import {
   categorizeRevisions,

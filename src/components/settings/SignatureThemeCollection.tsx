@@ -1,19 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import { COMPLETE_THEME_COLLECTION, PresetTheme } from '../../theme/presetThemes.ts';
 import { ThemeConfig } from '../../types/theme.ts';
-import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard } from '../ui/ThemePrimitives.tsx';
 import {
   Check,
   Eye,
-  Filter,
-  Flame,
-  Layers,
-  Palette,
   Search,
-  Sparkles,
   Star,
-  Wand2,
 } from 'lucide-react';
 
 interface SignatureThemeCollectionProps {

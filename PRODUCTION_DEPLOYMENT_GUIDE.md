@@ -179,5 +179,5 @@ In the event of an unexpected regression or deployment defect:
    # Revert hosting release in Firebase Console or via CLI
    firebase hosting:clone YOUR_PROJECT_ID:PREVIOUS_VERSION YOUR_PROJECT_ID:live
    ```
-3. **Database Restorations:** Follow the procedures in [BACKUP_AND_RECOVERY.md](file:///Users/munshimdatif/Downloads/focusflow-&-finance/BACKUP_AND_RECOVERY.md).
+3. **Database Restorations:** Follow the procedures in [BACKUP_RECOVERY_GUIDE.md](BACKUP_RECOVERY_GUIDE.md).
 

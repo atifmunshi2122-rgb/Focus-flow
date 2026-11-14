@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudyMistake, StudySubject } from '../../types/study.ts';
-import { AlertTriangle, Lightbulb, ShieldAlert, Sparkles } from 'lucide-react';
 
 interface LogStudyMistakeModalProps {
   isOpen: boolean;

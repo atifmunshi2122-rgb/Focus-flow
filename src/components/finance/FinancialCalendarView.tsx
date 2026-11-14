@@ -1,25 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
   Receipt,
   Plus,
-  X,
-  CreditCard,
-  FileText,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import type { Bill, ExpenseTransaction, IncomeTransaction } from '../../types/index.ts';
-import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
-import { AnimatedProgressBar, EmptyStateIllustration, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
+import { EmptyStateIllustration, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 
 interface FinancialCalendarViewProps {
   onOpenQuickAction: () => void;

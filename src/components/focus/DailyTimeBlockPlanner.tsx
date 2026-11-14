@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { TimeBlock, Task } from '../../types/index.ts';
-import { DEFAULT_TIMEZONE, getTodayDateString, parseDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeButton, ThemeInput, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
@@ -14,12 +14,9 @@ import {
   CheckCircle2,
   Circle,
   AlertTriangle,
-  Calendar,
   ChevronLeft,
   ChevronRight,
   Edit2,
-  Tag,
-  Link as LinkIcon,
   GripVertical,
   BookOpen,
 } from 'lucide-react';

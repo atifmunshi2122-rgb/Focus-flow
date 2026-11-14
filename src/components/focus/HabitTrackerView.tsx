@@ -14,10 +14,9 @@ import {
   getTodayDateString,
   parseDateString,
 } from '../../lib/dateTime.ts';
-import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { playHabitCompleteSound } from '../../lib/sound.ts';
 import {
-  AnimatedCheckmark,
   AnimatedNumber,
   AnimatedProgressBar,
   EmptyStateIllustration,
@@ -29,16 +28,11 @@ import {
   Flame,
   Plus,
   CheckCircle2,
-  Calendar,
   Sparkles,
   Trash2,
   Edit2,
   Filter,
-  Clock,
-  RotateCcw,
   Check,
-  ChevronLeft,
-  ChevronRight,
   TrendingUp,
 } from 'lucide-react';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';

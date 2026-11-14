@@ -1,20 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { AuditLogEntry, ExpenseTransaction, Bill, ExpenseCategory } from '../../types/index.ts';
+import { AuditLogEntry } from '../../types/index.ts';
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeInput } from '../ui/ThemePrimitives.tsx';
 import {
   ShieldAlert,
   Download,
   Upload,
   History,
-  FileCheck,
   AlertTriangle,
   RefreshCw,
   Search,
   CheckCircle2,
   Database,
-  Trash2,
 } from 'lucide-react';
 
 export const DataRecoveryCenter: React.FC = () => {

@@ -6,13 +6,10 @@ import {
   TrendingUp,
   TrendingDown,
   Plus,
-  AlertTriangle,
-  ShieldCheck,
   ChevronLeft,
   ChevronRight,
   PieChart,
   Receipt,
-  Edit2,
   Trash2,
   Sliders,
 } from 'lucide-react';

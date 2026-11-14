@@ -5,7 +5,6 @@ import {
   getIntensityFactor,
   getSpringTransition,
   MOTION_DURATION,
-  MOTION_EASING,
 } from '../../theme/motionTokens.ts';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { ThemeBadge, ThemeButton, ThemeCard, ThemeProgressBar, ThemeSegmentedControl } from '../ui/ThemePrimitives.tsx';

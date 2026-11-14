@@ -14,7 +14,7 @@ import {
 import { formatCurrency } from './currency.ts';
 import { SETTINGS_CATEGORIES } from '../components/settings/SettingsView.tsx';
 import { COMPLETE_THEME_COLLECTION } from '../theme/presetThemes.ts';
-import { DESIGN_STYLES } from '../theme/stylesRegistry.ts';
+
 import { NavTab } from '../context/AppContext.tsx';
 
 export type SearchFilterType =

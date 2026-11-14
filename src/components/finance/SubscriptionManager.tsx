@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { SubscriptionPlan, ExpenseCategory } from '../../types/index.ts';
-import { DEFAULT_TIMEZONE, getTodayDateString, computeNextRecurrenceDueDate } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise, toMajorCurrency } from '../../lib/currency.ts';
 import { ThemeCard, ThemeButton, ThemeInput, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import { AnimatedNumber, MotionStaggerGrid, MotionStaggerItem, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
@@ -17,11 +17,8 @@ import {
   ExternalLink,
   PauseCircle,
   PlayCircle,
-  XCircle,
   AlertCircle,
-  CheckCircle2,
   TrendingUp,
-  Sparkles,
 } from 'lucide-react';
 
 export const SubscriptionManager: React.FC = () => {

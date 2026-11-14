@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { ThemeModal, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
-import { AcademicTierId, StudySubject } from '../../types/study.ts';
+import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
+import { StudySubject } from '../../types/study.ts';
 import { DEFAULT_ACADEMIC_TIERS } from '../../data/studySeedData.ts';
-import { BookOpen, Palette, Tag } from 'lucide-react';
 
 interface AddStudySubjectModalProps {
   isOpen: boolean;

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ProductivityScoreBreakdown } from '../../lib/productivityIntelligence.ts';
-import { ThemeCard, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
   AnimatedProgressBar,

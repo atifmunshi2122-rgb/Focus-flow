@@ -10,7 +10,6 @@ import {
   ThemeCard,
   ThemeInput,
   ThemeModal,
-  ThemeProgressBar,
   ThemeSelect,
   ThemeTextarea,
 } from '../ui/ThemePrimitives.tsx';
@@ -29,8 +28,6 @@ import {
   getSpringTransition,
 } from '../../theme/motionTokens.ts';
 import {
-  CheckCircle2,
-  Circle,
   Plus,
   Play,
   Trash2,
