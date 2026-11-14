@@ -1,5 +1,21 @@
 # FocusFlow & Finance — Release Notes
 
+## Version: v1.7.0 (Production Hardening & NextStudy OS Integration)
+**Release Date:** November 2026  
+**Build Target:** Production Web & Cloud Run Container  
+**Test Coverage:** 94/94 Automated Tests Passing (100% Pass Rate)
+
+---
+
+### Executive Highlights for v1.7.0
+1. **NextStudy OS Selective Integration:** Comprehensive academic workspace support including Academic Tiers, Subject/Topic syllabus hierarchies, Ebbinghaus spaced repetition ladders, and mistake logs.
+2. **Hardened Security Rules:** Cloud Firestore security rules upgraded for all 5 study and habit subcollections (`habits`, `study_subjects`, `study_topics`, `study_revisions`, `study_mistakes`) with strict field type checks, field immutability (`userId`, `code`, `topicId`), and `affectedKeys().hasOnly([...])` protection.
+3. **Timer Engine Multi-Tab & Sleep/Wake Resilience:** Epoch timestamp calculation prevents drift during OS sleep/wake cycles; Web BroadcastChannel synchronization deduplicates session records across multiple browser tabs.
+4. **Offline Outbox Multi-Account Isolation:** Strict per-user local storage prefixes and replay queues isolate offline operations completely on account switch.
+5. **Production Code-Splitting & Manual Chunks:** Heavy modules (`sheets-engine`, `theme-studio`, `study-module`) dynamically code-split, reducing initial bundle from 1.4 MB to 735 kB.
+
+---
+
 ## Version: v1.0.0 (Production Release Candidate)
 **Release Date:** November 2026  
 **Build Target:** Production Web & Cloud Run Container  

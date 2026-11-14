@@ -193,7 +193,7 @@ export async function requireUserContext(
     }
   }
 
-  if (process.env.REQUIRE_AUTH === 'true') {
+  if (process.env.REQUIRE_AUTH === 'true' || (process.env.NODE_ENV === 'production' && process.env.ALLOW_GUEST !== 'true')) {
     res.status(401).json({ error: 'Authentication required' });
     return;
   }

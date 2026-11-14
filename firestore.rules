@@ -334,11 +334,12 @@ service cloud.firestore {
           && isBoundedInt(request.resource.data.targetDaysPerWeek, 1, 7);
         allow update: if isOwner(userId)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
               && isNonEmptyString(request.resource.data.title, 256)
               && request.resource.data.frequency in ['daily', 'weekly', 'custom']
+              && isBoundedInt(request.resource.data.targetDaysPerWeek, 1, 7)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'category', 'color', 'frequency', 'targetDaysPerWeek', 'customDays', 'completedDates', 'bestStreakDays', 'reminderTime', 'archived', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -354,10 +355,11 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.name, 256);
         allow update: if isOwner(userId)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && request.resource.data.code == resource.data.code
               && isNonEmptyString(request.resource.data.name, 256)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'tierId', 'semesterOrDomain', 'targetExam', 'color', 'totalSubtopics', 'completedSubtopics', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -375,10 +377,14 @@ service cloud.firestore {
           && request.resource.data.priority in ['High', 'Medium', 'Low'];
         allow update: if isOwner(userId)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && request.resource.data.subjectCode == resource.data.subjectCode
               && request.resource.data.priority in ['High', 'Medium', 'Low']
+              && request.resource.data.theory is bool
+              && request.resource.data.practice is bool
+              && request.resource.data.pyq is bool
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priority', 'theory', 'practice', 'pyq', 'revisionCount', 'notes', 'updatedAt', 'deletedAt', 'rowIndex', 'topic', 'subtopic', 'unit'])
             )
           );
         allow delete: if isOwner(userId);
@@ -397,10 +403,13 @@ service cloud.firestore {
           && request.resource.data.status in ['scheduled', 'due', 'overdue', 'mastered'];
         allow update: if isOwner(userId)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && request.resource.data.topicId == resource.data.topicId
               && request.resource.data.difficulty in ['easy', 'medium', 'hard']
+              && request.resource.data.status in ['scheduled', 'due', 'overdue', 'mastered']
+              && isIsoDate(request.resource.data.nextRevisionAt)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['difficulty', 'status', 'lastStudiedAt', 'nextRevisionAt', 'intervalDays', 'repetition', 'recallScore', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -419,10 +428,11 @@ service cloud.firestore {
           && request.resource.data.resolved is bool;
         allow update: if isOwner(userId)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
               && request.resource.data.severity in ['High', 'Medium', 'Low']
+              && request.resource.data.resolved is bool
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['severity', 'trap', 'rootCause', 'goldenRule', 'resolved', 'updatedAt', 'deletedAt', 'source', 'topic', 'date', 'subjectName'])
             )
           );
         allow delete: if isOwner(userId);

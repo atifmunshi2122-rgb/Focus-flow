@@ -35,12 +35,20 @@ export function rateLimiter(options: RateLimitOptions = {}) {
   const message = options.message || 'Too many requests. Please slow down and try again.';
 
   return (req: Request, res: Response, next: NextFunction): void => {
-    const clientIp =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
-      req.socket.remoteAddress ||
-      'unknown_client';
+    const authUser = (req as unknown as { auth?: { userId?: string } }).auth?.userId;
+    const rawForwarded = req.headers['x-forwarded-for'];
+    let clientIp = '';
+    if (typeof rawForwarded === 'string') {
+      const firstCandidate = rawForwarded.split(',')[0].trim();
+      if (/^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[a-fA-F0-9:]+$/.test(firstCandidate)) {
+        clientIp = firstCandidate;
+      }
+    }
+    if (!clientIp) {
+      clientIp = req.socket.remoteAddress || 'unknown_client';
+    }
 
-    const key = `${clientIp}:${req.method}`;
+    const key = authUser ? `usr:${authUser}:${req.method}` : `ip:${clientIp}:${req.method}`;
     const now = Date.now();
 
     let record = rateLimitMap.get(key);

@@ -1,7 +1,7 @@
 # FocusFlow & Finance
 
 > **Unified Executive Productivity & Financial Management Platform**  
-> *Production Release v1.0.0 — Hardened, deterministic software with zero external AI dependencies.*
+> *Production Release v1.7.0 — Hardened, deterministic software with zero external AI dependencies.*
 
 FocusFlow & Finance merges high-performance personal productivity management (Pomodoro timer, stopwatch, time-blocking, task trees, recurrence) with strict double-entry personal finance tracking (integer paise calculations, bills with atomic payment lifecycles, digital envelope budgeting, savings targets, and financial analytics).
 
@@ -31,8 +31,14 @@ Data is authoritatively persisted in **Cloud Firestore** and synchronized to a *
 - **Decoupled Synchronization:** Raw values and dynamic formulas (`=SUM(C2:C)`) sync via `values:batchUpdate` without erasing borders, conditional formatting, dropdowns, or charts.
 - **Durable Sync Queue:** Server-side queue with exponential backoff and jitter ($1\text{s}, 2\text{s}, 4\text{s}, \dots, 30\text{s}$) protecting against rate limits and transient network drops.
 
+### 📚 Academic & Study Management (NextStudy OS)
+- **Syllabus & Topic Tracking:** Multi-tier academic management with theory, practice, and previous-year question (PYQ) progress toggles.
+- **Spaced Repetition Engine:** Ebbinghaus forgetting curve scheduling with automated interval progression and review categorization (Overdue, Due Today, Upcoming, Mastered).
+- **Active Mistake Log:** Systematic error tracking with categorized traps, root causes, and golden rules for exam preparation.
+- **Unified Productivity Integration:** Focus sessions and habits seamlessly link to study subjects and analytics.
+
 ### 🎨 Theme Studio & Ergonomics
-- **19 Handcrafted Design Presets:** Fully customizable themes (Minimalism, Neo-Brutalism, Cyberpunk, Forest, Glazed Clay, etc.) with verified WCAG 2.1 AA text contrast in both Light and Dark modes.
+- **20 Handcrafted Design Presets:** Fully customizable themes (Liquid Glass, Cyberpunk, Neumorphism, Claymorphism, Aurora, Midnight Dark, etc.) with verified WCAG 2.1 AA text contrast in both Light and Dark modes.
 - **Fluid Responsive Layouts:** Optimized for screen sizes ranging from $360\text{px}$ mobile devices to $4\text{K}$ monitors with $\ge 44 \times 44\text{px}$ touch targets.
 - **Accessible Motion System:** Spring-physics animations adhering strictly to `prefers-reduced-motion` settings.
 
@@ -48,7 +54,7 @@ Data is authoritatively persisted in **Cloud Firestore** and synchronized to a *
 | **Database & Auth** | Google Cloud Firestore, Firebase Authentication |
 | **Backend & Proxy** | Node.js, Express 4, TypeScript, Google APIs Client |
 | **Spreadsheet Sync** | Google Sheets API v4 with Batch Value & Schema Updates |
-| **Testing** | Node.js Test Runner with `tsx`, 39 Automated Test Suites |
+| **Testing** | Node.js Test Runner with `tsx`, 94 Automated Test Suites |
 
 ---
 
@@ -100,7 +106,7 @@ Data is authoritatively persisted in **Cloud Firestore** and synchronized to a *
 | Script | Command | Purpose |
 | :--- | :--- | :--- |
 | `npm run dev` | `tsx server.ts` | Start local backend server and Vite development environment |
-| `npm run test` | `node --import tsx --test test/**/*.test.ts` | Execute all 39 unit, financial, and integration tests |
+| `npm run test` | `node --import tsx --test test/**/*.test.ts` | Execute all 94 unit, financial, security, and integration tests |
 | `npm run lint` | `tsc --noEmit` | Validate TypeScript types across client and server |
 | `npm run validate` | `npm run lint && npm test` | Complete pre-commit lint and test pipeline |
 | `npm run build:prod` | `npm run clean && npm run build` | Clean dist and compile optimized production bundle |
