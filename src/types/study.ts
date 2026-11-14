@@ -110,5 +110,6 @@ export interface StudyProgressSummary {
     completed: number;
     completionPct: number;
     color?: string;
+    studyMinutes?: number;
   }>;
 }

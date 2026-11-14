@@ -245,6 +245,14 @@ interface AppContextType {
   setActiveTaskId: (id: string | null) => void;
   setCustomDuration: (minutes: number) => void;
 
+  // Study Topic Linkage for Pomodoro
+  activeStudySubjectCode: string | null;
+  setActiveStudySubjectCode: (code: string | null) => void;
+  activeStudyTopicId: string | null;
+  setActiveStudyTopicId: (id: string | null) => void;
+  activeStudyActivityType: 'study' | 'practice' | 'theory' | 'revision' | null;
+  setActiveStudyActivityType: (type: 'study' | 'practice' | 'theory' | 'revision' | null) => void;
+
   // Refresh
   refreshKey: number;
   triggerRefresh: () => void;
@@ -366,6 +374,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(() => loadInitialTimerState().activeTaskId);
+  const [activeStudySubjectCode, setActiveStudySubjectCode] = useState<string | null>(
+    () => loadInitialTimerState().activeStudySubjectCode
+  );
+  const [activeStudyTopicId, setActiveStudyTopicId] = useState<string | null>(
+    () => loadInitialTimerState().activeStudyTopicId
+  );
+  const [activeStudyActivityType, setActiveStudyActivityType] = useState<
+    'study' | 'practice' | 'theory' | 'revision' | null
+  >(() => loadInitialTimerState().activeStudyActivityType);
 
   // Command Center, Full-Screen Focus, Trash, Audio & Offline/Notifications state
   const [commandCenterOpen, setCommandCenterOpen] = useState(false);
@@ -1537,6 +1554,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         stopwatchStartMs: startMs,
         sessionStartTime: sessionStartTimeRef.current,
         activeTaskId,
+        activeStudySubjectCode,
+        activeStudyTopicId,
+        activeStudyActivityType,
       });
       broadcastTimerEvent({
         type: 'TIMER_SYNC_START',
@@ -1548,6 +1568,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           timerEngine: 'stopwatch',
           sessionStartTime: sessionStartTimeRef.current,
           activeTaskId,
+          activeStudySubjectCode,
+          activeStudyTopicId,
+          activeStudyActivityType,
         },
       });
       return;
@@ -1579,6 +1602,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       stopwatchStartMs: null,
       sessionStartTime: sessionStartTimeRef.current,
       activeTaskId,
+      activeStudySubjectCode,
+      activeStudyTopicId,
+      activeStudyActivityType,
     });
     broadcastTimerEvent({
       type: 'TIMER_SYNC_START',
@@ -1590,9 +1616,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timerEngine,
         sessionStartTime: sessionStartTimeRef.current,
         activeTaskId,
+        activeStudySubjectCode,
+        activeStudyTopicId,
+        activeStudyActivityType,
       },
     });
-  }, [settings, clearTimerHandles, timerEngine, timerMode, activeTaskId]);
+  }, [
+    settings,
+    clearTimerHandles,
+    timerEngine,
+    timerMode,
+    activeTaskId,
+    activeStudySubjectCode,
+    activeStudyTopicId,
+    activeStudyActivityType,
+  ]);
 
   const pauseTimer = useCallback(() => {
     clearTimerHandles();
@@ -1669,7 +1707,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completed: true,
         startedAt,
         endedAt,
+        subjectCode: activeStudySubjectCode || undefined,
+        topicId: activeStudyTopicId || undefined,
+        activityType:
+          activeStudyActivityType || (activeStudySubjectCode || activeStudyTopicId ? 'study' : undefined),
       });
+
+      if (activeStudyTopicId && activeStudyActivityType === 'practice') {
+        api.saveStudyTopic({ id: activeStudyTopicId, practice: true }).catch(console.error);
+      } else if (activeStudyTopicId && activeStudyActivityType === 'theory') {
+        api.saveStudyTopic({ id: activeStudyTopicId, theory: true }).catch(console.error);
+      }
+
       void googleSheetsService.enqueueMutation(
         'Focus_Sessions',
         [
@@ -1694,12 +1743,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       showToast('Failed to log stopwatch session', 'error');
     }
-  }, [activeTaskId, googleSpreadsheetId, googleAccessToken, resetTimer, showToast, triggerRefresh]);
+  }, [
+    activeTaskId,
+    activeStudySubjectCode,
+    activeStudyTopicId,
+    activeStudyActivityType,
+    googleSpreadsheetId,
+    googleAccessToken,
+    resetTimer,
+    showToast,
+    triggerRefresh,
+  ]);
 
   const latestTimerDepsRef = useRef({
     timerMode,
     totalDuration,
     activeTaskId,
+    activeStudySubjectCode,
+    activeStudyTopicId,
+    activeStudyActivityType,
     settings,
     firebaseUser,
     googleSpreadsheetId,
@@ -1712,6 +1774,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     timerMode,
     totalDuration,
     activeTaskId,
+    activeStudySubjectCode,
+    activeStudyTopicId,
+    activeStudyActivityType,
     settings,
     firebaseUser,
     googleSpreadsheetId,
@@ -1769,6 +1834,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timerMode: modeNow,
         totalDuration: durationNow,
         activeTaskId: taskNow,
+        activeStudySubjectCode: studySubjectNow,
+        activeStudyTopicId: studyTopicNow,
+        activeStudyActivityType: studyActivityNow,
         settings: settingsNow,
         firebaseUser: fbUserNow,
         googleSpreadsheetId: sheetIdNow,
@@ -1812,8 +1880,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               completed: true,
               startedAt,
               endedAt,
+              subjectCode: studySubjectNow || undefined,
+              topicId: studyTopicNow || undefined,
+              activityType: studyActivityNow || (studySubjectNow || studyTopicNow ? 'study' : undefined),
             })
             .then((newSession) => {
+              if (studyTopicNow && studyActivityNow === 'practice') {
+                api.saveStudyTopic({ id: studyTopicNow, practice: true }).catch(console.error);
+              } else if (studyTopicNow && studyActivityNow === 'theory') {
+                api.saveStudyTopic({ id: studyTopicNow, theory: true }).catch(console.error);
+              }
+
               void googleSheetsService.enqueueMutation(
                 'Focus_Sessions',
                 [
@@ -1927,6 +2004,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             totalDurationRef.current = msg.payload.totalDuration;
             if (msg.payload.activeTaskId !== undefined) {
               setActiveTaskId(msg.payload.activeTaskId);
+            }
+            if (msg.payload.activeStudySubjectCode !== undefined) {
+              setActiveStudySubjectCode(msg.payload.activeStudySubjectCode);
+            }
+            if (msg.payload.activeStudyTopicId !== undefined) {
+              setActiveStudyTopicId(msg.payload.activeStudyTopicId);
+            }
+            if (msg.payload.activeStudyActivityType !== undefined) {
+              setActiveStudyActivityType(msg.payload.activeStudyActivityType);
             }
             setIsRunning(true);
             break;
@@ -2111,6 +2197,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchTimerMode,
         setActiveTaskId,
         setCustomDuration,
+
+        // Study Topic Linkage
+        activeStudySubjectCode,
+        setActiveStudySubjectCode,
+        activeStudyTopicId,
+        setActiveStudyTopicId,
+        activeStudyActivityType,
+        setActiveStudyActivityType,
 
         // Refresh
         refreshKey,

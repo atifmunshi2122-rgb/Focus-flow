@@ -21,6 +21,9 @@ export interface StoredTimerState {
   stopwatchElapsed: number;
   sessionStartTime: string | null;
   activeTaskId: string | null;
+  activeStudySubjectCode?: string | null;
+  activeStudyTopicId?: string | null;
+  activeStudyActivityType?: 'study' | 'practice' | 'theory' | 'revision' | null;
   lastUpdatedMs: number;
 }
 
@@ -35,6 +38,9 @@ export type TimerBroadcastMessage =
         timerEngine: TimerEngineMode;
         sessionStartTime: string | null;
         activeTaskId: string | null;
+        activeStudySubjectCode?: string | null;
+        activeStudyTopicId?: string | null;
+        activeStudyActivityType?: 'study' | 'practice' | 'theory' | 'revision' | null;
       };
     }
   | {
@@ -85,6 +91,9 @@ export interface InitialTimerStateResult {
   stopwatchStartMs: number | null;
   sessionStartTime: string | null;
   activeTaskId: string | null;
+  activeStudySubjectCode: string | null;
+  activeStudyTopicId: string | null;
+  activeStudyActivityType: 'study' | 'practice' | 'theory' | 'revision' | null;
 }
 
 export function computeRemainingSeconds(targetEndTimeMs: number, nowMs: number = Date.now()): number {
@@ -117,6 +126,9 @@ export function loadInitialTimerState(
     stopwatchStartMs: null,
     sessionStartTime: null,
     activeTaskId: null,
+    activeStudySubjectCode: null,
+    activeStudyTopicId: null,
+    activeStudyActivityType: null,
   };
 
   if (!storage) return fallback;
@@ -138,6 +150,11 @@ export function loadInitialTimerState(
       : 25 * 60;
     const activeTaskId = typeof parsed.activeTaskId === 'string' ? parsed.activeTaskId : null;
     const sessionStartTime = typeof parsed.sessionStartTime === 'string' ? parsed.sessionStartTime : null;
+    const activeStudySubjectCode = typeof parsed.activeStudySubjectCode === 'string' ? parsed.activeStudySubjectCode : null;
+    const activeStudyTopicId = typeof parsed.activeStudyTopicId === 'string' ? parsed.activeStudyTopicId : null;
+    const activeStudyActivityType = (parsed.activeStudyActivityType && ['study', 'practice', 'theory', 'revision'].includes(parsed.activeStudyActivityType))
+      ? parsed.activeStudyActivityType
+      : null;
 
     if (parsed.isRunning) {
       if (engine === 'stopwatch') {
@@ -155,6 +172,9 @@ export function loadInitialTimerState(
             stopwatchStartMs: startMs,
             sessionStartTime,
             activeTaskId,
+            activeStudySubjectCode,
+            activeStudyTopicId,
+            activeStudyActivityType,
           };
         }
       } else {
@@ -173,6 +193,9 @@ export function loadInitialTimerState(
               stopwatchStartMs: null,
               sessionStartTime,
               activeTaskId,
+              activeStudySubjectCode,
+              activeStudyTopicId,
+              activeStudyActivityType,
             };
           } else {
             // Timer expired while page/tab was closed
@@ -187,6 +210,9 @@ export function loadInitialTimerState(
               stopwatchStartMs: null,
               sessionStartTime,
               activeTaskId,
+              activeStudySubjectCode,
+              activeStudyTopicId,
+              activeStudyActivityType,
             };
           }
         }
@@ -211,6 +237,9 @@ export function loadInitialTimerState(
       stopwatchStartMs: null,
       sessionStartTime,
       activeTaskId,
+      activeStudySubjectCode,
+      activeStudyTopicId,
+      activeStudyActivityType,
     };
   } catch {
     return fallback;
@@ -237,6 +266,9 @@ export function saveTimerState(
       stopwatchElapsed: state.stopwatchElapsed ?? prev.stopwatchElapsed ?? 0,
       sessionStartTime: state.sessionStartTime !== undefined ? state.sessionStartTime : prev.sessionStartTime ?? null,
       activeTaskId: state.activeTaskId !== undefined ? state.activeTaskId : prev.activeTaskId ?? null,
+      activeStudySubjectCode: state.activeStudySubjectCode !== undefined ? state.activeStudySubjectCode : prev.activeStudySubjectCode ?? null,
+      activeStudyTopicId: state.activeStudyTopicId !== undefined ? state.activeStudyTopicId : prev.activeStudyTopicId ?? null,
+      activeStudyActivityType: state.activeStudyActivityType !== undefined ? state.activeStudyActivityType : prev.activeStudyActivityType ?? null,
       lastUpdatedMs: Date.now(),
     };
     storage.setItem(TIMER_STORAGE_KEY, JSON.stringify(merged));
