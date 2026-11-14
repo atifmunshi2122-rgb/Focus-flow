@@ -54,7 +54,6 @@ import {
   Layers,
   Repeat,
   BarChart3,
-  ShieldAlert,
 } from 'lucide-react';
 
 const PRIMARY_MOBILE_TABS: NavTab[] = ['dashboard', 'focus', 'tasks', 'finance'];
@@ -74,7 +73,6 @@ const MORE_GRID_ITEMS: MobileMoreItem[] = [
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'recovery', label: 'Recovery', icon: ShieldAlert },
 ];
 
 const MainContent: React.FC = () => {

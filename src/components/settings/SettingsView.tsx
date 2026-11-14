@@ -162,7 +162,7 @@ export const SETTINGS_CATEGORIES: CategoryMeta[] = [
     id: 'about',
     label: 'About & Architecture',
     shortLabel: 'About',
-    description: 'Release v1.0.0, deterministic tech stack, and documentation.',
+    description: `Release v${typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'}, deterministic tech stack, and documentation.`,
     icon: Info,
   },
 ];
@@ -341,9 +341,9 @@ export const SEARCH_INDEX: SearchIndexItem[] = [
     id: 'about_release',
     categoryId: 'about',
     categoryLabel: 'About & Architecture',
-    title: 'Release Version v1.0.0 & Documentation',
+    title: `Release Version v${typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'} & Documentation`,
     description: 'Inspect production release baseline, technical manuals, and architecture guides.',
-    keywords: ['version', 'v1.0.0', 'release', 'docs', 'manual', 'architecture', 'readme'],
+    keywords: ['version', 'release', 'docs', 'manual', 'architecture', 'readme'],
   },
 ];
 
@@ -1631,7 +1631,7 @@ export const SettingsView: React.FC = () => {
 
                   <div className="space-y-2 text-xs text-[var(--ff-text-secondary)] leading-relaxed">
                     <p>
-                      <strong>Version:</strong> v1.0.0 (Production Release Baseline)
+                      <strong>Version:</strong> v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'} (Production Release Baseline)
                     </p>
                     <p>
                       <strong>Architecture:</strong> 100% deterministic, zero-AI software engine. Powered by React 19, TypeScript 5, Tailwind CSS v4, Motion, Cloud Firestore, Express security proxy, and Google Sheets API v4.
