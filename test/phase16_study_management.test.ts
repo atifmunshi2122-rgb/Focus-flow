@@ -124,12 +124,14 @@ test('Phase 16 — Study Plan Analytics (computeStudyPlanAnalytics)', () => {
     {
       id: 'fs1',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 55,
       durationSeconds: 3300,
       completed: true,
       subjectCode: 'DBMS',
-      createdAt: '2026-11-15T10:00:00Z',
+      startedAt: '2026-11-15T10:00:00Z',
+      endedAt: '2026-11-15T10:55:00Z',
     },
   ];
 
