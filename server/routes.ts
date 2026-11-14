@@ -30,6 +30,10 @@ import {
   ALLOWED_TASK_RECURRENCES,
   ALLOWED_TASK_STATUSES,
   ALLOWED_THEMES,
+  ALLOWED_STUDY_PRIORITIES,
+  ALLOWED_REVISION_DIFFICULTIES,
+  ALLOWED_REVISION_STATUSES,
+  ALLOWED_MISTAKE_SEVERITIES,
   calculateBoundedStreakDays,
   computeBestStreakDays,
   computeNextRecurrenceDueDate,
@@ -2272,11 +2276,18 @@ apiRouter.delete('/envelopes/:id', (req: Request, res: Response) => {
 apiRouter.post('/envelopes/transfer', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const { fromId, toId, amountPaise } = req.body || {};
-  if (!fromId || !toId || !amountPaise || typeof amountPaise !== 'number') {
-    res.status(400).json({ error: 'fromId, toId, and positive integer amountPaise are required' });
+  const parsedFromId = parseNonEmptyString(fromId, 128);
+  const parsedToId = parseNonEmptyString(toId, 128);
+  const parsedAmount = parsePositiveInt(amountPaise, 1, 1000000000000);
+  if (!parsedFromId || !parsedToId || !parsedAmount) {
+    res.status(400).json({ error: 'Valid fromId, toId, and positive integer amountPaise are required' });
     return;
   }
-  const result = dbService.transferEnvelopeFunds(userId, fromId, toId, amountPaise);
+  if (parsedFromId === parsedToId) {
+    res.status(400).json({ error: 'Cannot transfer funds to the same envelope' });
+    return;
+  }
+  const result = dbService.transferEnvelopeFunds(userId, parsedFromId, parsedToId, parsedAmount);
   if (!result.success) {
     res.status(400).json({ error: result.error || 'Failed to transfer envelope funds' });
     return;
@@ -2345,7 +2356,33 @@ apiRouter.get('/study/subjects', (req: Request, res: Response) => {
 
 apiRouter.post('/study/subjects', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
-  const subject = dbService.saveStudySubject(userId, req.body);
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const code = parseNonEmptyString(body.code, 64);
+  if (!code || !/^[A-Za-z0-9_-]+$/.test(code)) {
+    res.status(400).json({ error: 'Valid subject code is required (alphanumeric, underscore, hyphen, max 64 chars)' });
+    return;
+  }
+  const name = parseNonEmptyString(body.name, 256);
+  if (!name) {
+    res.status(400).json({ error: 'Subject name is required and must not exceed 256 characters' });
+    return;
+  }
+  const tierId = parseOptionalString(body.tierId, 64) || 'custom';
+  const semesterOrDomain = parseOptionalString(body.semesterOrDomain, 128) || undefined;
+  const targetExam = parseOptionalString(body.targetExam, 128) || undefined;
+  const color = parseOptionalString(body.color, 32) || '#3b82f6';
+
+  const subject = dbService.saveStudySubject(userId, {
+    id: parseOptionalString(body.id, 128) || undefined,
+    code,
+    name,
+    tierId,
+    semesterOrDomain,
+    targetExam,
+    color,
+    totalSubtopics: parseNonNegativeInt(body.totalSubtopics, 10000) ?? 0,
+    completedSubtopics: parseNonNegativeInt(body.completedSubtopics, 10000) ?? 0,
+  });
   res.json(subject);
 });
 
@@ -2374,8 +2411,42 @@ apiRouter.get('/study/topics', (req: Request, res: Response) => {
 
 apiRouter.post('/study/topics', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
-  const topic = dbService.saveStudyTopic(userId, req.body);
-  res.json(topic);
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const subjectCode = parseNonEmptyString(body.subjectCode, 64);
+  if (!subjectCode) {
+    res.status(400).json({ error: 'subjectCode is required' });
+    return;
+  }
+  const unit = parseNonEmptyString(body.unit, 128);
+  if (!unit) {
+    res.status(400).json({ error: 'unit is required (max 128 characters)' });
+    return;
+  }
+  const subtopic = parseNonEmptyString(body.subtopic, 256);
+  if (!subtopic) {
+    res.status(400).json({ error: 'subtopic is required (max 256 characters)' });
+    return;
+  }
+  const topic = parseOptionalString(body.topic, 256) || unit;
+  const priority = (body.priority ? parseEnum(body.priority, ALLOWED_STUDY_PRIORITIES) : 'Medium') || 'Medium';
+  const notes = parseOptionalString(body.notes, 2000) || undefined;
+  const rowIndex = parseNonNegativeInt(body.rowIndex, 100000) ?? 0;
+
+  const topicRecord = dbService.saveStudyTopic(userId, {
+    id: parseOptionalString(body.id, 128) || undefined,
+    subjectCode,
+    unit,
+    topic,
+    subtopic,
+    priority,
+    theory: Boolean(body.theory),
+    practice: Boolean(body.practice),
+    pyq: Boolean(body.pyq),
+    revisionCount: parseNonNegativeInt(body.revisionCount, 1000) ?? 0,
+    notes,
+    rowIndex,
+  });
+  res.json(topicRecord);
 });
 
 apiRouter.delete('/study/topics/:id', (req: Request, res: Response) => {
@@ -2396,7 +2467,43 @@ apiRouter.get('/study/revisions', (req: Request, res: Response) => {
 
 apiRouter.post('/study/revisions', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
-  const revision = dbService.saveStudyRevision(userId, req.body);
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const topicId = parseNonEmptyString(body.topicId, 128);
+  if (!topicId) {
+    res.status(400).json({ error: 'topicId is required' });
+    return;
+  }
+  const subjectCode = parseNonEmptyString(body.subjectCode, 64);
+  if (!subjectCode) {
+    res.status(400).json({ error: 'subjectCode is required' });
+    return;
+  }
+  const topicTitle = parseNonEmptyString(body.topicTitle, 256);
+  if (!topicTitle) {
+    res.status(400).json({ error: 'topicTitle is required' });
+    return;
+  }
+  const lastStudiedAt = parseIsoDate(body.lastStudiedAt) || new Date().toISOString().slice(0, 10);
+  const nextRevisionAt = parseIsoDate(body.nextRevisionAt) || lastStudiedAt;
+  const difficulty = (body.difficulty ? parseEnum(body.difficulty, ALLOWED_REVISION_DIFFICULTIES) : 'medium') || 'medium';
+  const status = (body.status ? parseEnum(body.status, ALLOWED_REVISION_STATUSES) : 'scheduled') || 'scheduled';
+  const intervalDays = parsePositiveInt(body.intervalDays, 1, 365) || 1;
+  const repetition = parseNonNegativeInt(body.repetition, 100) || 0;
+  const notes = parseOptionalString(body.notes, 2000) || undefined;
+
+  const revision = dbService.saveStudyRevision(userId, {
+    id: parseOptionalString(body.id, 128) || undefined,
+    topicId,
+    subjectCode,
+    topicTitle,
+    lastStudiedAt,
+    nextRevisionAt,
+    intervalDays,
+    repetition,
+    difficulty,
+    status,
+    notes,
+  });
   res.json(revision);
 });
 
@@ -2433,7 +2540,46 @@ apiRouter.get('/study/mistakes', (req: Request, res: Response) => {
 
 apiRouter.post('/study/mistakes', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
-  const mistake = dbService.saveStudyMistake(userId, req.body);
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const subjectCode = parseNonEmptyString(body.subjectCode, 64);
+  if (!subjectCode) {
+    res.status(400).json({ error: 'subjectCode is required' });
+    return;
+  }
+  const topic = parseNonEmptyString(body.topic, 256);
+  if (!topic) {
+    res.status(400).json({ error: 'topic is required' });
+    return;
+  }
+  const trap = parseNonEmptyString(body.trap, 1024);
+  if (!trap) {
+    res.status(400).json({ error: 'trap (what went wrong) is required' });
+    return;
+  }
+  const goldenRule = parseNonEmptyString(body.goldenRule, 1024);
+  if (!goldenRule) {
+    res.status(400).json({ error: 'goldenRule (corrective takeaway) is required' });
+    return;
+  }
+  const date = parseIsoDate(body.date) || new Date().toISOString().slice(0, 10);
+  const severity = (body.severity ? parseEnum(body.severity, ALLOWED_MISTAKE_SEVERITIES) : 'Medium') || 'Medium';
+  const source = parseOptionalString(body.source, 128) || 'Mock / PYQ';
+  const rootCause = parseOptionalString(body.rootCause, 1024) || '';
+  const subjectName = parseOptionalString(body.subjectName, 128) || undefined;
+
+  const mistake = dbService.saveStudyMistake(userId, {
+    id: parseOptionalString(body.id, 128) || undefined,
+    date,
+    subjectCode,
+    subjectName,
+    topic,
+    source,
+    severity,
+    trap,
+    rootCause,
+    goldenRule,
+    resolved: Boolean(body.resolved),
+  });
   res.json(mistake);
 });
 

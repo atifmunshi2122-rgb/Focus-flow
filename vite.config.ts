@@ -32,6 +32,15 @@ export default defineConfig(() => {
             if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
               return 'vendor-react';
             }
+            if (id.includes('src/lib/sheetsSpec') || id.includes('src/lib/googleSheetsService')) {
+              return 'sheets-engine';
+            }
+            if (id.includes('src/theme/stylesRegistry') || id.includes('src/theme/palettes100') || id.includes('src/components/settings/ThemeStudio') || id.includes('src/components/settings/ColorEcosystemStudio')) {
+              return 'theme-studio';
+            }
+            if (id.includes('src/components/study/') || id.includes('src/data/studySeedData')) {
+              return 'study-module';
+            }
           },
         },
       },

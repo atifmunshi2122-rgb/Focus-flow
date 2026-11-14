@@ -15,6 +15,11 @@ export const ALLOWED_PAYMENT_METHODS = [
 ] as const;
 export const ALLOWED_RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const;
 export const ALLOWED_CATEGORY_TYPES = ['fixed', 'variable', 'both'] as const;
+export const ALLOWED_STUDY_PRIORITIES = ['High', 'Medium', 'Low'] as const;
+export const ALLOWED_REVISION_DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
+export const ALLOWED_REVISION_STATUSES = ['scheduled', 'due', 'overdue', 'mastered'] as const;
+export const ALLOWED_MISTAKE_SEVERITIES = ['High', 'Medium', 'Low'] as const;
+export const ALLOWED_HABIT_FREQUENCIES = ['daily', 'weekly', 'custom'] as const;
 
 export function parsePositiveInt(
   value: unknown,

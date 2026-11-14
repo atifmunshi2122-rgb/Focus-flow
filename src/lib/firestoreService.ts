@@ -2068,6 +2068,7 @@ export const firestoreService = {
     toId: string,
     amountPaise: number
   ): Promise<{ success: boolean; error?: string }> {
+    if (fromId === toId) return { success: false, error: 'Cannot transfer funds to the same envelope' };
     if (amountPaise <= 0) return { success: false, error: 'Amount must be positive' };
     const fromSnap = await getDoc(doc(db, `users/${userId}/envelopes/${fromId}`));
     const toSnap = await getDoc(doc(db, `users/${userId}/envelopes/${toId}`));

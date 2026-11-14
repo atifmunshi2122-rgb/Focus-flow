@@ -322,6 +322,111 @@ service cloud.firestore {
         allow update: if false; // Audit logs are append-only
         allow delete: if isOwner(userId);
       }
+
+      // Habits subcollection (Habit Tracker & Streaks)
+      match /habits/{habitId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(habitId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256)
+          && request.resource.data.frequency in ['daily', 'weekly', 'custom']
+          && isBoundedInt(request.resource.data.targetDaysPerWeek, 1, 7);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.title, 256)
+              && request.resource.data.frequency in ['daily', 'weekly', 'custom']
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study subjects subcollection (Academic Study OS)
+      match /study_subjects/{subId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(subId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.code, 64)
+          && isNonEmptyString(request.resource.data.name, 256);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && isNonEmptyString(request.resource.data.name, 256)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study topics subcollection (Syllabus & Topic Tracker)
+      match /study_topics/{topicId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(topicId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.subjectCode, 64)
+          && isNonEmptyString(request.resource.data.unit, 128)
+          && isNonEmptyString(request.resource.data.subtopic, 256)
+          && request.resource.data.priority in ['High', 'Medium', 'Low'];
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && request.resource.data.priority in ['High', 'Medium', 'Low']
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study revisions subcollection (Ebbinghaus Spaced Repetition)
+      match /study_revisions/{revId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(revId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.topicId, 128)
+          && isIsoDate(request.resource.data.lastStudiedAt)
+          && isIsoDate(request.resource.data.nextRevisionAt)
+          && request.resource.data.difficulty in ['easy', 'medium', 'hard']
+          && request.resource.data.status in ['scheduled', 'due', 'overdue', 'mastered'];
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && request.resource.data.difficulty in ['easy', 'medium', 'hard']
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study mistakes subcollection (Error Log & Golden Rules)
+      match /study_mistakes/{mistakeId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(mistakeId)
+          && request.resource.data.userId == userId
+          && isIsoDate(request.resource.data.date)
+          && isNonEmptyString(request.resource.data.trap, 1024)
+          && isNonEmptyString(request.resource.data.goldenRule, 1024)
+          && request.resource.data.severity in ['High', 'Medium', 'Low']
+          && request.resource.data.resolved is bool;
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) ||
+            (
+              request.resource.data.userId == userId
+              && request.resource.data.severity in ['High', 'Medium', 'Low']
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
     }
   }
 }

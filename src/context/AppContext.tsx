@@ -90,8 +90,17 @@ function readInitialTabFromHash(): NavTab {
   return 'dashboard';
 }
 
-export type TimerMode = 'work' | 'short_break' | 'long_break';
-export type TimerEngineMode = 'pomodoro' | 'stopwatch' | 'countdown';
+import {
+  TimerEngineMode,
+  TimerMode,
+  loadInitialTimerState,
+  saveTimerState,
+  broadcastTimerEvent,
+  acquireCompletionLock,
+  TimerBroadcastMessage,
+  TIMER_BROADCAST_CHANNEL,
+} from '../lib/timerEngine.ts';
+export type { TimerEngineMode, TimerMode };
 
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
 
@@ -352,7 +361,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Tasks cache for linking timer
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(() => loadInitialTimerState().activeTaskId);
 
   // Command Center, Full-Screen Focus, Trash, Audio & Offline/Notifications state
   const [commandCenterOpen, setCommandCenterOpen] = useState(false);
@@ -426,22 +435,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return activeNotifications.filter((n: AppNotificationItem) => !readNotificationIds.includes(n.id)).length;
   }, [activeNotifications, readNotificationIds]);
 
-  // Timer state
-  const [timerEngine, setTimerEngineState] = useState<TimerEngineMode>('pomodoro');
-  const [timerMode, setTimerMode] = useState<TimerMode>('work');
-  const [timeLeft, setTimeLeft] = useState<number>(25 * 60);
-  const [totalDuration, setTotalDuration] = useState<number>(25 * 60);
-  const [stopwatchElapsed, setStopwatchElapsed] = useState<number>(0);
-  const [isRunning, setIsRunning] = useState<boolean>(false);
+  // Timer state (with Sleep/Wake, Refresh Resilience, and Cross-Tab sync)
+  const initialTimer = useMemo(() => loadInitialTimerState(), []);
+  const [timerEngine, setTimerEngineState] = useState<TimerEngineMode>(initialTimer.timerEngine);
+  const [timerMode, setTimerMode] = useState<TimerMode>(initialTimer.timerMode);
+  const [timeLeft, setTimeLeft] = useState<number>(initialTimer.timeLeft);
+  const [totalDuration, setTotalDuration] = useState<number>(initialTimer.totalDuration);
+  const [stopwatchElapsed, setStopwatchElapsed] = useState<number>(initialTimer.stopwatchElapsed);
+  const [isRunning, setIsRunning] = useState<boolean>(initialTimer.isRunning);
   const [completedCycleCount, setCompletedCycleCount] = useState<number>(0);
-  const sessionStartTimeRef = useRef<string | null>(null);
+  const sessionStartTimeRef = useRef<string | null>(initialTimer.sessionStartTime);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSwitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const targetEndTimeMsRef = useRef<number | null>(null);
-  const stopwatchStartMsRef = useRef<number | null>(null);
-  const stopwatchElapsedRef = useRef<number>(0);
+  const targetEndTimeMsRef = useRef<number | null>(initialTimer.targetEndTimeMs);
+  const stopwatchStartMsRef = useRef<number | null>(initialTimer.stopwatchStartMs);
+  const stopwatchElapsedRef = useRef<number>(initialTimer.stopwatchElapsed);
   const completionHandledRef = useRef<boolean>(false);
-  const timerModifiedByUserRef = useRef<boolean>(false);
+  const timerModifiedByUserRef = useRef<boolean>(initialTimer.isRunning || initialTimer.timeLeft !== 25 * 60);
   const timeLeftRef = useRef<number>(timeLeft);
   const totalDurationRef = useRef<number>(totalDuration);
   timeLeftRef.current = timeLeft;
@@ -1393,8 +1403,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTimeLeft(totalSec);
       setTotalDuration(totalSec);
       sessionStartTimeRef.current = null;
+
+      saveTimerState({
+        timerEngine,
+        timerMode: mode,
+        isRunning: false,
+        timeLeft: totalSec,
+        totalDuration: totalSec,
+        targetEndTimeMs: null,
+        stopwatchStartMs: null,
+        sessionStartTime: null,
+      });
+      broadcastTimerEvent({
+        type: 'TIMER_SYNC_MODE',
+        payload: { mode, durationSecs: totalSec },
+      });
     },
-    [settings, clearTimerHandles]
+    [settings, clearTimerHandles, timerEngine]
   );
 
   const setCustomDuration = useCallback(
@@ -1413,8 +1438,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTimeLeft(secs);
       setTotalDuration(secs);
       sessionStartTimeRef.current = null;
+
+      saveTimerState({
+        isRunning: false,
+        timeLeft: secs,
+        totalDuration: secs,
+        targetEndTimeMs: null,
+        sessionStartTime: null,
+      });
+      broadcastTimerEvent({
+        type: 'TIMER_SYNC_MODE',
+        payload: { mode: timerMode, durationSecs: secs },
+      });
     },
-    [clearTimerHandles]
+    [clearTimerHandles, timerMode]
   );
 
   const setTimerEngine = useCallback(
@@ -1429,12 +1466,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         stopwatchElapsedRef.current = 0;
         setStopwatchElapsed(0);
         sessionStartTimeRef.current = null;
+        saveTimerState({
+          timerEngine: 'stopwatch',
+          isRunning: false,
+          stopwatchElapsed: 0,
+          stopwatchStartMs: null,
+          sessionStartTime: null,
+        });
       } else if (engine === 'countdown') {
         const secs = 15 * 60;
         timeLeftRef.current = secs;
         totalDurationRef.current = secs;
         setTimeLeft(secs);
         setTotalDuration(secs);
+        saveTimerState({
+          timerEngine: 'countdown',
+          isRunning: false,
+          timeLeft: secs,
+          totalDuration: secs,
+          targetEndTimeMs: null,
+        });
       } else {
         const workMins = Math.max(1, Math.min(180, Math.round(settings?.pomodoroWorkDuration || 25)));
         const secs = workMins * 60;
@@ -1443,7 +1494,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         totalDurationRef.current = secs;
         setTimeLeft(secs);
         setTotalDuration(secs);
+        saveTimerState({
+          timerEngine: 'pomodoro',
+          timerMode: 'work',
+          isRunning: false,
+          timeLeft: secs,
+          totalDuration: secs,
+          targetEndTimeMs: null,
+        });
       }
+      broadcastTimerEvent({
+        type: 'TIMER_SYNC_ENGINE',
+        payload: { engine },
+      });
     },
     [clearTimerHandles, settings]
   );
@@ -1455,12 +1518,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     completionHandledRef.current = false;
 
     if (timerEngine === 'stopwatch') {
-      stopwatchStartMsRef.current = Date.now() - stopwatchElapsedRef.current * 1000;
+      const now = Date.now();
+      const startMs = now - stopwatchElapsedRef.current * 1000;
+      stopwatchStartMsRef.current = startMs;
       if (!sessionStartTimeRef.current) {
         sessionStartTimeRef.current = new Date().toISOString();
       }
       setIsRunning(true);
       playClickSound(settings?.soundEnabled ?? true);
+      saveTimerState({
+        timerEngine: 'stopwatch',
+        isRunning: true,
+        stopwatchStartMs: startMs,
+        sessionStartTime: sessionStartTimeRef.current,
+        activeTaskId,
+      });
+      broadcastTimerEvent({
+        type: 'TIMER_SYNC_START',
+        payload: {
+          targetEndTimeMs: null,
+          stopwatchStartMs: startMs,
+          totalDuration: totalDurationRef.current,
+          timerMode,
+          timerEngine: 'stopwatch',
+          sessionStartTime: sessionStartTimeRef.current,
+          activeTaskId,
+        },
+      });
       return;
     }
 
@@ -1471,14 +1555,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timeLeftRef.current = effectiveSecs;
       setTimeLeft(effectiveSecs);
     }
-    targetEndTimeMsRef.current = Date.now() + effectiveSecs * 1000;
+    const targetEnd = Date.now() + effectiveSecs * 1000;
+    targetEndTimeMsRef.current = targetEnd;
 
     if (!sessionStartTimeRef.current) {
       sessionStartTimeRef.current = new Date().toISOString();
     }
     setIsRunning(true);
     playClickSound(settings?.soundEnabled ?? true);
-  }, [settings, clearTimerHandles, timerEngine]);
+
+    saveTimerState({
+      timerEngine,
+      timerMode,
+      isRunning: true,
+      timeLeft: effectiveSecs,
+      totalDuration: totalDurationRef.current,
+      targetEndTimeMs: targetEnd,
+      stopwatchStartMs: null,
+      sessionStartTime: sessionStartTimeRef.current,
+      activeTaskId,
+    });
+    broadcastTimerEvent({
+      type: 'TIMER_SYNC_START',
+      payload: {
+        targetEndTimeMs: targetEnd,
+        stopwatchStartMs: null,
+        totalDuration: totalDurationRef.current,
+        timerMode,
+        timerEngine,
+        sessionStartTime: sessionStartTimeRef.current,
+        activeTaskId,
+      },
+    });
+  }, [settings, clearTimerHandles, timerEngine, timerMode, activeTaskId]);
 
   const pauseTimer = useCallback(() => {
     clearTimerHandles();
@@ -1489,11 +1598,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       stopwatchElapsedRef.current = elapsed;
       setStopwatchElapsed(elapsed);
       stopwatchStartMsRef.current = null;
+      saveTimerState({ isRunning: false, stopwatchElapsed: elapsed, stopwatchStartMs: null });
+      broadcastTimerEvent({ type: 'TIMER_SYNC_PAUSE', payload: { timeLeft: 0, stopwatchElapsed: elapsed, timerEngine } });
     } else if (targetEndTimeMsRef.current !== null) {
       const remaining = Math.max(0, Math.ceil((targetEndTimeMsRef.current - Date.now()) / 1000));
       timeLeftRef.current = remaining;
       setTimeLeft(remaining);
       targetEndTimeMsRef.current = null;
+      saveTimerState({ isRunning: false, timeLeft: remaining, targetEndTimeMs: null });
+      broadcastTimerEvent({ type: 'TIMER_SYNC_PAUSE', payload: { timeLeft: remaining, stopwatchElapsed: 0, timerEngine } });
     }
     setIsRunning(false);
     playClickSound(settings?.soundEnabled ?? true);
@@ -1507,17 +1620,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     completionHandledRef.current = false;
     timerModifiedByUserRef.current = true;
     setIsRunning(false);
+    let safeTotal = 1500;
     if (timerEngine === 'stopwatch') {
       stopwatchElapsedRef.current = 0;
       setStopwatchElapsed(0);
     } else {
-      const safeTotal = Math.max(60, Math.floor(totalDurationRef.current) || 1500);
+      safeTotal = Math.max(60, Math.floor(totalDurationRef.current) || 1500);
       timeLeftRef.current = safeTotal;
       setTimeLeft(safeTotal);
     }
     sessionStartTimeRef.current = null;
     playClickSound(settings?.soundEnabled ?? true);
-  }, [settings, clearTimerHandles, timerEngine]);
+    saveTimerState({
+      isRunning: false,
+      timeLeft: safeTotal,
+      stopwatchElapsed: 0,
+      targetEndTimeMs: null,
+      stopwatchStartMs: null,
+      sessionStartTime: null,
+    });
+    broadcastTimerEvent({
+      type: 'TIMER_SYNC_RESET',
+      payload: { totalDuration: safeTotal, timerEngine, timerMode },
+    });
+  }, [settings, clearTimerHandles, timerEngine, timerMode]);
 
   const saveStopwatchSession = useCallback(async () => {
     const secs = Math.max(0, Math.floor(stopwatchElapsedRef.current));
@@ -1647,53 +1773,69 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         triggerRefresh: refreshNow,
       } = latestTimerDepsRef.current;
 
+      const startedAt = sessionStartTimeRef.current || new Date().toISOString();
+      const endedAt = new Date().toISOString();
+      const safeDurationSecs = Math.max(60, Math.round(durationNow || 1500));
+      const durationMin = Math.max(1, Math.round(safeDurationSecs / 60));
+
+      const completionKey = `comp_${modeNow}_${startedAt}_${durationMin}`;
+      const isLeader = acquireCompletionLock(completionKey);
+
+      saveTimerState({
+        isRunning: false,
+        targetEndTimeMs: null,
+        timeLeft: 0,
+      });
+
+      broadcastTimerEvent({
+        type: 'TIMER_SYNC_COMPLETED',
+        payload: { completionKey, completedAt: endedAt },
+      });
+
       const isSound = settingsNow?.soundEnabled ?? true;
       if (modeNow === 'work') {
         playFocusCompleteSound(isSound);
         toastNow('Focus session complete! Great work!', 'success');
 
-        const startedAt = sessionStartTimeRef.current || new Date().toISOString();
-        const endedAt = new Date().toISOString();
-        const safeDurationSecs = Math.max(60, Math.round(durationNow || 1500));
-        const durationMin = Math.max(1, Math.round(safeDurationSecs / 60));
+        if (isLeader) {
+          api
+            .createFocusSession({
+              taskId: taskNow,
+              mode: 'work',
+              durationMinutes: durationMin,
+              durationSeconds: safeDurationSecs,
+              completed: true,
+              startedAt,
+              endedAt,
+            })
+            .then((newSession) => {
+              void googleSheetsService.enqueueMutation(
+                'Focus_Sessions',
+                [
+                  newSession.id,
+                  newSession.startedAt.split('T')[0],
+                  'WORK',
+                  newSession.durationMinutes,
+                  newSession.taskTitle || 'Focus Session',
+                  'YES',
+                  newSession.startedAt,
+                  newSession.endedAt,
+                ],
+                'append',
+                `Focus_Sessions_append_${newSession.id}`
+              );
 
-        api
-          .createFocusSession({
-            taskId: taskNow,
-            mode: 'work',
-            durationMinutes: durationMin,
-            durationSeconds: safeDurationSecs,
-            completed: true,
-            startedAt,
-            endedAt,
-          })
-          .then((newSession) => {
-            void googleSheetsService.enqueueMutation(
-              'Focus_Sessions',
-              [
-                newSession.id,
-                newSession.startedAt.split('T')[0],
-                'WORK',
-                newSession.durationMinutes,
-                newSession.taskTitle || 'Focus Session',
-                'YES',
-                newSession.startedAt,
-                newSession.endedAt,
-              ],
-              'append',
-              `Focus_Sessions_append_${newSession.id}`
-            );
+              if (sheetIdNow && tokenNow) {
+                googleSheetsService
+                  .flushQueue(sheetIdNow, tokenNow)
+                  .then(() => setSyncStatus('synced'))
+                  .catch(() => setSyncStatus('error'));
+              }
 
-            if (sheetIdNow && tokenNow) {
-              googleSheetsService
-                .flushQueue(sheetIdNow, tokenNow)
-                .then(() => setSyncStatus('synced'))
-                .catch(() => setSyncStatus('error'));
-            }
-
-            refreshNow();
-          })
-          .catch(console.error);
+              refreshNow();
+            })
+            .catch(console.error);
+        }
 
         switchModeNow('short_break');
         if (settingsNow?.autoSwitchSessions) {
@@ -1756,6 +1898,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isRunning, timerEngine, clearTimerHandles]);
+
+  // Cross-tab timer event synchronization
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(TIMER_BROADCAST_CHANNEL);
+      channel.onmessage = (event: MessageEvent<TimerBroadcastMessage>) => {
+        const msg = event.data;
+        if (!msg || !msg.type) return;
+
+        switch (msg.type) {
+          case 'TIMER_SYNC_START': {
+            clearTimerHandles();
+            targetEndTimeMsRef.current = msg.payload.targetEndTimeMs;
+            stopwatchStartMsRef.current = msg.payload.stopwatchStartMs;
+            sessionStartTimeRef.current = msg.payload.sessionStartTime;
+            completionHandledRef.current = false;
+            setTimerMode(msg.payload.timerMode);
+            setTimerEngineState(msg.payload.timerEngine);
+            setTotalDuration(msg.payload.totalDuration);
+            totalDurationRef.current = msg.payload.totalDuration;
+            if (msg.payload.activeTaskId !== undefined) {
+              setActiveTaskId(msg.payload.activeTaskId);
+            }
+            setIsRunning(true);
+            break;
+          }
+          case 'TIMER_SYNC_PAUSE': {
+            clearTimerHandles();
+            targetEndTimeMsRef.current = null;
+            stopwatchStartMsRef.current = null;
+            setIsRunning(false);
+            if (msg.payload.timerEngine === 'stopwatch') {
+              stopwatchElapsedRef.current = msg.payload.stopwatchElapsed;
+              setStopwatchElapsed(msg.payload.stopwatchElapsed);
+            } else {
+              timeLeftRef.current = msg.payload.timeLeft;
+              setTimeLeft(msg.payload.timeLeft);
+            }
+            break;
+          }
+          case 'TIMER_SYNC_RESET': {
+            clearTimerHandles();
+            targetEndTimeMsRef.current = null;
+            stopwatchStartMsRef.current = null;
+            completionHandledRef.current = false;
+            sessionStartTimeRef.current = null;
+            setIsRunning(false);
+            setTimerEngineState(msg.payload.timerEngine);
+            setTimerMode(msg.payload.timerMode);
+            totalDurationRef.current = msg.payload.totalDuration;
+            setTotalDuration(msg.payload.totalDuration);
+            timeLeftRef.current = msg.payload.totalDuration;
+            setTimeLeft(msg.payload.totalDuration);
+            stopwatchElapsedRef.current = 0;
+            setStopwatchElapsed(0);
+            break;
+          }
+          case 'TIMER_SYNC_MODE': {
+            setTimerMode(msg.payload.mode);
+            totalDurationRef.current = msg.payload.durationSecs;
+            setTotalDuration(msg.payload.durationSecs);
+            timeLeftRef.current = msg.payload.durationSecs;
+            setTimeLeft(msg.payload.durationSecs);
+            break;
+          }
+          case 'TIMER_SYNC_ENGINE': {
+            setTimerEngineState(msg.payload.engine);
+            break;
+          }
+          case 'TIMER_SYNC_COMPLETED': {
+            completionHandledRef.current = true;
+            clearTimerHandles();
+            targetEndTimeMsRef.current = null;
+            setIsRunning(false);
+            setCompletedCycleCount((c) => c + 1);
+            break;
+          }
+        }
+      };
+    } catch {
+      // safe fallback
+    }
+
+    return () => {
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [clearTimerHandles]);
 
   const currency = settings?.currency || 'INR';
 

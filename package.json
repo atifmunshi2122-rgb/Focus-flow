@@ -1,7 +1,7 @@
 {
   "name": "focusflow-and-finance",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Unified Executive Productivity, Financial Management and Academic Study OS with Premium 23-Worksheet Google Sheets Integration",
   "type": "module",
   "scripts": {

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.0] - 2026-11-14
+
+### Security & Hardening
+- **Firestore Security Rules Overhaul:** Delegated rule authoring to specialist `firestore-rules-author` subagent; added rigorous security rules for `habits`, `study_subjects`, `study_topics`, `study_revisions`, and `study_mistakes` subcollections with strict ownership (`isOwner(userId)`), document ID regex (`isValidId`), bounded length checks, and soft-delete diff verification.
+- **API Input Validation:** Added strict type, regex, and enum validation to all Study OS endpoints in `server/routes.ts` via `server/validation.ts`.
+- **Envelope Fund Transfer Hardening:** Added protection against same-envelope transfers (`fromId === toId`), non-integer amounts, and balance overdrafts in both Express routes and Firestore batch operations.
+
+### Productivity & Timer Engine
+- **Sleep/Wake & Background Tab Math:** Dynamic countdown and stopwatch calculation against absolute target epochs eliminates timer drift across hidden tabs and laptop sleep.
+- **Refresh State Recovery:** LocalStorage snapshot (`ff_timer_state_v1`) enables seamless timer continuation across browser reloads.
+- **Cross-Tab Synchronization:** Integrated `BroadcastChannel('ff_timer_sync_v1')` to mirror timer events (start, pause, reset, mode switches) across all open browser tabs in real time.
+- **Multi-Tab Deduplication Lock:** Atomic completion lock (`acquireCompletionLock`) prevents duplicate session logs or redundant Google Sheets sync operations.
+
+### Performance & Build Optimization
+- **Vite Code Splitting:** Segmented heavy dependencies into manual chunks (`sheets-engine`, `theme-studio`, `study-module`).
+- Reduced primary bundle size from 1,408 kB to 735 kB, resolving all chunk size warnings.
+- Expanded automated test suite from 85 to 91 tests (`test/phase8_audit_upgrades.test.ts`), with 100% passing.
+
+---
+
 ## [1.1.0] - 2026-11-13
 
 ### Added
