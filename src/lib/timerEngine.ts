@@ -1,25 +1,37 @@
 /**
  * Production Timer Engine with Sleep/Wake Timestamp Math,
- * LocalStorage State Recovery, and Multi-Tab Broadcast Synchronization.
+ * User-Partitioned LocalStorage State Recovery, and Multi-Tab Broadcast Synchronization.
  */
 
 export type TimerEngineMode = 'pomodoro' | 'short_break' | 'long_break' | 'stopwatch' | 'countdown';
 export type TimerMode = 'work' | 'short_break' | 'long_break';
 
-export const TIMER_STORAGE_KEY = 'ff_timer_state_v1';
+export const TIMER_STORAGE_KEY_BASE = 'ff_timer_state_v1';
+export const TIMER_STORAGE_KEY = 'ff_timer_state_v1'; // Backward-compatible legacy alias
 export const TIMER_BROADCAST_CHANNEL = 'ff_timer_sync_v1';
+
+export function getTimerStorageKey(userId?: string | null): string {
+  if (userId && typeof userId === 'string' && userId.trim().length > 0) {
+    return `${TIMER_STORAGE_KEY_BASE}_${userId.trim()}`;
+  }
+  return TIMER_STORAGE_KEY_BASE;
+}
 
 export interface StoredTimerState {
   version: 1;
+  userId?: string | null;
   timerEngine: TimerEngineMode;
   timerMode: TimerMode;
   isRunning: boolean;
+  isExpired?: boolean;
   timeLeft: number;
   totalDuration: number;
   targetEndTimeMs: number | null;
   stopwatchStartMs: number | null;
   stopwatchElapsed: number;
   sessionStartTime: string | null;
+  activeSessionId?: string | null;
+  activePresetId?: string | null;
   activeTaskId: string | null;
   activeStudySubjectCode?: string | null;
   activeStudyTopicId?: string | null;
@@ -37,6 +49,8 @@ export type TimerBroadcastMessage =
         timerMode: TimerMode;
         timerEngine: TimerEngineMode;
         sessionStartTime: string | null;
+        activeSessionId?: string | null;
+        activePresetId?: string | null;
         activeTaskId: string | null;
         activeStudySubjectCode?: string | null;
         activeStudyTopicId?: string | null;
@@ -87,9 +101,12 @@ export interface InitialTimerStateResult {
   totalDuration: number;
   stopwatchElapsed: number;
   isRunning: boolean;
+  isExpired: boolean;
   targetEndTimeMs: number | null;
   stopwatchStartMs: number | null;
   sessionStartTime: string | null;
+  activeSessionId: string | null;
+  activePresetId: string | null;
   activeTaskId: string | null;
   activeStudySubjectCode: string | null;
   activeStudyTopicId: string | null;
@@ -113,7 +130,8 @@ export function formatTimeDisplay(totalSeconds: number): string {
 
 export function loadInitialTimerState(
   storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  userId?: string | null
 ): InitialTimerStateResult {
   const fallback: InitialTimerStateResult = {
     timerEngine: 'pomodoro',
@@ -122,9 +140,12 @@ export function loadInitialTimerState(
     totalDuration: 25 * 60,
     stopwatchElapsed: 0,
     isRunning: false,
+    isExpired: false,
     targetEndTimeMs: null,
     stopwatchStartMs: null,
     sessionStartTime: null,
+    activeSessionId: null,
+    activePresetId: null,
     activeTaskId: null,
     activeStudySubjectCode: null,
     activeStudyTopicId: null,
@@ -134,27 +155,44 @@ export function loadInitialTimerState(
   if (!storage) return fallback;
 
   try {
-    const raw = storage.getItem(TIMER_STORAGE_KEY);
+    const key = getTimerStorageKey(userId);
+    let raw = storage.getItem(key);
+    // Backward-compatible fallback for unpartitioned state if user not yet partitioned
+    if (!raw && !userId) {
+      raw = storage.getItem(TIMER_STORAGE_KEY_BASE);
+    }
     if (!raw) return fallback;
+
     const parsed = JSON.parse(raw) as Partial<StoredTimerState>;
     if (!parsed || parsed.version !== 1) return fallback;
 
-    const mode = (parsed.timerMode && ['work', 'short_break', 'long_break'].includes(parsed.timerMode))
+    // Strict account isolation: if state was saved with a different userId, do not leak it
+    if (userId && parsed.userId && parsed.userId !== userId) {
+      return fallback;
+    }
+
+    const mode = parsed.timerMode && ['work', 'short_break', 'long_break'].includes(parsed.timerMode)
       ? parsed.timerMode
       : 'work';
-    const engine = (parsed.timerEngine && ['pomodoro', 'short_break', 'long_break', 'stopwatch', 'countdown'].includes(parsed.timerEngine))
-      ? parsed.timerEngine
-      : 'pomodoro';
-    const totalDuration = typeof parsed.totalDuration === 'number' && parsed.totalDuration > 0
-      ? parsed.totalDuration
-      : 25 * 60;
+    const engine =
+      parsed.timerEngine && ['pomodoro', 'short_break', 'long_break', 'stopwatch', 'countdown'].includes(parsed.timerEngine)
+        ? parsed.timerEngine
+        : 'pomodoro';
+    const totalDuration =
+      typeof parsed.totalDuration === 'number' && parsed.totalDuration > 0
+        ? parsed.totalDuration
+        : 25 * 60;
     const activeTaskId = typeof parsed.activeTaskId === 'string' ? parsed.activeTaskId : null;
     const sessionStartTime = typeof parsed.sessionStartTime === 'string' ? parsed.sessionStartTime : null;
-    const activeStudySubjectCode = typeof parsed.activeStudySubjectCode === 'string' ? parsed.activeStudySubjectCode : null;
+    const activeSessionId = typeof parsed.activeSessionId === 'string' ? parsed.activeSessionId : null;
+    const activePresetId = typeof parsed.activePresetId === 'string' ? parsed.activePresetId : null;
+    const activeStudySubjectCode =
+      typeof parsed.activeStudySubjectCode === 'string' ? parsed.activeStudySubjectCode : null;
     const activeStudyTopicId = typeof parsed.activeStudyTopicId === 'string' ? parsed.activeStudyTopicId : null;
-    const activeStudyActivityType = (parsed.activeStudyActivityType && ['study', 'practice', 'theory', 'revision'].includes(parsed.activeStudyActivityType))
-      ? parsed.activeStudyActivityType
-      : null;
+    const activeStudyActivityType =
+      parsed.activeStudyActivityType && ['study', 'practice', 'theory', 'revision'].includes(parsed.activeStudyActivityType)
+        ? parsed.activeStudyActivityType
+        : null;
 
     if (parsed.isRunning) {
       if (engine === 'stopwatch') {
@@ -168,9 +206,12 @@ export function loadInitialTimerState(
             totalDuration,
             stopwatchElapsed: elapsed,
             isRunning: true,
+            isExpired: false,
             targetEndTimeMs: null,
             stopwatchStartMs: startMs,
             sessionStartTime,
+            activeSessionId,
+            activePresetId,
             activeTaskId,
             activeStudySubjectCode,
             activeStudyTopicId,
@@ -189,16 +230,20 @@ export function loadInitialTimerState(
               totalDuration,
               stopwatchElapsed: 0,
               isRunning: true,
+              isExpired: false,
               targetEndTimeMs: targetEnd,
               stopwatchStartMs: null,
               sessionStartTime,
+              activeSessionId,
+              activePresetId,
               activeTaskId,
               activeStudySubjectCode,
               activeStudyTopicId,
               activeStudyActivityType,
             };
           } else {
-            // Timer expired while page/tab was closed
+            // Timer expired while page/tab was closed or asleep.
+            // Mark isExpired: true and keep sessionStartTime & activeSessionId so AppContext can finalize it!
             return {
               timerEngine: engine,
               timerMode: mode,
@@ -206,9 +251,12 @@ export function loadInitialTimerState(
               totalDuration,
               stopwatchElapsed: 0,
               isRunning: false,
-              targetEndTimeMs: null,
+              isExpired: true,
+              targetEndTimeMs: targetEnd,
               stopwatchStartMs: null,
               sessionStartTime,
+              activeSessionId,
+              activePresetId,
               activeTaskId,
               activeStudySubjectCode,
               activeStudyTopicId,
@@ -219,12 +267,12 @@ export function loadInitialTimerState(
       }
     }
 
-    const timeLeft = typeof parsed.timeLeft === 'number' && parsed.timeLeft >= 0
-      ? parsed.timeLeft
-      : totalDuration;
-    const stopwatchElapsed = typeof parsed.stopwatchElapsed === 'number' && parsed.stopwatchElapsed >= 0
-      ? parsed.stopwatchElapsed
-      : 0;
+    const timeLeft =
+      typeof parsed.timeLeft === 'number' && parsed.timeLeft >= 0 ? parsed.timeLeft : totalDuration;
+    const stopwatchElapsed =
+      typeof parsed.stopwatchElapsed === 'number' && parsed.stopwatchElapsed >= 0
+        ? parsed.stopwatchElapsed
+        : 0;
 
     return {
       timerEngine: engine,
@@ -233,9 +281,12 @@ export function loadInitialTimerState(
       totalDuration,
       stopwatchElapsed,
       isRunning: false,
+      isExpired: false,
       targetEndTimeMs: null,
       stopwatchStartMs: null,
       sessionStartTime,
+      activeSessionId,
+      activePresetId,
       activeTaskId,
       activeStudySubjectCode,
       activeStudyTopicId,
@@ -248,32 +299,54 @@ export function loadInitialTimerState(
 
 export function saveTimerState(
   state: Partial<StoredTimerState>,
-  storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null
+  storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
+  userId?: string | null
 ): void {
   if (!storage) return;
   try {
-    const existing = storage.getItem(TIMER_STORAGE_KEY);
+    const key = getTimerStorageKey(userId ?? state.userId);
+    const existing = storage.getItem(key);
     const prev = existing ? JSON.parse(existing) : {};
     const merged: StoredTimerState = {
       version: 1,
+      userId: userId ?? state.userId ?? prev.userId ?? null,
       timerEngine: state.timerEngine ?? prev.timerEngine ?? 'pomodoro',
       timerMode: state.timerMode ?? prev.timerMode ?? 'work',
       isRunning: state.isRunning ?? prev.isRunning ?? false,
+      isExpired: state.isExpired ?? false,
       timeLeft: state.timeLeft ?? prev.timeLeft ?? 1500,
       totalDuration: state.totalDuration ?? prev.totalDuration ?? 1500,
       targetEndTimeMs: state.targetEndTimeMs !== undefined ? state.targetEndTimeMs : prev.targetEndTimeMs ?? null,
       stopwatchStartMs: state.stopwatchStartMs !== undefined ? state.stopwatchStartMs : prev.stopwatchStartMs ?? null,
       stopwatchElapsed: state.stopwatchElapsed ?? prev.stopwatchElapsed ?? 0,
       sessionStartTime: state.sessionStartTime !== undefined ? state.sessionStartTime : prev.sessionStartTime ?? null,
+      activeSessionId: state.activeSessionId !== undefined ? state.activeSessionId : prev.activeSessionId ?? null,
+      activePresetId: state.activePresetId !== undefined ? state.activePresetId : prev.activePresetId ?? null,
       activeTaskId: state.activeTaskId !== undefined ? state.activeTaskId : prev.activeTaskId ?? null,
-      activeStudySubjectCode: state.activeStudySubjectCode !== undefined ? state.activeStudySubjectCode : prev.activeStudySubjectCode ?? null,
-      activeStudyTopicId: state.activeStudyTopicId !== undefined ? state.activeStudyTopicId : prev.activeStudyTopicId ?? null,
-      activeStudyActivityType: state.activeStudyActivityType !== undefined ? state.activeStudyActivityType : prev.activeStudyActivityType ?? null,
+      activeStudySubjectCode:
+        state.activeStudySubjectCode !== undefined ? state.activeStudySubjectCode : prev.activeStudySubjectCode ?? null,
+      activeStudyTopicId:
+        state.activeStudyTopicId !== undefined ? state.activeStudyTopicId : prev.activeStudyTopicId ?? null,
+      activeStudyActivityType:
+        state.activeStudyActivityType !== undefined ? state.activeStudyActivityType : prev.activeStudyActivityType ?? null,
       lastUpdatedMs: Date.now(),
     };
-    storage.setItem(TIMER_STORAGE_KEY, JSON.stringify(merged));
+    storage.setItem(key, JSON.stringify(merged));
   } catch {
     // Ignore storage quota or access errors
+  }
+}
+
+export function clearTimerState(
+  storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
+  userId?: string | null
+): void {
+  if (!storage) return;
+  try {
+    const key = getTimerStorageKey(userId);
+    storage.removeItem(key);
+  } catch {
+    // Ignore
   }
 }
 

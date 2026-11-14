@@ -116,8 +116,21 @@ service cloud.firestore {
           && request.resource.data.completed is bool
           && isNonEmptyString(request.resource.data.startedAt, 64);
         allow update: if isOwner(userId)
-          && request.resource.data.userId == userId;
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.startedAt == resource.data.startedAt;
         allow delete: if isOwner(userId);
+
+        // Nested interruptions subcollection (Phase 17)
+        match /interruptions/{eventId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId)
+            && isValidId(eventId)
+            && request.resource.data.userId == userId
+            && request.resource.data.sessionId == sessionId
+            && request.resource.data.eventType in ['pause', 'resume']
+            && isNonEmptyString(request.resource.data.occurredAt, 64);
+          allow update, delete: if false; // Append-only immutable audit trail
+        }
       }
 
       // Income records subcollection
@@ -584,6 +597,75 @@ service cloud.firestore {
               request.resource.data.userId == resource.data.userId
             )
           );
+        allow delete: if isOwner(userId);
+      }
+
+      // Pomodoro presets subcollection (Phase 17 standard & custom timer intervals)
+      match /pomodoro_presets/{presetId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(presetId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.name, 128)
+          && isBoundedInt(request.resource.data.workDuration, 1, 180)
+          && isBoundedInt(request.resource.data.shortBreakDuration, 1, 60)
+          && isBoundedInt(request.resource.data.longBreakDuration, 1, 90)
+          && isBoundedInt(request.resource.data.longBreakInterval, 1, 12);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.name, 128)
+              && isBoundedInt(request.resource.data.workDuration, 1, 180)
+              && isBoundedInt(request.resource.data.shortBreakDuration, 1, 60)
+              && isBoundedInt(request.resource.data.longBreakDuration, 1, 90)
+              && isBoundedInt(request.resource.data.longBreakInterval, 1, 12)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Pomodoro goals subcollection (Phase 17 multi-goal architecture)
+      match /pomodoro_goals/{goalId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(goalId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.title, 256)
+          && (
+            !('goalType' in request.resource.data) ||
+            request.resource.data.goalType in ['daily', 'weekly', 'monthly', 'custom']
+          )
+          && (
+            !('status' in request.resource.data) ||
+            request.resource.data.status in ['active', 'paused', 'completed', 'cancelled']
+          );
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.title, 256)
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Pomodoro settings subcollection (User timer preferences fallback)
+      match /pomodoro_settings/{settingId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(settingId)
+          && request.resource.data.userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // Pomodoro ambient presets subcollection (Custom sound presets)
+      match /pomodoro_ambient_presets/{presetId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(presetId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.name, 128);
         allow delete: if isOwner(userId);
       }
     }

@@ -4,6 +4,7 @@ import {
   UserSettings,
   Task,
   Habit,
+  FocusSession,
   CurrencyCode,
   ThemeConfig,
   SavedCustomTheme,
@@ -15,9 +16,18 @@ import {
   playClickSound,
   playTimerStartSound,
   playTimerPauseSound,
+  playAlertTone,
   playErrorSound,
   unlockAudioContext,
 } from '../lib/sound.ts';
+import { sendPomodoroNotification } from '../lib/desktopNotifications.ts';
+import type {
+  PomodoroSettings,
+  FocusStreakSummary,
+  PomodoroPreset,
+  PomodoroGoal,
+  PomodoroInterruption,
+} from '../types/pomodoro.ts';
 import {
   auth,
   signInWithGoogle as fbSignInWithGoogle,
@@ -103,8 +113,10 @@ function readInitialTabFromHash(): NavTab {
 import {
   TimerEngineMode,
   TimerMode,
+  InitialTimerStateResult,
   loadInitialTimerState,
   saveTimerState,
+  clearTimerState,
   broadcastTimerEvent,
   acquireCompletionLock,
   TimerBroadcastMessage,
@@ -250,10 +262,16 @@ interface AppContextType {
   startTimer: () => void;
   pauseTimer: () => void;
   resetTimer: () => void;
+  skipInterval: () => void;
   saveStopwatchSession: () => Promise<void>;
   switchTimerMode: (mode: TimerMode, durationMinutes?: number) => void;
   setActiveTaskId: (id: string | null) => void;
   setCustomDuration: (minutes: number) => void;
+  pomodoroSettings: PomodoroSettings;
+  updatePomodoroSettings: (settings: Partial<PomodoroSettings>) => Promise<void>;
+  activePresetId: string | null;
+  applyPomodoroPreset: (preset: PomodoroPreset) => void;
+  activeSessionId: string | null;
 
   // Study Topic Linkage for Pomodoro
   activeStudySubjectCode: string | null;
@@ -477,6 +495,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [stopwatchElapsed, setStopwatchElapsed] = useState<number>(initialTimer.stopwatchElapsed);
   const [isRunning, setIsRunning] = useState<boolean>(initialTimer.isRunning);
   const [completedCycleCount, setCompletedCycleCount] = useState<number>(0);
+  const [pomodoroSettings, setPomodoroSettings] = useState<PomodoroSettings>({
+    id: 'default',
+    userId: '',
+    focusDuration: 25,
+    shortBreakDuration: 5,
+    longBreakDuration: 15,
+    longBreakInterval: 4,
+    autoStartBreaks: false,
+    autoStartFocus: false,
+    alertTone: 'chime',
+    soundVolume: 70,
+    ambientPreset: 'off',
+    ambientVolume: 0.35,
+    desktopNotifications: false,
+    tickingSoundEnabled: false,
+    updatedAt: new Date().toISOString(),
+  });
+  const pomodoroSettingsRef = useRef<PomodoroSettings>(pomodoroSettings);
+  pomodoroSettingsRef.current = pomodoroSettings;
+  const pauseCountRef = useRef<number>(0);
+  const pauseStartedMsRef = useRef<number | null>(null);
+  const totalPauseSecsRef = useRef<number>(0);
   const sessionStartTimeRef = useRef<string | null>(initialTimer.sessionStartTime);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSwitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -490,6 +530,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   timeLeftRef.current = timeLeft;
   totalDurationRef.current = totalDuration;
   stopwatchElapsedRef.current = stopwatchElapsed;
+
+  const [activePresetId, setActivePresetId] = useState<string | null>(initialTimer.activePresetId);
+  const activePresetIdRef = useRef<string | null>(initialTimer.activePresetId);
+  activePresetIdRef.current = activePresetId;
+
+  const [activeSessionId, setActiveSessionIdState] = useState<string | null>(initialTimer.activeSessionId);
+  const activeSessionIdRef = useRef<string | null>(initialTimer.activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
 
   const isFullAppPreview = previewThemeConfig !== null;
   const effectiveThemeConfig = previewThemeConfig ?? themeConfig;
@@ -899,6 +947,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdAt: new Date().toISOString(),
         });
 
+        api
+          .getPomodoroSettings()
+          .then((pSet) => {
+            if (pSet) {
+              setPomodoroSettings(pSet);
+              pomodoroSettingsRef.current = pSet;
+              if (pSet.ambientPreset && pSet.ambientPreset !== 'off') {
+                startSoundscape(pSet.ambientPreset as AmbientPreset, pSet.ambientVolume ?? 0.35);
+              }
+            }
+          })
+          .catch(console.warn);
+
+        // Restore user-partitioned timer state on login
+        try {
+          const userTimer = loadInitialTimerState(
+            typeof window !== 'undefined' ? window.localStorage : null,
+            Date.now(),
+            fbUser.uid
+          );
+          if (userTimer.isExpired && userTimer.timerMode === 'work' && userTimer.sessionStartTime) {
+            finalizeExpiredSession(userTimer, fbUser.uid);
+          } else if (userTimer.isRunning || userTimer.timeLeft !== 25 * 60) {
+            setTimerEngineState(userTimer.timerEngine);
+            setTimerMode(userTimer.timerMode);
+            setTimeLeft(userTimer.timeLeft);
+            timeLeftRef.current = userTimer.timeLeft;
+            setTotalDuration(userTimer.totalDuration);
+            totalDurationRef.current = userTimer.totalDuration;
+            setIsRunning(userTimer.isRunning);
+            setActiveTaskId(userTimer.activeTaskId);
+            activeSessionIdRef.current = userTimer.activeSessionId;
+            setActiveSessionIdState(userTimer.activeSessionId);
+            activePresetIdRef.current = userTimer.activePresetId;
+            setActivePresetId(userTimer.activePresetId);
+          }
+        } catch {
+          // Ignore timer restore errors
+        }
+
         if (restoredFirebaseUidRef.current !== fbUser.uid) {
           restoredFirebaseUidRef.current = fbUser.uid;
           setThemeSyncState('syncing');
@@ -972,6 +1060,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setGoogleAccessToken(null);
         restoredFirebaseUidRef.current = null;
         setThemeSyncState('local');
+        setActiveTaskId(null);
+        activeSessionIdRef.current = null;
+        setActiveSessionIdState(null);
+        activePresetIdRef.current = null;
+        setActivePresetId(null);
         if (hadFbUser) {
           setUser(null);
           triggerRefresh();
@@ -1032,6 +1125,130 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast('Failed to update settings', 'error');
     }
   };
+
+  const updatePomodoroSettings = useCallback(
+    async (patch: Partial<PomodoroSettings>) => {
+      setPomodoroSettings((prev) => {
+        const merged: PomodoroSettings = {
+          ...prev,
+          ...patch,
+          updatedAt: new Date().toISOString(),
+        };
+        pomodoroSettingsRef.current = merged;
+        return merged;
+      });
+
+      try {
+        const saved = await api.savePomodoroSettings(patch);
+        if (saved) {
+          setPomodoroSettings(saved);
+          pomodoroSettingsRef.current = saved;
+        }
+        showToast('Timer preferences saved', 'success');
+      } catch (err) {
+        console.warn('Failed to save Pomodoro settings:', err);
+      }
+    },
+    [showToast]
+  );
+
+  const applyPomodoroPreset = useCallback(
+    (preset: PomodoroPreset) => {
+      const focusMins = preset.workDuration || preset.focusDuration || 25;
+      setActivePresetId(preset.id);
+      activePresetIdRef.current = preset.id;
+      setPomodoroSettings((prev) => ({
+        ...prev,
+        focusDuration: focusMins,
+        shortBreakDuration: preset.shortBreakDuration,
+        longBreakDuration: preset.longBreakDuration,
+        longBreakInterval: preset.longBreakInterval,
+        autoStartBreaks: preset.autoStartBreaks ?? prev.autoStartBreaks,
+        autoStartFocus: preset.autoStartFocus ?? prev.autoStartFocus,
+      }));
+
+      if (!isRunning && timerEngine === 'pomodoro') {
+        const mins =
+          timerMode === 'work'
+            ? focusMins
+            : timerMode === 'short_break'
+            ? preset.shortBreakDuration
+            : preset.longBreakDuration;
+        const durSec = Math.max(60, Math.round(mins * 60));
+        setTimeLeft(durSec);
+        timeLeftRef.current = durSec;
+        setTotalDuration(durSec);
+        totalDurationRef.current = durSec;
+      }
+
+      saveTimerState(
+        {
+          activePresetId: preset.id,
+        },
+        typeof window !== 'undefined' ? window.localStorage : null,
+        firebaseUser?.uid
+      );
+      showToast(`Applied preset: ${preset.name}`, 'info');
+    },
+    [isRunning, timerEngine, timerMode, firebaseUser?.uid, showToast]
+  );
+
+  // Expired Timer Recovery helper (Tab reopen or sleep/wake completion)
+  const finalizeExpiredSession = useCallback((timerState: InitialTimerStateResult, targetUserId?: string | null) => {
+    if (!timerState.isExpired || timerState.timerMode !== 'work' || !timerState.sessionStartTime) {
+      return;
+    }
+    const startedAt = timerState.sessionStartTime;
+    const endedAt = timerState.targetEndTimeMs
+      ? new Date(timerState.targetEndTimeMs).toISOString()
+      : new Date().toISOString();
+    const safeDurationSecs = Math.max(60, Math.round(timerState.totalDuration || 1500));
+    const durationMin = Math.max(1, Math.round(safeDurationSecs / 60));
+
+    const completionKey = `comp_expired_${timerState.activeSessionId || startedAt}_${durationMin}`;
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    const isLeader = acquireCompletionLock(completionKey, storage);
+    if (!isLeader) {
+      clearTimerState(storage, targetUserId);
+      return;
+    }
+
+    if (timerState.activeSessionId) {
+      api
+        .updateFocusSession(timerState.activeSessionId, {
+          completed: true,
+          status: 'completed',
+          actualDurationSeconds: safeDurationSecs,
+          endedAt,
+          endReason: 'completed',
+        })
+        .catch(console.warn);
+    } else {
+      api
+        .createFocusSession({
+          mode: 'work',
+          durationMinutes: durationMin,
+          durationSeconds: safeDurationSecs,
+          actualDurationSeconds: safeDurationSecs,
+          completed: true,
+          status: 'completed',
+          endReason: 'completed',
+          startedAt,
+          endedAt,
+          taskId: timerState.activeTaskId || undefined,
+          subjectCode: timerState.activeStudySubjectCode || undefined,
+          topicId: timerState.activeStudyTopicId || undefined,
+          activityType: timerState.activeStudyActivityType || undefined,
+        })
+        .catch(console.warn);
+    }
+    clearTimerState(storage, targetUserId);
+  }, []);
+
+  // Expired Timer Recovery (Tab reopen or sleep/wake completion for initial guest/fallback timer)
+  useEffect(() => {
+    finalizeExpiredSession(initialTimer, firebaseUser?.uid);
+  }, [finalizeExpiredSession, initialTimer, firebaseUser?.uid]);
 
   const reseedData = async () => {
     try {
@@ -1415,8 +1632,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTimerMode(mode);
 
       let rawMinutes = 25;
+      const curPom = pomodoroSettingsRef.current;
       if (durationMinutes !== undefined) {
         rawMinutes = durationMinutes;
+      } else if (curPom) {
+        if (mode === 'work') rawMinutes = curPom.focusDuration || 25;
+        else if (mode === 'short_break') rawMinutes = curPom.shortBreakDuration || 5;
+        else if (mode === 'long_break') rawMinutes = curPom.longBreakDuration || 15;
       } else if (settings) {
         if (mode === 'work') rawMinutes = settings.pomodoroWorkDuration || 25;
         else if (mode === 'short_break') rawMinutes = settings.shortBreakDuration || 5;
@@ -1555,6 +1777,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     timerModifiedByUserRef.current = true;
     completionHandledRef.current = false;
 
+    if (pauseStartedMsRef.current !== null) {
+      totalPauseSecsRef.current += Math.max(0, Math.round((Date.now() - pauseStartedMsRef.current) / 1000));
+      pauseStartedMsRef.current = null;
+      if (activeSessionIdRef.current) {
+        api
+          .recordInterruption(activeSessionIdRef.current, {
+            eventType: 'resume',
+            reason: 'user_resumed',
+          })
+          .catch(console.warn);
+      }
+    }
+
     if (timerEngine === 'stopwatch') {
       const now = Date.now();
       const startMs = now - stopwatchElapsedRef.current * 1000;
@@ -1564,16 +1799,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       setIsRunning(true);
       playTimerStartSound(settings?.soundEnabled ?? true, settings?.soundVolume);
-      saveTimerState({
-        timerEngine: 'stopwatch',
-        isRunning: true,
-        stopwatchStartMs: startMs,
-        sessionStartTime: sessionStartTimeRef.current,
-        activeTaskId,
-        activeStudySubjectCode,
-        activeStudyTopicId,
-        activeStudyActivityType,
-      });
+      saveTimerState(
+        {
+          timerEngine: 'stopwatch',
+          isRunning: true,
+          stopwatchStartMs: startMs,
+          sessionStartTime: sessionStartTimeRef.current,
+          activeTaskId,
+          activeStudySubjectCode,
+          activeStudyTopicId,
+          activeStudyActivityType,
+        },
+        typeof window !== 'undefined' ? window.localStorage : null,
+        firebaseUser?.uid
+      );
       broadcastTimerEvent({
         type: 'TIMER_SYNC_START',
         payload: {
@@ -1605,23 +1844,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!sessionStartTimeRef.current) {
       sessionStartTimeRef.current = new Date().toISOString();
     }
+
+    if (timerMode === 'work' && !activeSessionIdRef.current) {
+      const sessionId = `foc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      activeSessionIdRef.current = sessionId;
+      setActiveSessionIdState(sessionId);
+      api
+        .createFocusSession({
+          id: sessionId,
+          mode: 'work',
+          durationMinutes: Math.max(1, Math.round(effectiveSecs / 60)),
+          durationSeconds: effectiveSecs,
+          actualDurationSeconds: 0,
+          completed: false,
+          status: 'in_progress',
+          presetId: activePresetIdRef.current || undefined,
+          taskId: activeTaskId || undefined,
+          subjectCode: activeStudySubjectCode || undefined,
+          topicId: activeStudyTopicId || undefined,
+          activityType: activeStudyActivityType || (activeStudySubjectCode || activeStudyTopicId ? 'study' : undefined),
+          startedAt: sessionStartTimeRef.current || new Date().toISOString(),
+          endedAt: null,
+        })
+        .catch(console.warn);
+    }
+
     setIsRunning(true);
     playTimerStartSound(settings?.soundEnabled ?? true, settings?.soundVolume);
 
-    saveTimerState({
-      timerEngine,
-      timerMode,
-      isRunning: true,
-      timeLeft: effectiveSecs,
-      totalDuration: totalDurationRef.current,
-      targetEndTimeMs: targetEnd,
-      stopwatchStartMs: null,
-      sessionStartTime: sessionStartTimeRef.current,
-      activeTaskId,
-      activeStudySubjectCode,
-      activeStudyTopicId,
-      activeStudyActivityType,
-    });
+    saveTimerState(
+      {
+        timerEngine,
+        timerMode,
+        isRunning: true,
+        timeLeft: effectiveSecs,
+        totalDuration: totalDurationRef.current,
+        targetEndTimeMs: targetEnd,
+        stopwatchStartMs: null,
+        sessionStartTime: sessionStartTimeRef.current,
+        activeSessionId: activeSessionIdRef.current,
+        activePresetId: activePresetIdRef.current,
+        activeTaskId,
+        activeStudySubjectCode,
+        activeStudyTopicId,
+        activeStudyActivityType,
+      },
+      typeof window !== 'undefined' ? window.localStorage : null,
+      firebaseUser?.uid
+    );
     broadcastTimerEvent({
       type: 'TIMER_SYNC_START',
       payload: {
@@ -1646,30 +1916,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     activeStudySubjectCode,
     activeStudyTopicId,
     activeStudyActivityType,
+    firebaseUser?.uid,
   ]);
 
   const pauseTimer = useCallback(() => {
     clearTimerHandles();
     unlockAudioContext();
     timerModifiedByUserRef.current = true;
+    pauseCountRef.current += 1;
+    pauseStartedMsRef.current = Date.now();
+
+    if (activeSessionIdRef.current) {
+      api
+        .recordInterruption(activeSessionIdRef.current, {
+          eventType: 'pause',
+          reason: 'user_paused',
+        })
+        .catch(console.warn);
+    }
+
     if (timerEngine === 'stopwatch' && stopwatchStartMsRef.current !== null) {
       const elapsed = Math.max(0, Math.floor((Date.now() - stopwatchStartMsRef.current) / 1000));
       stopwatchElapsedRef.current = elapsed;
       setStopwatchElapsed(elapsed);
       stopwatchStartMsRef.current = null;
-      saveTimerState({ isRunning: false, stopwatchElapsed: elapsed, stopwatchStartMs: null });
+      saveTimerState(
+        { isRunning: false, stopwatchElapsed: elapsed, stopwatchStartMs: null },
+        typeof window !== 'undefined' ? window.localStorage : null,
+        firebaseUser?.uid
+      );
       broadcastTimerEvent({ type: 'TIMER_SYNC_PAUSE', payload: { timeLeft: 0, stopwatchElapsed: elapsed, timerEngine } });
     } else if (targetEndTimeMsRef.current !== null) {
       const remaining = Math.max(0, Math.ceil((targetEndTimeMsRef.current - Date.now()) / 1000));
       timeLeftRef.current = remaining;
       setTimeLeft(remaining);
       targetEndTimeMsRef.current = null;
-      saveTimerState({ isRunning: false, timeLeft: remaining, targetEndTimeMs: null });
+      saveTimerState(
+        { isRunning: false, timeLeft: remaining, targetEndTimeMs: null },
+        typeof window !== 'undefined' ? window.localStorage : null,
+        firebaseUser?.uid
+      );
       broadcastTimerEvent({ type: 'TIMER_SYNC_PAUSE', payload: { timeLeft: remaining, stopwatchElapsed: 0, timerEngine } });
     }
     setIsRunning(false);
     playTimerPauseSound(settings?.soundEnabled ?? true, settings?.soundVolume);
-  }, [settings, clearTimerHandles, timerEngine]);
+  }, [settings, clearTimerHandles, timerEngine, firebaseUser?.uid]);
 
   const resetTimer = useCallback(() => {
     clearTimerHandles();
@@ -1688,21 +1979,119 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timeLeftRef.current = safeTotal;
       setTimeLeft(safeTotal);
     }
+
+    if (timerEngine === 'pomodoro' && timerMode === 'work' && sessionStartTimeRef.current) {
+      const elapsedActiveSecs = Math.max(
+        0,
+        Math.min(
+          Math.floor(totalDurationRef.current),
+          Math.round(totalDurationRef.current - timeLeftRef.current)
+        )
+      );
+      if (activeSessionIdRef.current) {
+        api
+          .updateFocusSession(activeSessionIdRef.current, {
+            status: 'interrupted',
+            completed: false,
+            actualDurationSeconds: elapsedActiveSecs,
+            endedAt: new Date().toISOString(),
+            endReason: 'reset',
+            interrupted: true,
+            pauseCount: pauseCountRef.current,
+            totalPauseSeconds: totalPauseSecsRef.current,
+          })
+          .catch(console.warn);
+      }
+    }
+    activeSessionIdRef.current = null;
+    setActiveSessionIdState(null);
+
     sessionStartTimeRef.current = null;
+    pauseCountRef.current = 0;
+    pauseStartedMsRef.current = null;
+    totalPauseSecsRef.current = 0;
     playClickSound(settings?.soundEnabled ?? true, settings?.soundVolume);
-    saveTimerState({
-      isRunning: false,
-      timeLeft: safeTotal,
-      stopwatchElapsed: 0,
-      targetEndTimeMs: null,
-      stopwatchStartMs: null,
-      sessionStartTime: null,
-    });
+    saveTimerState(
+      {
+        isRunning: false,
+        timeLeft: safeTotal,
+        stopwatchElapsed: 0,
+        targetEndTimeMs: null,
+        stopwatchStartMs: null,
+        sessionStartTime: null,
+        activeSessionId: null,
+      },
+      typeof window !== 'undefined' ? window.localStorage : null,
+      firebaseUser?.uid
+    );
     broadcastTimerEvent({
       type: 'TIMER_SYNC_RESET',
       payload: { totalDuration: safeTotal, timerEngine, timerMode },
     });
-  }, [settings, clearTimerHandles, timerEngine, timerMode]);
+  }, [settings, clearTimerHandles, timerEngine, timerMode, firebaseUser?.uid]);
+
+  const skipInterval = useCallback(() => {
+    clearTimerHandles();
+    unlockAudioContext();
+    completionHandledRef.current = false;
+    timerModifiedByUserRef.current = true;
+    setIsRunning(false);
+
+    if (timerEngine === 'stopwatch') {
+      resetTimer();
+      return;
+    }
+
+    if (timerEngine === 'pomodoro' && timerMode === 'work' && sessionStartTimeRef.current) {
+      const elapsedActiveSecs = Math.max(
+        0,
+        Math.min(
+          Math.floor(totalDurationRef.current),
+          Math.round(totalDurationRef.current - timeLeftRef.current)
+        )
+      );
+      if (activeSessionIdRef.current) {
+        api
+          .updateFocusSession(activeSessionIdRef.current, {
+            status: 'interrupted',
+            completed: false,
+            actualDurationSeconds: elapsedActiveSecs,
+            endedAt: new Date().toISOString(),
+            endReason: 'skipped',
+            interrupted: true,
+            pauseCount: pauseCountRef.current,
+            totalPauseSeconds: totalPauseSecsRef.current,
+          })
+          .catch(console.warn);
+      }
+    }
+    activeSessionIdRef.current = null;
+    setActiveSessionIdState(null);
+
+    pauseCountRef.current = 0;
+    pauseStartedMsRef.current = null;
+    totalPauseSecsRef.current = 0;
+
+    if (timerMode === 'work') {
+      const currentCycles = (completedCycleCount || 0) + 1;
+      setCompletedCycleCount(currentCycles);
+      const interval = pomodoroSettingsRef.current?.longBreakInterval || 4;
+      const nextMode: TimerMode = currentCycles % interval === 0 ? 'long_break' : 'short_break';
+      switchTimerMode(nextMode);
+      showToast(`Skipped to ${nextMode === 'long_break' ? 'Long Break' : 'Short Break'}`, 'info');
+    } else {
+      switchTimerMode('work');
+      showToast('Skipped to Focus session', 'info');
+    }
+  }, [
+    clearTimerHandles,
+    timerEngine,
+    timerMode,
+    completedCycleCount,
+    resetTimer,
+    switchTimerMode,
+    showToast,
+  ]);
 
   const saveStopwatchSession = useCallback(async () => {
     const secs = Math.max(0, Math.floor(stopwatchElapsedRef.current));
@@ -1873,37 +2262,114 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const completionKey = `comp_${modeNow}_${startedAt}_${durationMin}`;
       const isLeader = acquireCompletionLock(completionKey);
 
-      saveTimerState({
-        isRunning: false,
-        targetEndTimeMs: null,
-        timeLeft: 0,
-      });
+      saveTimerState(
+        {
+          isRunning: false,
+          targetEndTimeMs: null,
+          timeLeft: 0,
+          activeSessionId: null,
+        },
+        typeof window !== 'undefined' ? window.localStorage : null,
+        fbUserNow?.uid
+      );
 
       broadcastTimerEvent({
         type: 'TIMER_SYNC_COMPLETED',
         payload: { completionKey, completedAt: endedAt },
       });
 
+      const currentPom = pomodoroSettingsRef.current;
       const isSound = settingsNow?.soundEnabled ?? true;
+      const soundVol = currentPom?.soundVolume ?? settingsNow?.soundVolume ?? 70;
+
       if (modeNow === 'work') {
-        playFocusCompleteSound(isSound, settingsNow?.soundVolume);
+        const tone = currentPom?.alertTone || 'chime';
+        playAlertTone(tone, isSound, soundVol);
         toastNow('Focus session complete! Great work!', 'success');
 
+        const currentCycles = (completedCycleCount || 0) + 1;
+        setCompletedCycleCount(currentCycles);
+        const interval = currentPom?.longBreakInterval || 4;
+        const nextMode: TimerMode = currentCycles % interval === 0 ? 'long_break' : 'short_break';
+
+        if (currentPom?.desktopNotifications) {
+          sendPomodoroNotification({
+            title: '🎯 Focus Session Complete!',
+            body: `Great work! Time for a ${nextMode === 'long_break' ? '15-min long' : '5-min short'} break.`,
+            tag: 'focusflow-pomodoro-work',
+          });
+        }
+
+        const wasInterrupted = pauseCountRef.current > 0;
+        const pCount = pauseCountRef.current;
+        const pSecs = totalPauseSecsRef.current;
+        // In countdown mode, the timer counts down active focus time; paused duration does not consume timer seconds.
+        // Therefore, when the timer completes, active focus time equals the planned duration.
+        const actualSecs = Math.max(0, safeDurationSecs);
+        const activeSessId = activeSessionIdRef.current;
+        activeSessionIdRef.current = null;
+        setActiveSessionIdState(null);
+        pauseCountRef.current = 0;
+        pauseStartedMsRef.current = null;
+        totalPauseSecsRef.current = 0;
+
         if (isLeader) {
-          api
-            .createFocusSession({
-              taskId: taskNow,
-              mode: 'work',
-              durationMinutes: durationMin,
-              durationSeconds: safeDurationSecs,
-              completed: true,
-              startedAt,
-              endedAt,
-              subjectCode: studySubjectNow || undefined,
-              topicId: studyTopicNow || undefined,
-              activityType: studyActivityNow || (studySubjectNow || studyTopicNow ? 'study' : undefined),
-            })
-            .then((newSession) => {
+          const savePromise = activeSessId
+            ? api
+                .updateFocusSession(activeSessId, {
+                  completed: true,
+                  status: 'completed',
+                  actualDurationSeconds: actualSecs,
+                  endedAt,
+                  endReason: 'completed',
+                  interrupted: wasInterrupted,
+                  pauseCount: pCount,
+                  totalPauseSeconds: pSecs,
+                })
+                .catch(() =>
+                  api.createFocusSession({
+                    id: activeSessId,
+                    taskId: taskNow,
+                    mode: 'work',
+                    durationMinutes: durationMin,
+                    durationSeconds: safeDurationSecs,
+                    actualDurationSeconds: actualSecs,
+                    completed: true,
+                    status: 'completed',
+                    endReason: 'completed',
+                    interrupted: wasInterrupted,
+                    pauseCount: pCount,
+                    totalPauseSeconds: pSecs,
+                    startedAt,
+                    endedAt,
+                    presetId: activePresetIdRef.current || undefined,
+                    subjectCode: studySubjectNow || undefined,
+                    topicId: studyTopicNow || undefined,
+                    activityType: studyActivityNow || (studySubjectNow || studyTopicNow ? 'study' : undefined),
+                  })
+                )
+            : api.createFocusSession({
+                taskId: taskNow,
+                mode: 'work',
+                durationMinutes: durationMin,
+                durationSeconds: safeDurationSecs,
+                actualDurationSeconds: actualSecs,
+                completed: true,
+                status: 'completed',
+                endReason: 'completed',
+                interrupted: wasInterrupted,
+                pauseCount: pCount,
+                totalPauseSeconds: pSecs,
+                startedAt,
+                endedAt,
+                presetId: activePresetIdRef.current || undefined,
+                subjectCode: studySubjectNow || undefined,
+                topicId: studyTopicNow || undefined,
+                activityType: studyActivityNow || (studySubjectNow || studyTopicNow ? 'study' : undefined),
+              });
+
+          savePromise
+            .then((newSession: FocusSession) => {
               if (studyTopicNow && studyActivityNow === 'practice') {
                 api.saveStudyTopic({ id: studyTopicNow, practice: true }).catch(console.error);
               } else if (studyTopicNow && studyActivityNow === 'theory') {
@@ -1941,12 +2407,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             .catch(console.error);
         }
 
-        switchModeNow('short_break');
-        if (settingsNow?.autoSwitchSessions) {
-          const breakMinutes = Math.max(
-            1,
-            Math.min(180, Math.round(settingsNow.shortBreakDuration || 5))
-          );
+        switchModeNow(nextMode);
+        const shouldAutoStartBreak = currentPom?.autoStartBreaks ?? settingsNow?.autoSwitchSessions ?? false;
+        if (shouldAutoStartBreak) {
+          const breakMinutes =
+            nextMode === 'long_break'
+              ? Math.max(1, Math.min(90, Math.round(currentPom?.longBreakDuration || settingsNow?.longBreakDuration || 15)))
+              : Math.max(1, Math.min(60, Math.round(currentPom?.shortBreakDuration || settingsNow?.shortBreakDuration || 5)));
           autoSwitchTimeoutRef.current = setTimeout(() => {
             autoSwitchTimeoutRef.current = null;
             completionHandledRef.current = false;
@@ -1956,13 +2423,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }, 1000);
         }
       } else {
-        playBreakEndSound(isSound, settingsNow?.soundVolume);
+        playBreakEndSound(isSound, soundVol);
         toastNow('Break finished! Ready to focus?', 'info');
+
+        if (currentPom?.desktopNotifications) {
+          sendPomodoroNotification({
+            title: '☕ Break Finished!',
+            body: 'Break is over. Ready to start your next focus session?',
+            tag: 'focusflow-pomodoro-break',
+          });
+        }
+
         switchModeNow('work');
-        if (settingsNow?.autoSwitchSessions) {
+        const shouldAutoStartFocus = currentPom?.autoStartFocus ?? settingsNow?.autoSwitchSessions ?? false;
+        if (shouldAutoStartFocus) {
           const workMinutes = Math.max(
             1,
-            Math.min(180, Math.round(settingsNow.pomodoroWorkDuration || 25))
+            Math.min(180, Math.round(currentPom?.focusDuration || settingsNow?.pomodoroWorkDuration || 25))
           );
           autoSwitchTimeoutRef.current = setTimeout(() => {
             autoSwitchTimeoutRef.current = null;
@@ -2103,6 +2580,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [clearTimerHandles]);
 
+  // Dynamic Browser Tab Countdown in document.title
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (!isRunning) {
+      document.title = 'FocusFlow & Finance';
+      return;
+    }
+
+    if (timerEngine === 'stopwatch') {
+      const mins = Math.floor(stopwatchElapsed / 60);
+      const secs = stopwatchElapsed % 60;
+      const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      document.title = `(${timeStr}) Stopwatch | FocusFlow`;
+    } else {
+      const mins = Math.floor(timeLeft / 60);
+      const secs = timeLeft % 60;
+      const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      const modeLabel =
+        timerMode === 'work' ? 'Focus' : timerMode === 'short_break' ? 'Break' : 'Long Break';
+      document.title = `(${timeStr}) ${modeLabel} | FocusFlow`;
+    }
+
+    return () => {
+      document.title = 'FocusFlow & Finance';
+    };
+  }, [isRunning, timeLeft, stopwatchElapsed, timerEngine, timerMode]);
+
   const currency = settings?.currency || 'INR';
 
   // Ensure initial resolved mode resolves cleanly even on SSR/test
@@ -2215,10 +2719,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         startTimer,
         pauseTimer,
         resetTimer,
+        skipInterval,
         saveStopwatchSession,
         switchTimerMode,
         setActiveTaskId,
         setCustomDuration,
+        pomodoroSettings,
+        updatePomodoroSettings,
+        activePresetId,
+        applyPomodoroPreset,
+        activeSessionId,
 
         // Study Topic Linkage
         activeStudySubjectCode,

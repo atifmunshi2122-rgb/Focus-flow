@@ -35,6 +35,11 @@ import {
   StudyActivityLog,
   StudyFlashcard,
   StudyQuiz,
+  PomodoroSettings,
+  PomodoroGoal,
+  PomodoroPreset,
+  PomodoroInterruption,
+  PomodoroAmbientPreset,
 } from '../types/index.ts';
 import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
@@ -189,6 +194,32 @@ async function applyOfflineOutboxOp(userId: string, op: OfflineOutboxOperation):
       return;
     case 'create_focus_session':
       await firestoreService.createFocusSession(userId, p as Partial<FocusSession>);
+      return;
+    case 'update_focus_session':
+      await firestoreService.updateFocusSession(
+        userId,
+        String(p.id),
+        p.updates as Partial<FocusSession>
+      );
+      return;
+    case 'record_interruption':
+      await firestoreService.recordInterruption(
+        userId,
+        String(p.sessionId),
+        p.interruption as Partial<PomodoroInterruption>
+      );
+      return;
+    case 'save_pomodoro_goal':
+      await firestoreService.savePomodoroGoal(userId, p as Partial<PomodoroGoal>);
+      return;
+    case 'delete_pomodoro_goal':
+      await firestoreService.deletePomodoroGoal(userId, String(p.id));
+      return;
+    case 'save_pomodoro_preset':
+      await firestoreService.savePomodoroPreset(userId, p as Partial<PomodoroPreset>);
+      return;
+    case 'delete_pomodoro_preset':
+      await firestoreService.deletePomodoroPreset(userId, String(p.id));
       return;
     case 'create_income':
       await firestoreService.createIncome(userId, p as Partial<IncomeTransaction>);
@@ -458,15 +489,70 @@ export const api = {
           topicId: session.topicId || null,
           activityType: session.activityType || null,
           mode: session.mode || 'work',
+          presetId: session.presetId || null,
           durationMinutes: session.durationMinutes || 25,
           durationSeconds: session.durationSeconds || 1500,
+          actualDurationSeconds: session.actualDurationSeconds ?? (session.completed ? session.durationSeconds || 1500 : 0),
           completed: session.completed !== false,
+          status: session.status || (session.completed ? 'completed' : 'in_progress'),
+          interrupted: session.interrupted ?? false,
+          pauseCount: session.pauseCount ?? 0,
+          totalPauseSeconds: session.totalPauseSeconds ?? 0,
           startedAt: session.startedAt || new Date().toISOString(),
-          endedAt: session.endedAt || new Date().toISOString(),
+          endedAt: session.endedAt !== undefined ? session.endedAt : (session.completed ? new Date().toISOString() : null),
+          endReason: session.endReason || (session.completed ? 'completed' : null),
         }),
       }
     );
   },
+
+  updateFocusSession: (sessionId: string, updates: Partial<FocusSession>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.updateFocusSession(uid, sessionId, updates),
+      () =>
+        request<FocusSession>(`/focus/sessions/${encodeURIComponent(sessionId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(updates),
+        }).catch(() => ({ id: sessionId, ...updates } as FocusSession)),
+      {
+        operationType: 'update_focus_session',
+        dedupeKey: `upd_foc_${sessionId}_${Date.now()}`,
+        payload: { id: sessionId, updates } as Record<string, unknown>,
+        optimisticResult: (uid) => ({
+          id: sessionId,
+          userId: uid,
+          ...updates,
+        } as FocusSession),
+      }
+    ),
+
+  recordInterruption: (sessionId: string, interruption: Partial<PomodoroInterruption>) => {
+    const eventId = interruption.id || `int_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const payloadWithId = { ...interruption, id: eventId, sessionId };
+    return withPrimaryWrite(
+      (uid) => firestoreService.recordInterruption(uid, sessionId, payloadWithId),
+      () => Promise.resolve(payloadWithId as PomodoroInterruption),
+      {
+        operationType: 'record_interruption',
+        dedupeKey: `int_${eventId}`,
+        payload: { sessionId, interruption: payloadWithId } as Record<string, unknown>,
+        optimisticResult: (uid) => ({
+          id: eventId,
+          userId: uid,
+          sessionId,
+          eventType: interruption.eventType || 'pause',
+          occurredAt: interruption.occurredAt || new Date().toISOString(),
+          reason: interruption.reason || null,
+        }),
+      }
+    );
+  },
+
+  listInterruptions: (sessionId: string) =>
+    withPrimaryRead(
+      (uid) => firestoreService.listInterruptions(uid, sessionId),
+      () => Promise.resolve([] as PomodoroInterruption[])
+    ),
 
   getFocusStats: () =>
     withPrimaryRead(
@@ -2176,6 +2262,148 @@ export const api = {
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
       }
+    ),
+
+  // --- POMODORO PRESETS & GOALS ---
+  getPomodoroPresets: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getPomodoroPresets(uid),
+      () => Promise.resolve([] as PomodoroPreset[])
+    ),
+
+  savePomodoroPreset: (preset: Partial<PomodoroPreset>) => {
+    const id = preset.id || `preset_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const withId = { ...preset, id };
+    return withPrimaryWrite(
+      (uid) => firestoreService.savePomodoroPreset(uid, withId),
+      () => Promise.resolve(withId as PomodoroPreset),
+      {
+        operationType: 'save_pomodoro_preset',
+        dedupeKey: `preset_${id}`,
+        payload: withId as Record<string, unknown>,
+        optimisticResult: (uid) => ({
+          id,
+          userId: uid,
+          name: preset.name || 'Custom Preset',
+          workDuration: preset.workDuration || 25,
+          shortBreakDuration: preset.shortBreakDuration || 5,
+          longBreakDuration: preset.longBreakDuration || 15,
+          longBreakInterval: preset.longBreakInterval || 4,
+          autoStartBreaks: Boolean(preset.autoStartBreaks),
+          autoStartFocus: Boolean(preset.autoStartFocus),
+          soundEnabled: preset.soundEnabled !== false,
+          soundVolume: preset.soundVolume ?? 70,
+          isDefault: Boolean(preset.isDefault),
+          isSystemPreset: Boolean(preset.isSystemPreset),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        }),
+      }
+    );
+  },
+
+  deletePomodoroPreset: (presetId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deletePomodoroPreset(uid, presetId);
+        return true;
+      },
+      () => Promise.resolve(true),
+      {
+        operationType: 'delete_pomodoro_preset',
+        dedupeKey: `del_preset_${presetId}`,
+        payload: { id: presetId },
+        optimisticResult: () => true,
+      }
+    ),
+
+  getPomodoroGoals: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getPomodoroGoals(uid),
+      () => Promise.resolve([] as PomodoroGoal[])
+    ),
+
+  savePomodoroGoal: (goal: Partial<PomodoroGoal>) => {
+    const id = goal.id || `pgoal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const withId = { ...goal, id };
+    return withPrimaryWrite(
+      (uid) => firestoreService.savePomodoroGoal(uid, withId),
+      () => Promise.resolve(withId as PomodoroGoal),
+      {
+        operationType: 'save_pomodoro_goal',
+        dedupeKey: `pgoal_${id}`,
+        payload: withId as Record<string, unknown>,
+        optimisticResult: (uid) => ({
+          id,
+          userId: uid,
+          title: goal.title || 'Focus Goal',
+          description: goal.description,
+          goalType: goal.goalType || 'daily',
+          metricType: goal.metricType || 'focus_minutes',
+          targetValue: goal.targetValue || 120,
+          currentValue: goal.currentValue || 0,
+          subjectId: goal.subjectId || null,
+          subjectCode: goal.subjectCode || null,
+          topicId: goal.topicId || null,
+          startDate: goal.startDate || new Date().toISOString().split('T')[0],
+          endDate: goal.endDate || null,
+          status: goal.status || 'active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          completedAt: null,
+          deletedAt: null,
+        }),
+      }
+    );
+  },
+
+  deletePomodoroGoal: (goalId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deletePomodoroGoal(uid, goalId);
+        return true;
+      },
+      () => Promise.resolve(true),
+      {
+        operationType: 'delete_pomodoro_goal',
+        dedupeKey: `del_pgoal_${goalId}`,
+        payload: { id: goalId },
+        optimisticResult: () => true,
+      }
+    ),
+
+  getPomodoroSettings: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getPomodoroSettings(uid),
+      () => Promise.resolve(null)
+    ),
+
+  savePomodoroSettings: (settings: Partial<PomodoroSettings>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.savePomodoroSettings(uid, settings),
+      () => Promise.resolve(settings as PomodoroSettings)
+    ),
+
+  getPomodoroAmbientPresets: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getPomodoroAmbientPresets(uid),
+      () => Promise.resolve([])
+    ),
+
+  savePomodoroAmbientPreset: (preset: Partial<PomodoroAmbientPreset>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.savePomodoroAmbientPreset(uid, preset),
+      () => Promise.resolve(preset as PomodoroAmbientPreset)
+    ),
+
+  deletePomodoroAmbientPreset: (presetId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deletePomodoroAmbientPreset(uid, presetId);
+        return true;
+      },
+      () => Promise.resolve(true)
     ),
 };
 

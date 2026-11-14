@@ -3,10 +3,15 @@ import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { FocusSession, FocusStatsData, Habit, Task, TimeBlock } from '../../types/index.ts';
+import type { PomodoroGoal } from '../../types/pomodoro.ts';
 import {
   computeProductivityAnalytics,
   computeProductivityScore,
 } from '../../lib/productivityIntelligence.ts';
+import {
+  computeSubjectFocusBreakdown,
+  computePomodoroGoalProgress,
+} from '../../lib/pomodoroAnalytics.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
@@ -45,6 +50,7 @@ export const FocusAnalytics: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
+  const [goals, setGoals] = useState<PomodoroGoal[]>([]);
   const [loading, setLoading] = useState(true);
 
   const todayStr = useMemo(() => getTodayDateString(DEFAULT_TIMEZONE), []);
@@ -57,13 +63,15 @@ export const FocusAnalytics: React.FC = () => {
       api.getTasks().catch(() => [] as Task[]),
       api.getHabits().catch(() => [] as Habit[]),
       api.getTimeBlocks(todayStr).catch(() => [] as TimeBlock[]),
+      api.getPomodoroGoals().catch(() => [] as PomodoroGoal[]),
     ])
-      .then(([statsData, sessionsData, taskList, habitList, blockList]) => {
+      .then(([statsData, sessionsData, taskList, habitList, blockList, goalList]) => {
         setStats(statsData);
         setSessions(sessionsData);
         setTasks(taskList);
         setHabits(habitList);
         setTimeBlocks(blockList);
+        setGoals(goalList);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -105,6 +113,8 @@ export const FocusAnalytics: React.FC = () => {
   const dailyGoalMin = Math.max(15, settings?.dailyFocusGoalMinutes || 100);
   const todayMinutes = stats?.last7Days[stats.last7Days.length - 1]?.minutes || 0;
   const dailyPct = Math.min(100, Math.round((todayMinutes / dailyGoalMin) * 100));
+
+  const subjectBreakdown = useMemo(() => computeSubjectFocusBreakdown(sessions), [sessions]);
 
   const heatmapDays = stats?.dailyHeatmap || [];
   const heatColor = (mins: number) => {
@@ -269,6 +279,45 @@ export const FocusAnalytics: React.FC = () => {
           />
         </div>
       </ThemeCard>
+
+      {/* Custom Active Focus Goals */}
+      {goals.length > 0 && (
+        <ThemeCard className="space-y-3">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Active Pomodoro Goals
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {goals.map((g) => {
+              const prog = computePomodoroGoalProgress(sessions, g);
+              return (
+                <div
+                  key={g.id}
+                  className="p-3 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] flex flex-col justify-between"
+                >
+                  <div className="flex items-start justify-between text-xs font-medium mb-1 gap-2">
+                    <span className="font-semibold text-[var(--ff-text-primary)] truncate">{g.title}</span>
+                    <span className={`text-[10px] font-bold ${prog.isMet ? 'text-emerald-500' : 'text-[var(--ff-accent-text)]'}`}>
+                      {prog.progressPct}%
+                    </span>
+                  </div>
+                  <AnimatedProgressBar
+                    value={prog.progressPct}
+                    tone={prog.isMet ? 'success' : 'accent'}
+                    heightClass="h-1.5"
+                    ariaLabel={g.title}
+                  />
+                  <div className="flex items-center justify-between text-[10px] text-[var(--ff-text-muted)] mt-1.5 font-mono">
+                    <span className="capitalize">{g.goalType}</span>
+                    <span>
+                      {prog.currentValue} / {prog.targetValue} {g.metricType === 'session_count' ? 'sessions' : 'm'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </ThemeCard>
+      )}
 
       {/* Weekly Habit & Focus Consistency Strip */}
       <ThemeCard className="space-y-3">
@@ -490,6 +539,47 @@ export const FocusAnalytics: React.FC = () => {
         </ThemeCard>
       )}
 
+      {/* Subject-Wise Focus Distribution */}
+      {subjectBreakdown.length > 0 && (
+        <ThemeCard>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
+              <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                Subject-Wise Focus Distribution
+              </h3>
+            </div>
+            <span className="text-xs text-[var(--ff-text-muted)]">
+              {subjectBreakdown.length} subject{subjectBreakdown.length > 1 ? 's' : ''} tracked
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {subjectBreakdown.map((item) => (
+              <div
+                key={item.subjectCode}
+                className="p-3 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] space-y-1.5"
+              >
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <span className="text-[var(--ff-text-primary)] truncate">{item.subjectCode}</span>
+                  <span className="text-[var(--ff-accent-text)] font-mono">{item.totalMinutes}m</span>
+                </div>
+                <div className="w-full bg-[var(--ff-border-color)] h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-[var(--ff-accent)] h-full rounded-full transition-all duration-300"
+                    style={{ width: `${item.percentage}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-[var(--ff-text-muted)]">
+                  <span>{item.sessionCount} sessions</span>
+                  <span>{item.percentage}% of total</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </ThemeCard>
+      )}
+
       {/* Focus Session History Log */}
       <ThemeCard>
         <div className="flex items-center justify-between mb-4">
@@ -541,10 +631,22 @@ export const FocusAnalytics: React.FC = () => {
                     </div>
 
                     <div className="truncate">
-                      <p className="font-semibold text-[var(--ff-text-primary)] truncate">
-                        {s.taskTitle || (s.mode === 'work' ? 'Deep Work Session' : 'Rest Break')}
-                      </p>
-                      <div className="flex items-center gap-1.5 text-[var(--ff-text-muted)] text-[11px]">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-semibold text-[var(--ff-text-primary)] truncate">
+                          {s.taskTitle || (s.mode === 'work' ? 'Deep Work Session' : 'Rest Break')}
+                        </p>
+                        {s.subjectCode && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)]">
+                            {s.subjectCode}
+                          </span>
+                        )}
+                        {s.interrupted && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-500">
+                            Interrupted ({s.pauseCount || 1}p)
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[var(--ff-text-muted)] text-[11px] mt-0.5">
                         <span>
                           {formattedDate} at {formattedTime}
                         </span>

@@ -52,6 +52,7 @@ export interface UserSettings {
   pomodoroWorkDuration: number; // minutes
   shortBreakDuration: number;
   longBreakDuration: number;
+  longBreakInterval?: number;
   autoSwitchSessions: boolean;
   soundEnabled: boolean;
   soundVolume?: number; // 0-100 master volume percentage (default: 70)
@@ -61,8 +62,11 @@ export interface UserSettings {
   activeSavedThemeId?: string | null;
   googleSpreadsheetId?: string;
   lastSyncedAt?: string;
+  updatedAt?: string;
   dailyFocusGoalMinutes?: number;
   weeklyFocusGoalMinutes?: number;
+  monthlyFocusGoalMinutes?: number;
+  selectedPresetId?: string | null;
   monthlyBudgetPaise?: number;
   dailySpendingLimitPaise?: number;
   weeklySpendingLimitPaise?: number;
@@ -106,17 +110,26 @@ export interface FocusSession {
   id: string;
   userId: string;
   taskId: string | null;
-  taskTitle?: string;
+  taskTitle?: string | null;
   subjectCode?: string | null;
   subjectId?: string | null;
   topicId?: string | null;
   activityType?: 'study' | 'practice' | 'theory' | 'revision' | null;
   mode: 'work' | 'short_break' | 'long_break';
+  presetId?: string | null;
   durationMinutes: number;
   durationSeconds: number;
+  actualDurationSeconds?: number;
   completed: boolean;
+  status?: 'in_progress' | 'completed' | 'interrupted';
+  interrupted?: boolean;
+  pauseCount?: number;
+  totalPauseSeconds?: number;
+  interruptionReason?: string;
   startedAt: string;
-  endedAt: string;
+  endedAt: string | null;
+  endReason?: 'completed' | 'reset' | 'skipped' | 'abandoned' | null;
+  createdAt?: string;
 }
 
 export interface ExpenseCategory {
@@ -438,6 +451,12 @@ export interface OfflineOutboxOperation {
     | 'update_task'
     | 'delete_task'
     | 'create_focus_session'
+    | 'update_focus_session'
+    | 'record_interruption'
+    | 'save_pomodoro_goal'
+    | 'delete_pomodoro_goal'
+    | 'save_pomodoro_preset'
+    | 'delete_pomodoro_preset'
     | 'create_income'
     | 'update_income'
     | 'delete_income'
@@ -481,4 +500,5 @@ export interface OfflineOutboxOperation {
 }
 
 export * from './study.ts';
+export * from './pomodoro.ts';
 

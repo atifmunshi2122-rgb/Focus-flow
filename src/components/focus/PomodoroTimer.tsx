@@ -1,9 +1,29 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { TimerEngineMode, TimerMode, useApp } from '../../context/AppContext.tsx';
 import { AmbientPreset } from '../../lib/ambientAudio.ts';
 import { api } from '../../lib/api.ts';
 import { saveTimerState } from '../../lib/timerEngine.ts';
+import { playAlertTone } from '../../lib/sound.ts';
+import {
+  getNotificationPermission,
+  isNotificationSupported,
+  requestNotificationPermission,
+} from '../../lib/desktopNotifications.ts';
+import {
+  computeFocusStreaks,
+  computeSubjectFocusBreakdown,
+  computePomodoroGoalProgress,
+} from '../../lib/pomodoroAnalytics.ts';
+import type { FocusSession } from '../../types/index.ts';
+import type {
+  PomodoroAlertTone,
+  PomodoroGoal,
+  PomodoroGoalType,
+  PomodoroGoalMetric,
+  PomodoroPreset,
+  PomodoroInterruption,
+} from '../../types/pomodoro.ts';
 import { StudySubject, StudyTopic } from '../../types/study.ts';
 import {
   ThemeButton,
@@ -36,6 +56,17 @@ import {
   Save,
   X,
   GraduationCap,
+  SkipForward,
+  Settings,
+  Flame,
+  Trophy,
+  BarChart2,
+  AlertCircle,
+  Plus,
+  Trash2,
+  Bookmark,
+  History,
+  Check,
 } from 'lucide-react';
 
 const AMBIENT_OPTIONS: Array<{ id: AmbientPreset; label: string }> = [
@@ -44,6 +75,14 @@ const AMBIENT_OPTIONS: Array<{ id: AmbientPreset; label: string }> = [
   { id: 'drone', label: 'Warm Drone' },
   { id: 'ocean', label: 'Ocean' },
   { id: 'cafe', label: 'Soft Cafe' },
+];
+
+const ALERT_TONES: Array<{ id: PomodoroAlertTone; label: string }> = [
+  { id: 'chime', label: 'Ascending Chime (Harmonic)' },
+  { id: 'bell', label: 'Temple Bell (Resonant)' },
+  { id: 'digital', label: 'Digital Pulse (Crisp)' },
+  { id: 'bowl', label: 'Singing Bowl (432Hz Calm)' },
+  { id: 'gentle', label: 'Kalimba Triad (Soft)' },
 ];
 
 export const PomodoroTimer: React.FC = () => {
@@ -59,6 +98,7 @@ export const PomodoroTimer: React.FC = () => {
     startTimer,
     pauseTimer,
     resetTimer,
+    skipInterval,
     saveStopwatchSession,
     switchTimerMode,
     activeTask,
@@ -66,6 +106,8 @@ export const PomodoroTimer: React.FC = () => {
     setCustomDuration,
     settings,
     updateSettings,
+    pomodoroSettings,
+    updatePomodoroSettings,
     fullScreenFocus,
     setFullScreenFocus,
     ambientPreset,
@@ -77,9 +119,19 @@ export const PomodoroTimer: React.FC = () => {
     setActiveStudyTopicId,
     activeStudyActivityType,
     setActiveStudyActivityType,
+    activePresetId,
+    applyPomodoroPreset,
+    activeSessionId,
+    refreshKey,
+    showToast,
   } = useApp();
 
   const [showCustomModal, setShowCustomModal] = useState(false);
+  const [showPreferencesModal, setShowPreferencesModal] = useState(false);
+  const [showStatsModal, setShowStatsModal] = useState(false);
+  const [showPresetModal, setShowPresetModal] = useState(false);
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [showInterruptionsModal, setShowInterruptionsModal] = useState(false);
   const [customInputMinutes, setCustomInputMinutes] = useState('25');
   const [customError, setCustomError] = useState<string | null>(null);
   const [resetSpinCount, setResetSpinCount] = useState(0);
@@ -87,15 +139,202 @@ export const PomodoroTimer: React.FC = () => {
   const prevCycleCountRef = useRef(completedCycleCount);
   const { isDisabled, profile } = useMotionPreferences();
 
+  // Sessions, goals, presets, and interruptions cache
+  const [sessions, setSessions] = useState<FocusSession[]>([]);
+  const [goals, setGoals] = useState<PomodoroGoal[]>([]);
+  const [presets, setPresets] = useState<PomodoroPreset[]>([]);
+  const [sessionInterruptions, setSessionInterruptions] = useState<PomodoroInterruption[]>([]);
+
+  // Preset Form State
+  const [presetName, setPresetName] = useState('');
+  const [presetWork, setPresetWork] = useState(25);
+  const [presetShort, setPresetShort] = useState(5);
+  const [presetLong, setPresetLong] = useState(15);
+  const [presetInterval, setPresetInterval] = useState(4);
+  const [presetSaving, setPresetSaving] = useState(false);
+
+  // Goal Form State
+  const [goalTitle, setGoalTitle] = useState('');
+  const [goalType, setGoalType] = useState<PomodoroGoalType>('daily');
+  const [goalMetric, setGoalMetric] = useState<PomodoroGoalMetric>('focus_minutes');
+  const [goalTarget, setGoalTarget] = useState(120);
+  const [goalSaving, setGoalSaving] = useState(false);
+
+  const [notificationPerm, setNotificationPerm] = useState<NotificationPermission | 'unsupported'>(
+    () => getNotificationPermission()
+  );
+
   // Study Topic Linkage Modal State
   const [showStudyModal, setShowStudyModal] = useState(false);
   const [studySubjects, setStudySubjects] = useState<StudySubject[]>([]);
   const [studyTopics, setStudyTopics] = useState<StudyTopic[]>([]);
   const [modalSubjectCode, setModalSubjectCode] = useState<string>('');
   const [modalTopicId, setModalTopicId] = useState<string>('');
-  const [modalActivityType, setModalActivityType] = useState<'study' | 'practice' | 'theory' | 'revision'>('study');
+  const [modalActivityType, setModalActivityType] = useState<
+    'study' | 'practice' | 'theory' | 'revision'
+  >('study');
   const [loadingStudyData, setLoadingStudyData] = useState(false);
 
+  // Preferences form local state
+  const [prefFocus, setPrefFocus] = useState(pomodoroSettings?.focusDuration || 25);
+  const [prefShortBreak, setPrefShortBreak] = useState(pomodoroSettings?.shortBreakDuration || 5);
+  const [prefLongBreak, setPrefLongBreak] = useState(pomodoroSettings?.longBreakDuration || 15);
+  const [prefInterval, setPrefInterval] = useState(pomodoroSettings?.longBreakInterval || 4);
+  const [prefAutoBreak, setPrefAutoBreak] = useState(pomodoroSettings?.autoStartBreaks || false);
+  const [prefAutoFocus, setPrefAutoFocus] = useState(pomodoroSettings?.autoStartFocus || false);
+  const [prefTone, setPrefTone] = useState<PomodoroAlertTone>(pomodoroSettings?.alertTone || 'chime');
+  const [prefVolume, setPrefVolume] = useState(pomodoroSettings?.soundVolume ?? 70);
+  const [prefNotifications, setPrefNotifications] = useState(
+    pomodoroSettings?.desktopNotifications || false
+  );
+
+  // Sync preferences modal state when opened
+  useEffect(() => {
+    if (showPreferencesModal && pomodoroSettings) {
+      setPrefFocus(pomodoroSettings.focusDuration || 25);
+      setPrefShortBreak(pomodoroSettings.shortBreakDuration || 5);
+      setPrefLongBreak(pomodoroSettings.longBreakDuration || 15);
+      setPrefInterval(pomodoroSettings.longBreakInterval || 4);
+      setPrefAutoBreak(pomodoroSettings.autoStartBreaks || false);
+      setPrefAutoFocus(pomodoroSettings.autoStartFocus || false);
+      setPrefTone(pomodoroSettings.alertTone || 'chime');
+      setPrefVolume(pomodoroSettings.soundVolume ?? 70);
+      setPrefNotifications(pomodoroSettings.desktopNotifications || false);
+      setNotificationPerm(getNotificationPermission());
+    }
+  }, [showPreferencesModal, pomodoroSettings]);
+
+  // Load authoritative focus sessions, goals, and presets
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      api.getFocusSessions().catch(() => [] as FocusSession[]),
+      api.getPomodoroGoals().catch(() => [] as PomodoroGoal[]),
+      api.getPomodoroPresets().catch(() => [] as PomodoroPreset[]),
+    ])
+      .then(([sessList, goalList, presetList]) => {
+        if (cancelled) return;
+        setSessions(sessList);
+        setGoals(goalList);
+        setPresets(presetList);
+      })
+      .catch(console.warn);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey, completedCycleCount]);
+
+  // Load interruptions for active session if any
+  useEffect(() => {
+    if (!activeSessionId) {
+      setSessionInterruptions([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listInterruptions(activeSessionId)
+      .then((ints) => {
+        if (!cancelled) setSessionInterruptions(ints);
+      })
+      .catch(console.warn);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, isRunning]);
+
+  const handleCreatePreset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!presetName.trim()) return;
+    setPresetSaving(true);
+    try {
+      const created = await api.savePomodoroPreset({
+        name: presetName.trim(),
+        workDuration: presetWork,
+        shortBreakDuration: presetShort,
+        longBreakDuration: presetLong,
+        longBreakInterval: presetInterval,
+        autoStartBreaks: pomodoroSettings?.autoStartBreaks ?? false,
+        autoStartFocus: pomodoroSettings?.autoStartFocus ?? false,
+        soundEnabled: settings?.soundEnabled ?? true,
+        soundVolume: pomodoroSettings?.soundVolume ?? 70,
+        isDefault: false,
+        isSystemPreset: false,
+      });
+      setPresets((prev) => [...prev.filter((p) => p.id !== created.id), created]);
+      setPresetName('');
+      setShowPresetModal(false);
+      showToast(`Created preset: ${created.name}`, 'success');
+      applyPomodoroPreset(created);
+    } catch {
+      showToast('Failed to create preset', 'error');
+    } finally {
+      setPresetSaving(false);
+    }
+  };
+
+  const handleDeletePreset = async (presetId: string) => {
+    try {
+      await api.deletePomodoroPreset(presetId);
+      setPresets((prev) => prev.filter((p) => p.id !== presetId));
+      showToast('Preset removed', 'info');
+    } catch {
+      showToast('Failed to delete preset', 'error');
+    }
+  };
+
+  const handleCreateGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!goalTitle.trim()) return;
+    setGoalSaving(true);
+    try {
+      const created = await api.savePomodoroGoal({
+        title: goalTitle.trim(),
+        goalType,
+        metricType: goalMetric,
+        targetValue: goalTarget,
+        currentValue: 0,
+        status: 'active',
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: null,
+        subjectId: activeStudySubjectCode || null,
+        subjectCode: activeStudySubjectCode || null,
+        topicId: activeStudyTopicId || null,
+      });
+      setGoals((prev) => [...prev.filter((g) => g.id !== created.id), created]);
+      setGoalTitle('');
+      setShowGoalModal(false);
+      showToast(`Goal created: ${created.title}`, 'success');
+    } catch {
+      showToast('Failed to create goal', 'error');
+    } finally {
+      setGoalSaving(false);
+    }
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    try {
+      await api.deletePomodoroGoal(goalId);
+      setGoals((prev) => prev.filter((g) => g.id !== goalId));
+      showToast('Goal removed', 'info');
+    } catch {
+      showToast('Failed to remove goal', 'error');
+    }
+  };
+
+  // Streak summary and goal progress calculations
+  const streakSummary = useMemo(() => computeFocusStreaks(sessions), [sessions]);
+  const subjectBreakdown = useMemo(
+    () => computeSubjectFocusBreakdown(sessions, studySubjects),
+    [sessions, studySubjects]
+  );
+  const activeGoal = useMemo(() => goals.find((g) => g.isActive) || null, [goals]);
+  const goalProgress = useMemo(
+    () => (activeGoal ? computePomodoroGoalProgress(sessions, activeGoal) : null),
+    [sessions, activeGoal]
+  );
+
+  // Load study subjects for linking modal
   useEffect(() => {
     if (!showStudyModal) return;
     let cancelled = false;
@@ -128,7 +367,7 @@ export const PomodoroTimer: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [showStudyModal]);
+  }, [showStudyModal, activeStudySubjectCode, activeStudyTopicId, activeStudyActivityType]);
 
   const handleSubjectChange = async (newCode: string) => {
     setModalSubjectCode(newCode);
@@ -177,14 +416,45 @@ export const PomodoroTimer: React.FC = () => {
     }
   }, [completedCycleCount]);
 
+  // Fullscreen keyboard escape & general shortcut handler
   useEffect(() => {
-    if (!fullScreenFocus) return;
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFullScreenFocus(false);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && fullScreenFocus) {
+        setFullScreenFocus(false);
+        return;
+      }
+
+      // Ignore shortcuts if input, textarea or select is focused
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === 'Space' || e.key === ' ' || e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        if (isRunning) pauseTimer();
+        else startTimer();
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        skipInterval();
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        handleReset();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleSound();
+      }
     };
-    window.addEventListener('keydown', onEsc);
-    return () => window.removeEventListener('keydown', onEsc);
-  }, [fullScreenFocus, setFullScreenFocus]);
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [fullScreenFocus, isRunning, pauseTimer, startTimer, skipInterval]);
 
   const handleModeSwitch = (mode: TimerMode) => {
     setShowCelebration(false);
@@ -250,6 +520,49 @@ export const PomodoroTimer: React.FC = () => {
     }
   };
 
+  const handleSavePreferences = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanFocus = Math.max(1, Math.min(180, Math.round(Number(prefFocus) || 25)));
+    const cleanShort = Math.max(1, Math.min(60, Math.round(Number(prefShortBreak) || 5)));
+    const cleanLong = Math.max(1, Math.min(90, Math.round(Number(prefLongBreak) || 15)));
+    const cleanInterval = Math.max(1, Math.min(12, Math.round(Number(prefInterval) || 4)));
+
+    await updatePomodoroSettings({
+      focusDuration: cleanFocus,
+      shortBreakDuration: cleanShort,
+      longBreakDuration: cleanLong,
+      longBreakInterval: cleanInterval,
+      autoStartBreaks: prefAutoBreak,
+      autoStartFocus: prefAutoFocus,
+      alertTone: prefTone,
+      soundVolume: Math.max(0, Math.min(100, Math.round(Number(prefVolume) || 70))),
+      desktopNotifications: prefNotifications,
+    });
+
+    if (settings) {
+      void updateSettings({
+        pomodoroWorkDuration: cleanFocus,
+        shortBreakDuration: cleanShort,
+        longBreakDuration: cleanLong,
+        autoSwitchSessions: prefAutoBreak || prefAutoFocus,
+      });
+    }
+
+    setShowPreferencesModal(false);
+  };
+
+  const handleRequestNotificationPerm = async () => {
+    const granted = await requestNotificationPermission();
+    setNotificationPerm(getNotificationPermission());
+    if (granted) {
+      setPrefNotifications(true);
+      showToast('Desktop notifications enabled!', 'success');
+    } else {
+      setPrefNotifications(false);
+      showToast('Notifications permission was not granted.', 'info');
+    }
+  };
+
   const handleReset = () => {
     setResetSpinCount((c) => c + 1);
     resetTimer();
@@ -262,10 +575,16 @@ export const PomodoroTimer: React.FC = () => {
   };
 
   const toggleAutoSwitch = () => {
+    const nextVal = !pomodoroSettings?.autoStartBreaks;
+    void updatePomodoroSettings({ autoStartBreaks: nextVal, autoStartFocus: nextVal });
     if (settings) {
-      void updateSettings({ autoSwitchSessions: !settings.autoSwitchSessions });
+      void updateSettings({ autoSwitchSessions: nextVal });
     }
   };
+
+  // Long break interval calculation
+  const longInterval = pomodoroSettings?.longBreakInterval || 4;
+  const currentCycleInBlock = (completedCycleCount % longInterval) + 1;
 
   const timerBody = (
     <>
@@ -288,8 +607,8 @@ export const PomodoroTimer: React.FC = () => {
         style={{ background: currentModeColors.aura }}
       />
 
-      {/* Header Row: Engine Switcher & Fullscreen Toggle */}
-      <div className="relative z-10 w-full flex flex-wrap items-center justify-between gap-2 mb-5">
+      {/* Header Row: Engine Switcher, Streak Badge & Tool Controls */}
+      <div className="relative z-10 w-full flex flex-wrap items-center justify-between gap-2 mb-4">
         <ThemeSegmentedControl<TimerEngineMode>
           ariaLabel="Focus timer engine"
           value={timerEngine}
@@ -301,90 +620,167 @@ export const PomodoroTimer: React.FC = () => {
           ]}
         />
 
-        <button
-          type="button"
-          onClick={() => setFullScreenFocus(!fullScreenFocus)}
-          className="p-2 rounded-lg border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
-          title={fullScreenFocus ? 'Exit full-screen focus (Esc)' : 'Enter full-screen focus mode'}
-          aria-label={fullScreenFocus ? 'Exit full-screen focus' : 'Enter full-screen focus'}
-        >
-          {fullScreenFocus ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Daily Streak & Analytics Badge */}
+          <button
+            type="button"
+            onClick={() => setShowStatsModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] hover:bg-[var(--ff-surface-hover)] text-xs font-semibold text-[var(--ff-text-secondary)] transition-colors min-h-[38px]"
+            title="Focus streak, personal records & subject reports"
+            aria-label="View focus analytics"
+          >
+            <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
+            <span>{streakSummary.currentStreakDays}d Streak</span>
+          </button>
+
+          {/* Pomodoro Settings Button */}
+          <button
+            type="button"
+            onClick={() => setShowPreferencesModal(true)}
+            className="p-2 rounded-lg border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors min-h-[38px] min-w-[38px] flex items-center justify-center"
+            title="Configure Pomodoro Durations, Cycles & Sounds"
+            aria-label="Timer settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+
+          {/* Fullscreen Button */}
+          <button
+            type="button"
+            onClick={() => setFullScreenFocus(!fullScreenFocus)}
+            className="p-2 rounded-lg border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors min-h-[38px] min-w-[38px] flex items-center justify-center"
+            title={fullScreenFocus ? 'Exit full-screen focus (Esc)' : 'Enter full-screen focus mode'}
+            aria-label={fullScreenFocus ? 'Exit full-screen focus' : 'Enter full-screen focus'}
+          >
+            {fullScreenFocus ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
 
-      {/* Sub-Mode / Quick Duration Pills */}
+      {/* Sub-Mode & Cycle Indicator */}
       {timerEngine === 'pomodoro' && (
-        <div className="relative z-10 mb-5">
+        <div className="relative z-10 w-full mb-4 space-y-2">
           <ThemeSegmentedControl<TimerMode>
             ariaLabel="Pomodoro timer mode"
             value={timerMode}
             onChange={handleModeSwitch}
             options={[
-              { id: 'work', label: `Focus (${settings?.pomodoroWorkDuration || 25}m)` },
-              { id: 'short_break', label: `Short (${settings?.shortBreakDuration || 5}m)` },
-              { id: 'long_break', label: `Long (${settings?.longBreakDuration || 15}m)` },
+              {
+                id: 'work',
+                label: `Focus (${pomodoroSettings?.focusDuration || settings?.pomodoroWorkDuration || 25}m)`,
+              },
+              {
+                id: 'short_break',
+                label: `Short (${pomodoroSettings?.shortBreakDuration || settings?.shortBreakDuration || 5}m)`,
+              },
+              {
+                id: 'long_break',
+                label: `Long (${pomodoroSettings?.longBreakDuration || settings?.longBreakDuration || 15}m)`,
+              },
             ]}
           />
+
+          {/* Cycle dots indicator */}
+          <div className="flex items-center justify-between px-2 text-[11px] text-[var(--ff-text-muted)]">
+            <span className="font-medium">
+              Cycle: Pomodoro {currentCycleInBlock} of {longInterval}
+            </span>
+            <div className="flex items-center gap-1.5" aria-hidden="true">
+              {Array.from({ length: longInterval }).map((_, idx) => {
+                const filled = idx < currentCycleInBlock;
+                return (
+                  <span
+                    key={idx}
+                    className={`w-2 h-2 rounded-full transition-all ${
+                      filled
+                        ? 'bg-[var(--ff-accent)] scale-110 shadow-xs'
+                        : 'bg-[var(--ff-border-color)] opacity-60'
+                    }`}
+                  />
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
-      {timerEngine === 'countdown' && (
-        <div className="relative z-10 flex flex-wrap items-center justify-center gap-1.5 mb-5">
-          {[10, 15, 30, 45, 60].map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setCustomDuration(m)}
-              className="px-2.5 py-1 text-xs font-mono font-semibold border transition-colors"
-              style={{
-                borderRadius: 'var(--ff-radius-button)',
-                borderColor:
-                  Math.round(totalDuration / 60) === m
-                    ? 'var(--ff-accent-border)'
-                    : 'var(--ff-border-color)',
-                background:
-                  Math.round(totalDuration / 60) === m
-                    ? 'var(--ff-accent-soft)'
-                    : 'var(--ff-surface-subtle)',
-                color:
-                  Math.round(totalDuration / 60) === m
-                    ? 'var(--ff-accent-text)'
-                    : 'var(--ff-text-secondary)',
-              }}
-            >
-              {m}m
-            </button>
-          ))}
+      {/* Preset Selector Strip */}
+      {timerEngine === 'pomodoro' && presets.length > 0 && (
+        <div className="relative z-10 w-full mb-3 flex flex-wrap items-center justify-between gap-1.5 px-1">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-[85%] no-scrollbar">
+            {presets.slice(0, 6).map((p) => {
+              const isSelected = activePresetId === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyPomodoroPreset(p)}
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-all whitespace-nowrap min-h-[32px] flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-[var(--ff-accent)] text-white border-[var(--ff-accent)] shadow-xs'
+                      : 'bg-[var(--ff-surface-subtle)] text-[var(--ff-text-secondary)] border-[var(--ff-border-color)] hover:border-[var(--ff-accent)]'
+                  }`}
+                  title={`${p.name}: ${p.workDuration}m work / ${p.shortBreakDuration}m short break`}
+                >
+                  <Bookmark className="w-3 h-3" />
+                  <span>{p.name}</span>
+                  <span className="opacity-75 font-mono text-[10px]">
+                    {p.workDuration}/{p.shortBreakDuration}m
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowPresetModal(true)}
+            className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] border border-dashed border-[var(--ff-border-color)] transition-colors min-h-[32px] shrink-0"
+            title="Manage Presets"
+          >
+            <Plus className="w-3 h-3" />
+            <span>Presets</span>
+          </button>
         </div>
       )}
 
-      {/* Linked Task & Study Indicators */}
-      <div className="relative z-10 mb-5 min-h-[2rem] flex flex-wrap items-center justify-center gap-2">
-        <AnimatePresence mode="popLayout" initial={false}>
+      {/* Active Interruption History Alert */}
+      {activeSessionId && sessionInterruptions.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowInterruptionsModal(true)}
+          className="relative z-10 mb-2.5 flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-500 hover:bg-amber-500/25 transition-all"
+          title="Click to view interruption events"
+        >
+          <History className="w-3.5 h-3.5" />
+          <span>{sessionInterruptions.length} Pause{sessionInterruptions.length > 1 ? 's' : ''} in Session</span>
+        </button>
+      )}
+
+      {/* Linked Task & Study Entities Banner */}
+      <div className="relative z-10 w-full flex flex-wrap items-center justify-center gap-2 mb-2 min-h-[32px]">
+        <AnimatePresence mode="popLayout">
           {activeTask && (
             <motion.div
-              key={`linked-${activeTask.id}`}
-              layout
+              key={activeTask.id}
               initial={isDisabled ? false : { opacity: 0, y: -4, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.96 }}
               transition={profile.spring}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-xs truncate border"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium max-w-xs border"
               style={{
-                background: 'var(--ff-surface-muted)',
+                background: 'var(--ff-surface-subtle)',
                 borderColor: 'var(--ff-border-color)',
                 color: 'var(--ff-text-primary)',
               }}
             >
-              <Target className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
-              <span className="truncate">
-                Focus: <strong>{activeTask.title}</strong>
-              </span>
+              <Target className="w-3.5 h-3.5 text-[var(--ff-accent-text)] shrink-0" />
+              <span className="truncate">{activeTask.title}</span>
               <button
                 type="button"
                 onClick={() => setActiveTaskId(null)}
-                className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] ml-1 text-xs"
-                title="Unlink task"
+                className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] ml-1 text-xs shrink-0"
+                title="Unlink task from timer"
                 aria-label="Unlink task"
               >
                 ×
@@ -394,13 +790,12 @@ export const PomodoroTimer: React.FC = () => {
 
           {activeStudySubjectCode || activeStudyTopicId ? (
             <motion.div
-              key={`linked-study-${activeStudySubjectCode}-${activeStudyTopicId}`}
-              layout
+              key="linked-study-topic"
               initial={isDisabled ? false : { opacity: 0, y: -4, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.96 }}
               transition={profile.spring}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-xs border"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium max-w-xs border"
               style={{
                 background: 'var(--ff-surface-muted)',
                 borderColor: 'var(--ff-accent-border, var(--ff-border-color))',
@@ -451,7 +846,7 @@ export const PomodoroTimer: React.FC = () => {
               className="flex items-center gap-2 text-xs text-[var(--ff-text-muted)]"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Independent Session</span>
+              <span>Independent Focus Session</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -476,9 +871,7 @@ export const PomodoroTimer: React.FC = () => {
               : { duration: 0.3 }
           }
           className="absolute inset-0 rounded-full pointer-events-none blur-2xl"
-          style={{
-            background: currentModeColors.aura,
-          }}
+          style={{ background: currentModeColors.aura }}
         />
 
         {/* Celebratory Concentric Radial Ripples */}
@@ -501,13 +894,14 @@ export const PomodoroTimer: React.FC = () => {
               <motion.div
                 key="celebration-ripple-2"
                 aria-hidden="true"
-                initial={{ scale: 0.72, opacity: 0.6 }}
+                initial={{ scale: 0.6, opacity: 0.65 }}
                 animate={{ scale: 1.65, opacity: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 1.65, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
                 className="absolute inset-0 rounded-full border pointer-events-none"
                 style={{
                   borderColor: 'var(--ff-accent)',
+                  boxShadow: '0 0 32px var(--ff-accent)',
                 }}
               />
             </>
@@ -515,38 +909,31 @@ export const PomodoroTimer: React.FC = () => {
         </AnimatePresence>
 
         <svg
+          className="w-full h-full transform -rotate-90 origin-center drop-shadow-sm"
           viewBox={`0 0 ${baseSize} ${baseSize}`}
-          className="w-56 h-56 xs:w-64 xs:h-64 sm:w-72 sm:h-72 md:w-80 md:h-80 max-w-[75vw] max-h-[75vw] transform -rotate-90 transition-[filter] duration-300 relative z-10"
-          style={{
-            filter: isRunning
-              ? `drop-shadow(0 0 14px color-mix(in oklab, ${currentModeColors.ring} 38%, transparent))`
-              : undefined,
-          }}
-          aria-hidden="true"
         >
           <circle
             cx={baseSize / 2}
             cy={baseSize / 2}
             r={radius}
+            fill="none"
+            stroke="var(--ff-border-color)"
             strokeWidth={strokeWidth}
-            stroke="var(--ff-surface-muted)"
-            fill="transparent"
+            className="opacity-40"
           />
 
           <motion.circle
             cx={baseSize / 2}
             cy={baseSize / 2}
             r={radius}
+            fill="none"
+            stroke={currentModeColors.ring}
             strokeWidth={strokeWidth}
-            fill="transparent"
             strokeDasharray={circumference}
-            animate={{
-              strokeDashoffset,
-              stroke: currentModeColors.ring,
-            }}
+            animate={{ strokeDashoffset }}
             transition={{
-              strokeDashoffset: { duration: isDisabled ? 0.01 : 0.45, ease: 'linear' },
-              stroke: { duration: isDisabled ? 0.01 : 0.35, ease: MOTION_EASING.standard },
+              duration: isDisabled ? 0.01 : 0.45,
+              ease: 'linear',
             }}
             strokeLinecap="round"
           />
@@ -571,9 +958,7 @@ export const PomodoroTimer: React.FC = () => {
                     ? { duration: 1.8, repeat: Infinity, ease: 'easeInOut' }
                     : { duration: 0.2 },
               }}
-              style={{
-                filter: `drop-shadow(0 0 6px ${currentModeColors.ring})`,
-              }}
+              style={{ filter: `drop-shadow(0 0 6px ${currentModeColors.ring})` }}
             />
           )}
         </svg>
@@ -609,12 +994,12 @@ export const PomodoroTimer: React.FC = () => {
                 {timerEngine === 'stopwatch'
                   ? 'Open Stopwatch'
                   : timerEngine === 'countdown'
-                    ? 'Custom Countdown'
-                    : timerMode === 'work'
-                      ? 'Deep Focus'
-                      : timerMode === 'short_break'
-                        ? 'Short Pause'
-                        : 'Rest & Recharge'}
+                  ? 'Custom Countdown'
+                  : timerMode === 'work'
+                  ? 'Deep Focus'
+                  : timerMode === 'short_break'
+                  ? 'Short Pause'
+                  : 'Rest & Recharge'}
               </motion.span>
             </AnimatePresence>
           </div>
@@ -625,14 +1010,35 @@ export const PomodoroTimer: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Action Controls */}
-      <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 mt-6">
+      {/* Goal Progress Bar if active goal exists */}
+      {goalProgress && (
+        <div className="relative z-10 w-full max-w-xs mx-auto my-2 px-2 py-1.5 rounded-lg bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
+          <div className="flex items-center justify-between text-[11px] mb-1 font-medium">
+            <span className="text-[var(--ff-text-secondary)] truncate">
+              🎯 {goalProgress.title}
+            </span>
+            <span className="text-[var(--ff-text-primary)]">
+              {goalProgress.dailyCurrentMinutes}/{goalProgress.dailyTargetMinutes}m ({goalProgress.dailyProgressPct}%)
+            </span>
+          </div>
+          <div className="w-full bg-[var(--ff-border-color)] h-1.5 rounded-full overflow-hidden">
+            <div
+              className="bg-[var(--ff-accent)] h-full rounded-full transition-all duration-300"
+              style={{ width: `${Math.min(100, goalProgress.dailyProgressPct)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Main Action Controls with Accessible Touch Targets (>= 44x44px) */}
+      <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 mt-4">
+        {/* Reset Button */}
         <ThemeButton
           variant="secondary"
           size="md"
           onClick={handleReset}
-          className="p-3 rounded-full"
-          title="Reset timer"
+          className="p-3 rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center"
+          title="Reset timer (R)"
           aria-label="Reset timer"
         >
           <motion.span
@@ -644,11 +1050,12 @@ export const PomodoroTimer: React.FC = () => {
           </motion.span>
         </ThemeButton>
 
+        {/* Start / Pause Button */}
         <ThemeButton
           variant={isRunning ? 'secondary' : 'primary'}
           size="lg"
           onClick={isRunning ? pauseTimer : startTimer}
-          className="px-7 py-3.5 font-bold"
+          className="px-7 py-3.5 font-bold min-h-[44px]"
           style={
             isRunning
               ? {
@@ -673,19 +1080,33 @@ export const PomodoroTimer: React.FC = () => {
                     ? 'Resume'
                     : 'Start Stopwatch'
                   : timeLeft < totalDuration
-                    ? 'Resume'
-                    : 'Start Focus'}
+                  ? 'Resume'
+                  : 'Start Focus'}
               </span>
             </>
           )}
         </ThemeButton>
 
+        {/* Skip Interval Button */}
+        <ThemeButton
+          variant="secondary"
+          size="md"
+          onClick={skipInterval}
+          className="p-3 rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center"
+          title="Skip interval (S)"
+          aria-label="Skip interval"
+        >
+          <SkipForward className="w-5 h-5" />
+        </ThemeButton>
+
+        {/* Custom / Log Button */}
         {timerEngine === 'stopwatch' ? (
           <ThemeButton
             variant="success"
             size="md"
             onClick={() => void saveStopwatchSession()}
             disabled={stopwatchElapsed < 30}
+            className="min-h-[44px]"
             title="Save elapsed time as a verified focus session (min 30s)"
           >
             <Save className="w-4 h-4" />
@@ -699,7 +1120,7 @@ export const PomodoroTimer: React.FC = () => {
               setCustomError(null);
               setShowCustomModal(true);
             }}
-            className="p-3 rounded-full"
+            className="p-3 rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center"
             title="Set custom duration"
             aria-label="Custom duration"
           >
@@ -708,8 +1129,16 @@ export const PomodoroTimer: React.FC = () => {
         )}
       </div>
 
-      {/* Deterministic Ambient Soundscape Selector */}
-      <div className="relative z-10 w-full mt-6 pt-5 border-t border-[var(--ff-border-color)] space-y-3">
+      {/* Paused Interruption Notice */}
+      {!isRunning && timeLeft < totalDuration && timeLeft > 0 && timerEngine !== 'stopwatch' && (
+        <div className="relative z-10 mt-3 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500 flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>Timer paused. Interruption duration is being tracked automatically.</span>
+        </div>
+      )}
+
+      {/* Ambient Soundscape Controls */}
+      <div className="relative z-10 w-full mt-5 pt-4 border-t border-[var(--ff-border-color)] space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <span className="flex items-center gap-1.5 font-semibold text-[var(--ff-text-secondary)]">
             <Music className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" /> Ambient Soundscape
@@ -735,7 +1164,7 @@ export const PomodoroTimer: React.FC = () => {
                 key={opt.id}
                 type="button"
                 onClick={() => void setAmbientSound(opt.id)}
-                className="px-2.5 py-1 text-[11px] font-semibold border transition-colors"
+                className="px-2.5 py-1 text-[11px] font-semibold border transition-colors min-h-[36px]"
                 style={{
                   borderRadius: 'var(--ff-radius-button)',
                   borderColor: active ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
@@ -750,36 +1179,60 @@ export const PomodoroTimer: React.FC = () => {
         </div>
       </div>
 
-      {/* Quick Settings Toggles */}
-      <div className="relative z-10 flex items-center gap-6 mt-4 pt-4 border-t border-[var(--ff-border-color)] text-xs text-[var(--ff-text-muted)]">
-        <button
-          type="button"
-          onClick={toggleSound}
-          className="flex items-center gap-1.5 hover:text-[var(--ff-text-primary)] transition-colors"
-        >
-          {settings?.soundEnabled ? (
-            <Volume2 className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
-          ) : (
-            <VolumeX className="w-4 h-4" />
-          )}
-          <span>Chime {settings?.soundEnabled ? 'Enabled' : 'Muted'}</span>
-        </button>
+      {/* Quick Settings Toggles & Keyboard Shortcuts Bar */}
+      <div className="relative z-10 w-full flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[var(--ff-border-color)] text-xs text-[var(--ff-text-muted)]">
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={toggleSound}
+            className="flex items-center gap-1.5 hover:text-[var(--ff-text-primary)] transition-colors min-h-[36px]"
+          >
+            {settings?.soundEnabled ? (
+              <Volume2 className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
+            ) : (
+              <VolumeX className="w-4 h-4" />
+            )}
+            <span>Chime {settings?.soundEnabled ? 'On' : 'Muted'}</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={toggleAutoSwitch}
-          className="flex items-center gap-1.5 hover:text-[var(--ff-text-primary)] transition-colors"
-        >
-          <CheckCircle2
-            className="w-4 h-4 transition-colors"
-            style={{
-              color: settings?.autoSwitchSessions
-                ? 'var(--ff-accent-text)'
-                : 'var(--ff-text-muted)',
-            }}
-          />
-          <span>Auto-Switch {settings?.autoSwitchSessions ? 'On' : 'Off'}</span>
-        </button>
+          <button
+            type="button"
+            onClick={toggleAutoSwitch}
+            className="flex items-center gap-1.5 hover:text-[var(--ff-text-primary)] transition-colors min-h-[36px]"
+          >
+            <CheckCircle2
+              className="w-4 h-4 transition-colors"
+              style={{
+                color: pomodoroSettings?.autoStartBreaks
+                  ? 'var(--ff-accent-text)'
+                  : 'var(--ff-text-muted)',
+              }}
+            />
+            <span>Auto-Break {pomodoroSettings?.autoStartBreaks ? 'On' : 'Off'}</span>
+          </button>
+        </div>
+
+        {/* Keyboard shortcut tips */}
+        <div className="hidden sm:flex items-center gap-2 text-[10px] text-[var(--ff-text-muted)] font-mono">
+          <span>
+            <kbd className="px-1 py-0.5 rounded border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)]">
+              Space
+            </kbd>{' '}
+            Toggle
+          </span>
+          <span>
+            <kbd className="px-1 py-0.5 rounded border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)]">
+              S
+            </kbd>{' '}
+            Skip
+          </span>
+          <span>
+            <kbd className="px-1 py-0.5 rounded border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)]">
+              R
+            </kbd>{' '}
+            Reset
+          </span>
+        </div>
       </div>
     </>
   );
@@ -791,6 +1244,67 @@ export const PomodoroTimer: React.FC = () => {
           {timerBody}
         </ThemeCard>
       </InteractiveSurface3D>
+
+      {/* Multiple Pomodoro Goals Grid */}
+      {goals.length > 0 && (
+        <ThemeCard className="w-full mt-4 p-4 sm:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
+              <Target className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" /> Active Focus Goals ({goals.length})
+            </h4>
+            <ThemeButton
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowGoalModal(true)}
+              className="text-xs py-1 px-2.5 min-h-[32px] flex items-center gap-1"
+            >
+              <Plus className="w-3 h-3" /> New Goal
+            </ThemeButton>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {goals.map((g) => {
+              const prog = computePomodoroGoalProgress(sessions, g);
+              return (
+                <div
+                  key={g.id}
+                  className="p-3 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] flex flex-col justify-between"
+                >
+                  <div className="flex items-start justify-between text-xs font-medium mb-1.5 gap-2">
+                    <span className="font-semibold text-[var(--ff-text-primary)] truncate">{g.title}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGoal(g.id)}
+                      className="text-[var(--ff-text-muted)] hover:text-rose-400 p-0.5 rounded transition-colors"
+                      title="Remove goal"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="flex items-baseline justify-between font-mono text-[11px] text-[var(--ff-text-secondary)] mb-1">
+                    <span>
+                      {prog.currentValue} / {prog.targetValue} {g.metricType === 'session_count' ? 'sessions' : 'mins'}
+                    </span>
+                    <span className={`font-semibold ${prog.isMet ? 'text-emerald-500' : 'text-[var(--ff-text-muted)]'}`}>
+                      {prog.progressPct}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-[var(--ff-border-color)] h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${prog.isMet ? 'bg-emerald-500' : 'bg-[var(--ff-accent)]'}`}
+                      style={{ width: `${prog.progressPct}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-[var(--ff-text-muted)] mt-1.5">
+                    <span className="capitalize">{g.goalType} Goal</span>
+                    {g.subjectCode && <span>• {g.subjectCode}</span>}
+                    {prog.isMet && <span className="text-emerald-500 font-bold">✓ Met</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </ThemeCard>
+      )}
 
       {/* Distraction-Free Full-Screen Focus Overlay */}
       <AnimatePresence>
@@ -808,7 +1322,7 @@ export const PomodoroTimer: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setFullScreenFocus(false)}
-                className="absolute top-4 right-4 p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+                className="absolute top-4 right-4 p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
                 title="Exit full-screen focus (Esc)"
                 aria-label="Exit full-screen focus"
               >
@@ -818,17 +1332,319 @@ export const PomodoroTimer: React.FC = () => {
                 <div className="mb-4 px-3.5 py-1.5 rounded-full bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-xs text-center max-w-sm flex items-center gap-1.5">
                   <Target className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
                   <span className="text-[var(--ff-text-muted)]">Objective:</span>
-                  <span className="font-semibold text-[var(--ff-text-primary)] truncate">{activeTask.title}</span>
+                  <span className="font-semibold text-[var(--ff-text-primary)] truncate">
+                    {activeTask.title}
+                  </span>
                 </div>
               )}
               {timerBody}
               <p className="text-[11px] text-[var(--ff-text-muted)] mt-5">
-                Press <kbd className="px-1.5 py-0.5 rounded border border-[var(--ff-border-color)]">ESC</kbd> or click ✕ to exit full-screen focus mode
+                Press <kbd className="px-1.5 py-0.5 rounded border border-[var(--ff-border-color)]">ESC</kbd> or click ✕ to exit full-screen mode
               </p>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Pomodoro Preferences Modal */}
+      <ThemeModal
+        isOpen={showPreferencesModal}
+        onClose={() => setShowPreferencesModal(false)}
+        title="Pomodoro Preferences"
+        subtitle="Customize interval durations, auto-start, sounds, and alerts"
+        maxWidthClass="max-w-lg"
+      >
+        <form onSubmit={handleSavePreferences} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                Focus (min)
+              </label>
+              <ThemeInput
+                type="number"
+                min="1"
+                max="180"
+                value={prefFocus}
+                onChange={(e) => setPrefFocus(Number(e.target.value))}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                Short Break (min)
+              </label>
+              <ThemeInput
+                type="number"
+                min="1"
+                max="60"
+                value={prefShortBreak}
+                onChange={(e) => setPrefShortBreak(Number(e.target.value))}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                Long Break (min)
+              </label>
+              <ThemeInput
+                type="number"
+                min="1"
+                max="90"
+                value={prefLongBreak}
+                onChange={(e) => setPrefLongBreak(Number(e.target.value))}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <div>
+              <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                Long Break Interval (cycles)
+              </label>
+              <ThemeInput
+                type="number"
+                min="1"
+                max="12"
+                value={prefInterval}
+                onChange={(e) => setPrefInterval(Number(e.target.value))}
+                required
+              />
+              <span className="text-[10px] text-[var(--ff-text-muted)]">
+                Default: 4 focus sessions before long break
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                Alert Sound Chime
+              </label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={prefTone}
+                  onChange={(e) => setPrefTone(e.target.value as PomodoroAlertTone)}
+                  className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)]"
+                >
+                  {ALERT_TONES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => playAlertTone(prefTone, true, prefVolume)}
+                  className="px-2.5 py-2 text-xs font-semibold rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] hover:bg-[var(--ff-surface-hover)] shrink-0 min-h-[40px]"
+                  title="Test tone audio"
+                >
+                  ▶ Test
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Volume slider */}
+          <div>
+            <div className="flex items-center justify-between text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+              <span>Sound Volume</span>
+              <span>{prefVolume}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={prefVolume}
+              onChange={(e) => setPrefVolume(Number(e.target.value))}
+              className="w-full accent-[var(--ff-accent)]"
+            />
+          </div>
+
+          {/* Automation toggles */}
+          <div className="space-y-2 pt-2 border-t border-[var(--ff-border-color)]">
+            <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={prefAutoBreak}
+                onChange={(e) => setPrefAutoBreak(e.target.checked)}
+                className="w-4 h-4 accent-[var(--ff-accent)] rounded"
+              />
+              <span className="text-[var(--ff-text-primary)] font-medium">
+                Auto-start break when focus finishes
+              </span>
+            </label>
+
+            <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={prefAutoFocus}
+                onChange={(e) => setPrefAutoFocus(e.target.checked)}
+                className="w-4 h-4 accent-[var(--ff-accent)] rounded"
+              />
+              <span className="text-[var(--ff-text-primary)] font-medium">
+                Auto-start next focus when break finishes
+              </span>
+            </label>
+          </div>
+
+          {/* Desktop Notifications Toggle */}
+          <div className="pt-2 border-t border-[var(--ff-border-color)] flex items-center justify-between gap-3">
+            <div className="text-xs">
+              <span className="font-semibold text-[var(--ff-text-primary)] block">
+                Desktop Notifications
+              </span>
+              <span className="text-[11px] text-[var(--ff-text-muted)]">
+                Status: {notificationPerm === 'granted' ? 'Allowed' : notificationPerm === 'denied' ? 'Blocked' : 'Not Requested'}
+              </span>
+            </div>
+            {notificationPerm === 'granted' ? (
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefNotifications}
+                  onChange={(e) => setPrefNotifications(e.target.checked)}
+                  className="w-4 h-4 accent-[var(--ff-accent)] rounded"
+                />
+                <span>Active</span>
+              </label>
+            ) : (
+              <ThemeButton
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleRequestNotificationPerm}
+                className="min-h-[38px]"
+              >
+                Request Permission
+              </ThemeButton>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--ff-border-color)]">
+            <ThemeButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowPreferencesModal(false)}
+              className="min-h-[44px]"
+            >
+              Cancel
+            </ThemeButton>
+            <ThemeButton type="submit" variant="primary" size="sm" className="min-h-[44px]">
+              Save Preferences
+            </ThemeButton>
+          </div>
+        </form>
+      </ThemeModal>
+
+      {/* Focus Stats & Subject Breakdown Modal */}
+      <ThemeModal
+        isOpen={showStatsModal}
+        onClose={() => setShowStatsModal(false)}
+        title="Focus Records & Subject Analytics"
+        subtitle="Authoritative progress based on completed sessions"
+        maxWidthClass="max-w-xl"
+      >
+        <div className="space-y-4">
+          {/* Key Stat Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="p-3 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-center">
+              <span className="text-[11px] text-[var(--ff-text-muted)] flex items-center justify-center gap-1">
+                <Flame className="w-3.5 h-3.5 text-amber-500" /> Streak
+              </span>
+              <span className="text-xl font-bold text-[var(--ff-text-primary)] block mt-0.5">
+                {streakSummary.currentStreakDays}d
+              </span>
+              <span className="text-[10px] text-[var(--ff-text-muted)]">
+                Best: {streakSummary.bestStreakDays}d
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-center">
+              <span className="text-[11px] text-[var(--ff-text-muted)] flex items-center justify-center gap-1">
+                <Trophy className="w-3.5 h-3.5 text-indigo-400" /> Total Time
+              </span>
+              <span className="text-xl font-bold text-[var(--ff-text-primary)] block mt-0.5">
+                {Math.round(streakSummary.totalFocusMinutes / 60)}h
+              </span>
+              <span className="text-[10px] text-[var(--ff-text-muted)]">
+                {streakSummary.totalFocusMinutes} mins
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-center">
+              <span className="text-[11px] text-[var(--ff-text-muted)] flex items-center justify-center gap-1">
+                <Target className="w-3.5 h-3.5 text-emerald-500" /> Sessions
+              </span>
+              <span className="text-xl font-bold text-[var(--ff-text-primary)] block mt-0.5">
+                {streakSummary.totalFocusSessions}
+              </span>
+              <span className="text-[10px] text-[var(--ff-text-muted)]">
+                Longest: {streakSummary.longestSessionMinutes}m
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-center">
+              <span className="text-[11px] text-[var(--ff-text-muted)] flex items-center justify-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 text-rose-400" /> Interrupts
+              </span>
+              <span className="text-xl font-bold text-[var(--ff-text-primary)] block mt-0.5">
+                {streakSummary.interruptionRatePct}%
+              </span>
+              <span className="text-[10px] text-[var(--ff-text-muted)]">
+                {streakSummary.interruptedSessionsCount} sessions
+              </span>
+            </div>
+          </div>
+
+          {/* Subject Focus Breakdown */}
+          <div className="pt-2">
+            <h4 className="text-xs font-semibold text-[var(--ff-text-secondary)] mb-2 flex items-center gap-1.5">
+              <BarChart2 className="w-3.5 h-3.5" /> Subject Focus Distribution
+            </h4>
+            {subjectBreakdown.length === 0 ? (
+              <p className="text-xs text-[var(--ff-text-muted)] py-4 text-center">
+                No subject-linked focus sessions recorded yet. Link a subject above to track subject hours!
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {subjectBreakdown.map((item) => (
+                  <div
+                    key={item.subjectCode}
+                    className="p-2.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)]"
+                  >
+                    <div className="flex items-center justify-between text-xs font-medium mb-1">
+                      <span className="text-[var(--ff-text-primary)] font-semibold">
+                        {item.subjectCode}
+                      </span>
+                      <span className="text-[var(--ff-text-secondary)]">
+                        {item.totalMinutes} min ({item.percentage}%) • {item.sessionCount} sessions
+                      </span>
+                    </div>
+                    <div className="w-full bg-[var(--ff-border-color)] h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-[var(--ff-accent)] h-full rounded-full"
+                        style={{ width: `${item.percentage}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end pt-2 border-t border-[var(--ff-border-color)]">
+            <ThemeButton
+              variant="primary"
+              size="sm"
+              onClick={() => setShowStatsModal(false)}
+              className="min-h-[44px]"
+            >
+              Done
+            </ThemeButton>
+          </div>
+        </div>
+      </ThemeModal>
 
       {/* Custom Duration Modal */}
       <ThemeModal
@@ -855,10 +1671,15 @@ export const PomodoroTimer: React.FC = () => {
           />
           <ValidationMessage message={customError} tone="error" />
           <div className="flex items-center justify-end gap-2">
-            <ThemeButton variant="ghost" size="sm" onClick={() => setShowCustomModal(false)}>
+            <ThemeButton
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowCustomModal(false)}
+              className="min-h-[44px]"
+            >
               Cancel
             </ThemeButton>
-            <ThemeButton type="submit" variant="primary" size="sm">
+            <ThemeButton type="submit" variant="primary" size="sm" className="min-h-[44px]">
               Set Duration
             </ThemeButton>
           </div>
@@ -910,7 +1731,8 @@ export const PomodoroTimer: React.FC = () => {
                   <option value="">-- General Subject Study --</option>
                   {studyTopics.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.unit ? `[${t.unit}] ` : ''}{t.subtopic || t.topic}
+                      {t.unit ? `[${t.unit}] ` : ''}
+                      {t.subtopic || t.topic}
                     </option>
                   ))}
                 </select>
@@ -958,7 +1780,12 @@ export const PomodoroTimer: React.FC = () => {
                   Clear Link
                 </ThemeButton>
                 <div className="flex items-center gap-2">
-                  <ThemeButton variant="ghost" size="sm" onClick={() => setShowStudyModal(false)} className="min-h-[44px]">
+                  <ThemeButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowStudyModal(false)}
+                    className="min-h-[44px]"
+                  >
                     Cancel
                   </ThemeButton>
                   <ThemeButton
@@ -974,6 +1801,304 @@ export const PomodoroTimer: React.FC = () => {
               </div>
             </>
           )}
+        </div>
+      </ThemeModal>
+
+      {/* Preset Manager Modal */}
+      <ThemeModal
+        isOpen={showPresetModal}
+        onClose={() => setShowPresetModal(false)}
+        title="Custom Timer Presets"
+        subtitle="Manage Pomodoro interval presets or create custom workflows"
+        maxWidthClass="max-w-md"
+      >
+        <div className="space-y-4">
+          {/* List of existing presets */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-semibold text-[var(--ff-text-secondary)]">Available Presets</h4>
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {presets.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-[var(--ff-text-primary)]">{p.name}</span>
+                    <span className="text-[11px] text-[var(--ff-text-muted)] font-mono">
+                      {p.workDuration}m / {p.shortBreakDuration}m / {p.longBreakDuration}m
+                    </span>
+                    {p.isSystemPreset ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)]">
+                        Default
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400">
+                        Custom
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <ThemeButton
+                      variant={activePresetId === p.id ? 'primary' : 'secondary'}
+                      size="sm"
+                      onClick={() => {
+                        applyPomodoroPreset(p);
+                        setShowPresetModal(false);
+                      }}
+                      className="text-xs py-1 px-2 min-h-[32px]"
+                    >
+                      {activePresetId === p.id ? 'Active' : 'Apply'}
+                    </ThemeButton>
+                    {!p.isSystemPreset && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePreset(p.id)}
+                        className="p-1 text-[var(--ff-text-muted)] hover:text-rose-400 transition-colors"
+                        title="Delete preset"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Form to create new preset */}
+          <form onSubmit={handleCreatePreset} className="space-y-3 pt-3 border-t border-[var(--ff-border-color)]">
+            <h4 className="text-xs font-semibold text-[var(--ff-text-secondary)]">Create Custom Preset</h4>
+            <div>
+              <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">Preset Name</label>
+              <ThemeInput
+                type="text"
+                placeholder="e.g. Sprint Work"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">Work (m)</label>
+                <ThemeInput
+                  type="number"
+                  min="1"
+                  max="180"
+                  value={presetWork}
+                  onChange={(e) => setPresetWork(Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">Short (m)</label>
+                <ThemeInput
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={presetShort}
+                  onChange={(e) => setPresetShort(Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">Long (m)</label>
+                <ThemeInput
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={presetLong}
+                  onChange={(e) => setPresetLong(Number(e.target.value))}
+                  required
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <ThemeButton
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPresetModal(false)}
+                className="min-h-[40px]"
+              >
+                Cancel
+              </ThemeButton>
+              <ThemeButton
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={presetSaving || !presetName.trim()}
+                className="min-h-[40px]"
+              >
+                {presetSaving ? 'Saving...' : 'Create Preset'}
+              </ThemeButton>
+            </div>
+          </form>
+        </div>
+      </ThemeModal>
+
+      {/* Goal Manager Modal */}
+      <ThemeModal
+        isOpen={showGoalModal}
+        onClose={() => setShowGoalModal(false)}
+        title="Focus Goals"
+        subtitle="Set targets to build sustainable deep work habits"
+        maxWidthClass="max-w-md"
+      >
+        <div className="space-y-4">
+          {goals.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold text-[var(--ff-text-secondary)]">Existing Goals</h4>
+              <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                {goals.map((g) => (
+                  <div
+                    key={g.id}
+                    className="flex items-center justify-between p-2 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-xs"
+                  >
+                    <div>
+                      <span className="font-semibold text-[var(--ff-text-primary)]">{g.title}</span>
+                      <span className="text-[11px] text-[var(--ff-text-muted)] block capitalize">
+                        {g.goalType} • {g.targetValue} {g.metricType === 'session_count' ? 'sessions' : 'minutes'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGoal(g.id)}
+                      className="p-1 text-[var(--ff-text-muted)] hover:text-rose-400 transition-colors"
+                      title="Delete goal"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Form to create new goal */}
+          <form onSubmit={handleCreateGoal} className="space-y-3 pt-3 border-t border-[var(--ff-border-color)]">
+            <h4 className="text-xs font-semibold text-[var(--ff-text-secondary)]">New Focus Goal</h4>
+            <div>
+              <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">Goal Title</label>
+              <ThemeInput
+                type="text"
+                placeholder="e.g. Daily Deep Work"
+                value={goalTitle}
+                onChange={(e) => setGoalTitle(e.target.value)}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">Period</label>
+                <select
+                  value={goalType}
+                  onChange={(e) => setGoalType(e.target.value as PomodoroGoalType)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] min-h-[40px]"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">Metric</label>
+                <select
+                  value={goalMetric}
+                  onChange={(e) => setGoalMetric(e.target.value as PomodoroGoalMetric)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] min-h-[40px]"
+                >
+                  <option value="focus_minutes">Minutes</option>
+                  <option value="session_count">Sessions</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">
+                Target Value ({goalMetric === 'session_count' ? 'Sessions' : 'Minutes'})
+              </label>
+              <ThemeInput
+                type="number"
+                min="1"
+                max={goalMetric === 'session_count' ? 100 : 10000}
+                value={goalTarget}
+                onChange={(e) => setGoalTarget(Number(e.target.value))}
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <ThemeButton
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowGoalModal(false)}
+                className="min-h-[40px]"
+              >
+                Cancel
+              </ThemeButton>
+              <ThemeButton
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={goalSaving || !goalTitle.trim()}
+                className="min-h-[40px]"
+              >
+                {goalSaving ? 'Saving...' : 'Save Goal'}
+              </ThemeButton>
+            </div>
+          </form>
+        </div>
+      </ThemeModal>
+
+      {/* Interruption History Modal */}
+      <ThemeModal
+        isOpen={showInterruptionsModal}
+        onClose={() => setShowInterruptionsModal(false)}
+        title="Session Interruption History"
+        subtitle="Immutable append-only record of pause and resume events"
+        maxWidthClass="max-w-md"
+      >
+        <div className="space-y-3">
+          {sessionInterruptions.length === 0 ? (
+            <p className="text-xs text-[var(--ff-text-muted)] py-4 text-center">
+              No interruption events recorded for this session.
+            </p>
+          ) : (
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {sessionInterruptions.map((item, idx) => (
+                <div
+                  key={item.id || idx}
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        item.eventType === 'pause' ? 'bg-amber-400' : 'bg-emerald-400'
+                      }`}
+                    />
+                    <span className="font-semibold capitalize text-[var(--ff-text-primary)]">
+                      {item.eventType}
+                    </span>
+                    {item.reason && (
+                      <span className="text-[11px] text-[var(--ff-text-muted)]">({item.reason})</span>
+                    )}
+                  </div>
+                  <span className="font-mono text-[11px] text-[var(--ff-text-secondary)]">
+                    {item.occurredAt.split('T')[1]?.slice(0, 8) || item.occurredAt}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end pt-2 border-t border-[var(--ff-border-color)]">
+            <ThemeButton
+              variant="primary"
+              size="sm"
+              onClick={() => setShowInterruptionsModal(false)}
+              className="min-h-[40px]"
+            >
+              Done
+            </ThemeButton>
+          </div>
         </div>
       </ThemeModal>
     </>

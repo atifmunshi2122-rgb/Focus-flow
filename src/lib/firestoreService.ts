@@ -22,6 +22,7 @@ import {
   getDaysInMonth,
   formatYmd,
   parseDateString,
+  formatDateInTimezone,
 } from './dateTime.ts';
 import {
   User,
@@ -63,6 +64,11 @@ import {
   StudyActivityLog,
   StudyFlashcard,
   StudyQuiz,
+  PomodoroSettings,
+  PomodoroGoal,
+  PomodoroPreset,
+  PomodoroInterruption,
+  PomodoroAmbientPreset,
 } from '../types/index.ts';
 import { buildDefaultStudyWorkspace } from '../data/studySeedData.ts';
 import { processRevisionRecall } from './studyIntelligence.ts';
@@ -463,7 +469,7 @@ export const firestoreService = {
         : safeMinutes * 60;
     const mode =
       input.mode === 'short_break' || input.mode === 'long_break' ? input.mode : 'work';
-    const completed = input.completed !== undefined ? Boolean(input.completed) : true;
+    const completed = input.completed !== undefined ? Boolean(input.completed) : false;
 
     let taskTitle = input.taskTitle;
     if (input.taskId) {
@@ -496,53 +502,214 @@ export const firestoreService = {
           : `foc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId,
       taskId: input.taskId || null,
-      ...(taskTitle ? { taskTitle } : {}),
-      ...(input.subjectCode ? { subjectCode: input.subjectCode } : {}),
-      ...(input.subjectId ? { subjectId: input.subjectId } : {}),
-      ...(input.topicId ? { topicId: input.topicId } : {}),
-      ...(input.activityType ? { activityType: input.activityType } : {}),
+      taskTitle: taskTitle || null,
+      subjectCode: input.subjectCode || null,
+      subjectId: input.subjectId || null,
+      topicId: input.topicId || null,
+      activityType: input.activityType || null,
       mode,
+      presetId: input.presetId || null,
       durationMinutes: safeMinutes,
       durationSeconds: safeSeconds,
+      actualDurationSeconds:
+        typeof input.actualDurationSeconds === 'number' && input.actualDurationSeconds >= 0
+          ? Math.round(input.actualDurationSeconds)
+          : (completed ? safeSeconds : 0),
       completed,
+      status: input.status || (completed ? 'completed' : 'in_progress'),
+      interrupted: input.interrupted !== undefined ? Boolean(input.interrupted) : false,
+      pauseCount: typeof input.pauseCount === 'number' ? Math.max(0, Math.round(input.pauseCount)) : 0,
+      totalPauseSeconds:
+        typeof input.totalPauseSeconds === 'number' ? Math.max(0, Math.round(input.totalPauseSeconds)) : 0,
+      ...(input.interruptionReason ? { interruptionReason: String(input.interruptionReason).slice(0, 256) } : {}),
       startedAt: input.startedAt || new Date().toISOString(),
-      endedAt: input.endedAt || new Date().toISOString(),
+      endedAt: input.endedAt !== undefined ? input.endedAt : (completed ? new Date().toISOString() : null),
+      endReason: input.endReason || (completed ? 'completed' : null),
+      createdAt: input.createdAt || new Date().toISOString(),
     };
 
     await this.saveFocusSession(userId, session);
     return session;
   },
 
-  async getFocusStats(userId: string): Promise<FocusStatsData> {
+  async updateFocusSession(
+    userId: string,
+    sessionId: string,
+    updates: Partial<FocusSession>
+  ): Promise<FocusSession> {
+    const path = `users/${userId}/focus_sessions/${sessionId}`;
+    let existing: Partial<FocusSession> = {};
+    try {
+      const snap = await getDoc(doc(db, path));
+      if (snap.exists()) {
+        existing = snap.data() as FocusSession;
+      }
+    } catch {
+      // Proceed
+    }
+
+    const completed =
+      updates.completed !== undefined ? Boolean(updates.completed) : (existing.completed ?? false);
+    const mode = updates.mode ?? existing.mode ?? 'work';
+    const taskId = updates.taskId !== undefined ? updates.taskId : (existing.taskId ?? null);
+
+    // If session transitions to completed work session and has a linked task, increment task completedPomodoros
+    if (completed && mode === 'work' && taskId && !existing.completed) {
+      const taskPath = `users/${userId}/tasks/${taskId}`;
+      try {
+        const taskSnap = await getDoc(doc(db, taskPath));
+        if (taskSnap.exists()) {
+          const task = taskSnap.data() as Task;
+          await setDoc(
+            doc(db, taskPath),
+            {
+              completedPomodoros: (task.completedPomodoros || 0) + 1,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
+    const merged: FocusSession = {
+      id: sessionId,
+      userId,
+      taskId,
+      taskTitle: updates.taskTitle !== undefined ? updates.taskTitle : (existing.taskTitle ?? null),
+      subjectCode: updates.subjectCode !== undefined ? updates.subjectCode : (existing.subjectCode ?? null),
+      subjectId: updates.subjectId !== undefined ? updates.subjectId : (existing.subjectId ?? null),
+      topicId: updates.topicId !== undefined ? updates.topicId : (existing.topicId ?? null),
+      activityType: updates.activityType !== undefined ? updates.activityType : (existing.activityType ?? null),
+      mode,
+      presetId: updates.presetId !== undefined ? updates.presetId : (existing.presetId ?? null),
+      durationMinutes:
+        updates.durationMinutes !== undefined ? updates.durationMinutes : (existing.durationMinutes ?? 25),
+      durationSeconds:
+        updates.durationSeconds !== undefined ? updates.durationSeconds : (existing.durationSeconds ?? 1500),
+      actualDurationSeconds:
+        updates.actualDurationSeconds !== undefined
+          ? updates.actualDurationSeconds
+          : (existing.actualDurationSeconds ?? (completed ? (existing.durationSeconds ?? 1500) : 0)),
+      completed,
+      status: updates.status ?? existing.status ?? (completed ? 'completed' : 'in_progress'),
+      interrupted: updates.interrupted !== undefined ? updates.interrupted : (existing.interrupted ?? false),
+      pauseCount: updates.pauseCount !== undefined ? updates.pauseCount : (existing.pauseCount ?? 0),
+      totalPauseSeconds:
+        updates.totalPauseSeconds !== undefined ? updates.totalPauseSeconds : (existing.totalPauseSeconds ?? 0),
+      interruptionReason:
+        updates.interruptionReason !== undefined ? updates.interruptionReason : existing.interruptionReason,
+      startedAt: updates.startedAt || existing.startedAt || new Date().toISOString(),
+      endedAt: updates.endedAt !== undefined ? updates.endedAt : (existing.endedAt ?? (completed ? new Date().toISOString() : null)),
+      endReason: updates.endReason !== undefined ? updates.endReason : (existing.endReason ?? (completed ? 'completed' : null)),
+      createdAt: existing.createdAt || new Date().toISOString(),
+    };
+
+    await setDoc(doc(db, path), stripUndefined({ ...merged }), { merge: true });
+    return merged;
+  },
+
+  async recordInterruption(
+    userId: string,
+    sessionId: string,
+    input: Partial<PomodoroInterruption>
+  ): Promise<PomodoroInterruption> {
+    const eventId = input.id || `int_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/focus_sessions/${sessionId}/interruptions/${eventId}`;
+
+    const event: PomodoroInterruption = {
+      id: eventId,
+      userId,
+      sessionId,
+      eventType: input.eventType === 'resume' ? 'resume' : 'pause',
+      occurredAt: input.occurredAt || nowIso,
+      reason: input.reason ? String(input.reason).slice(0, 512) : null,
+    };
+
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...event }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return event;
+  },
+
+  async listInterruptions(userId: string, sessionId: string): Promise<PomodoroInterruption[]> {
+    const path = `users/${userId}/focus_sessions/${sessionId}/interruptions`;
+    const list = await listSubcollection<PomodoroInterruption>(path);
+    return list.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+  },
+
+  async getFocusStats(userId: string, targetTimezone: string = DEFAULT_TIMEZONE): Promise<FocusStatsData> {
     const all = await this.getFocusSessions(userId);
     const sessions = all.filter((s) => s.completed);
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const last7Days: FocusStatsData['last7Days'] = [];
 
+    const now = new Date();
+    const todayZoned = formatDateInTimezone(now, targetTimezone);
+
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      const dayName = dayNames[d.getDay()];
-      const daySessions = sessions.filter((s) => s.startedAt.startsWith(dateStr) && s.mode === 'work');
-      const totalSecs = daySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
+      const dateStr = formatDateInTimezone(d, targetTimezone);
+      const daySessions = sessions.filter(
+        (s) => formatDateInTimezone(s.startedAt, targetTimezone) === dateStr && s.mode === 'work'
+      );
+      const totalSecs = daySessions.reduce(
+        (acc, s) =>
+          acc +
+          (typeof s.actualDurationSeconds === 'number' && !Number.isNaN(s.actualDurationSeconds)
+            ? s.actualDurationSeconds
+            : typeof s.durationSeconds === 'number' && !Number.isNaN(s.durationSeconds)
+            ? s.durationSeconds
+            : (s.durationMinutes || 0) * 60),
+        0
+      );
+      const dayIndex = new Date(dateStr + 'T12:00:00Z').getDay();
       last7Days.push({
         date: dateStr,
-        dayName,
+        dayName: dayNames[dayIndex],
         minutes: Math.round(totalSecs / 60),
         sessionsCount: daySessions.length,
       });
     }
 
-    const now = new Date();
-    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentMonthKey = todayZoned.slice(0, 7); // YYYY-MM
     const monthSessions = sessions.filter(
-      (s) => s.startedAt.startsWith(currentMonthKey) && s.mode === 'work'
+      (s) =>
+        formatDateInTimezone(s.startedAt, targetTimezone).startsWith(currentMonthKey) &&
+        s.mode === 'work'
     );
     const monthMinutes = Math.round(
-      monthSessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60
+      monthSessions.reduce(
+        (acc, s) =>
+          acc +
+          (typeof s.actualDurationSeconds === 'number' && !Number.isNaN(s.actualDurationSeconds)
+            ? s.actualDurationSeconds
+            : typeof s.durationSeconds === 'number' && !Number.isNaN(s.durationSeconds)
+            ? s.durationSeconds
+            : (s.durationMinutes || 0) * 60),
+        0
+      ) / 60
     );
-    const totalMinutes = Math.round(sessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60);
+    const totalMinutes = Math.round(
+      sessions
+        .filter((s) => s.mode === 'work')
+        .reduce(
+          (acc, s) =>
+            acc +
+            (typeof s.actualDurationSeconds === 'number' && !Number.isNaN(s.actualDurationSeconds)
+              ? s.actualDurationSeconds
+              : typeof s.durationSeconds === 'number' && !Number.isNaN(s.durationSeconds)
+              ? s.durationSeconds
+              : (s.durationMinutes || 0) * 60),
+          0
+        ) / 60
+    );
     const totalCompletedSessions = sessions.filter((s) => s.mode === 'work').length;
     const weeklyMinutes = last7Days.reduce((acc, d) => acc + d.minutes, 0);
 
@@ -550,13 +717,24 @@ export const firestoreService = {
     for (let i = 83; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = formatDateInTimezone(d, targetTimezone);
       const dayWorkSessions = sessions.filter(
-        (s) => s.startedAt.startsWith(dateStr) && s.mode === 'work'
+        (s) => formatDateInTimezone(s.startedAt, targetTimezone) === dateStr && s.mode === 'work'
       );
       dailyHeatmap.push({
         date: dateStr,
-        minutes: Math.round(dayWorkSessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60),
+        minutes: Math.round(
+          dayWorkSessions.reduce(
+            (acc, s) =>
+              acc +
+              (typeof s.actualDurationSeconds === 'number' && !Number.isNaN(s.actualDurationSeconds)
+                ? s.actualDurationSeconds
+                : typeof s.durationSeconds === 'number' && !Number.isNaN(s.durationSeconds)
+                ? s.durationSeconds
+                : (s.durationMinutes || 0) * 60),
+            0
+          ) / 60
+        ),
         sessionsCount: dayWorkSessions.length,
       });
     }
@@ -3249,6 +3427,314 @@ export const firestoreService = {
       doc(db, `users/${userId}/study_quizzes/${id}`),
       { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { merge: true }
+    );
+  },
+
+  // --- POMODORO PRESETS (STANDARD & CUSTOM WORKFLOWS) ---
+  async getPomodoroPresets(userId: string): Promise<PomodoroPreset[]> {
+    const list = await listSubcollection<PomodoroPreset>(`users/${userId}/pomodoro_presets`);
+    const active = list.filter((p) => !p.deletedAt);
+    if (active.length === 0) {
+      // Idempotently seed system presets for user
+      const defaultPresets: Omit<PomodoroPreset, 'userId'>[] = [
+        {
+          id: 'sys_preset_classic',
+          name: 'Classic 25/5',
+          description: 'Standard Pomodoro technique interval with short focused bursts',
+          workDuration: 25,
+          shortBreakDuration: 5,
+          longBreakDuration: 15,
+          longBreakInterval: 4,
+          autoStartBreaks: false,
+          autoStartFocus: false,
+          soundEnabled: true,
+          soundVolume: 70,
+          isDefault: true,
+          isSystemPreset: true,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          deletedAt: null,
+        },
+        {
+          id: 'sys_preset_deep_work',
+          name: 'Deep Work 50/10',
+          description: 'Extended focus block ideal for programming, writing and complex reasoning',
+          workDuration: 50,
+          shortBreakDuration: 10,
+          longBreakDuration: 20,
+          longBreakInterval: 4,
+          autoStartBreaks: false,
+          autoStartFocus: false,
+          soundEnabled: true,
+          soundVolume: 70,
+          isDefault: false,
+          isSystemPreset: true,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          deletedAt: null,
+        },
+        {
+          id: 'sys_preset_ultradian',
+          name: 'Ultradian 90/20',
+          description: '90-minute natural biological rhythm for sustained creative output',
+          workDuration: 90,
+          shortBreakDuration: 20,
+          longBreakDuration: 30,
+          longBreakInterval: 2,
+          autoStartBreaks: false,
+          autoStartFocus: false,
+          soundEnabled: true,
+          soundVolume: 70,
+          isDefault: false,
+          isSystemPreset: true,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          deletedAt: null,
+        },
+      ];
+
+      const seeded: PomodoroPreset[] = [];
+      for (const sys of defaultPresets) {
+        const item: PomodoroPreset = { ...sys, userId };
+        try {
+          await setDoc(doc(db, `users/${userId}/pomodoro_presets/${sys.id}`), item, { merge: true });
+          seeded.push(item);
+        } catch {
+          seeded.push(item);
+        }
+      }
+      return seeded;
+    }
+    return active.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0) || a.createdAt.localeCompare(b.createdAt));
+  },
+
+  async savePomodoroPreset(userId: string, input: Partial<PomodoroPreset>): Promise<PomodoroPreset> {
+    const id = input.id || `preset_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/pomodoro_presets/${id}`;
+    let existing: Partial<PomodoroPreset> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as PomodoroPreset;
+      } catch {}
+    }
+    const preset: PomodoroPreset = {
+      id,
+      userId,
+      name: (input.name ?? existing.name ?? 'Custom Preset').trim().slice(0, 128),
+      description: input.description ?? existing.description,
+      workDuration: Math.max(1, Math.min(180, Number(input.workDuration ?? existing.workDuration ?? 25))),
+      shortBreakDuration: Math.max(1, Math.min(60, Number(input.shortBreakDuration ?? existing.shortBreakDuration ?? 5))),
+      longBreakDuration: Math.max(1, Math.min(90, Number(input.longBreakDuration ?? existing.longBreakDuration ?? 15))),
+      longBreakInterval: Math.max(1, Math.min(12, Number(input.longBreakInterval ?? existing.longBreakInterval ?? 4))),
+      autoStartBreaks: input.autoStartBreaks !== undefined ? Boolean(input.autoStartBreaks) : (existing.autoStartBreaks ?? false),
+      autoStartFocus: input.autoStartFocus !== undefined ? Boolean(input.autoStartFocus) : (existing.autoStartFocus ?? false),
+      soundEnabled: input.soundEnabled !== undefined ? Boolean(input.soundEnabled) : (existing.soundEnabled ?? true),
+      soundVolume: Math.max(0, Math.min(100, Number(input.soundVolume ?? existing.soundVolume ?? 70))),
+      isDefault: input.isDefault !== undefined ? Boolean(input.isDefault) : (existing.isDefault ?? false),
+      isSystemPreset: existing.isSystemPreset ?? false,
+      createdAt: existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...preset }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return preset;
+  },
+
+  async deletePomodoroPreset(userId: string, id: string): Promise<void> {
+    const path = `users/${userId}/pomodoro_presets/${id}`;
+    try {
+      await setDoc(doc(db, path), { deletedAt: new Date().toISOString() }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, path);
+    }
+  },
+
+  // --- POMODORO GOALS (DAILY, WEEKLY, MONTHLY & CUSTOM) ---
+  async getPomodoroGoals(userId: string): Promise<PomodoroGoal[]> {
+    const list = await listSubcollection<PomodoroGoal>(`users/${userId}/pomodoro_goals`);
+    return list
+      .filter((g) => !g.deletedAt)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  },
+
+  async savePomodoroGoal(userId: string, input: Partial<PomodoroGoal>): Promise<PomodoroGoal> {
+    const id = input.id || `pgoal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/pomodoro_goals/${id}`;
+    let existing: Partial<PomodoroGoal> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as PomodoroGoal;
+      } catch {}
+    }
+
+    const goalType = (input.goalType ?? existing.goalType ?? 'daily') as PomodoroGoal['goalType'];
+    const metricType = (input.metricType ?? existing.metricType ?? 'focus_minutes') as PomodoroGoal['metricType'];
+    const status = (input.status ?? existing.status ?? 'active') as PomodoroGoal['status'];
+
+    const targetValue = Math.max(
+      1,
+      Number(
+        input.targetValue ??
+          existing.targetValue ??
+          input.dailyTargetMinutes ??
+          existing.dailyTargetMinutes ??
+          120
+      )
+    );
+
+    const goal: PomodoroGoal = {
+      id,
+      userId,
+      title: (input.title ?? existing.title ?? 'Focus Goal').trim().slice(0, 256),
+      description: input.description ?? existing.description,
+      goalType,
+      metricType,
+      targetValue,
+      currentValue: Number(input.currentValue ?? existing.currentValue ?? 0),
+      subjectId: input.subjectId !== undefined ? input.subjectId : (existing.subjectId ?? null),
+      subjectCode: input.subjectCode !== undefined ? input.subjectCode : (existing.subjectCode ?? null),
+      topicId: input.topicId !== undefined ? input.topicId : (existing.topicId ?? null),
+      startDate: input.startDate ?? existing.startDate ?? nowIso.split('T')[0],
+      endDate: input.endDate !== undefined ? input.endDate : (existing.endDate ?? null),
+      status,
+      createdAt: existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      completedAt: input.completedAt !== undefined ? input.completedAt : (existing.completedAt ?? null),
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+      // Backward compatibility fields
+      dailyTargetMinutes: targetValue,
+      weeklyTargetMinutes: targetValue * 5,
+      targetDaysPerWeek: existing.targetDaysPerWeek ?? 5,
+      isActive: status === 'active',
+    };
+
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...goal }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return goal;
+  },
+
+  async deletePomodoroGoal(userId: string, id: string): Promise<void> {
+    const path = `users/${userId}/pomodoro_goals/${id}`;
+    try {
+      await setDoc(
+        doc(db, path),
+        { deletedAt: new Date().toISOString(), status: 'cancelled' },
+        { merge: true }
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, path);
+    }
+  },
+
+  // --- AMBIENT SOUND PRESETS (SOUNDSCAPE CUSTOMIZATION) ---
+  async getPomodoroAmbientPresets(userId: string): Promise<PomodoroAmbientPreset[]> {
+    const list = await listSubcollection<PomodoroAmbientPreset>(`users/${userId}/pomodoro_ambient_presets`);
+    return list.sort((a, b) => (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0));
+  },
+
+  async savePomodoroAmbientPreset(
+    userId: string,
+    input: Partial<PomodoroAmbientPreset>
+  ): Promise<PomodoroAmbientPreset> {
+    const id = input.id || `preset_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/pomodoro_ambient_presets/${id}`;
+    let existing: Partial<PomodoroAmbientPreset> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) existing = snap.data() as PomodoroAmbientPreset;
+      } catch {}
+    }
+    const preset: PomodoroAmbientPreset = {
+      id,
+      userId,
+      name: (input.name ?? existing.name ?? 'Custom Ambience').trim().slice(0, 128),
+      soundType: input.soundType ?? existing.soundType ?? 'rain',
+      volume: Math.max(0, Math.min(1, Number(input.volume ?? existing.volume ?? 0.35))),
+      isFavorite: input.isFavorite !== undefined ? Boolean(input.isFavorite) : (existing.isFavorite ?? false),
+      createdAt: existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...preset }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return preset;
+  },
+
+  async deletePomodoroAmbientPreset(userId: string, id: string): Promise<void> {
+    try {
+      await deleteDoc(doc(db, `users/${userId}/pomodoro_ambient_presets/${id}`));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `users/${userId}/pomodoro_ambient_presets/${id}`);
+    }
+  },
+
+  async getPomodoroSettings(userId: string): Promise<PomodoroSettings | null> {
+    const s = await this.getSettings(userId);
+    if (!s) return null;
+    return {
+      userId,
+      focusDuration: s.pomodoroWorkDuration || 25,
+      shortBreakDuration: s.shortBreakDuration || 5,
+      longBreakDuration: s.longBreakDuration || 15,
+      longBreakInterval: s.longBreakInterval || 4,
+      autoStartBreaks: s.autoSwitchSessions ?? false,
+      autoStartFocus: s.autoSwitchSessions ?? false,
+      alertTone: 'chime',
+      soundVolume: s.soundVolume ?? 70,
+      ambientPreset: 'off',
+      ambientVolume: 0.35,
+      desktopNotifications: false,
+      selectedPresetId: s.selectedPresetId ?? null,
+      updatedAt: s.updatedAt || new Date().toISOString(),
+    };
+  },
+
+  async savePomodoroSettings(
+    userId: string,
+    input: Partial<PomodoroSettings>
+  ): Promise<PomodoroSettings> {
+    const patch: Partial<UserSettings> = {};
+    if (input.focusDuration !== undefined) patch.pomodoroWorkDuration = input.focusDuration;
+    if (input.shortBreakDuration !== undefined) patch.shortBreakDuration = input.shortBreakDuration;
+    if (input.longBreakDuration !== undefined) patch.longBreakDuration = input.longBreakDuration;
+    if (input.longBreakInterval !== undefined) patch.longBreakInterval = input.longBreakInterval;
+    if (input.autoStartBreaks !== undefined) patch.autoSwitchSessions = input.autoStartBreaks;
+    if (input.soundVolume !== undefined) patch.soundVolume = input.soundVolume;
+    if (input.selectedPresetId !== undefined) patch.selectedPresetId = input.selectedPresetId;
+    await this.saveSettings(userId, patch);
+    const updated = await this.getPomodoroSettings(userId);
+    return (
+      updated || {
+        userId,
+        focusDuration: input.focusDuration || 25,
+        shortBreakDuration: input.shortBreakDuration || 5,
+        longBreakDuration: input.longBreakDuration || 15,
+        longBreakInterval: input.longBreakInterval || 4,
+        autoStartBreaks: input.autoStartBreaks ?? false,
+        autoStartFocus: input.autoStartFocus ?? false,
+        alertTone: input.alertTone || 'chime',
+        soundVolume: input.soundVolume ?? 70,
+        ambientPreset: input.ambientPreset || 'off',
+        ambientVolume: input.ambientVolume ?? 0.35,
+        desktopNotifications: input.desktopNotifications ?? false,
+        selectedPresetId: input.selectedPresetId ?? null,
+        updatedAt: new Date().toISOString(),
+      }
     );
   },
 };

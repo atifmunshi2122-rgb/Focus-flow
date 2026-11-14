@@ -1482,7 +1482,7 @@ export function buildSyncValueUpdates(
     s.taskTitle || 'Independent Deep Work Focus',
     s.completed ? 'YES' : 'NO',
     s.startedAt,
-    s.endedAt,
+    s.endedAt || '',
   ]);
   valueUpdates.push({
     range: `Focus_Sessions!A2:H${Math.max(2, sessionRows.length + 1)}`,

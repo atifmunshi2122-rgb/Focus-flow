@@ -1,6 +1,8 @@
 // Web Audio API sound generator for Focus timer, Tasks, Habits, Study, and Finance events
 // Zero external asset dependencies - works natively offline and in any browser!
 
+import type { PomodoroAlertTone } from '../types/pomodoro.ts';
+
 let audioCtx: AudioContext | null = null;
 
 function createAudioContext(): AudioContext | null {
@@ -233,6 +235,113 @@ export function playFocusCompleteSound(enabled = true, volume = 70) {
 export const playPomodoroCompleteSound = playFocusCompleteSound;
 
 /**
+ * Customizable Pomodoro completion alert tones
+ */
+export function playAlertTone(tone: PomodoroAlertTone = 'chime', enabled = true, volume = 70) {
+  if (!enabled) return;
+  const master = getMasterGain(volume);
+  if (master <= 0) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    if (tone === 'bell') {
+      // Resonant bell chime (fundamental + overtone)
+      const freqs = [587.33, 1174.66, 1760.0];
+      freqs.forEach((f, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = i === 0 ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(f, now);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime((0.25 / (i + 1)) * master, now + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 1.25);
+      });
+    } else if (tone === 'digital') {
+      // Crisp retro digital double-beep
+      [0, 0.12].forEach((offset) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(1046.5, now + offset);
+        gain.gain.setValueAtTime(0.12 * master, now + offset);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.08);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + offset);
+        osc.stop(now + offset + 0.09);
+      });
+    } else if (tone === 'bowl') {
+      // Singing bowl harmonic resonance (432Hz fundamental with soft sustained wash)
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(432, now);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.28 * master, now + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 1.85);
+    } else if (tone === 'gentle') {
+      // Soft gentle kalimba triad (F4 -> A4 -> C5)
+      const freqs = [349.23, 440.0, 523.25];
+      freqs.forEach((f, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f, now + idx * 0.1);
+        gain.gain.setValueAtTime(0, now + idx * 0.1);
+        gain.gain.linearRampToValueAtTime(0.2 * master, now + idx * 0.1 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.1 + 0.6);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.1);
+        osc.stop(now + idx * 0.1 + 0.65);
+      });
+    } else {
+      // Default: 'chime'
+      playFocusCompleteSound(enabled, volume);
+    }
+  } catch {
+    // Unsupported environment
+  }
+}
+
+/**
+ * Subtle ticking sound for active focus intervals
+ */
+export function playTickSound(enabled = true, volume = 20) {
+  if (!enabled) return;
+  const master = getMasterGain(volume);
+  if (master <= 0) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.015);
+    gain.gain.setValueAtTime(0.03 * master, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.015);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.02);
+  } catch {
+    // Non-fatal
+  }
+}
+
+/**
  * 6. Habit completion: small positive chime (two bright tones F#5 -> A#5)
  */
 export function playHabitCompleteSound(enabled = true, volume = 70) {
@@ -456,6 +565,8 @@ export const soundManager = {
   playTimerStart: playTimerStartSound,
   playTimerPause: playTimerPauseSound,
   playTimerComplete: playFocusCompleteSound,
+  playAlertTone,
+  playTick: playTickSound,
   playHabitComplete: playHabitCompleteSound,
   playStudyMilestone: playStudyMilestoneSound,
   playSaveSuccess: playSaveSuccessSound,
