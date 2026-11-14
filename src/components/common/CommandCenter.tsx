@@ -6,6 +6,7 @@ import {
   Timer,
   CheckSquare,
   Wallet,
+  Receipt,
   ReceiptText,
   CreditCard,
   BarChart3,
@@ -28,33 +29,45 @@ import {
   Download,
   RefreshCw,
   Flame,
+  Target,
+  X,
+  History,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 import { useApp, NavTab } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { formatCurrency } from '../../lib/currency.ts';
-import { DESIGN_STYLES } from '../../theme/stylesRegistry.ts';
-import { Bill, ExpenseTransaction, IncomeTransaction, Task, TimeBlock, BudgetEnvelope, SubscriptionPlan } from '../../types/index.ts';
-import { useMotionPreferences, EmptyStateIllustration } from '../ui/MotionPrimitives.tsx';
+import { Bill, ExpenseTransaction, Habit, IncomeTransaction, SavingsGoal, SubscriptionPlan, Task, TimeBlock, BudgetEnvelope } from '../../types/index.ts';
+import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import {
-  MOTION_DURATION,
-  MOTION_EASING,
-  getSpringTransition,
-  getStaggerVariants,
-} from '../../theme/motionTokens.ts';
+  clearRecentSearches,
+  getContextualCommandSuggestions,
+  getRecentActions,
+  getRecentSearches,
+  HighlightMatch,
+  recordRecentAction,
+  removeRecentSearch,
+  saveRecentSearch,
+  SearchFilterType,
+  searchUniversalWorkspace,
+  UniversalSearchHit,
+} from '../../lib/searchEngine.tsx';
+import { ThemeBadge } from '../ui/ThemePrimitives.tsx';
 
 interface CommandCenterProps {
-  onOpenQuickAction: () => void;
+  onOpenQuickAction: (initialType?: 'task' | 'expense' | 'income' | 'bill' | 'habit' | 'envelope' | 'goal') => void;
 }
 
-interface PaletteEntry {
-  id: string;
-  group: 'Actions' | 'Navigation' | 'Tasks' | 'Finance & Bills' | 'Themes';
-  title: string;
-  subtitle: string;
-  shortcut?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  run: () => void;
-}
+const FILTER_TABS: Array<{ id: SearchFilterType; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'actions', label: 'Actions' },
+  { id: 'navigation', label: 'Pages' },
+  { id: 'tasks', label: 'Tasks' },
+  { id: 'finance', label: 'Finance' },
+  { id: 'habits', label: 'Habits' },
+  { id: 'budgets', label: 'Budgets' },
+  { id: 'settings', label: 'Settings' },
+];
 
 export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction }) => {
   const {
@@ -64,8 +77,6 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
     isRunning,
     startTimer,
     pauseTimer,
-    setFullScreenFocus,
-    setTrashModalOpen,
     toggleTheme,
     theme,
     savedThemes,
@@ -73,430 +84,502 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
     themeConfig,
     applyThemeConfig,
     syncNowToGoogleSheets,
+    setTrashModalOpen,
+    showToast,
   } = useApp();
 
-  const { intensity, isDisabled } = useMotionPreferences();
-  const { container: staggerContainer, item: staggerItem } = getStaggerVariants(
-    intensity,
-    isDisabled
-  );
+  const { isDisabled } = useMotionPreferences();
   const [query, setQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<SearchFilterType>('all');
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Data caches
   const [tasks, setTasks] = useState<Task[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
   const [incomes, setIncomes] = useState<IncomeTransaction[]>([]);
   const [expenses, setExpenses] = useState<ExpenseTransaction[]>([]);
-  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
   const [envelopes, setEnvelopes] = useState<BudgetEnvelope[]>([]);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
   const [subscriptions, setSubscriptions] = useState<SubscriptionPlan[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
 
+  // Recent history
+  const [recentSearchesList, setRecentSearchesList] = useState<string[]>([]);
+  const [recentActionsList, setRecentActionsList] = useState<string[]>([]);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Load data on open
   useEffect(() => {
     if (!commandCenterOpen) return;
     setQuery('');
+    setActiveFilter('all');
     setSelectedIndex(0);
-    setTimeout(() => inputRef.current?.focus(), 40);
+    setRecentSearchesList(getRecentSearches());
+    setRecentActionsList(getRecentActions());
+    setTimeout(() => inputRef.current?.focus(), 50);
 
     Promise.all([
       api.getTasks().catch(() => [] as Task[]),
       api.getBills().catch(() => [] as Bill[]),
       api.getIncomes().catch(() => [] as IncomeTransaction[]),
       api.getExpenses().catch(() => [] as ExpenseTransaction[]),
-      api.getTimeBlocks().catch(() => [] as TimeBlock[]),
+      api.getHabits().catch(() => [] as Habit[]),
       api.getEnvelopes().catch(() => [] as BudgetEnvelope[]),
+      api.getSavingsGoals().catch(() => [] as SavingsGoal[]),
+      api.getTimeBlocks().catch(() => [] as TimeBlock[]),
       api.getSubscriptions().catch(() => [] as SubscriptionPlan[]),
     ])
-      .then(([t, b, i, e, tb, env, sub]) => {
-        setTasks(t.slice(0, 20));
-        setBills(b.slice(0, 15));
-        setIncomes(i.slice(0, 10));
-        setExpenses(e.slice(0, 10));
-        setTimeBlocks(tb.slice(0, 10));
-        setEnvelopes(env.slice(0, 10));
-        setSubscriptions(sub.slice(0, 10));
+      .then(([t, b, i, e, h, env, sg, tb, sub]) => {
+        setTasks(t);
+        setBills(b);
+        setIncomes(i);
+        setExpenses(e);
+        setHabits(h);
+        setEnvelopes(env);
+        setSavingsGoals(sg);
+        setTimeBlocks(tb);
+        setSubscriptions(sub);
       })
       .catch(console.error);
   }, [commandCenterOpen]);
 
-  const allEntries = useMemo<PaletteEntry[]>(() => {
-    const closeAndRun = (fn: () => void) => () => {
-      setCommandCenterOpen(false);
-      fn();
-    };
-
-    const navEntries: Array<{ tab: NavTab; label: string; key: string; icon: React.ComponentType<{ className?: string }> }> = [
-      { tab: 'dashboard', label: 'Executive Dashboard', key: 'Alt+1', icon: LayoutDashboard },
-      { tab: 'calendar', label: 'Productivity Calendar', key: 'Alt+C', icon: Calendar },
-      { tab: 'focus', label: 'Focus & Pomodoro System', key: 'Alt+2', icon: Timer },
-      { tab: 'timeblocks', label: 'Daily Time-block Planner', key: 'Alt+B', icon: Clock },
-      { tab: 'tasks', label: 'Task Management Workspace', key: 'Alt+3', icon: CheckSquare },
-      { tab: 'habits', label: 'Habits & Streaks Tracker', key: 'Alt+H', icon: Flame },
-      { tab: 'finance', label: 'Finance Overview', key: 'Alt+4', icon: Wallet },
-      { tab: 'transactions', label: 'Transactions Ledger', key: 'Alt+5', icon: ReceiptText },
-      { tab: 'bills', label: 'Bills & Payments Tracker', key: 'Alt+6', icon: CreditCard },
-      { tab: 'envelopes', label: 'Envelope Budgeting', key: 'Alt+E', icon: Layers },
-      { tab: 'subscriptions', label: 'Subscription Manager', key: 'Alt+S', icon: Repeat },
-      { tab: 'analytics', label: 'Unified Analytics & Reports', key: 'Alt+7', icon: BarChart3 },
-      { tab: 'recovery', label: 'Data Recovery & Integrity Center', key: 'Alt+R', icon: ShieldAlert },
-      { tab: 'settings', label: 'Settings & Theme Studio', key: 'Alt+8', icon: Settings },
-    ];
-
-    const entries: PaletteEntry[] = [
-      {
-        id: 'act_timer',
-        group: 'Actions',
-        title: isRunning ? 'Pause Active Timer' : 'Start Focus Timer',
-        subtitle: isRunning ? 'Pause current focus countdown' : 'Begin a deep work session right away',
-        icon: isRunning ? Pause : Play,
-        run: closeAndRun(() => (isRunning ? pauseTimer() : startTimer())),
+  // Search Results
+  const searchResults = useMemo<UniversalSearchHit[]>(() => {
+    return searchUniversalWorkspace(query, activeFilter, {
+      tasks,
+      bills,
+      incomes,
+      expenses,
+      habits,
+      envelopes,
+      savingsGoals,
+      timeBlocks,
+      subscriptions,
+      onNavigate: (tab: NavTab) => {
+        setCommandCenterOpen(false);
+        setCurrentTab(tab);
       },
-      {
-        id: 'act_fullscreen',
-        group: 'Actions',
-        title: 'Enter Full-Screen Focus Mode',
-        subtitle: 'Open distraction-free immersive timer overlay',
-        icon: Maximize2,
-        run: closeAndRun(() => {
-          setCurrentTab('focus');
-          setFullScreenFocus(true);
-        }),
+      onOpenQuickAction: (initialType) => {
+        setCommandCenterOpen(false);
+        onOpenQuickAction(initialType);
       },
-      {
-        id: 'act_sheets_sync',
-        group: 'Actions',
-        title: 'Synchronize Google Sheets Ledger',
-        subtitle: 'Flush pending sync queue to 23 executive worksheets',
-        icon: RefreshCw,
-        run: closeAndRun(() => {
-          void syncNowToGoogleSheets();
-        }),
+      onStartTimer: () => {
+        setCommandCenterOpen(false);
+        startTimer();
       },
-      {
-        id: 'act_backup_export',
-        group: 'Actions',
-        title: 'Export Full Workspace JSON Snapshot',
-        subtitle: 'Download point-in-time validated backup file',
-        icon: Download,
-        run: closeAndRun(() => {
-          void api.exportBackup().then((b) => {
-            const blob = new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' });
-            const u = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = u;
-            a.download = `focusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
-            a.click();
-          });
-        }),
+      onPauseTimer: () => {
+        setCommandCenterOpen(false);
+        pauseTimer();
       },
-      {
-        id: 'act_quick',
-        group: 'Actions',
-        title: 'Quick Create (Task / Expense / Income / Bill)',
-        subtitle: 'Launch quick action composer dialog',
-        icon: Plus,
-        run: closeAndRun(onOpenQuickAction),
+      isTimerRunning: isRunning,
+      onToggleTheme: () => {
+        setCommandCenterOpen(false);
+        toggleTheme();
       },
-      {
-        id: 'act_theme_mode',
-        group: 'Actions',
-        title: `Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Appearance`,
-        subtitle: 'Toggle light and dark theme polarity immediately',
-        icon: theme === 'dark' ? Sun : Moon,
-        run: closeAndRun(toggleTheme),
+      isDarkMode: theme === 'dark',
+      onSyncSheets: () => {
+        setCommandCenterOpen(false);
+        void syncNowToGoogleSheets();
       },
-      {
-        id: 'act_trash',
-        group: 'Actions',
-        title: 'Open Trash & Restore Bin',
-        subtitle: 'Recover deleted tasks, expenses, income, bills, envelopes, or time blocks',
-        icon: Trash2,
-        run: closeAndRun(() => setTrashModalOpen(true)),
+      onExportBackup: () => {
+        setCommandCenterOpen(false);
+        void api.exportBackup().then((b) => {
+          const blob = new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' });
+          const u = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = u;
+          a.download = `focusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+          a.click();
+          showToast('Backup JSON exported successfully', 'success');
+        });
       },
-      ...navEntries.map((n) => ({
-        id: `nav_${n.tab}`,
-        group: 'Navigation' as const,
-        title: n.label,
-        subtitle: `Navigate to ${n.tab}`,
-        shortcut: n.key,
-        icon: n.icon,
-        run: closeAndRun(() => setCurrentTab(n.tab)),
-      })),
-      ...tasks.map((t) => ({
-        id: `task_${t.id}`,
-        group: 'Tasks' as const,
-        title: t.title,
-        subtitle: `${t.status.replace('_', ' ')} • ${t.priority} priority${t.dueDate ? ` • Due ${t.dueDate}` : ''}`,
-        icon: CheckSquare,
-        run: closeAndRun(() => setCurrentTab('tasks')),
-      })),
-      ...timeBlocks.map((tb) => ({
-        id: `timeblock_${tb.id}`,
-        group: 'Tasks' as const,
-        title: `Block: ${tb.title}`,
-        subtitle: `Time Block • ${tb.date} • ${tb.category}`,
-        icon: Clock,
-        run: closeAndRun(() => setCurrentTab('timeblocks')),
-      })),
-      ...bills.map((b) => ({
-        id: `bill_${b.id}`,
-        group: 'Finance & Bills' as const,
-        title: `${b.name} (${formatCurrency(b.amountPaise)})`,
-        subtitle: `Bill • ${b.status} • Due ${b.dueDate}`,
-        icon: CreditCard,
-        run: closeAndRun(() => setCurrentTab('bills')),
-      })),
-      ...envelopes.map((env) => ({
-        id: `env_${env.id}`,
-        group: 'Finance & Bills' as const,
-        title: `Envelope: ${env.name} (${formatCurrency(env.allocatedPaise)})`,
-        subtitle: `Budget • ${env.monthKey} • ${formatCurrency(env.allocatedPaise - (env.spentPaise || 0))} remaining`,
-        icon: Layers,
-        run: closeAndRun(() => setCurrentTab('envelopes')),
-      })),
-      ...subscriptions.map((sub) => ({
-        id: `sub_${sub.id}`,
-        group: 'Finance & Bills' as const,
-        title: `Subscription: ${sub.name} (${formatCurrency(sub.amountPaise)})`,
-        subtitle: `${sub.billingCycle} • Next renewal ${sub.nextRenewalDate}`,
-        icon: Repeat,
-        run: closeAndRun(() => setCurrentTab('subscriptions')),
-      })),
-      ...incomes.map((i) => ({
-        id: `inc_${i.id}`,
-        group: 'Finance & Bills' as const,
-        title: `+${formatCurrency(i.amountPaise)} • ${i.source}`,
-        subtitle: `Income • ${i.category} • ${i.date}`,
-        icon: ReceiptText,
-        run: closeAndRun(() => setCurrentTab('transactions')),
-      })),
-      ...expenses.map((e) => ({
-        id: `exp_${e.id}`,
-        group: 'Finance & Bills' as const,
-        title: `-${formatCurrency(e.amountPaise)} • ${e.description}`,
-        subtitle: `Expense • ${e.categoryName || e.type} • ${e.date}`,
-        icon: ReceiptText,
-        run: closeAndRun(() => setCurrentTab('transactions')),
-      })),
-      ...savedThemes.map((s) => ({
-        id: `saved_theme_${s.id}`,
-        group: 'Themes' as const,
-        title: `Apply Saved Theme: ${s.name}`,
-        subtitle: s.description || `Style preset: ${s.config.styleId}`,
-        icon: Palette,
-        run: closeAndRun(() => {
-          void applySavedTheme(s.id);
-        }),
-      })),
-      ...DESIGN_STYLES.map((st) => ({
-        id: `style_${st.id}`,
-        group: 'Themes' as const,
-        title: `Switch Style: ${st.name}`,
-        subtitle: st.tagline,
-        icon: Palette,
-        run: closeAndRun(() => {
-          void applyThemeConfig({ ...themeConfig, styleId: st.id }, null);
-        }),
-      })),
-    ];
-
-    return entries;
+      onOpenTrash: () => {
+        setCommandCenterOpen(false);
+        setTrashModalOpen(true);
+      },
+      onApplyThemeId: (styleId: string) => {
+        setCommandCenterOpen(false);
+        void applyThemeConfig({ ...themeConfig, styleId: styleId as any }, null);
+      },
+    });
   }, [
-    isRunning,
-    theme,
+    query,
+    activeFilter,
     tasks,
     bills,
     incomes,
     expenses,
-    timeBlocks,
+    habits,
     envelopes,
+    savingsGoals,
+    timeBlocks,
     subscriptions,
-    savedThemes,
+    isRunning,
+    theme,
     themeConfig,
     setCommandCenterOpen,
-    pauseTimer,
-    startTimer,
     setCurrentTab,
-    setFullScreenFocus,
     onOpenQuickAction,
+    startTimer,
+    pauseTimer,
     toggleTheme,
-    setTrashModalOpen,
-    applySavedTheme,
-    applyThemeConfig,
     syncNowToGoogleSheets,
+    setTrashModalOpen,
+    applyThemeConfig,
+    showToast,
   ]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) {
-      return allEntries.slice(0, 14);
-    }
-    return allEntries
-      .filter(
-        (entry) =>
-          entry.title.toLowerCase().includes(q) ||
-          entry.subtitle.toLowerCase().includes(q) ||
-          entry.group.toLowerCase().includes(q)
-      )
-      .slice(0, 18);
-  }, [allEntries, query]);
+  // Contextual rule-based suggestions when query is empty
+  const contextualSuggestions = useMemo(() => {
+    return getContextualCommandSuggestions({
+      tasks,
+      expenses,
+      habits,
+      isTimerRunning: isRunning,
+    });
+  }, [tasks, expenses, habits, isRunning]);
 
+  // Reset selected index on query/filter change
   useEffect(() => {
     setSelectedIndex(0);
-  }, [query]);
+  }, [query, activeFilter]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      setCommandCenterOpen(false);
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (filtered.length > 0 ? (prev + 1) % filtered.length : 0));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((prev) =>
-        filtered.length > 0 ? (prev - 1 + filtered.length) % filtered.length : 0
-      );
-    } else if (e.key === 'Enter' && filtered[selectedIndex]) {
-      e.preventDefault();
-      filtered[selectedIndex].run();
+  // Keyboard navigation
+  useEffect(() => {
+    if (!commandCenterOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setCommandCenterOpen(false);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev < searchResults.length - 1 ? prev + 1 : 0));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : Math.max(0, searchResults.length - 1)));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const selected = searchResults[selectedIndex];
+        if (selected) {
+          if (query.trim()) {
+            saveRecentSearch(query.trim());
+          }
+          recordRecentAction(selected.id);
+          selected.run();
+        }
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        // Cycle filter tabs
+        const currentIdx = FILTER_TABS.findIndex((f) => f.id === activeFilter);
+        const nextIdx = (currentIdx + 1) % FILTER_TABS.length;
+        setActiveFilter(FILTER_TABS[nextIdx].id);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [commandCenterOpen, searchResults, selectedIndex, query, activeFilter, setCommandCenterOpen]);
+
+  // Auto-scroll selected item into view
+  useEffect(() => {
+    if (!resultsContainerRef.current) return;
+    const items = resultsContainerRef.current.querySelectorAll('[data-search-item]');
+    const activeItem = items[selectedIndex] as HTMLElement | undefined;
+    if (activeItem) {
+      activeItem.scrollIntoView({ block: 'nearest' });
+    }
+  }, [selectedIndex]);
+
+  const renderIcon = (name: string) => {
+    switch (name) {
+      case 'LayoutDashboard': return <LayoutDashboard className="w-4 h-4" />;
+      case 'Timer': return <Timer className="w-4 h-4" />;
+      case 'CheckSquare': return <CheckSquare className="w-4 h-4" />;
+      case 'Flame': return <Flame className="w-4 h-4" />;
+      case 'Wallet': return <Wallet className="w-4 h-4" />;
+      case 'Receipt': return <Receipt className="w-4 h-4" />;
+      case 'ReceiptText': return <ReceiptText className="w-4 h-4" />;
+      case 'CreditCard': return <CreditCard className="w-4 h-4" />;
+      case 'Layers': return <Layers className="w-4 h-4" />;
+      case 'Repeat': return <Repeat className="w-4 h-4" />;
+      case 'BarChart3': return <BarChart3 className="w-4 h-4" />;
+      case 'Calendar': return <Calendar className="w-4 h-4" />;
+      case 'Clock': return <Clock className="w-4 h-4" />;
+      case 'Target': return <Target className="w-4 h-4" />;
+      case 'ShieldAlert': return <ShieldAlert className="w-4 h-4" />;
+      case 'Settings': return <Settings className="w-4 h-4" />;
+      case 'Palette': return <Palette className="w-4 h-4" />;
+      case 'RefreshCw': return <RefreshCw className="w-4 h-4" />;
+      case 'Download': return <Download className="w-4 h-4" />;
+      case 'Trash2': return <Trash2 className="w-4 h-4" />;
+      case 'Sun': return <Sun className="w-4 h-4" />;
+      case 'Moon': return <Moon className="w-4 h-4" />;
+      default: return <Sparkles className="w-4 h-4" />;
     }
   };
 
   return (
     <AnimatePresence>
       {commandCenterOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Global Command Center"
-        >
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-12 sm:pt-20 px-3 sm:px-4">
+          {/* Glass Backdrop */}
           <motion.div
-            initial={isDisabled ? { opacity: 1 } : { opacity: 0 }}
+            initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: MOTION_DURATION.dropdown }}
             onClick={() => setCommandCenterOpen(false)}
-            className="fixed inset-0 bg-slate-950/65 backdrop-blur-sm"
+            className="fixed inset-0 bg-black/60 backdrop-blur-md"
           />
 
+          {/* Palette Dialog */}
           <motion.div
-            initial={isDisabled ? false : { opacity: 0, y: -12, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -10, scale: 0.97 }}
-            transition={{ duration: MOTION_DURATION.card, ease: MOTION_EASING.decelerate }}
-            onKeyDown={handleKeyDown}
-            className="ff-card-elevated relative z-10 w-full max-w-2xl overflow-hidden"
+            initial={isDisabled ? false : { opacity: 0, scale: 0.95, y: -16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: -12 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="relative w-full max-w-2xl rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-elevated)] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] z-10"
+            style={{
+              boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--ff-border-color)',
+            }}
           >
-            {/* Search Bar */}
-            <div
-              className="flex items-center gap-3 px-4 py-3.5 border-b"
-              style={{ borderColor: 'var(--ff-border-color)' }}
-            >
-              <Search className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
+            {/* Search Bar Input */}
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
+              <Search className="w-5 h-5 text-[var(--ff-accent-text)] shrink-0" />
               <input
                 ref={inputRef}
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search pages, tasks, bills, transactions, themes, or actions..."
-                className="flex-1 bg-transparent outline-none text-sm font-medium text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-muted)]"
+                placeholder="Search tasks, transactions, habits, budgets, pages, or commands..."
+                className="w-full bg-transparent text-sm text-[var(--ff-text-primary)] placeholder-[var(--ff-text-muted)] focus:outline-none"
+                aria-label="Universal Command Center Search"
               />
-              <kbd className="text-[10px] font-bold px-2 py-0.5 rounded border border-[var(--ff-border-color)] text-[var(--ff-text-muted)]">
-                ESC
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono font-bold rounded border border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)]">
+                ESC to close
               </kbd>
             </div>
 
-            {/* Results List */}
-            <motion.div
-              key={query}
-              variants={staggerContainer}
-              initial={isDisabled ? false : 'hidden'}
-              animate="show"
-              className="max-h-[54vh] overflow-y-auto p-2 space-y-1"
+            {/* Category Filter Pills */}
+            <div className="flex items-center gap-1 px-3 py-2 border-b border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)]/50 overflow-x-auto scrollbar-none">
+              {FILTER_TABS.map((tab) => {
+                const isActive = activeFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveFilter(tab.id)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors ${
+                      isActive
+                        ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-sm'
+                        : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)]'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search Results / Contextual Dashboard */}
+            <div
+              ref={resultsContainerRef}
+              className="flex-1 overflow-y-auto p-2 divide-y divide-[var(--ff-border-color)]/50 max-h-[60vh]"
             >
-              {filtered.length === 0 ? (
-                <div className="py-6">
-                  <EmptyStateIllustration
-                    icon={<Search className="w-6 h-6" />}
-                    title={query ? `No results for "${query}"` : 'No matching commands or records'}
-                    description="Try searching for a different action, page, transaction, or theme."
-                  />
-                </div>
-              ) : (
-                filtered.map((item, idx) => {
-                  const Icon = item.icon;
-                  const active = idx === selectedIndex;
-                  return (
-                    <motion.button
-                      key={item.id}
-                      type="button"
-                      variants={staggerItem}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                      onClick={item.run}
-                      className="relative w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors"
-                      style={{
-                        borderRadius: 'var(--ff-radius-button)',
-                        color: active ? 'var(--ff-text-primary)' : 'var(--ff-text-secondary)',
-                      }}
-                    >
-                      {active && (
-                        <motion.div
-                          layoutId="command-selection-pill"
-                          transition={getSpringTransition(intensity, isDisabled)}
-                          className="absolute inset-0 z-0 pointer-events-none"
-                          style={{
-                            borderRadius: 'var(--ff-radius-button)',
-                            background: 'var(--ff-accent-soft)',
-                            border: '1px solid var(--ff-accent-border)',
-                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
-                          }}
-                        />
-                      )}
-                      <div className="relative z-10 flex items-center gap-3 min-w-0">
+              {/* Contextual Suggestions & Recent Searches when query is empty */}
+              {!query.trim() && (
+                <div className="p-2 space-y-4">
+                  {/* Contextual Real-Time Suggestions */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between px-2">
+                      <span className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Contextual Recommendations</span>
+                      </span>
+                      <span className="text-[10px] text-[var(--ff-text-muted)]">Based on live data</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {contextualSuggestions.map((sugg) => (
                         <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
-                          style={{
-                            background: active ? 'var(--ff-accent)' : 'var(--ff-surface-subtle)',
-                            color: active ? 'var(--ff-accent-contrast)' : 'var(--ff-accent-text)',
-                          }}
+                          key={sugg.id}
+                          className="p-3 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] hover:border-[var(--ff-accent-border)] transition-all flex items-start gap-2.5"
                         >
-                          <Icon className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold truncate">{item.title}</div>
-                          <div className="text-xs text-[var(--ff-text-muted)] truncate">
-                            <span className="font-semibold text-[var(--ff-accent-text)]">{item.group}</span>{' '}
-                            • {item.subtitle}
+                          <div className="mt-0.5 text-[var(--ff-accent-text)]">
+                            {renderIcon(sugg.iconName)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-bold truncate text-[var(--ff-text-primary)]">
+                                {sugg.title}
+                              </span>
+                              <ThemeBadge tone={sugg.badgeTone}>{sugg.badge}</ThemeBadge>
+                            </div>
+                            <p className="text-[11px] text-[var(--ff-text-muted)] line-clamp-1 mt-0.5">
+                              {sugg.subtitle}
+                            </p>
                           </div>
                         </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Recent Searches */}
+                  {recentSearchesList.length > 0 && (
+                    <div className="space-y-1.5 pt-2 border-t border-[var(--ff-border-color)]">
+                      <div className="flex items-center justify-between px-2">
+                        <span className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+                          <History className="w-3.5 h-3.5" />
+                          <span>Recent Searches</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            clearRecentSearches();
+                            setRecentSearchesList([]);
+                          }}
+                          className="text-[10px] text-[var(--ff-accent-text)] hover:underline"
+                        >
+                          Clear History
+                        </button>
                       </div>
-                      <div className="relative z-10 flex items-center gap-2 shrink-0">
-                        {item.shortcut && (
-                          <kbd className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-[var(--ff-border-color)] text-[var(--ff-text-muted)]">
-                            {item.shortcut}
+                      <div className="flex flex-wrap gap-1.5 px-1">
+                        {recentSearchesList.map((q) => (
+                          <span
+                            key={q}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-color)] hover:border-[var(--ff-accent)] cursor-pointer"
+                            onClick={() => setQuery(q)}
+                          >
+                            <span>{q}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeRecentSearch(q);
+                                setRecentSearchesList((prev) => prev.filter((item) => item !== q));
+                              }}
+                              className="text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)] ml-0.5"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top Actions Shortcut Strip */}
+                  <div className="space-y-1.5 pt-2 border-t border-[var(--ff-border-color)]">
+                    <span className="text-[11px] font-bold text-[var(--ff-text-muted)] uppercase tracking-wider block px-2">
+                      Quick Command Directory
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Universal Search Results List */}
+              {searchResults.length === 0 ? (
+                <div className="py-12 text-center space-y-2">
+                  <Search className="w-8 h-8 mx-auto text-[var(--ff-text-muted)] opacity-40" />
+                  <div className="text-sm font-semibold text-[var(--ff-text-primary)]">
+                    No matching results found
+                  </div>
+                  <p className="text-xs text-[var(--ff-text-muted)] max-w-xs mx-auto">
+                    Try searching by title, category, price, date, or switch category filter to &ldquo;All&rdquo;.
+                  </p>
+                </div>
+              ) : (
+                searchResults.map((hit, index) => {
+                  const isSelected = index === selectedIndex;
+                  return (
+                    <div
+                      key={hit.id}
+                      data-search-item
+                      onClick={() => {
+                        if (query.trim()) saveRecentSearch(query.trim());
+                        recordRecentAction(hit.id);
+                        hit.run();
+                      }}
+                      onMouseEnter={() => setSelectedIndex(index)}
+                      className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors select-none ${
+                        isSelected
+                          ? 'bg-[var(--ff-accent-soft)] text-[var(--ff-text-primary)] border border-[var(--ff-accent-border)]'
+                          : 'hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-secondary)] border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border"
+                          style={{
+                            background: isSelected ? 'var(--ff-accent)' : 'var(--ff-surface-muted)',
+                            color: isSelected ? 'var(--ff-accent-contrast)' : 'var(--ff-accent-text)',
+                            borderColor: 'var(--ff-border-color)',
+                          }}
+                        >
+                          {renderIcon(hit.iconName)}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold truncate text-[var(--ff-text-primary)]">
+                              <HighlightMatch text={hit.title} query={query} />
+                            </span>
+                            {hit.badge && (
+                              <ThemeBadge tone={hit.badgeTone || 'neutral'}>
+                                {hit.badge}
+                              </ThemeBadge>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[var(--ff-text-muted)] truncate">
+                            <HighlightMatch text={hit.subtitle} query={query} />
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {hit.shortcut && (
+                          <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono font-bold rounded border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)]">
+                            {hit.shortcut}
                           </kbd>
                         )}
-                        {active && <ArrowRight className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />}
+                        <ArrowRight className={`w-3.5 h-3.5 transition-transform ${isSelected ? 'translate-x-0.5 text-[var(--ff-accent-text)]' : 'opacity-0'}`} />
                       </div>
-                    </motion.button>
+                    </div>
                   );
                 })
               )}
-            </motion.div>
+            </div>
 
-            {/* Footer Hints */}
-            <div
-              className="px-4 py-2 border-t flex items-center justify-between text-[11px] text-[var(--ff-text-muted)]"
-              style={{
-                borderColor: 'var(--ff-border-color)',
-                background: 'var(--ff-surface-subtle)',
-              }}
-            >
-              <span className="flex items-center gap-1.5">
-                <Command className="w-3 h-3" /> Use ↑ ↓ arrows and Enter to launch
+            {/* Bottom Keyboard Guide Footer */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-t border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] text-[11px] text-[var(--ff-text-muted)]">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1 rounded bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)]">↑</kbd>
+                  <kbd className="px-1 rounded bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)]">↓</kbd>
+                  <span>Navigate</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 rounded bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)]">↵</kbd>
+                  <span>Select</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 rounded bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)]">Tab</kbd>
+                  <span>Filter</span>
+                </span>
+              </div>
+              <span className="font-medium text-[var(--ff-text-secondary)]">
+                {searchResults.length} {searchResults.length === 1 ? 'result' : 'results'}
               </span>
-              <span>Deterministic Workspace Search</span>
             </div>
           </motion.div>
         </div>

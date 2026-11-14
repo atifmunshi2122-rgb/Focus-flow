@@ -76,6 +76,7 @@ export function computeSpendingInsights(input: {
   const { expenses, settings } = input;
   const now = new Date();
   const todayStr = input.todayStr || now.toISOString().slice(0, 10);
+  const baseDate = new Date(`${todayStr}T12:00:00Z`);
   const currentMonthKey = todayStr.slice(0, 7);
 
   // Calculate previous month key
@@ -181,8 +182,8 @@ export function computeSpendingInsights(input: {
   const avgDailySpendPaise = activeDays > 0 ? Math.round(thisMonthExpensesPaise / activeDays) : 0;
 
   // Today & Yesterday calculation
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterday = new Date(baseDate);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
   const todayExpenses = activeExpenses.filter((e) => e.date === todayStr);
@@ -210,8 +211,8 @@ export function computeSpendingInsights(input: {
   const remainingDailyPaise = Math.max(0, effectiveDailyLimit - todayPaise);
 
   // Current week calculation (last 7 days)
-  const sevenDaysAgo = new Date(now);
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+  const sevenDaysAgo = new Date(baseDate);
+  sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 6);
   const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
 
   const weekExpenses = activeExpenses.filter((e) => e.date >= sevenDaysAgoStr && e.date <= todayStr);

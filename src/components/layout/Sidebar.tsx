@@ -28,6 +28,7 @@ import {
   Layers,
   Repeat,
   ShieldAlert,
+  Star,
   X,
 } from 'lucide-react';
 
@@ -61,6 +62,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     isRunning,
     timerMode,
     effectiveThemeConfig,
+    favoriteTabs,
+    toggleFavoriteTab,
   } = useApp();
 
   const [hoveredTab, setHoveredTab] = React.useState<NavTab | null>(null);
@@ -349,6 +352,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       {item.tag}
                     </span>
+                  )}
+
+                  {/* Favorite Pinned Star */}
+                  {isExpanded && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavoriteTab(item.id);
+                      }}
+                      className={`relative z-10 p-1 rounded hover:bg-[var(--ff-surface-hover)] transition-opacity ${
+                        favoriteTabs.includes(item.id)
+                          ? 'opacity-100 text-amber-400'
+                          : 'opacity-0 group-hover:opacity-60 text-[var(--ff-text-muted)] hover:text-amber-400'
+                      }`}
+                      title={favoriteTabs.includes(item.id) ? 'Pinned favorite' : 'Pin to favorites'}
+                    >
+                      <Star className={`w-3 h-3 ${favoriteTabs.includes(item.id) ? 'fill-amber-400' : ''}`} />
+                    </button>
                   )}
                 </motion.button>
               </React.Fragment>

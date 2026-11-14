@@ -19,11 +19,12 @@ import {
   Palette,
   Search,
   WifiOff,
+  Keyboard,
 } from 'lucide-react';
 
 interface HeaderProps {
   onOpenMobileMenu: () => void;
-  onOpenQuickAction: () => void;
+  onOpenQuickAction: (initialType?: any) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAction }) => {
@@ -50,6 +51,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     effectiveThemeConfig,
     setCommandCenterOpen,
     isOnline,
+    setKeyboardShortcutsGuideOpen,
   } = useApp();
 
   const { isDisabled } = useMotionPreferences();
@@ -180,6 +182,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           <kbd className="hidden xl:inline text-[10px] font-bold px-1 py-0.2 rounded bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
             ⌘K
           </kbd>
+        </button>
+
+        {/* Keyboard Shortcuts Cheat-Sheet Trigger */}
+        <button
+          type="button"
+          onClick={() => setKeyboardShortcutsGuideOpen(true)}
+          className="hidden sm:flex items-center justify-center p-2 rounded-lg border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+          style={{ borderRadius: 'var(--ff-radius-button)' }}
+          title="Keyboard Shortcuts Cheat-Sheet (?)"
+          aria-label="Keyboard Shortcuts Guide"
+        >
+          <Keyboard className="w-3.5 h-3.5" />
         </button>
 
         {/* Rule-Based Notifications Bell */}

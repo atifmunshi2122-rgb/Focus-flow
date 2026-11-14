@@ -13,6 +13,7 @@ import { CommandCenter } from './components/common/CommandCenter.tsx';
 import { TrashRestoreModal } from './components/common/TrashRestoreModal.tsx';
 import { ConfirmDialogModal } from './components/common/ConfirmDialogModal.tsx';
 import { AuthRecoveryModal } from './components/common/AuthRecoveryModal.tsx';
+import { KeyboardShortcutsModal } from './components/common/KeyboardShortcutsModal.tsx';
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard.tsx';
 import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
 import { FocusAnalytics } from './components/focus/FocusAnalytics.tsx';
@@ -62,21 +63,44 @@ const MainContent: React.FC = () => {
     isSigningIn,
     signInWithGoogle,
     authorizeGoogleSheets,
+    isRunning,
+    startTimer,
+    pauseTimer,
+    showToast,
+    keyboardShortcutsGuideOpen,
+    setKeyboardShortcutsGuideOpen,
+    quickActionInitialType,
+    setQuickActionInitialType,
   } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [quickActionOpen, setQuickActionOpen] = useState(false);
 
-  // Global keyboard shortcuts (Cmd/Ctrl + K & Alt + 1..8)
+  // Global keyboard shortcuts (Cmd/Ctrl + K, Alt + 1..8, Quick Actions N, E, I, F, ?)
   useEffect(() => {
     const enabled = settings?.keyboardShortcutsEnabled ?? true;
+    const isFormElement = (element: Element | null): boolean => {
+      if (!element) return false;
+      const tag = element.tagName.toLowerCase();
+      return (
+        tag === 'input' ||
+        tag === 'textarea' ||
+        tag === 'select' ||
+        (element as HTMLElement).isContentEditable
+      );
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (!enabled) return;
+
+      // Cmd/Ctrl + K opens command palette from anywhere
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCommandCenterOpen(true);
         return;
       }
+
+      // Alt + 1..8, Alt+H, Alt+C, Alt+B, Alt+E, Alt+S, Alt+R
       if (e.altKey && !e.metaKey && !e.ctrlKey) {
         const map: Record<string, NavTab> = {
           '1': 'dashboard',
@@ -89,17 +113,73 @@ const MainContent: React.FC = () => {
           '8': 'settings',
           'h': 'habits',
           'H': 'habits',
+          'c': 'calendar',
+          'C': 'calendar',
+          'b': 'timeblocks',
+          'B': 'timeblocks',
+          'e': 'envelopes',
+          'E': 'envelopes',
+          's': 'subscriptions',
+          'S': 'subscriptions',
+          'r': 'recovery',
+          'R': 'recovery',
         };
         const target = map[e.key];
         if (target) {
           e.preventDefault();
           setCurrentTab(target);
+          return;
+        }
+      }
+
+      // If user is currently typing in an input field, do not trigger single-key action shortcuts
+      if (isFormElement(document.activeElement)) {
+        return;
+      }
+
+      // Standalone single-key shortcuts
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+          e.preventDefault();
+          setKeyboardShortcutsGuideOpen(true);
+        } else if (e.key.toLowerCase() === 'n') {
+          e.preventDefault();
+          setQuickActionInitialType('task');
+          setQuickActionOpen(true);
+        } else if (e.key.toLowerCase() === 'e') {
+          e.preventDefault();
+          setQuickActionInitialType('expense');
+          setQuickActionOpen(true);
+        } else if (e.key.toLowerCase() === 'i') {
+          e.preventDefault();
+          setQuickActionInitialType('income');
+          setQuickActionOpen(true);
+        } else if (e.key.toLowerCase() === 'f') {
+          e.preventDefault();
+          if (isRunning) {
+            pauseTimer();
+            showToast('Focus timer paused', 'info');
+          } else {
+            startTimer();
+            showToast('Focus timer started', 'info');
+          }
         }
       }
     };
+
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [settings?.keyboardShortcutsEnabled, setCommandCenterOpen, setCurrentTab]);
+  }, [
+    settings?.keyboardShortcutsEnabled,
+    setCommandCenterOpen,
+    setCurrentTab,
+    isRunning,
+    startTimer,
+    pauseTimer,
+    showToast,
+    setKeyboardShortcutsGuideOpen,
+    setQuickActionInitialType,
+  ]);
 
   const previewStyleName = previewThemeConfig
     ? getStyleDefinition(previewThemeConfig.styleId).name
@@ -125,7 +205,10 @@ const MainContent: React.FC = () => {
         {/* Top Header */}
         <Header
           onOpenMobileMenu={() => setMobileOpen(true)}
-          onOpenQuickAction={() => setQuickActionOpen(true)}
+          onOpenQuickAction={(initialType) => {
+            if (initialType) setQuickActionInitialType(initialType);
+            setQuickActionOpen(true);
+          }}
         />
 
         {/* Viewport Content Area */}
@@ -280,10 +363,22 @@ const MainContent: React.FC = () => {
       <QuickActionModal
         isOpen={quickActionOpen}
         onClose={() => setQuickActionOpen(false)}
+        initialType={quickActionInitialType}
+      />
+
+      {/* Keyboard Shortcuts Cheat-Sheet Modal */}
+      <KeyboardShortcutsModal
+        isOpen={keyboardShortcutsGuideOpen}
+        onClose={() => setKeyboardShortcutsGuideOpen(false)}
       />
 
       {/* Global Command Center, Trash Restore & In-App Confirmation Modal */}
-      <CommandCenter onOpenQuickAction={() => setQuickActionOpen(true)} />
+      <CommandCenter
+        onOpenQuickAction={(initialType) => {
+          if (initialType) setQuickActionInitialType(initialType);
+          setQuickActionOpen(true);
+        }}
+      />
       <TrashRestoreModal />
       {confirmDialogState && (
         <ConfirmDialogModal

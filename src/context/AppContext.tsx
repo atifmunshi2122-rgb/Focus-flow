@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   User,
   UserSettings,
@@ -173,6 +173,21 @@ interface AppContextType {
   reconcileOutboxNow: () => Promise<{ reconciled: number; failed: number }>;
   syncLastError: string | null;
   notifications: AppNotificationItem[];
+  activeNotifications: AppNotificationItem[];
+  readNotificationIds: string[];
+  unreadNotificationCount: number;
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: () => void;
+  clearNotifications: () => void;
+
+  // Smart Navigation & Shortcuts
+  recentTabs: NavTab[];
+  favoriteTabs: NavTab[];
+  toggleFavoriteTab: (tab: NavTab) => void;
+  keyboardShortcutsGuideOpen: boolean;
+  setKeyboardShortcutsGuideOpen: (open: boolean) => void;
+  quickActionInitialType: 'task' | 'expense' | 'income' | 'bill' | 'habit' | 'envelope' | 'goal';
+  setQuickActionInitialType: (type: 'task' | 'expense' | 'income' | 'bill' | 'habit' | 'envelope' | 'goal') => void;
 
   // In-app Confirmation Modal
   confirmAction: (options: ConfirmDialogOptions) => Promise<boolean>;
@@ -233,9 +248,51 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentTab, setCurrentTabState] = useState<NavTab>(() => readInitialTabFromHash());
+  const [recentTabs, setRecentTabs] = useState<NavTab[]>(() => {
+    try {
+      const stored = localStorage.getItem('focusflow_recent_tabs');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed.filter((t: any) => VALID_NAV_TABS.includes(t));
+      }
+    } catch {}
+    return ['dashboard', 'focus', 'tasks', 'finance'];
+  });
+  const [favoriteTabs, setFavoriteTabs] = useState<NavTab[]>(() => {
+    try {
+      const stored = localStorage.getItem('focusflow_favorite_tabs');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed.filter((t: any) => VALID_NAV_TABS.includes(t));
+      }
+    } catch {}
+    return ['dashboard', 'tasks', 'finance'];
+  });
+  const [keyboardShortcutsGuideOpen, setKeyboardShortcutsGuideOpen] = useState(false);
+  const [quickActionInitialType, setQuickActionInitialType] = useState<
+    'task' | 'expense' | 'income' | 'bill' | 'habit' | 'envelope' | 'goal'
+  >('task');
+
+  const toggleFavoriteTab = useCallback((tab: NavTab) => {
+    setFavoriteTabs((prev) => {
+      const next = prev.includes(tab) ? prev.filter((t) => t !== tab) : [...prev, tab];
+      try {
+        localStorage.setItem('focusflow_favorite_tabs', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   const setCurrentTab = useCallback((tab: NavTab) => {
     setCurrentTabState(tab);
+    setRecentTabs((prev) => {
+      const filtered = prev.filter((t) => t !== tab);
+      const next = [tab, ...filtered].slice(0, 8);
+      try {
+        localStorage.setItem('focusflow_recent_tabs', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     if (typeof window !== 'undefined') {
       const nextHash = `#${tab}`;
       if (window.location.hash !== nextHash) {
@@ -311,6 +368,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const [syncLastError, setSyncLastError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotificationItem[]>([]);
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('focusflow_read_notifications');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('focusflow_dismissed_notifications');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const markNotificationAsRead = useCallback((id: string) => {
+    setReadNotificationIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      try {
+        localStorage.setItem('focusflow_read_notifications', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const markAllNotificationsAsRead = useCallback(() => {
+    setReadNotificationIds((prev) => {
+      const allIds = Array.from(new Set([...prev, ...notifications.map((n) => n.id)]));
+      try {
+        localStorage.setItem('focusflow_read_notifications', JSON.stringify(allIds));
+      } catch {}
+      return allIds;
+    });
+  }, [notifications]);
+
+  const clearNotifications = useCallback(() => {
+    setDismissedNotificationIds((prev) => {
+      const allIds = Array.from(new Set([...prev, ...notifications.map((n) => n.id)]));
+      try {
+        localStorage.setItem('focusflow_dismissed_notifications', JSON.stringify(allIds));
+      } catch {}
+      return allIds;
+    });
+  }, [notifications]);
+
+  const activeNotifications = useMemo<AppNotificationItem[]>(() => {
+    return notifications.filter((n: AppNotificationItem) => !dismissedNotificationIds.includes(n.id));
+  }, [notifications, dismissedNotificationIds]);
+
+  const unreadNotificationCount = useMemo<number>(() => {
+    return activeNotifications.filter((n: AppNotificationItem) => !readNotificationIds.includes(n.id)).length;
+  }, [activeNotifications, readNotificationIds]);
 
   // Timer state
   const [timerEngine, setTimerEngineState] = useState<TimerEngineMode>('pomodoro');
@@ -1699,6 +1811,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reconcileOutboxNow,
         syncLastError,
         notifications,
+        activeNotifications,
+        readNotificationIds,
+        unreadNotificationCount,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        clearNotifications,
+
+        // Smart Navigation & Shortcuts
+        recentTabs,
+        favoriteTabs,
+        toggleFavoriteTab,
+        keyboardShortcutsGuideOpen,
+        setKeyboardShortcutsGuideOpen,
+        quickActionInitialType,
+        setQuickActionInitialType,
 
         // In-app Confirmation Modal
         confirmAction,
