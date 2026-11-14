@@ -144,13 +144,13 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
             <ThemeCard
               key={theme.id}
               variant="interactive"
-              className={`p-4 flex flex-col justify-between relative overflow-hidden group transition-all border-2 ${
+              className={`w-full max-w-full min-w-0 box-border p-4 flex flex-col justify-between relative overflow-hidden group transition-all border-2 ${
                 isActivelyPreviewing || isDrafted
                   ? 'border-[var(--ff-accent)] shadow-md'
                   : 'border-[var(--ff-border-color)] hover:border-[var(--ff-accent-border)]'
               }`}
             >
-              <div>
+              <div className="min-w-0 w-full">
                 {/* Header: Category Badge & Favorite Star */}
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--ff-surface-subtle)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-color)]">
@@ -284,8 +284,8 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
                     </div>
 
                     {/* Mini Action CTA + Palette Dots */}
-                    <div className="flex items-center justify-between gap-2 pt-0.5">
-                      <div className="flex items-center gap-1">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5 min-w-0">
+                      <div className="flex items-center gap-1 min-w-0">
                         <span
                           className="px-2 py-0.5 text-[8px] font-bold"
                           style={{
@@ -330,29 +330,29 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center gap-2 pt-3 mt-3 border-t border-[var(--ff-border-color)]/50">
+              <div className="flex flex-wrap items-center gap-2 pt-3 mt-3 border-t border-[var(--ff-border-color)]/50 w-full min-w-0">
                 <button
                   type="button"
                   onClick={() => onSelectTheme(theme)}
                   aria-pressed={isActivelyPreviewing}
-                  className={`flex-1 py-2 px-2.5 text-xs font-semibold rounded-xl border transition-all flex items-center justify-center gap-1.5 min-h-[38px] ${
+                  className={`flex-1 min-w-[104px] max-w-full py-2 px-2.5 text-xs font-semibold rounded-xl border transition-all flex items-center justify-center gap-1.5 min-h-[44px] sm:min-h-[38px] ${
                     isActivelyPreviewing
                       ? 'bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)] border-[var(--ff-accent-border)]'
                       : 'bg-[var(--ff-surface-subtle)] text-[var(--ff-text-primary)] border-[var(--ff-border-color)] hover:bg-[var(--ff-surface-hover)]'
                   }`}
                 >
-                  {isActivelyPreviewing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  <span>{isActivelyPreviewing ? 'Exit Preview' : 'Preview'}</span>
+                  {isActivelyPreviewing ? <EyeOff className="w-3.5 h-3.5 shrink-0" /> : <Eye className="w-3.5 h-3.5 shrink-0" />}
+                  <span className="truncate">{isActivelyPreviewing ? 'Exit Preview' : 'Preview'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => onApplyDirectly(theme)}
-                  className="py-2 px-3 text-xs font-bold rounded-xl bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] hover:opacity-90 transition-opacity flex items-center gap-1 shrink-0 min-h-[38px]"
+                  className="flex-1 sm:flex-none min-w-[84px] max-w-full py-2 px-3 text-xs font-bold rounded-xl bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] hover:opacity-90 transition-opacity flex items-center justify-center gap-1 min-h-[44px] sm:min-h-[38px]"
                   title="Apply this theme globally now"
                 >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Apply</span>
+                  <Check className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Apply</span>
                 </button>
               </div>
             </ThemeCard>
