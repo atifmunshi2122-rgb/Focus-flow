@@ -44,7 +44,7 @@ import {
 type StudySubTab = 'syllabus' | 'revisions' | 'mistakes' | 'habits' | 'analytics';
 
 export const StudyView: React.FC = () => {
-  const { user, showToast, setCurrentTab } = useApp();
+  const { user, habits, refreshKey, triggerRefresh, showToast, setCurrentTab } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<StudySubTab>('syllabus');
   const [selectedTier, setSelectedTier] = useState<string>('all');
@@ -57,7 +57,6 @@ export const StudyView: React.FC = () => {
   const [topics, setTopics] = useState<StudyTopic[]>([]);
   const [revisions, setRevisions] = useState<StudyRevision[]>([]);
   const [mistakes, setMistakes] = useState<StudyMistake[]>([]);
-  const [habits, setHabits] = useState<Habit[]>([]);
   const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -73,16 +72,14 @@ export const StudyView: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [subs, tops, revs, mists, habs, sess] = await Promise.all([
+      const [subs, tops, revs, mists, sess] = await Promise.all([
         api.getStudySubjects().catch(() => [] as StudySubject[]),
         api.getStudyTopics().catch(() => [] as StudyTopic[]),
         api.getStudyRevisions().catch(() => [] as StudyRevision[]),
         api.getStudyMistakes().catch(() => [] as StudyMistake[]),
-        api.getHabits().catch(() => [] as Habit[]),
         api.getFocusSessions().catch(() => [] as FocusSession[]),
       ]);
 
-      setHabits(habs);
       setFocusSessions(sess);
 
       if (subs.length === 0) {
@@ -144,7 +141,7 @@ export const StudyView: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [user]);
+  }, [user, refreshKey]);
 
   // Derived calculations
   const progressSummary = useMemo(() => {
@@ -285,20 +282,9 @@ export const StudyView: React.FC = () => {
 
   // Toggle habit check-off
   const handleToggleHabit = async (habitId: string, dateStr: string) => {
-    setHabits((prev) =>
-      prev.map((h) => {
-        if (h.id !== habitId) return h;
-        const set = new Set(h.completedDates || []);
-        if (set.has(dateStr)) {
-          set.delete(dateStr);
-        } else {
-          set.add(dateStr);
-        }
-        return { ...h, completedDates: Array.from(set).sort() };
-      })
-    );
     try {
       await api.toggleHabit(habitId, dateStr);
+      triggerRefresh();
     } catch (err) {
       console.error('Failed to toggle habit:', err);
     }

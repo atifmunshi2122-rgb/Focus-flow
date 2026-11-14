@@ -103,7 +103,7 @@ export const LogStudyMistakeModal: React.FC<LogStudyMistakeModalProps> = ({
             <select
               value={subjectCode}
               onChange={(e) => setSubjectCode(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             >
               {subjects.map((sub) => (
                 <option key={sub.code} value={sub.code}>
@@ -122,7 +122,7 @@ export const LogStudyMistakeModal: React.FC<LogStudyMistakeModalProps> = ({
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               placeholder="e.g. B+ Tree Height Calculation"
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             />
           </div>
         </div>
@@ -135,7 +135,7 @@ export const LogStudyMistakeModal: React.FC<LogStudyMistakeModalProps> = ({
             <select
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             >
               {SOURCE_OPTIONS.map((src) => (
                 <option key={src} value={src}>
@@ -155,7 +155,7 @@ export const LogStudyMistakeModal: React.FC<LogStudyMistakeModalProps> = ({
                   type="button"
                   key={sev}
                   onClick={() => setSeverity(sev)}
-                  className={`flex-1 py-1.5 px-2 text-xs rounded-xl font-medium border transition-colors ${
+                  className={`flex-1 min-h-[44px] py-2 px-2 text-xs rounded-xl font-medium border flex items-center justify-center transition-colors ${
                     severity === sev
                       ? sev === 'High'
                         ? 'bg-rose-500 text-white border-rose-500'
@@ -184,7 +184,7 @@ export const LogStudyMistakeModal: React.FC<LogStudyMistakeModalProps> = ({
               value={trap}
               onChange={(e) => setTrap(e.target.value)}
               placeholder="e.g. Assumed node size equals block size without subtracting header pointer..."
-              className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-rose-500/30 text-[var(--ff-text-primary)] focus:outline-none focus:border-rose-400 resize-none"
+              className="w-full px-3 py-2 text-base sm:text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-rose-500/30 text-[var(--ff-text-primary)] focus:outline-none focus:border-rose-400 resize-none"
             />
           </div>
 
@@ -198,7 +198,7 @@ export const LogStudyMistakeModal: React.FC<LogStudyMistakeModalProps> = ({
               value={rootCause}
               onChange={(e) => setRootCause(e.target.value)}
               placeholder="e.g. Overlooked difference between order p (max pointers) and keys (p - 1)..."
-              className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-amber-500/30 text-[var(--ff-text-primary)] focus:outline-none focus:border-amber-400 resize-none"
+              className="w-full px-3 py-2 text-base sm:text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-amber-500/30 text-[var(--ff-text-primary)] focus:outline-none focus:border-amber-400 resize-none"
             />
           </div>
 
@@ -212,16 +212,16 @@ export const LogStudyMistakeModal: React.FC<LogStudyMistakeModalProps> = ({
               value={goldenRule}
               onChange={(e) => setGoldenRule(e.target.value)}
               placeholder="e.g. Always write down order equation: p * P_block + (p - 1) * K <= BlockSize before solving."
-              className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-emerald-500/30 text-[var(--ff-text-primary)] focus:outline-none focus:border-emerald-400 resize-none"
+              className="w-full px-3 py-2 text-base sm:text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-emerald-500/30 text-[var(--ff-text-primary)] focus:outline-none focus:border-emerald-400 resize-none"
             />
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--ff-border-color)]">
-          <ThemeButton type="button" variant="ghost" onClick={onClose}>
+          <ThemeButton type="button" variant="ghost" onClick={onClose} className="min-h-[44px] px-4">
             Cancel
           </ThemeButton>
-          <ThemeButton type="submit" variant="primary" loading={submitting}>
+          <ThemeButton type="submit" variant="primary" loading={submitting} className="min-h-[44px] px-4">
             Log Mistake
           </ThemeButton>
         </div>

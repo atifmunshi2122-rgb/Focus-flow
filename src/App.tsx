@@ -35,14 +35,46 @@ import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
 import { MotionPage } from './components/ui/MotionPrimitives.tsx';
 import { MOTION_EASING, MOTION_DURATION, getIntensityFactor } from './theme/motionTokens.ts';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { Check, Eye, X, LayoutDashboard, Timer, CheckSquare, Wallet, Settings } from 'lucide-react';
+import {
+  Check,
+  Eye,
+  X,
+  LayoutDashboard,
+  Timer,
+  CheckSquare,
+  Wallet,
+  Settings,
+  MoreHorizontal,
+  GraduationCap,
+  Flame,
+  Calendar,
+  Clock,
+  ReceiptText,
+  CreditCard,
+  Layers,
+  Repeat,
+  BarChart3,
+  ShieldAlert,
+} from 'lucide-react';
 
-const mobileBottomNavItems: Array<{ id: NavTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'focus', label: 'Focus', icon: Timer },
-  { id: 'tasks', label: 'Tasks', icon: CheckSquare },
-  { id: 'finance', label: 'Finance', icon: Wallet },
+const PRIMARY_MOBILE_TABS: NavTab[] = ['dashboard', 'focus', 'tasks', 'finance'];
+
+interface MobileMoreItem {
+  id: NavTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const MORE_GRID_ITEMS: MobileMoreItem[] = [
+  { id: 'calendar', label: 'Calendar', icon: Calendar },
+  { id: 'timeblocks', label: 'Time Blocks', icon: Clock },
+  { id: 'bills', label: 'Bills & Payments', icon: CreditCard },
+  { id: 'transactions', label: 'Transactions', icon: ReceiptText },
+  { id: 'envelopes', label: 'Envelopes', icon: Layers },
+  { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'recovery', label: 'Recovery', icon: ShieldAlert },
 ];
 
 const MainContent: React.FC = () => {
@@ -76,6 +108,7 @@ const MainContent: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [quickActionOpen, setQuickActionOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
   // Global keyboard shortcuts (Cmd/Ctrl + K, Alt + 1..8, Quick Actions N, E, I, F, ?)
   useEffect(() => {
@@ -277,7 +310,13 @@ const MainContent: React.FC = () => {
           }}
         >
           <div className="flex items-center justify-around max-w-lg mx-auto">
-            {mobileBottomNavItems.map((item) => {
+            {/* Primary 4 Tabs */}
+            {[
+              { id: 'dashboard' as NavTab, label: 'Dashboard', icon: LayoutDashboard },
+              { id: 'focus' as NavTab, label: 'Focus', icon: Timer },
+              { id: 'tasks' as NavTab, label: 'Tasks', icon: CheckSquare },
+              { id: 'finance' as NavTab, label: 'Finance', icon: Wallet },
+            ].map((item) => {
               const Icon = item.icon;
               const isActive = currentTab === item.id;
               return (
@@ -286,7 +325,10 @@ const MainContent: React.FC = () => {
                   type="button"
                   data-tab={item.id}
                   data-bottom-nav={item.id}
-                  onClick={() => setCurrentTab(item.id)}
+                  onClick={() => {
+                    setCurrentTab(item.id);
+                    setMobileMoreOpen(false);
+                  }}
                   className="relative flex flex-col items-center justify-center flex-1 py-1.5 px-1 min-h-[48px] rounded-xl transition-all"
                   style={{
                     color: isActive ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
@@ -319,8 +361,209 @@ const MainContent: React.FC = () => {
                 </button>
               );
             })}
+
+            {/* 5th Tab: Intuitive More Overflow Tab */}
+            {(() => {
+              const isMoreActive = !PRIMARY_MOBILE_TABS.includes(currentTab);
+              const moreIcon =
+                currentTab === 'study'
+                  ? GraduationCap
+                  : currentTab === 'habits'
+                  ? Flame
+                  : currentTab === 'settings'
+                  ? Settings
+                  : currentTab === 'calendar'
+                  ? Calendar
+                  : MoreHorizontal;
+
+              const moreLabel =
+                currentTab === 'study'
+                  ? 'Study'
+                  : currentTab === 'habits'
+                  ? 'Habits'
+                  : currentTab === 'settings'
+                  ? 'Settings'
+                  : currentTab === 'calendar'
+                  ? 'Calendar'
+                  : 'More';
+
+              const Icon = moreIcon;
+              return (
+                <button
+                  type="button"
+                  data-tab="more"
+                  data-bottom-nav="more"
+                  onClick={() => setMobileMoreOpen((prev) => !prev)}
+                  className="relative flex flex-col items-center justify-center flex-1 py-1.5 px-1 min-h-[48px] rounded-xl transition-all"
+                  style={{
+                    color: isMoreActive || mobileMoreOpen ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
+                  }}
+                  aria-label="More Workspaces"
+                  aria-expanded={mobileMoreOpen}
+                  aria-current={isMoreActive ? 'page' : undefined}
+                >
+                  {(isMoreActive || mobileMoreOpen) && (
+                    <motion.div
+                      layoutId="mobile-bottom-nav-active"
+                      className="absolute inset-0 rounded-xl pointer-events-none"
+                      style={{
+                        background: 'var(--ff-accent-soft)',
+                        border: '1px solid var(--ff-accent-border)',
+                      }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <div className="relative z-10 flex flex-col items-center gap-0.5">
+                    <Icon className="w-5 h-5" />
+                    <span
+                      className="text-[10px] font-medium tracking-tight"
+                      style={{
+                        fontWeight: isMoreActive || mobileMoreOpen ? 700 : 500,
+                      }}
+                    >
+                      {moreLabel}
+                    </span>
+                  </div>
+                </button>
+              );
+            })()}
           </div>
         </nav>
+
+        {/* Mobile Navigation "More" Overflow Sheet */}
+        <AnimatePresence>
+          {mobileMoreOpen && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                key="mobile-more-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 lg:hidden"
+                onClick={() => setMobileMoreOpen(false)}
+                aria-hidden="true"
+              />
+
+              {/* Bottom Sheet Drawer */}
+              <motion.div
+                key="mobile-more-drawer"
+                role="dialog"
+                aria-modal="true"
+                aria-label="All Workspaces and Tools"
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                className="fixed inset-x-0 bottom-0 z-50 bg-[var(--ff-surface-elevated)] border-t border-[var(--ff-border-color)] rounded-t-3xl shadow-2xl p-4 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-h-[85dvh] overflow-y-auto overscroll-contain lg:hidden text-[var(--ff-text-primary)]"
+                style={{
+                  boxShadow: '0 -8px 32px rgba(0, 0, 0, 0.28)',
+                }}
+              >
+                {/* Mobile Grab Handle */}
+                <div className="w-12 h-1 bg-[var(--ff-border-strong)] rounded-full mx-auto mb-3.5 opacity-50 shrink-0" />
+
+                {/* Header */}
+                <div className="flex items-center justify-between pb-3 mb-4 border-b border-[var(--ff-border-color)]">
+                  <div>
+                    <h3 className="text-base font-bold text-[var(--ff-text-primary)]">All Workspaces & Tools</h3>
+                    <p className="text-xs text-[var(--ff-text-muted)]">Switch to any FocusFlow workspace</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMobileMoreOpen(false)}
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-xl text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors shrink-0"
+                    aria-label="Close menu"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Primary Academic & Habits Spotlight */}
+                <div className="mb-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ff-text-muted)] mb-2 px-1">
+                    Academic & Daily Consistency
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentTab('study');
+                        setMobileMoreOpen(false);
+                      }}
+                      className={`flex items-start gap-3 p-3 rounded-2xl border text-left transition-all min-h-[58px] ${
+                        currentTab === 'study'
+                          ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent)] text-[var(--ff-accent-text)] shadow-sm ring-1 ring-[var(--ff-accent)]'
+                          : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-primary)] hover:border-[var(--ff-accent)]'
+                      }`}
+                    >
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-500 dark:text-indigo-400">
+                        <GraduationCap className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold truncate">Study OS</div>
+                        <div className="text-[10px] text-[var(--ff-text-muted)] truncate">Syllabus & Revisions</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentTab('habits');
+                        setMobileMoreOpen(false);
+                      }}
+                      className={`flex items-start gap-3 p-3 rounded-2xl border text-left transition-all min-h-[58px] ${
+                        currentTab === 'habits'
+                          ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent)] text-[var(--ff-accent-text)] shadow-sm ring-1 ring-[var(--ff-accent)]'
+                          : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-primary)] hover:border-[var(--ff-accent)]'
+                      }`}
+                    >
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-amber-500/15 text-amber-500 dark:text-amber-400">
+                        <Flame className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold truncate">Habits</div>
+                        <div className="text-[10px] text-[var(--ff-text-muted)] truncate">Streaks & Logs</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* All Other Tools & Workspaces Grid */}
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ff-text-muted)] mb-2 px-1">
+                    Productivity, Finance & Tools
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {MORE_GRID_ITEMS.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = currentTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setCurrentTab(item.id);
+                            setMobileMoreOpen(false);
+                          }}
+                          className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all min-h-[48px] ${
+                            isActive
+                              ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent)] text-[var(--ff-accent-text)] font-semibold'
+                              : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-border-strong)]'
+                          }`}
+                        >
+                          <Icon className="w-4 h-4 shrink-0" />
+                          <span className="text-xs truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Full-App Live Preview Floating Banner */}

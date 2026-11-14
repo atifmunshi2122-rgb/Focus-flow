@@ -249,6 +249,9 @@ interface AppContextType {
   refreshKey: number;
   triggerRefresh: () => void;
 
+  // Habits Cache
+  habits: Habit[];
+
   // Toasts
   toasts: ToastItem[];
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -359,8 +362,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [syncQueueCount, setSyncQueueCount] = useState<number>(0);
 
-  // Tasks cache for linking timer
+  // Tasks and Habits cache for linking timer & study view
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(() => loadInitialTimerState().activeTaskId);
 
   // Command Center, Full-Screen Focus, Trash, Audio & Offline/Notifications state
@@ -958,6 +962,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ])
       .then(([taskList, billList, dashData, finSummary, goalList, expenseList, habitList]) => {
         setTasks(taskList);
+        setHabits(habitList);
         const items = evaluateDeterministicNotifications({
           settings,
           tasks: taskList,
@@ -2110,6 +2115,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Refresh
         refreshKey,
         triggerRefresh,
+
+        // Habits
+        habits,
 
         // Toasts
         toasts,

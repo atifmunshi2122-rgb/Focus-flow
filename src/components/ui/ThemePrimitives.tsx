@@ -456,14 +456,14 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      className={`ff-dialog ff-card-elevated fixed inset-x-0 bottom-0 top-auto m-0 w-full rounded-t-2xl rounded-b-none sm:relative sm:inset-auto sm:m-auto sm:w-[calc(100%-2rem)] ${maxWidthClass} sm:rounded-[var(--ff-radius-card)] max-h-[85dvh] overflow-y-auto p-0 bg-transparent border-0 text-[var(--ff-text-primary)]`}
+      className={`ff-dialog ff-card-elevated fixed inset-x-0 bottom-0 top-auto m-0 w-full rounded-t-2xl rounded-b-none sm:relative sm:inset-auto sm:m-auto sm:w-[calc(100%-2rem)] ${maxWidthClass} sm:rounded-[var(--ff-radius-card)] max-h-[90dvh] sm:max-h-[85vh] overflow-y-auto overscroll-contain p-0 bg-transparent border-0 text-[var(--ff-text-primary)]`}
       style={{
         background: 'var(--ff-surface-elevated)',
         border: 'var(--ff-border-width) solid var(--ff-border-color)',
         boxShadow: 'var(--ff-shadow-elevated)',
       }}
     >
-      <div className="p-4 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="p-4 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         {/* Mobile Bottom-Sheet Grab Handle */}
         <div className="sm:hidden w-12 h-1 bg-[var(--ff-border-strong)] rounded-full mx-auto mb-3 opacity-60 shrink-0" />
 

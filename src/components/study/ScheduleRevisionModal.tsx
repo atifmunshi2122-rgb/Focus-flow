@@ -129,7 +129,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
             <select
               value={subjectCode}
               onChange={(e) => setSubjectCode(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             >
               {subjects.map((sub) => (
                 <option key={sub.code} value={sub.code}>
@@ -147,7 +147,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
               <select
                 value={topicId}
                 onChange={handleTopicChange}
-                className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+                className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
               >
                 {availableTopics.map((top) => (
                   <option key={top.id} value={top.id}>
@@ -156,7 +156,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
                 ))}
               </select>
             ) : (
-              <div className="text-xs text-[var(--ff-text-muted)] py-2 italic">
+              <div className="text-xs text-[var(--ff-text-muted)] py-2.5 italic">
                 No topics found. Type below.
               </div>
             )}
@@ -172,7 +172,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
             value={customTopicTitle}
             onChange={(e) => setCustomTopicTitle(e.target.value)}
             placeholder="e.g. B+ Tree node splitting & deletion rules"
-            className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+            className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
           />
         </div>
 
@@ -181,13 +181,13 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
             <Repeat className="w-3.5 h-3.5 text-[var(--ff-accent)]" />
             Ebbinghaus Spaced Repetition Interval
           </label>
-          <div className="grid grid-cols-6 gap-1.5">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
             {REVISION_INTERVAL_LADDER.map((days) => (
               <button
                 key={days}
                 type="button"
                 onClick={() => handleIntervalChange(days)}
-                className={`py-2 px-1 text-xs rounded-xl font-medium border text-center transition-all ${
+                className={`min-h-[44px] py-2 px-1 text-xs rounded-xl font-medium border text-center flex items-center justify-center transition-all ${
                   intervalDays === days
                     ? 'bg-[var(--ff-accent)] text-white border-[var(--ff-accent)] shadow-md shadow-[var(--ff-accent)]/20'
                     : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
@@ -212,7 +212,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
               type="date"
               value={nextDate}
               onChange={(e) => setNextDate(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             />
           </div>
 
@@ -226,7 +226,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
                   key={diff}
                   type="button"
                   onClick={() => setDifficulty(diff)}
-                  className={`py-2 text-xs rounded-xl capitalize font-medium border transition-all ${
+                  className={`min-h-[44px] py-2 text-xs rounded-xl capitalize font-medium border flex items-center justify-center transition-all ${
                     difficulty === diff
                       ? diff === 'easy'
                         ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
@@ -253,15 +253,15 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
             placeholder="What should you quiz yourself on? e.g. Draw the B+ tree after deleting key 15."
-            className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)] resize-none"
+            className="w-full px-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)] resize-none"
           />
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--ff-border-color)]">
-          <ThemeButton variant="ghost" size="sm" type="button" onClick={onClose}>
+          <ThemeButton variant="ghost" size="sm" type="button" onClick={onClose} className="min-h-[44px] px-4">
             Cancel
           </ThemeButton>
-          <ThemeButton variant="primary" size="sm" type="submit" disabled={submitting}>
+          <ThemeButton variant="primary" size="sm" type="submit" disabled={submitting} className="min-h-[44px] px-4">
             {submitting ? 'Scheduling...' : 'Confirm Schedule'}
           </ThemeButton>
         </div>

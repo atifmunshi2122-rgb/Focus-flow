@@ -93,7 +93,7 @@ export const AddStudyTopicModal: React.FC<AddStudyTopicModalProps> = ({
             <select
               value={subjectCode}
               onChange={(e) => setSubjectCode(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             >
               {subjects.map((sub) => (
                 <option key={sub.code} value={sub.code}>
@@ -113,7 +113,7 @@ export const AddStudyTopicModal: React.FC<AddStudyTopicModalProps> = ({
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
               placeholder="e.g. Unit 3: Concurrency"
-              className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             />
           </div>
         </div>
@@ -127,7 +127,7 @@ export const AddStudyTopicModal: React.FC<AddStudyTopicModalProps> = ({
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             placeholder="e.g. Locking Protocols"
-            className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+            className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
           />
         </div>
 
@@ -141,7 +141,7 @@ export const AddStudyTopicModal: React.FC<AddStudyTopicModalProps> = ({
             value={subtopic}
             onChange={(e) => setSubtopic(e.target.value)}
             placeholder="e.g. Strict 2PL vs Rigorous 2PL & Deadlocks"
-            className="w-full px-3 py-2 text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+            className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
           />
         </div>
 
@@ -155,7 +155,7 @@ export const AddStudyTopicModal: React.FC<AddStudyTopicModalProps> = ({
                 type="button"
                 key={p}
                 onClick={() => setPriority(p)}
-                className={`flex-1 py-1.5 px-3 text-xs rounded-xl font-medium border transition-colors ${
+                className={`flex-1 min-h-[44px] py-2 px-3 text-xs rounded-xl font-medium border flex items-center justify-center transition-colors ${
                   priority === p
                     ? 'bg-[var(--ff-accent)] text-white border-[var(--ff-accent)]'
                     : 'bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] border-[var(--ff-border-color)] hover:border-[var(--ff-text-muted)]'
@@ -172,30 +172,30 @@ export const AddStudyTopicModal: React.FC<AddStudyTopicModalProps> = ({
             Initial Completion Milestones
           </label>
           <div className="grid grid-cols-3 gap-2">
-            <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] cursor-pointer text-xs">
+            <label className="min-h-[44px] flex items-center gap-2 p-2.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] cursor-pointer text-xs select-none">
               <input
                 type="checkbox"
                 checked={theory}
                 onChange={(e) => setTheory(e.target.checked)}
-                className="w-4 h-4 rounded text-[var(--ff-accent)] focus:ring-0"
+                className="w-4.5 h-4.5 rounded text-[var(--ff-accent)] focus:ring-0"
               />
               <span className="font-medium text-[var(--ff-text-primary)]">Theory (T)</span>
             </label>
-            <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] cursor-pointer text-xs">
+            <label className="min-h-[44px] flex items-center gap-2 p-2.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] cursor-pointer text-xs select-none">
               <input
                 type="checkbox"
                 checked={practice}
                 onChange={(e) => setPractice(e.target.checked)}
-                className="w-4 h-4 rounded text-[var(--ff-accent)] focus:ring-0"
+                className="w-4.5 h-4.5 rounded text-[var(--ff-accent)] focus:ring-0"
               />
               <span className="font-medium text-[var(--ff-text-primary)]">Practice (P)</span>
             </label>
-            <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] cursor-pointer text-xs">
+            <label className="min-h-[44px] flex items-center gap-2 p-2.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] cursor-pointer text-xs select-none">
               <input
                 type="checkbox"
                 checked={pyq}
                 onChange={(e) => setPyq(e.target.checked)}
-                className="w-4 h-4 rounded text-[var(--ff-accent)] focus:ring-0"
+                className="w-4.5 h-4.5 rounded text-[var(--ff-accent)] focus:ring-0"
               />
               <span className="font-medium text-[var(--ff-text-primary)]">PYQ (Q)</span>
             </label>
@@ -211,15 +211,15 @@ export const AddStudyTopicModal: React.FC<AddStudyTopicModalProps> = ({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Important takeaways, theorem names, or textbook page numbers..."
-            className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)] resize-none"
+            className="w-full px-3 py-2 text-base sm:text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)] resize-none"
           />
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--ff-border-color)]">
-          <ThemeButton type="button" variant="ghost" onClick={onClose}>
+          <ThemeButton type="button" variant="ghost" onClick={onClose} className="min-h-[44px] px-4">
             Cancel
           </ThemeButton>
-          <ThemeButton type="submit" variant="primary" loading={submitting}>
+          <ThemeButton type="submit" variant="primary" loading={submitting} className="min-h-[44px] px-4">
             Add Topic
           </ThemeButton>
         </div>
