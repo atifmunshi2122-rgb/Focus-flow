@@ -16,6 +16,7 @@ export type DashboardWidgetId =
   | 'clock_greeting'
   | 'focus_kpis'
   | 'finance_kpis'
+  | 'study_pulse'
   | 'productivity_goals'
   | 'gamification'
   | 'upcoming_bills'
@@ -457,10 +458,21 @@ export interface OfflineOutboxOperation {
     | 'save_habit'
     | 'toggle_habit'
     | 'delete_habit'
-    | 'update_settings';
+    | 'update_settings'
+    | 'save_study_subject'
+    | 'delete_study_subject'
+    | 'save_study_topic'
+    | 'delete_study_topic'
+    | 'save_study_revision'
+    | 'record_study_recall'
+    | 'delete_study_revision'
+    | 'save_study_mistake'
+    | 'delete_study_mistake';
   payload: Record<string, unknown>;
   createdAt: string;
   attempts: number;
   lastError?: string;
 }
+
+export * from './study.ts';
 

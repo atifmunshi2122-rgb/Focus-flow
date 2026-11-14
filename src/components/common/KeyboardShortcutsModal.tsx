@@ -35,6 +35,7 @@ export const SHORTCUTS_REGISTRY: ShortcutItem[] = [
   { keys: ['Alt', '6'], description: 'Jump to Bills & Recurring Payments', category: 'Navigation' },
   { keys: ['Alt', '7'], description: 'Jump to Unified Analytics & Reports', category: 'Navigation' },
   { keys: ['Alt', '8'], description: 'Jump to Settings & Theme Studio', category: 'Navigation' },
+  { keys: ['Alt', '9'], description: 'Jump to Study OS & Academic Intelligence', category: 'Navigation' },
   { keys: ['Alt', 'H'], description: 'Jump to Habit Tracker & Streaks', category: 'Navigation' },
   { keys: ['Alt', 'C'], description: 'Jump to Productivity Calendar', category: 'Navigation' },
   { keys: ['Alt', 'B'], description: 'Jump to Daily Time-block Planner', category: 'Navigation' },

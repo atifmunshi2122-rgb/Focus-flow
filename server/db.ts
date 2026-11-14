@@ -262,6 +262,78 @@ export interface DurableSyncOperation {
   createdAt: string;
 }
 
+export interface StudySubject {
+  id: string;
+  userId: string;
+  code: string;
+  name: string;
+  tierId: string;
+  semesterOrDomain?: string;
+  targetExam?: string;
+  totalSubtopics: number;
+  completedSubtopics: number;
+  color?: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export interface StudyTopic {
+  id: string;
+  userId: string;
+  subjectCode: string;
+  unit: string;
+  topic: string;
+  subtopic: string;
+  priority: 'High' | 'Medium' | 'Low';
+  theory: boolean;
+  practice: boolean;
+  pyq: boolean;
+  revisionCount: number;
+  notes?: string;
+  rowIndex?: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export interface StudyRevision {
+  id: string;
+  userId: string;
+  topicId: string;
+  subjectCode: string;
+  topicTitle: string;
+  lastStudiedAt: string;
+  nextRevisionAt: string;
+  intervalDays: number;
+  repetition: number;
+  difficulty: 'easy' | 'medium' | 'hard';
+  recallScore?: number;
+  status: 'scheduled' | 'due' | 'overdue' | 'mastered';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export interface StudyMistake {
+  id: string;
+  userId: string;
+  date: string;
+  subjectCode: string;
+  subjectName?: string;
+  topic: string;
+  source: string;
+  severity: 'High' | 'Medium' | 'Low';
+  trap: string;
+  rootCause: string;
+  goldenRule: string;
+  resolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
 export interface DatabaseSchema {
   users: User[];
   userSettings: UserSettings[];
@@ -279,6 +351,10 @@ export interface DatabaseSchema {
   subscriptions: SubscriptionPlan[];
   auditLogs: AuditLogEntry[];
   syncQueue: DurableSyncOperation[];
+  studySubjects?: StudySubject[];
+  studyTopics?: StudyTopic[];
+  studyRevisions?: StudyRevision[];
+  studyMistakes?: StudyMistake[];
 }
 
 const DEFAULT_CATEGORIES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -314,6 +390,10 @@ class DatabaseService {
     subscriptions: [],
     auditLogs: [],
     syncQueue: [],
+    studySubjects: [],
+    studyTopics: [],
+    studyRevisions: [],
+    studyMistakes: [],
   };
 
   private writeQueue: Promise<void> = Promise.resolve();
@@ -362,6 +442,10 @@ class DatabaseService {
           subscriptions: parsed.subscriptions || [],
           auditLogs: parsed.auditLogs || [],
           syncQueue: parsed.syncQueue || [],
+          studySubjects: parsed.studySubjects || [],
+          studyTopics: parsed.studyTopics || [],
+          studyRevisions: parsed.studyRevisions || [],
+          studyMistakes: parsed.studyMistakes || [],
         };
       }
     } catch (err) {
@@ -529,6 +613,10 @@ class DatabaseService {
     this.db.timeBlocks = (this.db.timeBlocks || []).filter((tb) => tb.userId !== targetUserId);
     this.db.envelopes = (this.db.envelopes || []).filter((env) => env.userId !== targetUserId);
     this.db.subscriptions = (this.db.subscriptions || []).filter((sub) => sub.userId !== targetUserId);
+    this.db.studySubjects = (this.db.studySubjects || []).filter((s) => s.userId !== targetUserId);
+    this.db.studyTopics = (this.db.studyTopics || []).filter((t) => t.userId !== targetUserId);
+    this.db.studyRevisions = (this.db.studyRevisions || []).filter((r) => r.userId !== targetUserId);
+    this.db.studyMistakes = (this.db.studyMistakes || []).filter((m) => m.userId !== targetUserId);
     this.db.auditLogs = (this.db.auditLogs || []).filter((l) => l.userId !== targetUserId);
     this.db.syncQueue = (this.db.syncQueue || []).filter((sq) => sq.userId !== targetUserId);
     this.ensureSeedDataForUser(targetUserId, false);
@@ -550,6 +638,10 @@ class DatabaseService {
     this.db.timeBlocks = (this.db.timeBlocks || []).filter((tb) => !isTarget(tb.userId));
     this.db.envelopes = (this.db.envelopes || []).filter((env) => !isTarget(env.userId));
     this.db.subscriptions = (this.db.subscriptions || []).filter((sub) => !isTarget(sub.userId));
+    this.db.studySubjects = (this.db.studySubjects || []).filter((s) => !isTarget(s.userId));
+    this.db.studyTopics = (this.db.studyTopics || []).filter((t) => !isTarget(t.userId));
+    this.db.studyRevisions = (this.db.studyRevisions || []).filter((r) => !isTarget(r.userId));
+    this.db.studyMistakes = (this.db.studyMistakes || []).filter((m) => !isTarget(m.userId));
     this.save();
   }
 
@@ -1601,6 +1693,10 @@ class DatabaseService {
       timeBlocks: (this.db.timeBlocks || []).filter((tb) => tb.userId === userId),
       envelopes: (this.db.envelopes || []).filter((env) => env.userId === userId),
       subscriptions: (this.db.subscriptions || []).filter((sub) => sub.userId === userId),
+      studySubjects: (this.db.studySubjects || []).filter((s) => s.userId === userId),
+      studyTopics: (this.db.studyTopics || []).filter((t) => t.userId === userId),
+      studyRevisions: (this.db.studyRevisions || []).filter((r) => r.userId === userId),
+      studyMistakes: (this.db.studyMistakes || []).filter((m) => m.userId === userId),
       auditLogs: (this.db.auditLogs || []).filter((l) => l.userId === userId),
     };
     return backup;
@@ -1697,6 +1793,46 @@ class DatabaseService {
       counts.subscriptions = this.db.subscriptions.filter((sub) => sub.userId === userId).length;
     }
 
+    if (Array.isArray(data.studySubjects)) {
+      this.db.studySubjects = (this.db.studySubjects || []).filter((s) => s.userId !== userId);
+      for (const item of data.studySubjects) {
+        if (item && item.id && item.code) {
+          this.db.studySubjects.push({ ...item, userId });
+        }
+      }
+      counts.studySubjects = this.db.studySubjects.filter((s) => s.userId === userId).length;
+    }
+
+    if (Array.isArray(data.studyTopics)) {
+      this.db.studyTopics = (this.db.studyTopics || []).filter((t) => t.userId !== userId);
+      for (const item of data.studyTopics) {
+        if (item && item.id && item.subjectCode) {
+          this.db.studyTopics.push({ ...item, userId });
+        }
+      }
+      counts.studyTopics = this.db.studyTopics.filter((t) => t.userId === userId).length;
+    }
+
+    if (Array.isArray(data.studyRevisions)) {
+      this.db.studyRevisions = (this.db.studyRevisions || []).filter((r) => r.userId !== userId);
+      for (const item of data.studyRevisions) {
+        if (item && item.id && item.topicId) {
+          this.db.studyRevisions.push({ ...item, userId });
+        }
+      }
+      counts.studyRevisions = this.db.studyRevisions.filter((r) => r.userId === userId).length;
+    }
+
+    if (Array.isArray(data.studyMistakes)) {
+      this.db.studyMistakes = (this.db.studyMistakes || []).filter((m) => m.userId !== userId);
+      for (const item of data.studyMistakes) {
+        if (item && item.id && item.trap) {
+          this.db.studyMistakes.push({ ...item, userId });
+        }
+      }
+      counts.studyMistakes = this.db.studyMistakes.filter((m) => m.userId === userId).length;
+    }
+
     this.recordAuditLog(userId, {
       action: 'backup_restore',
       entityType: 'backup',
@@ -1707,6 +1843,283 @@ class DatabaseService {
 
     this.save();
     return { success: true, counts };
+  }
+
+  // --- STUDY MANAGEMENT CRUD METHODS ---
+  public getStudySubjects(userId: string): StudySubject[] {
+    const list = this.db.studySubjects || [];
+    return list.filter((s) => s.userId === userId && !s.deletedAt);
+  }
+
+  public saveStudySubject(userId: string, input: Partial<StudySubject>): StudySubject {
+    this.db.studySubjects = this.db.studySubjects || [];
+    const nowIso = new Date().toISOString();
+    const id = input.id || `subj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const code = (input.code || `SUB_${Date.now().toString(36).toUpperCase()}`).trim();
+
+    const existingIdx = this.db.studySubjects.findIndex((s) => s.userId === userId && (s.id === id || s.code === code));
+    const subject: StudySubject = {
+      id: existingIdx >= 0 ? this.db.studySubjects[existingIdx].id : id,
+      userId,
+      code,
+      name: (input.name || 'Subject').trim(),
+      tierId: input.tierId || 'tier1_sem3',
+      semesterOrDomain: input.semesterOrDomain || '',
+      targetExam: input.targetExam || '',
+      totalSubtopics: Number(input.totalSubtopics) || 0,
+      completedSubtopics: Number(input.completedSubtopics) || 0,
+      color: input.color || '#3b82f6',
+      createdAt: existingIdx >= 0 ? this.db.studySubjects[existingIdx].createdAt : nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+
+    if (existingIdx >= 0) {
+      this.db.studySubjects[existingIdx] = subject;
+    } else {
+      this.db.studySubjects.push(subject);
+    }
+    this.save();
+    return subject;
+  }
+
+  public deleteStudySubject(userId: string, code: string, isGuest = false): boolean {
+    this.db.studySubjects = this.db.studySubjects || [];
+    const idx = this.db.studySubjects.findIndex((s) => s.userId === userId && (s.code === code || s.id === code));
+    if (idx === -1) return false;
+
+    if (isGuest) {
+      this.db.studySubjects.splice(idx, 1);
+    } else {
+      this.db.studySubjects[idx].deletedAt = new Date().toISOString();
+    }
+    this.save();
+    return true;
+  }
+
+  public getStudyTopics(userId: string, subjectCode?: string): StudyTopic[] {
+    const list = this.db.studyTopics || [];
+    return list
+      .filter((t) => t.userId === userId && !t.deletedAt && (!subjectCode || t.subjectCode === subjectCode))
+      .sort((a, b) => (a.rowIndex || 0) - (b.rowIndex || 0));
+  }
+
+  public saveStudyTopic(userId: string, input: Partial<StudyTopic>): StudyTopic {
+    this.db.studyTopics = this.db.studyTopics || [];
+    const nowIso = new Date().toISOString();
+    const id = input.id || `topic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const existingIdx = this.db.studyTopics.findIndex((t) => t.userId === userId && t.id === id);
+    const topic: StudyTopic = {
+      id,
+      userId,
+      subjectCode: input.subjectCode || 'Sub_General',
+      unit: input.unit || 'Unit 1',
+      topic: input.topic || 'General Topic',
+      subtopic: input.subtopic || 'Core Concept',
+      priority: input.priority || 'Medium',
+      theory: Boolean(input.theory),
+      practice: Boolean(input.practice),
+      pyq: Boolean(input.pyq),
+      revisionCount: Number(input.revisionCount) || 0,
+      notes: input.notes || '',
+      rowIndex: input.rowIndex || 0,
+      createdAt: existingIdx >= 0 ? this.db.studyTopics[existingIdx].createdAt : nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+
+    if (existingIdx >= 0) {
+      this.db.studyTopics[existingIdx] = topic;
+    } else {
+      this.db.studyTopics.push(topic);
+    }
+
+    this.recomputeSubjectCounts(userId, topic.subjectCode);
+    this.save();
+    return topic;
+  }
+
+  private recomputeSubjectCounts(userId: string, subjectCode: string): void {
+    const topics = (this.db.studyTopics || []).filter((t) => t.userId === userId && t.subjectCode === subjectCode && !t.deletedAt);
+    const completed = topics.filter((t) => t.theory && t.practice).length;
+    const subIdx = (this.db.studySubjects || []).findIndex((s) => s.userId === userId && s.code === subjectCode);
+    if (subIdx >= 0 && this.db.studySubjects) {
+      this.db.studySubjects[subIdx].totalSubtopics = topics.length;
+      this.db.studySubjects[subIdx].completedSubtopics = completed;
+      this.db.studySubjects[subIdx].updatedAt = new Date().toISOString();
+    }
+  }
+
+  public deleteStudyTopic(userId: string, topicId: string, isGuest = false): boolean {
+    this.db.studyTopics = this.db.studyTopics || [];
+    const idx = this.db.studyTopics.findIndex((t) => t.userId === userId && t.id === topicId);
+    if (idx === -1) return false;
+
+    const subjectCode = this.db.studyTopics[idx].subjectCode;
+    if (isGuest) {
+      this.db.studyTopics.splice(idx, 1);
+    } else {
+      this.db.studyTopics[idx].deletedAt = new Date().toISOString();
+    }
+    this.recomputeSubjectCounts(userId, subjectCode);
+    this.save();
+    return true;
+  }
+
+  public getStudyRevisions(userId: string): StudyRevision[] {
+    const list = this.db.studyRevisions || [];
+    return list.filter((r) => r.userId === userId && !r.deletedAt);
+  }
+
+  public saveStudyRevision(userId: string, input: Partial<StudyRevision>): StudyRevision {
+    this.db.studyRevisions = this.db.studyRevisions || [];
+    const nowIso = new Date().toISOString();
+    const id = input.id || `rev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const existingIdx = this.db.studyRevisions.findIndex((r) => r.userId === userId && r.id === id);
+    const revision: StudyRevision = {
+      id,
+      userId,
+      topicId: input.topicId || '',
+      subjectCode: input.subjectCode || 'Sub_General',
+      topicTitle: input.topicTitle || 'Revision Topic',
+      lastStudiedAt: input.lastStudiedAt || nowIso.slice(0, 10),
+      nextRevisionAt: input.nextRevisionAt || nowIso.slice(0, 10),
+      intervalDays: Number(input.intervalDays) || 1,
+      repetition: Number(input.repetition) || 1,
+      difficulty: input.difficulty || 'medium',
+      recallScore: input.recallScore,
+      status: input.status || 'scheduled',
+      notes: input.notes || '',
+      createdAt: existingIdx >= 0 ? this.db.studyRevisions[existingIdx].createdAt : nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+
+    if (existingIdx >= 0) {
+      this.db.studyRevisions[existingIdx] = revision;
+    } else {
+      this.db.studyRevisions.push(revision);
+    }
+    this.save();
+    return revision;
+  }
+
+  public recordStudyRecall(userId: string, revisionId: string, difficulty: 'easy' | 'medium' | 'hard'): StudyRevision | null {
+    this.db.studyRevisions = this.db.studyRevisions || [];
+    const idx = this.db.studyRevisions.findIndex((r) => r.userId === userId && r.id === revisionId);
+    if (idx === -1) return null;
+
+    const rev = this.db.studyRevisions[idx];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const ladder = [1, 3, 7, 14, 30, 60];
+    const currentIdx = ladder.indexOf(rev.intervalDays);
+
+    let nextInterval: number;
+    let nextStatus: StudyRevision['status'] = 'scheduled';
+
+    if (difficulty === 'hard') {
+      const newIdx = Math.max(0, (currentIdx >= 0 ? currentIdx : 0) - 1);
+      nextInterval = ladder[newIdx];
+    } else if (difficulty === 'easy') {
+      const newIdx = Math.min(ladder.length - 1, (currentIdx >= 0 ? currentIdx : 0) + 2);
+      nextInterval = ladder[newIdx];
+      if (newIdx >= ladder.length - 1) nextStatus = 'mastered';
+    } else {
+      const newIdx = (currentIdx >= 0 ? currentIdx : 0) + 1;
+      if (newIdx >= ladder.length - 1) {
+        nextInterval = ladder[ladder.length - 1];
+        nextStatus = 'mastered';
+      } else {
+        nextInterval = ladder[newIdx];
+      }
+    }
+
+    const nextDate = new Date(`${todayStr}T12:00:00Z`);
+    nextDate.setUTCDate(nextDate.getUTCDate() + nextInterval);
+    const nextRevisionAt = nextDate.toISOString().slice(0, 10);
+
+    const updated: StudyRevision = {
+      ...rev,
+      lastStudiedAt: todayStr,
+      nextRevisionAt,
+      intervalDays: nextInterval,
+      repetition: rev.repetition + 1,
+      difficulty,
+      status: nextStatus,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.db.studyRevisions[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  public deleteStudyRevision(userId: string, revisionId: string, isGuest = false): boolean {
+    this.db.studyRevisions = this.db.studyRevisions || [];
+    const idx = this.db.studyRevisions.findIndex((r) => r.userId === userId && r.id === revisionId);
+    if (idx === -1) return false;
+
+    if (isGuest) {
+      this.db.studyRevisions.splice(idx, 1);
+    } else {
+      this.db.studyRevisions[idx].deletedAt = new Date().toISOString();
+    }
+    this.save();
+    return true;
+  }
+
+  public getStudyMistakes(userId: string): StudyMistake[] {
+    const list = this.db.studyMistakes || [];
+    return list.filter((m) => m.userId === userId && !m.deletedAt);
+  }
+
+  public saveStudyMistake(userId: string, input: Partial<StudyMistake>): StudyMistake {
+    this.db.studyMistakes = this.db.studyMistakes || [];
+    const nowIso = new Date().toISOString();
+    const id = input.id || `mistake_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const existingIdx = this.db.studyMistakes.findIndex((m) => m.userId === userId && m.id === id);
+    const mistake: StudyMistake = {
+      id,
+      userId,
+      date: input.date || nowIso.slice(0, 10),
+      subjectCode: input.subjectCode || 'Sub_General',
+      subjectName: input.subjectName || input.subjectCode || 'General',
+      topic: input.topic || 'General Topic',
+      source: input.source || 'Practice',
+      severity: input.severity || 'Medium',
+      trap: input.trap || '',
+      rootCause: input.rootCause || '',
+      goldenRule: input.goldenRule || '',
+      resolved: Boolean(input.resolved),
+      createdAt: existingIdx >= 0 ? this.db.studyMistakes[existingIdx].createdAt : nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+
+    if (existingIdx >= 0) {
+      this.db.studyMistakes[existingIdx] = mistake;
+    } else {
+      this.db.studyMistakes.push(mistake);
+    }
+    this.save();
+    return mistake;
+  }
+
+  public deleteStudyMistake(userId: string, mistakeId: string, isGuest = false): boolean {
+    this.db.studyMistakes = this.db.studyMistakes || [];
+    const idx = this.db.studyMistakes.findIndex((m) => m.userId === userId && m.id === mistakeId);
+    if (idx === -1) return false;
+
+    if (isGuest) {
+      this.db.studyMistakes.splice(idx, 1);
+    } else {
+      this.db.studyMistakes[idx].deletedAt = new Date().toISOString();
+    }
+    this.save();
+    return true;
   }
 }
 

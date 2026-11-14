@@ -52,6 +52,7 @@ export type NavTab =
   | 'timeblocks'
   | 'tasks'
   | 'habits'
+  | 'study'
   | 'finance'
   | 'transactions'
   | 'bills'
@@ -68,6 +69,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'timeblocks',
   'tasks',
   'habits',
+  'study',
   'finance',
   'transactions',
   'bills',

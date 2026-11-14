@@ -29,6 +29,7 @@ import {
   Repeat,
   ShieldAlert,
   Star,
+  GraduationCap,
   X,
 } from 'lucide-react';
 
@@ -79,6 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'timeblocks', label: 'Time Blocks', icon: Clock, section: 'Focus & Productivity' },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, section: 'Focus & Productivity' },
     { id: 'habits', label: 'Habits & Streaks', icon: Flame, section: 'Focus & Productivity' },
+    { id: 'study', label: 'Study OS', icon: GraduationCap, section: 'Focus & Productivity' },
     { id: 'finance', label: 'Finance Overview', icon: Wallet, section: 'Wealth & Finance' },
     { id: 'transactions', label: 'Transactions', icon: ReceiptText, section: 'Wealth & Finance' },
     { id: 'bills', label: 'Bills & Payments', icon: CreditCard, section: 'Wealth & Finance' },
