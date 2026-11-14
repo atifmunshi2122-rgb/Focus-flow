@@ -9,6 +9,7 @@ import {
   Bill,
   SavingsGoal,
 } from './db.js';
+import { buildDefaultStudyWorkspace } from '../src/data/studySeedData.ts';
 import { AuthenticatedRequest, requireUserContext } from './auth.js';
 import {
   DEFAULT_TIMEZONE,
@@ -2325,6 +2326,125 @@ apiRouter.post('/workspace/clear', (req: Request, res: Response) => {
   const { userId, isGuest } = getAuth(req);
   dbService.clearWorkspace(userId, isGuest);
   res.json({ success: true, message: 'All transactions, tasks, bills, and demo data cleared successfully' });
+});
+
+// ----------------------------------------------------
+// STUDY MANAGEMENT (NEXTSTUDY INTEGRATION)
+// ----------------------------------------------------
+apiRouter.get('/study/subjects', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  let subjects = dbService.getStudySubjects(userId);
+  if (subjects.length === 0) {
+    const { subjects: seededSubs, topics: seededTopics } = buildDefaultStudyWorkspace(userId);
+    for (const s of seededSubs) dbService.saveStudySubject(userId, s);
+    for (const t of seededTopics) dbService.saveStudyTopic(userId, t);
+    subjects = dbService.getStudySubjects(userId);
+  }
+  res.json(subjects);
+});
+
+apiRouter.post('/study/subjects', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const subject = dbService.saveStudySubject(userId, req.body);
+  res.json(subject);
+});
+
+apiRouter.delete('/study/subjects/:code', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  const success = dbService.deleteStudySubject(userId, req.params.code, isGuest);
+  if (!success) {
+    res.status(404).json({ error: 'Subject not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Subject deleted' });
+});
+
+apiRouter.get('/study/topics', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const subjectCode = typeof req.query.subjectCode === 'string' ? req.query.subjectCode : undefined;
+  let topics = dbService.getStudyTopics(userId, subjectCode);
+  if (topics.length === 0 && !subjectCode) {
+    const { subjects: seededSubs, topics: seededTopics } = buildDefaultStudyWorkspace(userId);
+    for (const s of seededSubs) dbService.saveStudySubject(userId, s);
+    for (const t of seededTopics) dbService.saveStudyTopic(userId, t);
+    topics = dbService.getStudyTopics(userId);
+  }
+  res.json(topics);
+});
+
+apiRouter.post('/study/topics', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const topic = dbService.saveStudyTopic(userId, req.body);
+  res.json(topic);
+});
+
+apiRouter.delete('/study/topics/:id', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  const success = dbService.deleteStudyTopic(userId, req.params.id, isGuest);
+  if (!success) {
+    res.status(404).json({ error: 'Topic not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Topic deleted' });
+});
+
+apiRouter.get('/study/revisions', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const revisions = dbService.getStudyRevisions(userId);
+  res.json(revisions);
+});
+
+apiRouter.post('/study/revisions', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const revision = dbService.saveStudyRevision(userId, req.body);
+  res.json(revision);
+});
+
+apiRouter.post('/study/revisions/:id/recall', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const difficulty = req.body.difficulty as 'easy' | 'medium' | 'hard';
+  if (!difficulty || !['easy', 'medium', 'hard'].includes(difficulty)) {
+    res.status(400).json({ error: 'Invalid difficulty. Must be easy, medium, or hard' });
+    return;
+  }
+  const updated = dbService.recordStudyRecall(userId, req.params.id, difficulty);
+  if (!updated) {
+    res.status(404).json({ error: 'Revision not found' });
+    return;
+  }
+  res.json(updated);
+});
+
+apiRouter.delete('/study/revisions/:id', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  const success = dbService.deleteStudyRevision(userId, req.params.id, isGuest);
+  if (!success) {
+    res.status(404).json({ error: 'Revision not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Revision deleted' });
+});
+
+apiRouter.get('/study/mistakes', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const mistakes = dbService.getStudyMistakes(userId);
+  res.json(mistakes);
+});
+
+apiRouter.post('/study/mistakes', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const mistake = dbService.saveStudyMistake(userId, req.body);
+  res.json(mistake);
+});
+
+apiRouter.delete('/study/mistakes/:id', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  const success = dbService.deleteStudyMistake(userId, req.params.id, isGuest);
+  if (!success) {
+    res.status(404).json({ error: 'Mistake not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Mistake deleted' });
 });
 
 // ----------------------------------------------------

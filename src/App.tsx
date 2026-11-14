@@ -28,6 +28,7 @@ import { ProductivityCalendar } from './components/calendar/ProductivityCalendar
 import { DailyTimeBlockPlanner } from './components/focus/DailyTimeBlockPlanner.tsx';
 import { EnvelopeBudgetManager } from './components/finance/EnvelopeBudgetManager.tsx';
 import { SubscriptionManager } from './components/finance/SubscriptionManager.tsx';
+import { StudyView } from './components/study/StudyView.tsx';
 import { DataRecoveryCenter } from './components/settings/DataRecoveryCenter.tsx';
 import { getStyleDefinition } from './theme/stylesRegistry.ts';
 import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
@@ -111,6 +112,9 @@ const MainContent: React.FC = () => {
           '6': 'bills',
           '7': 'analytics',
           '8': 'settings',
+          '9': 'study',
+          'o': 'study',
+          'O': 'study',
           'h': 'habits',
           'H': 'habits',
           'c': 'calendar',
@@ -253,6 +257,8 @@ const MainContent: React.FC = () => {
             {currentTab === 'envelopes' && <EnvelopeBudgetManager />}
 
             {currentTab === 'subscriptions' && <SubscriptionManager />}
+
+            {currentTab === 'study' && <StudyView />}
 
             {currentTab === 'analytics' && <AnalyticsReportsView />}
 

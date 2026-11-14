@@ -251,6 +251,32 @@ export function searchUniversalWorkspace(
   });
 
   addHit({
+    id: 'act_schedule_study_revision',
+    filterGroup: 'actions',
+    groupLabel: 'Quick Actions',
+    title: 'Schedule Spaced Revision',
+    subtitle: 'Plan cognitive recall session (1d, 3d, 7d, 14d, 30d, 60d intervals)',
+    badge: 'Study OS',
+    badgeTone: 'accent',
+    iconName: 'GraduationCap',
+    score: 0,
+    run: () => sources.onNavigate('study'),
+  });
+
+  addHit({
+    id: 'act_log_study_mistake',
+    filterGroup: 'actions',
+    groupLabel: 'Quick Actions',
+    title: 'Log Academic Mistake / Trap',
+    subtitle: '3-tier diagnostic: Trap, Root Cause, and Permanent Golden Rule',
+    badge: 'Study OS',
+    badgeTone: 'danger',
+    iconName: 'GraduationCap',
+    score: 0,
+    run: () => sources.onNavigate('study'),
+  });
+
+  addHit({
     id: 'act_create_budget',
     filterGroup: 'actions',
     groupLabel: 'Quick Actions',
@@ -341,6 +367,7 @@ export function searchUniversalWorkspace(
     { tab: 'bills', label: 'Bills & Payments Tracker', desc: 'Due dates, recurring schedules & payment status', shortcut: 'Alt+6', icon: 'CreditCard' },
     { tab: 'envelopes', label: 'Envelope Budgeting System', desc: 'Category-wise spending caps & real-time utilization', shortcut: 'Alt+E', icon: 'Layers' },
     { tab: 'subscriptions', label: 'Recurring Subscriptions', desc: 'Monthly renewals, subscription audits & leak alerts', shortcut: 'Alt+S', icon: 'Repeat' },
+    { tab: 'study', label: 'Study OS & Academic Intelligence', desc: 'Syllabus mastery, Ebbinghaus spaced repetitions & mistake notebook', shortcut: 'Alt+9', icon: 'GraduationCap' },
     { tab: 'analytics', label: 'Analytics & Visual Intelligence', desc: '12-month trend charts, savings rates, financial analytics & KPI reports', shortcut: 'Alt+7', icon: 'BarChart3' },
     { tab: 'recovery', label: 'Data Recovery & Integrity Center', desc: 'Snapshot backups, restore bin & sync diagnosis', shortcut: 'Alt+R', icon: 'ShieldAlert' },
     { tab: 'settings', label: 'Settings & Theme Studio 2.0', desc: 'Custom 3D themes, physics, palettes & preferences', shortcut: 'Alt+8', icon: 'Settings' },

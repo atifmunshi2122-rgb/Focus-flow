@@ -22,6 +22,10 @@ import {
   DurableSyncOperation,
   CursorPage,
   OfflineOutboxOperation,
+  StudySubject,
+  StudyTopic,
+  StudyRevision,
+  StudyMistake,
 } from '../types/index.ts';
 import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
@@ -265,6 +269,33 @@ async function applyOfflineOutboxOp(userId: string, op: OfflineOutboxOperation):
       return;
     case 'delete_habit':
       await firestoreService.deleteHabit(userId, String(p.id));
+      return;
+    case 'save_study_subject':
+      await firestoreService.saveStudySubject(userId, p as Partial<StudySubject>);
+      return;
+    case 'delete_study_subject':
+      await firestoreService.deleteStudySubject(userId, String(p.id));
+      return;
+    case 'save_study_topic':
+      await firestoreService.saveStudyTopic(userId, p as Partial<StudyTopic>);
+      return;
+    case 'delete_study_topic':
+      await firestoreService.deleteStudyTopic(userId, String(p.id));
+      return;
+    case 'save_study_revision':
+      await firestoreService.saveStudyRevision(userId, p as Partial<StudyRevision>);
+      return;
+    case 'record_study_recall':
+      await firestoreService.recordStudyRecall(userId, String(p.id), p.difficulty as 'easy' | 'medium' | 'hard');
+      return;
+    case 'delete_study_revision':
+      await firestoreService.deleteStudyRevision(userId, String(p.id));
+      return;
+    case 'save_study_mistake':
+      await firestoreService.saveStudyMistake(userId, p as Partial<StudyMistake>);
+      return;
+    case 'delete_study_mistake':
+      await firestoreService.deleteStudyMistake(userId, String(p.id));
       return;
   }
 }
@@ -1597,6 +1628,248 @@ export const api = {
           method: 'POST',
           body: JSON.stringify(data),
         })
+    ),
+
+  // --- STUDY MANAGEMENT (NEXTSTUDY INTEGRATION) ---
+  getStudySubjects: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudySubjects(uid),
+      () => request<StudySubject[]>('/study/subjects')
+    ),
+
+  saveStudySubject: (subject: Partial<StudySubject>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudySubject(uid, subject),
+      () =>
+        request<StudySubject>('/study/subjects', {
+          method: 'POST',
+          body: JSON.stringify(subject),
+        }),
+      {
+        operationType: 'save_study_subject',
+        payload: subject as Record<string, unknown>,
+        dedupeKey: `save_subj_${subject.id || subject.code}`,
+        optimisticResult: (uid) => ({
+          id: subject.id || `subj_${Date.now()}`,
+          userId: uid,
+          code: subject.code || 'SUB_CUSTOM',
+          name: subject.name || 'Subject',
+          tierId: subject.tierId || 'tier1_sem3',
+          totalSubtopics: subject.totalSubtopics || 0,
+          completedSubtopics: subject.completedSubtopics || 0,
+          color: subject.color || '#3b82f6',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ...subject,
+        }),
+      }
+    ),
+
+  deleteStudySubject: (codeOrId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudySubject(uid, codeOrId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/subjects/${encodeURIComponent(codeOrId)}`, {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_subject',
+        payload: { id: codeOrId },
+        dedupeKey: `del_subj_${codeOrId}`,
+        optimisticResult: () => true,
+      }
+    ),
+
+  getStudyTopics: (subjectCode?: string) =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyTopics(uid, subjectCode),
+      () => request<StudyTopic[]>(`/study/topics${subjectCode ? `?subjectCode=${encodeURIComponent(subjectCode)}` : ''}`)
+    ),
+
+  saveStudyTopic: (topic: Partial<StudyTopic>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyTopic(uid, topic),
+      () =>
+        request<StudyTopic>('/study/topics', {
+          method: 'POST',
+          body: JSON.stringify(topic),
+        }),
+      {
+        operationType: 'save_study_topic',
+        payload: topic as Record<string, unknown>,
+        dedupeKey: `save_topic_${topic.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: topic.id || `topic_${Date.now()}`,
+          userId: uid,
+          subjectCode: topic.subjectCode || 'Sub_General',
+          unit: topic.unit || 'Unit 1',
+          topic: topic.topic || 'General Topic',
+          subtopic: topic.subtopic || 'Concept',
+          priority: topic.priority || 'Medium',
+          theory: Boolean(topic.theory),
+          practice: Boolean(topic.practice),
+          pyq: Boolean(topic.pyq),
+          revisionCount: Number(topic.revisionCount) || 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ...topic,
+        }),
+      }
+    ),
+
+  deleteStudyTopic: (topicId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyTopic(uid, topicId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/topics/${encodeURIComponent(topicId)}`, {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_topic',
+        payload: { id: topicId },
+        dedupeKey: `del_topic_${topicId}`,
+        optimisticResult: () => true,
+      }
+    ),
+
+  getStudyRevisions: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyRevisions(uid),
+      () => request<StudyRevision[]>('/study/revisions')
+    ),
+
+  saveStudyRevision: (revision: Partial<StudyRevision>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyRevision(uid, revision),
+      () =>
+        request<StudyRevision>('/study/revisions', {
+          method: 'POST',
+          body: JSON.stringify(revision),
+        }),
+      {
+        operationType: 'save_study_revision',
+        payload: revision as Record<string, unknown>,
+        dedupeKey: `save_rev_${revision.id || revision.topicId}`,
+        optimisticResult: (uid) => ({
+          id: revision.id || `rev_${Date.now()}`,
+          userId: uid,
+          topicId: revision.topicId || '',
+          subjectCode: revision.subjectCode || 'Sub_General',
+          topicTitle: revision.topicTitle || 'Revision Topic',
+          lastStudiedAt: new Date().toISOString().slice(0, 10),
+          nextRevisionAt: new Date().toISOString().slice(0, 10),
+          intervalDays: Number(revision.intervalDays) || 1,
+          repetition: Number(revision.repetition) || 1,
+          difficulty: revision.difficulty || 'medium',
+          status: revision.status || 'scheduled',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ...revision,
+        }),
+      }
+    ),
+
+  recordStudyRecall: (revisionId: string, difficulty: 'easy' | 'medium' | 'hard') =>
+    withPrimaryWrite(
+      (uid) => firestoreService.recordStudyRecall(uid, revisionId, difficulty),
+      () =>
+        request<StudyRevision>(`/study/revisions/${encodeURIComponent(revisionId)}/recall`, {
+          method: 'POST',
+          body: JSON.stringify({ difficulty }),
+        }),
+      {
+        operationType: 'record_study_recall',
+        payload: { id: revisionId, difficulty },
+        dedupeKey: `recall_rev_${revisionId}_${Date.now()}`,
+        optimisticResult: () => null as unknown as StudyRevision,
+      }
+    ),
+
+  deleteStudyRevision: (revisionId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyRevision(uid, revisionId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/revisions/${encodeURIComponent(revisionId)}`, {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_revision',
+        payload: { id: revisionId },
+        dedupeKey: `del_rev_${revisionId}`,
+        optimisticResult: () => true,
+      }
+    ),
+
+  getStudyMistakes: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyMistakes(uid),
+      () => request<StudyMistake[]>('/study/mistakes')
+    ),
+
+  saveStudyMistake: (mistake: Partial<StudyMistake>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyMistake(uid, mistake),
+      () =>
+        request<StudyMistake>('/study/mistakes', {
+          method: 'POST',
+          body: JSON.stringify(mistake),
+        }),
+      {
+        operationType: 'save_study_mistake',
+        payload: mistake as Record<string, unknown>,
+        dedupeKey: `save_mistake_${mistake.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: mistake.id || `mistake_${Date.now()}`,
+          userId: uid,
+          date: mistake.date || new Date().toISOString().slice(0, 10),
+          subjectCode: mistake.subjectCode || 'Sub_General',
+          topic: mistake.topic || 'Topic',
+          source: mistake.source || 'Practice',
+          severity: mistake.severity || 'Medium',
+          trap: mistake.trap || '',
+          rootCause: mistake.rootCause || '',
+          goldenRule: mistake.goldenRule || '',
+          resolved: Boolean(mistake.resolved),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ...mistake,
+        }),
+      }
+    ),
+
+  deleteStudyMistake: (mistakeId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyMistake(uid, mistakeId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/mistakes/${encodeURIComponent(mistakeId)}`, {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_mistake',
+        payload: { id: mistakeId },
+        dedupeKey: `del_mistake_${mistakeId}`,
+        optimisticResult: () => true,
+      }
     ),
 };
 

@@ -13,6 +13,9 @@ import {
   Habit,
   SavingsGoal,
   Task,
+  StudyTopic,
+  StudyRevision,
+  StudyMistake,
 } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
@@ -56,6 +59,10 @@ import {
   ArrowDown,
   Target,
   CheckSquare,
+  GraduationCap,
+  RotateCcw,
+  AlertTriangle,
+  BookOpen,
 } from 'lucide-react';
 
 interface UnifiedDashboardProps {
@@ -65,6 +72,7 @@ interface UnifiedDashboardProps {
 const DEFAULT_ORDER: DashboardWidgetId[] = [
   'clock_greeting',
   'hero',
+  'study_pulse',
   'focus_kpis',
   'finance_kpis',
   'productivity_goals',
@@ -76,6 +84,7 @@ const DEFAULT_ORDER: DashboardWidgetId[] = [
 const WIDGET_LABELS: Record<DashboardWidgetId, string> = {
   clock_greeting: 'Greeting & Live Clock',
   hero: 'Hero Command Banner',
+  study_pulse: 'Study & Academic Pulse',
   focus_kpis: 'Focus & Task KPIs',
   finance_kpis: 'Finance Standing KPIs',
   productivity_goals: 'Daily & Weekly Goals',
@@ -92,6 +101,7 @@ const LAYOUT_PRESETS: Record<DashboardLayoutPreset, { label: string; config: Das
       widgetOrder: DEFAULT_ORDER,
       hiddenWidgets: [],
       widgetSizes: {
+        study_pulse: 'compact',
         productivity_goals: 'compact',
         gamification: 'compact',
         upcoming_bills: 'compact',
@@ -169,6 +179,9 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const [habits, setHabits] = useState<Habit[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>([]);
+  const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>([]);
+  const [studyMistakes, setStudyMistakes] = useState<StudyMistake[]>([]);
   const [loading, setLoading] = useState(true);
 
   const todayStr = useMemo(() => getTodayDateString(DEFAULT_TIMEZONE), []);
@@ -205,14 +218,20 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       api.getBills().catch(() => [] as Bill[]),
       api.getSavingsGoals().catch(() => [] as SavingsGoal[]),
       api.getHabits().catch(() => [] as Habit[]),
+      api.getStudyTopics().catch(() => [] as StudyTopic[]),
+      api.getStudyRevisions().catch(() => [] as StudyRevision[]),
+      api.getStudyMistakes().catch(() => [] as StudyMistake[]),
     ])
-      .then(([dash, sess, tsk, b, sg, hab]) => {
+      .then(([dash, sess, tsk, b, sg, hab, st, sr, sm]) => {
         setData(dash);
         setSessions(sess);
         setTasks(tsk);
         setBills(b);
         setSavingsGoals(sg);
         setHabits(hab);
+        setStudyTopics(st);
+        setStudyRevisions(sr);
+        setStudyMistakes(sm);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -227,6 +246,25 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       referenceDateStr: todayStr,
     });
   }, [tasks, sessions, habits, settings, todayStr]);
+
+  const studyStats = useMemo(() => {
+    const activeTopics = studyTopics.filter((t) => !t.deletedAt);
+    const total = activeTopics.length;
+    const completed = activeTopics.filter((t) => t.theory && t.practice).length;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    const due = studyRevisions.filter(
+      (r) => !r.deletedAt && r.status !== 'mastered' && r.nextRevisionAt <= todayStr
+    ).length;
+    const overdue = studyRevisions.filter(
+      (r) => !r.deletedAt && r.status !== 'mastered' && r.nextRevisionAt < todayStr
+    ).length;
+    const highTraps = studyMistakes.filter(
+      (m) => !m.deletedAt && !m.resolved && m.severity === 'High'
+    ).length;
+
+    return { total, completed, pct, due, overdue, highTraps };
+  }, [studyTopics, studyRevisions, studyMistakes, todayStr]);
 
   const handleToggleHabitFromDashboard = async (habitId: string) => {
     setHabits((prev) =>
@@ -323,6 +361,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     if (customSize === 'wide') return 'lg:col-span-12';
     // Adaptive multi-column layout for balanced dashboard experience on full screen
     if (
+      id === 'study_pulse' ||
       id === 'productivity_goals' ||
       id === 'gamification' ||
       id === 'upcoming_bills' ||
@@ -478,6 +517,96 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
               </div>
             </ThemeCard>
           </InteractiveSurface3D>
+        );
+
+      case 'study_pulse':
+        return (
+          <ThemeCard className="flex flex-col justify-between space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                    Study OS &amp; Academic Pulse
+                  </h3>
+                  <p className="text-xs text-[var(--ff-text-muted)]">
+                    Syllabus retention and cognitive recall status
+                  </p>
+                </div>
+              </div>
+              <ThemeButton
+                variant="ghost"
+                size="sm"
+                onClick={() => setCurrentTab('study')}
+                className="text-xs text-[var(--ff-accent-text)] flex items-center gap-1"
+              >
+                <span>Open Study OS</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </ThemeButton>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="font-semibold text-[var(--ff-text-secondary)]">Syllabus Completion</span>
+                  <span className="font-mono font-bold text-[var(--ff-text-primary)]">
+                    {studyStats.completed} / {studyStats.total} topics ({studyStats.pct}%)
+                  </span>
+                </div>
+                <AnimatedProgressBar
+                  value={studyStats.pct}
+                  showShimmer={true}
+                  tone={studyStats.pct >= 80 ? 'success' : 'accent'}
+                  heightClass="h-2.5"
+                  ariaLabel="Syllabus Completion"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[var(--ff-border-color)]">
+                <div
+                  onClick={() => setCurrentTab('study')}
+                  className="cursor-pointer p-2.5 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] hover:border-amber-500/40 transition-colors"
+                >
+                  <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                    <span className="flex items-center gap-1">
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-400" /> Due Revisions
+                    </span>
+                    <span className="font-mono font-bold text-[var(--ff-text-primary)] text-sm">
+                      {studyStats.due}
+                    </span>
+                  </div>
+                  {studyStats.overdue > 0 ? (
+                    <span className="text-[10px] text-rose-400 font-medium">
+                      ⚠️ {studyStats.overdue} overdue!
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-emerald-400 font-medium">
+                      ✓ Memory refreshed
+                    </span>
+                  )}
+                </div>
+
+                <div
+                  onClick={() => setCurrentTab('study')}
+                  className="cursor-pointer p-2.5 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] hover:border-rose-500/40 transition-colors"
+                >
+                  <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                    <span className="flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-400" /> High Traps
+                    </span>
+                    <span className="font-mono font-bold text-rose-400 text-sm">
+                      {studyStats.highTraps}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-[var(--ff-text-muted)]">
+                    Unresolved root causes
+                  </span>
+                </div>
+              </div>
+            </div>
+          </ThemeCard>
         );
 
       case 'focus_kpis':

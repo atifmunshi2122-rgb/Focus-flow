@@ -59,7 +59,13 @@ import {
   AuditLogEntry,
   DurableSyncOperation,
   CursorPage,
+  StudySubject,
+  StudyTopic,
+  StudyRevision,
+  StudyMistake,
 } from '../types/index.ts';
+import { buildDefaultStudyWorkspace } from '../data/studySeedData.ts';
+import { processRevisionRecall } from './studyIntelligence.ts';
 
 const DEFAULT_CATEGORY_TEMPLATES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
   { name: 'Housing & Rent', type: 'fixed', icon: 'Home', color: '#6366f1' },
@@ -2404,6 +2410,10 @@ export const firestoreService = {
       'subscriptions',
       'audit_logs',
       'sync_queue',
+      'study_subjects',
+      'study_topics',
+      'study_revisions',
+      'study_mistakes',
     ];
     for (const sub of subcollections) {
       const snap = await getDocs(collection(db, `users/${userId}/${sub}`));
@@ -2411,5 +2421,172 @@ export const firestoreService = {
     }
     await setDoc(doc(db, `users/${userId}/settings/savings_goals`), { items: [] }, { merge: true });
     await this.getCategories(userId);
+  },
+
+  // --- STUDY MANAGEMENT (NEXTSTUDY INTEGRATION) ---
+  async getStudySubjects(userId: string): Promise<StudySubject[]> {
+    const list = await listSubcollection<StudySubject>(`users/${userId}/study_subjects`);
+    const active = list.filter((s) => !s.deletedAt);
+    if (active.length === 0) {
+      const { subjects, topics } = buildDefaultStudyWorkspace(userId);
+      for (const s of subjects) await this.saveStudySubject(userId, s);
+      for (const t of topics) await this.saveStudyTopic(userId, t);
+      return subjects;
+    }
+    return active.sort((a, b) => a.code.localeCompare(b.code));
+  },
+
+  async saveStudySubject(userId: string, input: Partial<StudySubject>): Promise<StudySubject> {
+    const id = input.id || `subj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const item: StudySubject = {
+      id,
+      userId,
+      code: (input.code || `SUB_${Date.now().toString(36).toUpperCase()}`).trim(),
+      name: (input.name || 'Subject').trim(),
+      tierId: input.tierId || 'tier1_sem3',
+      semesterOrDomain: input.semesterOrDomain || '',
+      targetExam: input.targetExam || '',
+      totalSubtopics: Number(input.totalSubtopics) || 0,
+      completedSubtopics: Number(input.completedSubtopics) || 0,
+      color: input.color || '#3b82f6',
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+    await setDoc(doc(db, `users/${userId}/study_subjects/${id}`), stripUndefined({ ...item }), { merge: true });
+    return item;
+  },
+
+  async deleteStudySubject(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_subjects/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  async getStudyTopics(userId: string, subjectCode?: string): Promise<StudyTopic[]> {
+    const list = await listSubcollection<StudyTopic>(`users/${userId}/study_topics`);
+    return list
+      .filter((t) => !t.deletedAt && (!subjectCode || t.subjectCode === subjectCode))
+      .sort((a, b) => (a.rowIndex || 0) - (b.rowIndex || 0));
+  },
+
+  async saveStudyTopic(userId: string, input: Partial<StudyTopic>): Promise<StudyTopic> {
+    const id = input.id || `topic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const item: StudyTopic = {
+      id,
+      userId,
+      subjectCode: input.subjectCode || 'Sub_General',
+      unit: input.unit || 'Unit 1',
+      topic: input.topic || 'General Topic',
+      subtopic: input.subtopic || 'Core Concept',
+      priority: input.priority || 'Medium',
+      theory: Boolean(input.theory),
+      practice: Boolean(input.practice),
+      pyq: Boolean(input.pyq),
+      revisionCount: Number(input.revisionCount) || 0,
+      notes: input.notes || '',
+      rowIndex: input.rowIndex || 0,
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+    await setDoc(doc(db, `users/${userId}/study_topics/${id}`), stripUndefined({ ...item }), { merge: true });
+    return item;
+  },
+
+  async deleteStudyTopic(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_topics/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  async getStudyRevisions(userId: string): Promise<StudyRevision[]> {
+    const list = await listSubcollection<StudyRevision>(`users/${userId}/study_revisions`);
+    return list.filter((r) => !r.deletedAt);
+  },
+
+  async saveStudyRevision(userId: string, input: Partial<StudyRevision>): Promise<StudyRevision> {
+    const id = input.id || `rev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const item: StudyRevision = {
+      id,
+      userId,
+      topicId: input.topicId || '',
+      subjectCode: input.subjectCode || 'Sub_General',
+      topicTitle: input.topicTitle || 'Revision Topic',
+      lastStudiedAt: input.lastStudiedAt || nowIso.slice(0, 10),
+      nextRevisionAt: input.nextRevisionAt || nowIso.slice(0, 10),
+      intervalDays: Number(input.intervalDays) || 1,
+      repetition: Number(input.repetition) || 1,
+      difficulty: input.difficulty || 'medium',
+      recallScore: input.recallScore,
+      status: input.status || 'scheduled',
+      notes: input.notes || '',
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+    await setDoc(doc(db, `users/${userId}/study_revisions/${id}`), stripUndefined({ ...item }), { merge: true });
+    return item;
+  },
+
+  async recordStudyRecall(userId: string, revisionId: string, difficulty: 'easy' | 'medium' | 'hard'): Promise<StudyRevision | null> {
+    const existing = await this.getStudyRevisions(userId);
+    const item = existing.find((r) => r.id === revisionId);
+    if (!item) return null;
+    const updated = processRevisionRecall(item, difficulty);
+    await setDoc(doc(db, `users/${userId}/study_revisions/${revisionId}`), stripUndefined({ ...updated }), { merge: true });
+    return updated;
+  },
+
+  async deleteStudyRevision(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_revisions/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
+  async getStudyMistakes(userId: string): Promise<StudyMistake[]> {
+    const list = await listSubcollection<StudyMistake>(`users/${userId}/study_mistakes`);
+    return list.filter((m) => !m.deletedAt);
+  },
+
+  async saveStudyMistake(userId: string, input: Partial<StudyMistake>): Promise<StudyMistake> {
+    const id = input.id || `mistake_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const item: StudyMistake = {
+      id,
+      userId,
+      date: input.date || nowIso.slice(0, 10),
+      subjectCode: input.subjectCode || 'Sub_General',
+      subjectName: input.subjectName || input.subjectCode || 'General',
+      topic: input.topic || 'General Topic',
+      source: input.source || 'Practice',
+      severity: input.severity || 'Medium',
+      trap: input.trap || '',
+      rootCause: input.rootCause || '',
+      goldenRule: input.goldenRule || '',
+      resolved: Boolean(input.resolved),
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+    await setDoc(doc(db, `users/${userId}/study_mistakes/${id}`), stripUndefined({ ...item }), { merge: true });
+    return item;
+  },
+
+  async deleteStudyMistake(userId: string, id: string): Promise<void> {
+    await setDoc(
+      doc(db, `users/${userId}/study_mistakes/${id}`),
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
   },
 };
