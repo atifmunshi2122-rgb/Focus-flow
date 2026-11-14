@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DESIGN_STYLES, DEFAULT_THEME_CONFIG } from '../src/theme/stylesRegistry.ts';
-import { MOTION_DURATION, getIntensityFactor } from '../src/theme/motionTokens.ts';
+import {
+  MOTION_DURATION,
+  getIntensityFactor,
+  getStylePhysicsFamily,
+  getThemeMotionProfile,
+} from '../src/theme/motionTokens.ts';
 
 test('Cross-Device — Responsive Breakpoints & Layout Grid Constraints', () => {
   const breakpoints = {
@@ -69,6 +74,38 @@ test('Cross-Device — Reduced Motion & Animation Duration Safety', () => {
   assert.ok(MOTION_DURATION.control <= 0.25, 'Control transitions must not exceed 250ms');
   assert.ok(MOTION_DURATION.card <= 0.35, 'Card transitions must not exceed 350ms');
   assert.ok(MOTION_DURATION.page <= 0.45, 'Page transitions must not exceed 450ms');
+});
+
+test('Motion Tokens — Theme-Aware Motion Profiles & Reduced Motion Collapse', () => {
+  assert.equal(getStylePhysicsFamily('brutalism'), 'mechanical');
+  assert.equal(getStylePhysicsFamily('retro'), 'mechanical');
+  assert.equal(getStylePhysicsFamily('minimalism'), 'damped');
+  assert.equal(getStylePhysicsFamily('editorial'), 'damped');
+  assert.equal(getStylePhysicsFamily('oled'), 'damped');
+  assert.equal(getStylePhysicsFamily('glassmorphism'), 'fluid');
+  assert.equal(getStylePhysicsFamily('claymorphism'), 'fluid');
+
+  const disabledByNone = getThemeMotionProfile('glassmorphism', 'none', false);
+  assert.equal((disabledByNone.spring as { duration?: number }).duration, 0);
+  assert.equal(disabledByNone.hoverLiftPx, 0);
+  assert.equal(disabledByNone.tapScale, 1);
+  assert.equal(disabledByNone.allowOvershoot, false);
+
+  const disabledByOS = getThemeMotionProfile('claymorphism', 'expressive', true);
+  assert.equal((disabledByOS.spring as { duration?: number }).duration, 0);
+  assert.equal(disabledByOS.allowOvershoot, false);
+
+  const brutalProfile = getThemeMotionProfile('brutalism', 'standard', false);
+  assert.equal(brutalProfile.family, 'mechanical');
+  assert.equal(brutalProfile.allowOvershoot, false);
+
+  const minimalProfile = getThemeMotionProfile('minimalism', 'standard', false);
+  assert.equal(minimalProfile.family, 'damped');
+  assert.equal(minimalProfile.allowOvershoot, false);
+
+  const glassProfile = getThemeMotionProfile('glassmorphism', 'standard', false);
+  assert.equal(glassProfile.family, 'fluid');
+  assert.equal(glassProfile.allowOvershoot, true);
 });
 
 test('Cross-Device — Valid HTML Interactive Nesting (No Nested Buttons/Anchors)', () => {

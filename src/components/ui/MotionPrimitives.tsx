@@ -13,6 +13,7 @@ import {
   getPageTransition,
   getSpringTransition,
   getStaggerVariants,
+  getThemeMotionProfile,
 } from '../../theme/motionTokens.ts';
 import { Check, AlertCircle } from 'lucide-react';
 
@@ -21,12 +22,15 @@ export function useMotionPreferences() {
   const osReduced = Boolean(useReducedMotion());
   const intensity = effectiveThemeConfig.animationIntensity;
   const isDisabled = osReduced || intensity === 'none';
+  const styleId = effectiveThemeConfig.styleId;
+  const profile = getThemeMotionProfile(styleId, intensity, isDisabled);
 
   return {
     intensity,
     osReduced,
     isDisabled,
-    styleId: effectiveThemeConfig.styleId,
+    styleId,
+    profile,
   };
 }
 
@@ -36,8 +40,8 @@ interface MotionPageProps {
 }
 
 export const MotionPage: React.FC<MotionPageProps> = ({ routeKey, children }) => {
-  const { intensity, isDisabled } = useMotionPreferences();
-  const variants = getPageTransition(intensity, isDisabled);
+  const { intensity, isDisabled, styleId } = useMotionPreferences();
+  const variants = getPageTransition(intensity, isDisabled, styleId);
 
   return (
     <motion.div
@@ -45,6 +49,7 @@ export const MotionPage: React.FC<MotionPageProps> = ({ routeKey, children }) =>
       variants={variants}
       initial={isDisabled ? false : 'initial'}
       animate="animate"
+      exit={isDisabled ? undefined : 'exit'}
       className="w-full"
     >
       {children}
@@ -63,8 +68,8 @@ export const MotionStaggerGrid: React.FC<MotionStaggerGridProps> = ({
   className = '',
   style,
 }) => {
-  const { intensity, isDisabled } = useMotionPreferences();
-  const { container } = getStaggerVariants(intensity, isDisabled);
+  const { intensity, isDisabled, styleId } = useMotionPreferences();
+  const { container } = getStaggerVariants(intensity, isDisabled, styleId);
 
   return (
     <motion.div
@@ -90,8 +95,8 @@ export const MotionStaggerItem: React.FC<MotionStaggerItemProps> = ({
   className = '',
   style,
 }) => {
-  const { intensity, isDisabled } = useMotionPreferences();
-  const { item } = getStaggerVariants(intensity, isDisabled);
+  const { intensity, isDisabled, styleId } = useMotionPreferences();
+  const { item } = getStaggerVariants(intensity, isDisabled, styleId);
 
   return (
     <motion.div variants={item} className={className} style={style}>
@@ -570,11 +575,11 @@ export const MotionTabIndicator: React.FC<MotionTabIndicatorProps> = ({
   style,
   transition,
 }) => {
-  const { intensity, isDisabled } = useMotionPreferences();
+  const { intensity, isDisabled, styleId } = useMotionPreferences();
   return (
     <motion.div
       layoutId={layoutId}
-      transition={transition || getSpringTransition(intensity, isDisabled)}
+      transition={transition || getSpringTransition(intensity, isDisabled, styleId)}
       className={className}
       style={style}
       aria-hidden="true"
@@ -624,5 +629,102 @@ export const AnimatedCheckmark: React.FC<AnimatedCheckmarkProps> = ({
         }}
       />
     </svg>
+  );
+};
+
+interface RollingTimerDigitsProps {
+  value: string;
+  className?: string;
+}
+
+/**
+ * Per-character rolling tabular digit readout. Each digit transitions vertically
+ * in-place inside a clipped slot while maintaining strict tabular alignment.
+ */
+export const RollingTimerDigits: React.FC<RollingTimerDigitsProps> = ({
+  value,
+  className = '',
+}) => {
+  const { isDisabled, profile } = useMotionPreferences();
+
+  if (isDisabled) {
+    return <span className={`tabular-nums ${className}`.trim()}>{value}</span>;
+  }
+
+  return (
+    <span className={`inline-flex items-baseline tabular-nums ${className}`.trim()}>
+      {Array.from(value).map((ch, idx) => {
+        const isDigit = ch >= '0' && ch <= '9';
+        if (!isDigit) {
+          return (
+            <span key={`sep-${idx}`} className="inline-block opacity-85 px-[0.02em]">
+              {ch}
+            </span>
+          );
+        }
+        return (
+          <span
+            key={`slot-${idx}`}
+            className="relative inline-flex justify-center overflow-hidden leading-none"
+            style={{ width: '0.62em', height: '1.08em' }}
+          >
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span
+                key={`${idx}-${ch}`}
+                initial={{ y: '45%', opacity: 0 }}
+                animate={{ y: '0%', opacity: 1 }}
+                exit={{ y: '-45%', opacity: 0 }}
+                transition={profile.microSpring}
+                className="inline-block leading-none"
+              >
+                {ch}
+              </motion.span>
+            </AnimatePresence>
+          </span>
+        );
+      })}
+    </span>
+  );
+};
+
+interface SkeletonCrossfadeProps {
+  loading: boolean;
+  skeleton: React.ReactNode;
+  children: React.ReactNode;
+  contentKey?: string;
+}
+
+export const SkeletonCrossfade: React.FC<SkeletonCrossfadeProps> = ({
+  loading,
+  skeleton,
+  children,
+  contentKey = 'loaded',
+}) => {
+  const { isDisabled } = useMotionPreferences();
+
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      {loading ? (
+        <motion.div
+          key="skeleton-state"
+          initial={isDisabled ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={isDisabled ? { opacity: 0 } : { opacity: 0 }}
+          transition={{ duration: isDisabled ? 0.01 : 0.14, ease: MOTION_EASING.decelerate }}
+        >
+          {skeleton}
+        </motion.div>
+      ) : (
+        <motion.div
+          key={contentKey}
+          initial={isDisabled ? false : { opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={isDisabled ? { opacity: 0 } : { opacity: 0 }}
+          transition={{ duration: isDisabled ? 0.01 : 0.2, ease: MOTION_EASING.decelerate }}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };

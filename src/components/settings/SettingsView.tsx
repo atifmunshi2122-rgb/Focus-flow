@@ -419,7 +419,7 @@ export const SettingsView: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isInitializingSheets, setIsInitializingSheets] = useState(false);
 
-  const { isDisabled, intensity } = useMotionPreferences();
+  const { isDisabled, intensity, profile } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
 
   // Sync state from settings prop
@@ -674,14 +674,21 @@ export const SettingsView: React.FC = () => {
                 key={cat.id}
                 type="button"
                 onClick={() => setActiveCategory(cat.id)}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                className={`relative flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
                   isActive
-                    ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] border-transparent shadow-xs'
+                    ? 'text-[var(--ff-accent-contrast)] border-transparent'
                     : 'bg-[var(--ff-surface-subtle)] border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5 shrink-0" />
-                <span>{cat.shortLabel}</span>
+                {isActive && (
+                  <motion.span
+                    layoutId="settings-mobile-pill"
+                    transition={profile.spring}
+                    className="absolute inset-0 rounded-lg bg-[var(--ff-accent)] shadow-xs pointer-events-none"
+                  />
+                )}
+                <Icon className="relative z-10 w-3.5 h-3.5 shrink-0" />
+                <span className="relative z-10">{cat.shortLabel}</span>
               </button>
             );
           })}
@@ -706,19 +713,26 @@ export const SettingsView: React.FC = () => {
                 key={cat.id}
                 type="button"
                 onClick={() => setActiveCategory(cat.id)}
-                className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-left transition-all ${
+                className={`relative w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-left transition-colors ${
                   isActive
-                    ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-xs'
+                    ? 'text-[var(--ff-accent-contrast)]'
                     : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)]'
                 }`}
               >
-                <div className="flex items-center gap-2.5 truncate">
+                {isActive && (
+                  <motion.div
+                    layoutId="settings-nav-pill"
+                    transition={profile.spring}
+                    className="absolute inset-0 rounded-xl bg-[var(--ff-accent)] shadow-xs pointer-events-none"
+                  />
+                )}
+                <div className="relative z-10 flex items-center gap-2.5 truncate">
                   <Icon className="w-4 h-4 shrink-0" />
                   <span className="truncate">{cat.label}</span>
                 </div>
                 {cat.badge && (
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono shrink-0 font-bold ${
+                    className={`relative z-10 px-1.5 py-0.5 rounded text-[10px] font-mono shrink-0 font-bold ${
                       isActive
                         ? 'bg-black/20 text-white'
                         : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border border-[var(--ff-border-color)]'

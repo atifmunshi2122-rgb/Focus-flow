@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { getStyleDefinition } from '../../theme/stylesRegistry.ts';
 import { ThemeButton } from '../ui/ThemePrimitives.tsx';
-import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { RollingTimerDigits, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 import { NotificationCenter } from '../common/NotificationCenter.tsx';
 import {
@@ -54,8 +54,19 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     setKeyboardShortcutsGuideOpen,
   } = useApp();
 
-  const { isDisabled } = useMotionPreferences();
+  const { isDisabled, profile } = useMotionPreferences();
   const activeStyle = getStyleDefinition(effectiveThemeConfig.styleId);
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const next = window.scrollY > 8;
+      setIsScrolled((prev) => (prev === next ? prev : next));
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const tabLabels: Record<string, string> = {
     dashboard: 'Executive Dashboard',
@@ -101,7 +112,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
   };
 
   return (
-    <header className="ff-header sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-4 md:gap-6 h-16 px-3 sm:px-4 md:px-6 lg:px-8 max-w-full">
+    <header
+      data-scrolled={isScrolled ? 'true' : 'false'}
+      className="ff-header sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-4 md:gap-6 h-16 px-3 sm:px-4 md:px-6 lg:px-8 max-w-full"
+    >
       {/* Zone 1: Mobile Menu Trigger + Section Heading */}
       <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
         <button
@@ -171,8 +185,11 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         )}
 
         {/* Universal Command Center Trigger */}
-        <button
+        <motion.button
           type="button"
+          whileHover={isDisabled ? undefined : { y: profile.hoverLiftPx * 0.5 }}
+          whileTap={isDisabled ? undefined : { scale: profile.tapScale }}
+          transition={profile.microSpring}
           onClick={() => setCommandCenterOpen(true)}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
           style={{ borderRadius: 'var(--ff-radius-button)' }}
@@ -184,11 +201,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           <kbd className="hidden xl:inline text-[10px] font-bold px-1 py-0.2 rounded bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
             ⌘K
           </kbd>
-        </button>
+        </motion.button>
 
         {/* Keyboard Shortcuts Cheat-Sheet Trigger */}
-        <button
+        <motion.button
           type="button"
+          whileHover={isDisabled ? undefined : { y: profile.hoverLiftPx * 0.5 }}
+          whileTap={isDisabled ? undefined : { scale: profile.tapScale }}
+          transition={profile.microSpring}
           onClick={() => setKeyboardShortcutsGuideOpen(true)}
           className="hidden sm:flex items-center justify-center p-2 rounded-lg border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
           style={{ borderRadius: 'var(--ff-radius-button)' }}
@@ -196,14 +216,16 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           aria-label="Keyboard Shortcuts Guide"
         >
           <Keyboard className="w-3.5 h-3.5" />
-        </button>
+        </motion.button>
 
         {/* Rule-Based Notifications Bell */}
         <NotificationCenter />
 
-        {/* Floating Mini Timer Indicator */}
-        <div
-          className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border transition-colors"
+        {/* Floating Mini Timer Indicator (layout-morphing capsule) */}
+        <motion.div
+          layout
+          transition={profile.spring}
+          className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border transition-colors overflow-hidden"
           style={{
             borderRadius: 'var(--ff-radius-button)',
             background: isRunning ? 'var(--ff-accent-soft)' : 'var(--ff-surface-muted)',
@@ -211,18 +233,35 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
             color: 'var(--ff-text-primary)',
           }}
         >
-          {isRunning && (
-            <motion.span
-              aria-hidden="true"
-              animate={isDisabled ? undefined : { scale: [1, 1.35, 1], opacity: [0.65, 1, 0.65] }}
-              transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-              className="w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: timerMode === 'work' ? 'var(--ff-accent)' : 'var(--ff-success)' }}
-            />
-          )}
-          <span className="tabular-nums font-semibold">
-            {formatTimerMinSec(timerEngine === 'stopwatch' ? stopwatchElapsed : timeLeft)}
-          </span>
+          <AnimatePresence initial={false}>
+            {isRunning && (
+              <motion.span
+                key="header-timer-dot"
+                aria-hidden="true"
+                initial={isDisabled ? false : { scale: 0, opacity: 0 }}
+                animate={
+                  isDisabled
+                    ? { scale: 1, opacity: 1 }
+                    : { scale: [1, 1.3, 1], opacity: [0.7, 1, 0.7] }
+                }
+                exit={isDisabled ? { opacity: 0 } : { scale: 0, opacity: 0 }}
+                transition={
+                  isDisabled
+                    ? { duration: 0 }
+                    : {
+                        scale: { duration: 1.8, repeat: Infinity, ease: 'easeInOut' },
+                        opacity: { duration: 1.8, repeat: Infinity, ease: 'easeInOut' },
+                      }
+                }
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: timerMode === 'work' ? 'var(--ff-accent)' : 'var(--ff-success)' }}
+              />
+            )}
+          </AnimatePresence>
+          <RollingTimerDigits
+            value={formatTimerMinSec(timerEngine === 'stopwatch' ? stopwatchElapsed : timeLeft)}
+            className="font-semibold"
+          />
           <span className="text-[10px] uppercase font-sans text-[var(--ff-text-muted)]">
             {timerEngine === 'stopwatch'
               ? 'SW'
@@ -232,10 +271,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
                   ? 'Work'
                   : 'Break'}
           </span>
-          <button
+          <motion.button
             type="button"
+            whileTap={isDisabled ? undefined : { scale: 0.88 }}
+            transition={profile.microSpring}
             onClick={isRunning ? pauseTimer : startTimer}
-            className="p-1 rounded hover:bg-[var(--ff-surface-hover)] transition-transform active:scale-90"
+            className="p-1 rounded hover:bg-[var(--ff-surface-hover)] transition-colors"
             style={{ color: 'var(--ff-accent-text)' }}
             title={isRunning ? 'Pause timer' : 'Start timer'}
             aria-label={isRunning ? 'Pause timer' : 'Start timer'}
@@ -252,8 +293,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
                 {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               </motion.span>
             </AnimatePresence>
-          </button>
-        </div>
+          </motion.button>
+        </motion.div>
 
         {/* Theme Studio Quick Pill */}
         <button

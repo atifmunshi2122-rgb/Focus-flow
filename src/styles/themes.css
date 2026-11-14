@@ -274,7 +274,17 @@
   -webkit-backdrop-filter: blur(calc(var(--ff-backdrop-blur) + 6px));
   transition:
     background-color var(--ff-duration-normal) var(--ff-ease),
-    border-color var(--ff-duration-fast) var(--ff-ease);
+    border-color var(--ff-duration-fast) var(--ff-ease),
+    box-shadow var(--ff-duration-normal) var(--ff-ease),
+    backdrop-filter var(--ff-duration-normal) var(--ff-ease);
+}
+
+.ff-header[data-scrolled="true"] {
+  background: color-mix(in oklab, var(--ff-surface-elevated) 92%, transparent);
+  border-bottom-color: var(--ff-border-strong);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(calc(var(--ff-backdrop-blur) + 14px));
+  -webkit-backdrop-filter: blur(calc(var(--ff-backdrop-blur) + 14px));
 }
 
 .ff-card {

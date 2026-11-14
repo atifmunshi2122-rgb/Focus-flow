@@ -34,6 +34,8 @@ import {
   InteractiveSurface3D,
   MotionStaggerGrid,
   MotionStaggerItem,
+  RollingTimerDigits,
+  SkeletonCrossfade,
   SkeletonDashboard,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
@@ -172,7 +174,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     createOrConnectSpreadsheet,
   } = useApp();
 
-  const { intensity, isDisabled } = useMotionPreferences();
+  const { intensity, isDisabled, profile } = useMotionPreferences();
   const [data, setData] = useState<DashboardData | null>(null);
   const [sessions, setSessions] = useState<FocusSession[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -351,9 +353,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const dailyGoalPct = Math.min(100, Math.round(((data?.todayFocusMinutes || 0) / dailyGoalMin) * 100));
   const weeklyGoalPct = Math.min(100, Math.round(((data?.weeklyFocusMinutes || 0) / weeklyGoalMin) * 100));
 
-  if (loading && !data) {
-    return <SkeletonDashboard />;
-  }
+  const isInitialLoading = loading && !data;
 
   const sizeClassFor = (id: DashboardWidgetId) => {
     const customSize = layoutConfig.widgetSizes[id];
@@ -408,7 +408,13 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                   background: 'var(--ff-surface-subtle)',
                 }}
               >
-                {nowClock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                <RollingTimerDigits
+                  value={nowClock.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                />
               </div>
               <ThemeButton variant="primary" size="sm" onClick={handleStartQuickFocus}>
                 <Play className="w-3.5 h-3.5 fill-current" />
@@ -1220,6 +1226,11 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   };
 
   return (
+    <SkeletonCrossfade
+      loading={isInitialLoading}
+      skeleton={<SkeletonDashboard />}
+      contentKey="dashboard-ready"
+    >
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
       {/* Customize & Timeframe Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1243,7 +1254,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                       layoutId="dashboard-timeframe-pill"
                       className="absolute inset-0 rounded-lg pointer-events-none"
                       style={{ background: 'var(--ff-accent)' }}
-                      transition={getSpringTransition(intensity, isDisabled)}
+                      transition={profile.spring}
                     />
                   )}
                   <span className="relative z-10">{tf}</span>
@@ -1369,7 +1380,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
             <motion.div
               key={id}
               layout={isDisabled ? false : 'position'}
-              transition={getSpringTransition(intensity, isDisabled)}
+              transition={profile.listLayout}
               draggable={customizeMode}
               onDragStart={() => setDraggedWidget(id)}
               onDragOver={(e) => {
@@ -1395,5 +1406,6 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
           ))}
       </div>
     </div>
+    </SkeletonCrossfade>
   );
 };

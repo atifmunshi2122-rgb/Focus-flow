@@ -36,10 +36,19 @@ export const NotificationCenter: React.FC = () => {
     showToast,
   } = useApp();
 
-  const { isDisabled } = useMotionPreferences();
+  const { isDisabled, profile } = useMotionPreferences();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<NotificationFilter>('all');
   const containerRef = useRef<HTMLDivElement>(null);
+  const prevUnreadRef = useRef(unreadNotificationCount);
+  const [bellRingKey, setBellRingKey] = useState(0);
+
+  useEffect(() => {
+    if (unreadNotificationCount > prevUnreadRef.current && !isDisabled) {
+      setBellRingKey((k) => k + 1);
+    }
+    prevUnreadRef.current = unreadNotificationCount;
+  }, [unreadNotificationCount, isDisabled]);
 
   // Close on click outside
   useEffect(() => {
@@ -90,26 +99,43 @@ export const NotificationCenter: React.FC = () => {
   return (
     <div ref={containerRef} className="relative">
       {/* Bell Trigger Button */}
-      <button
+      <motion.button
         type="button"
+        whileTap={isDisabled ? undefined : { scale: profile.tapScale }}
+        transition={profile.microSpring}
         onClick={() => setOpen((o) => !o)}
         className="relative p-2 rounded-lg border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
         aria-label="Open notifications center"
         title="Notifications & System Alerts"
       >
-        <Bell className="w-4 h-4" />
-        {unreadNotificationCount > 0 && (
-          <span
-            className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center animate-pulse"
-            style={{
-              background: urgentCount > 0 ? 'var(--ff-danger)' : 'var(--ff-accent)',
-              color: '#ffffff',
-            }}
-          >
-            {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
-          </span>
-        )}
-      </button>
+        <motion.span
+          key={bellRingKey}
+          initial={bellRingKey > 0 && !isDisabled ? { rotate: 0 } : false}
+          animate={bellRingKey > 0 && !isDisabled ? { rotate: [0, -14, 12, -8, 4, 0] } : { rotate: 0 }}
+          transition={{ duration: 0.45, ease: MOTION_EASING.decelerate }}
+          className="inline-flex"
+        >
+          <Bell className="w-4 h-4" />
+        </motion.span>
+        <AnimatePresence>
+          {unreadNotificationCount > 0 && (
+            <motion.span
+              key="unread-badge"
+              initial={isDisabled ? { opacity: 1 } : { scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={isDisabled ? { opacity: 0 } : { scale: 0.5, opacity: 0 }}
+              transition={profile.microSpring}
+              className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center tabular-nums"
+              style={{
+                background: urgentCount > 0 ? 'var(--ff-danger)' : 'var(--ff-accent)',
+                color: '#ffffff',
+              }}
+            >
+              {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </motion.button>
 
       {/* Dropdown Panel */}
       <AnimatePresence>
@@ -118,7 +144,7 @@ export const NotificationCenter: React.FC = () => {
             initial={isDisabled ? false : { opacity: 0, y: 8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
-            transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
+            transition={profile.modal}
             className="ff-card-elevated absolute right-0 mt-2 w-80 sm:w-96 z-50 overflow-hidden shadow-2xl border border-[var(--ff-border-color)]"
             style={{
               boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--ff-border-color)',
@@ -160,32 +186,45 @@ export const NotificationCenter: React.FC = () => {
                 </div>
               </div>
 
-              {/* Filter Tabs */}
+              {/* Filter Tabs with shared-layout active pill */}
               <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[var(--ff-surface-muted)]">
-                {(['all', 'unread', 'urgent'] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => setFilter(tab)}
-                    className={`flex-1 py-1 text-[11px] font-semibold rounded-md capitalize transition-colors ${
-                      filter === tab
-                        ? 'bg-[var(--ff-surface-card)] text-[var(--ff-text-primary)] shadow-sm'
-                        : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-secondary)]'
-                    }`}
-                  >
-                    {tab}
-                    {tab === 'unread' && unreadNotificationCount > 0 && (
-                      <span className="ml-1 text-[10px] text-[var(--ff-accent-text)]">
-                        ({unreadNotificationCount})
+                {(['all', 'unread', 'urgent'] as const).map((tab) => {
+                  const isActive = filter === tab;
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setFilter(tab)}
+                      className={`relative flex-1 py-1 text-[11px] font-semibold rounded-md capitalize transition-colors ${
+                        isActive
+                          ? 'text-[var(--ff-text-primary)]'
+                          : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-secondary)]'
+                      }`}
+                    >
+                      {isActive && (
+                        <motion.span
+                          layoutId="notif-filter-pill"
+                          transition={profile.spring}
+                          className="absolute inset-0 rounded-md bg-[var(--ff-surface-card)] shadow-sm pointer-events-none"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="relative z-10">
+                        {tab}
+                        {tab === 'unread' && unreadNotificationCount > 0 && (
+                          <span className="ml-1 text-[10px] text-[var(--ff-accent-text)]">
+                            ({unreadNotificationCount})
+                          </span>
+                        )}
+                        {tab === 'urgent' && urgentCount > 0 && (
+                          <span className="ml-1 text-[10px] text-rose-500">
+                            ({urgentCount})
+                          </span>
+                        )}
                       </span>
-                    )}
-                    {tab === 'urgent' && urgentCount > 0 && (
-                      <span className="ml-1 text-[10px] text-rose-500">
-                        ({urgentCount})
-                      </span>
-                    )}
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

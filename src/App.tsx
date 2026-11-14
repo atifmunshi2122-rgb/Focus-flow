@@ -33,7 +33,7 @@ import { DataRecoveryCenter } from './components/settings/DataRecoveryCenter.tsx
 import { getStyleDefinition } from './theme/stylesRegistry.ts';
 import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
 import { MotionPage } from './components/ui/MotionPrimitives.tsx';
-import { MOTION_EASING, MOTION_DURATION, getIntensityFactor } from './theme/motionTokens.ts';
+import { MOTION_EASING, MOTION_DURATION, getIntensityFactor, getThemeMotionProfile } from './theme/motionTokens.ts';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import {
   Check,
@@ -220,6 +220,11 @@ const MainContent: React.FC = () => {
     ? getStyleDefinition(previewThemeConfig.styleId).name
     : '';
   const motionFactor = getIntensityFactor(effectiveThemeConfig.animationIntensity);
+  const motionProfile = getThemeMotionProfile(
+    effectiveThemeConfig.styleId,
+    effectiveThemeConfig.animationIntensity,
+    motionFactor === 0
+  );
 
   return (
     <MotionConfig reducedMotion={effectiveThemeConfig.animationIntensity === 'none' ? 'always' : 'user'}>
@@ -251,52 +256,54 @@ const MainContent: React.FC = () => {
           className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1920px] mx-auto min-w-0 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-8"
           style={{ paddingBottom: isFullAppPreview ? '8rem' : undefined }}
         >
-          <MotionPage routeKey={currentTab}>
-            {currentTab === 'dashboard' && (
-              <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
-            )}
+          <AnimatePresence mode="wait" initial={false}>
+            <MotionPage routeKey={currentTab}>
+              {currentTab === 'dashboard' && (
+                <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
+              )}
 
-            {currentTab === 'calendar' && <ProductivityCalendar />}
+              {currentTab === 'calendar' && <ProductivityCalendar />}
 
-            {currentTab === 'focus' && (
-              <div className="space-y-8">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                  <div className="lg:col-span-5 lg:sticky lg:top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto scrollbar-thin">
-                    <PomodoroTimer />
-                  </div>
-                  <div className="lg:col-span-7">
-                    <FocusAnalytics />
+              {currentTab === 'focus' && (
+                <div className="space-y-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                    <div className="lg:col-span-5 lg:sticky lg:top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto scrollbar-thin">
+                      <PomodoroTimer />
+                    </div>
+                    <div className="lg:col-span-7">
+                      <FocusAnalytics />
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {currentTab === 'timeblocks' && <DailyTimeBlockPlanner />}
+              {currentTab === 'timeblocks' && <DailyTimeBlockPlanner />}
 
-            {currentTab === 'tasks' && <TaskManager />}
+              {currentTab === 'tasks' && <TaskManager />}
 
-            {currentTab === 'habits' && <HabitTrackerView />}
+              {currentTab === 'habits' && <HabitTrackerView />}
 
-            {currentTab === 'finance' && (
-              <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
-            )}
+              {currentTab === 'finance' && (
+                <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
+              )}
 
-            {currentTab === 'transactions' && <TransactionsLedger />}
+              {currentTab === 'transactions' && <TransactionsLedger />}
 
-            {currentTab === 'bills' && <BillsTracker />}
+              {currentTab === 'bills' && <BillsTracker />}
 
-            {currentTab === 'envelopes' && <EnvelopeBudgetManager />}
+              {currentTab === 'envelopes' && <EnvelopeBudgetManager />}
 
-            {currentTab === 'subscriptions' && <SubscriptionManager />}
+              {currentTab === 'subscriptions' && <SubscriptionManager />}
 
-            {currentTab === 'study' && <StudyView />}
+              {currentTab === 'study' && <StudyView />}
 
-            {currentTab === 'analytics' && <AnalyticsReportsView />}
+              {currentTab === 'analytics' && <AnalyticsReportsView />}
 
-            {currentTab === 'recovery' && <DataRecoveryCenter />}
+              {currentTab === 'recovery' && <DataRecoveryCenter />}
 
-            {currentTab === 'settings' && <SettingsView />}
-          </MotionPage>
+              {currentTab === 'settings' && <SettingsView />}
+            </MotionPage>
+          </AnimatePresence>
         </main>
 
         {/* Sticky Mobile Bottom Navigation Bar (lg:hidden) */}
@@ -438,7 +445,7 @@ const MainContent: React.FC = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
+                transition={{ duration: motionFactor === 0 ? 0.01 : 0.18 }}
                 className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 lg:hidden"
                 onClick={() => setMobileMoreOpen(false)}
                 aria-hidden="true"
@@ -450,10 +457,10 @@ const MainContent: React.FC = () => {
                 role="dialog"
                 aria-modal="true"
                 aria-label="All Workspaces and Tools"
-                initial={{ y: '100%' }}
+                initial={motionFactor === 0 ? false : { y: '100%' }}
                 animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                exit={motionFactor === 0 ? { opacity: 0 } : { y: '100%' }}
+                transition={motionProfile.modal}
                 className="fixed inset-x-0 bottom-0 z-50 bg-[var(--ff-surface-elevated)] border-t border-[var(--ff-border-color)] rounded-t-3xl shadow-2xl p-4 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-h-[85dvh] overflow-y-auto overscroll-contain lg:hidden text-[var(--ff-text-primary)]"
                 style={{
                   boxShadow: '0 -8px 32px rgba(0, 0, 0, 0.28)',

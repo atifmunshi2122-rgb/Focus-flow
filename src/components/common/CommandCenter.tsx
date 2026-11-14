@@ -89,7 +89,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
     showToast,
   } = useApp();
 
-  const { isDisabled } = useMotionPreferences();
+  const { isDisabled, profile } = useMotionPreferences();
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<SearchFilterType>('all');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -333,16 +333,17 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: isDisabled ? 0.01 : 0.16 }}
             onClick={() => setCommandCenterOpen(false)}
             className="fixed inset-0 bg-black/60 backdrop-blur-md"
           />
 
           {/* Palette Dialog */}
           <motion.div
-            initial={isDisabled ? false : { opacity: 0, scale: 0.95, y: -16 }}
+            initial={isDisabled ? false : { opacity: 0, scale: 0.96, y: -14 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={isDisabled ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: -12 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            exit={isDisabled ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: -10 }}
+            transition={profile.modal}
             className="relative w-full max-w-2xl rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-elevated)] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] z-10"
             style={{
               boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--ff-border-color)',
@@ -383,13 +384,20 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveFilter(tab.id)}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors ${
+                    className={`relative px-2.5 py-1 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors ${
                       isActive
-                        ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-sm'
+                        ? 'text-[var(--ff-accent-contrast)]'
                         : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)]'
                     }`}
                   >
-                    {tab.label}
+                    {isActive && (
+                      <motion.span
+                        layoutId="cmd-filter-pill"
+                        transition={profile.spring}
+                        className="absolute inset-0 rounded-lg bg-[var(--ff-accent)] shadow-sm pointer-events-none"
+                      />
+                    )}
+                    <span className="relative z-10">{tab.label}</span>
                   </button>
                 );
               })}
@@ -514,15 +522,22 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
                         hit.run();
                       }}
                       onMouseEnter={() => setSelectedIndex(index)}
-                      className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors select-none ${
+                      className={`relative flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors select-none border ${
                         isSelected
-                          ? 'bg-[var(--ff-accent-soft)] text-[var(--ff-text-primary)] border border-[var(--ff-accent-border)]'
-                          : 'hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-secondary)] border border-transparent'
+                          ? 'text-[var(--ff-text-primary)] border-transparent'
+                          : 'hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-secondary)] border-transparent'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      {isSelected && (
+                        <motion.div
+                          layoutId="cmd-active-row"
+                          transition={profile.microSpring}
+                          className="absolute inset-0 rounded-xl bg-[var(--ff-accent-soft)] border border-[var(--ff-accent-border)] pointer-events-none"
+                        />
+                      )}
+                      <div className="relative z-10 flex items-center gap-3 min-w-0">
                         <span
-                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border transition-colors"
                           style={{
                             background: isSelected ? 'var(--ff-accent)' : 'var(--ff-surface-muted)',
                             color: isSelected ? 'var(--ff-accent-contrast)' : 'var(--ff-accent-text)',
@@ -548,7 +563,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="relative z-10 flex items-center gap-2 shrink-0">
                         {hit.shortcut && (
                           <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono font-bold rounded border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)]">
                             {hit.shortcut}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
@@ -18,6 +18,7 @@ import {
   AnimatedCheckmark,
   AnimatedProgressBar,
   EmptyStateIllustration,
+  SkeletonCrossfade,
   SkeletonList,
   ValidationMessage,
   useMotionPreferences,
@@ -78,7 +79,7 @@ export const TaskManager: React.FC = () => {
     googleAccessToken,
   } = useApp();
 
-  const { intensity, isDisabled } = useMotionPreferences();
+  const { intensity, isDisabled, profile } = useMotionPreferences();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<TaskViewMode>('list');
@@ -423,7 +424,10 @@ export const TaskManager: React.FC = () => {
       <motion.div
         key={task.id}
         layout
-        transition={getSpringTransition(intensity, isDisabled)}
+        initial={isDisabled ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={isDisabled ? { opacity: 0 } : { opacity: 0, scale: 0.97 }}
+        transition={profile.listLayout}
         className="w-full"
       >
         <ThemeCard
@@ -604,16 +608,29 @@ export const TaskManager: React.FC = () => {
                 key={v.id}
                 type="button"
                 onClick={() => setViewMode(v.id)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border transition-colors"
+                className="relative inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border transition-colors"
                 style={{
                   borderRadius: 'var(--ff-radius-button)',
                   borderColor: active ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
-                  background: active ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
+                  background: active ? 'transparent' : 'var(--ff-surface-subtle)',
                   color: active ? 'var(--ff-accent-text)' : 'var(--ff-text-secondary)',
                 }}
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{v.label}</span>
+                {active && (
+                  <motion.span
+                    layoutId="task-view-pill"
+                    transition={profile.spring}
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      borderRadius: 'var(--ff-radius-button)',
+                      background: 'var(--ff-accent-soft)',
+                    }}
+                  />
+                )}
+                <span className="relative z-10 inline-flex items-center gap-1.5">
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{v.label}</span>
+                </span>
               </button>
             );
           })}
@@ -724,9 +741,12 @@ export const TaskManager: React.FC = () => {
       </ThemeCard>
 
       {/* Main View Canvas */}
-      {loading && tasks.length === 0 ? (
-        <SkeletonList rows={4} />
-      ) : viewMode === 'kanban' ? (
+      <SkeletonCrossfade
+        loading={loading && tasks.length === 0}
+        skeleton={<SkeletonList rows={4} />}
+        contentKey={viewMode}
+      >
+        {viewMode === 'kanban' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3" style={{ gap: 'var(--ff-grid-gap)' }}>
           {(
             [
@@ -885,9 +905,12 @@ export const TaskManager: React.FC = () => {
         </ThemeCard>
       ) : (
         <div className="space-y-3">
-          {visibleTasks.map((task) => renderTaskCard(task, viewMode === 'list'))}
+          <AnimatePresence initial={false} mode="popLayout">
+            {visibleTasks.map((task) => renderTaskCard(task, viewMode === 'list'))}
+          </AnimatePresence>
         </div>
       )}
+      </SkeletonCrossfade>
 
       {/* Task Composer / Editor Modal */}
       <ThemeModal

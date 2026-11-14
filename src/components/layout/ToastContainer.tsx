@@ -2,13 +2,11 @@ import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
-import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 export const ToastContainer: React.FC = () => {
   const { toasts, removeToast } = useApp();
-  const { isDisabled, intensity } = useMotionPreferences();
-  const factor = getIntensityFactor(intensity);
+  const { isDisabled, profile } = useMotionPreferences();
 
   return (
     <div
@@ -16,7 +14,7 @@ export const ToastContainer: React.FC = () => {
       aria-live="polite"
       aria-atomic="false"
     >
-      <AnimatePresence initial={false}>
+      <AnimatePresence initial={false} mode="popLayout">
         {toasts.map((toast) => {
           const isSuccess = toast.type === 'success';
           const isError = toast.type === 'error';
@@ -31,14 +29,20 @@ export const ToastContainer: React.FC = () => {
               key={toast.id}
               layout
               role={isError ? 'alert' : 'status'}
-              initial={isDisabled ? false : { opacity: 0, x: 28, scale: 0.96 }}
+              initial={isDisabled ? false : { opacity: 0, x: 28, scale: 0.94 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={isDisabled ? { opacity: 0 } : { opacity: 0, x: 32, scale: 0.95 }}
-              transition={{
-                duration: MOTION_DURATION.card * Math.max(0.55, factor || 0.01),
-                ease: MOTION_EASING.decelerate,
+              exit={isDisabled ? { opacity: 0 } : { opacity: 0, x: 36, scale: 0.94 }}
+              transition={profile.spring}
+              drag={isDisabled ? false : 'x'}
+              dragConstraints={{ left: 0, right: 160 }}
+              dragElastic={{ left: 0.05, right: 0.45 }}
+              dragSnapToOrigin
+              onDragEnd={(_, info) => {
+                if (info.offset.x > 64 || info.velocity.x > 300) {
+                  removeToast(toast.id);
+                }
               }}
-              className="ff-card-elevated pointer-events-auto relative overflow-hidden flex items-center justify-between p-3.5"
+              className="ff-card-elevated pointer-events-auto relative overflow-hidden flex items-center justify-between p-3.5 cursor-grab active:cursor-grabbing"
               style={{
                 borderLeft: `4px solid ${toneColor}`,
               }}

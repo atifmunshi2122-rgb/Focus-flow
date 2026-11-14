@@ -16,8 +16,15 @@ import {
 } from '../../lib/studyIntelligence.ts';
 import { saveTimerState } from '../../lib/timerEngine.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import {
+  AnimatedNumber,
+  AnimatedProgressBar,
+  MotionStaggerGrid,
+  MotionStaggerItem,
+  useMotionPreferences,
+} from '../ui/MotionPrimitives.tsx';
 import { playStudyMilestoneSound } from '../../lib/sound.ts';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { AddStudySubjectModal } from './AddStudySubjectModal.tsx';
 import { AddStudyTopicModal } from './AddStudyTopicModal.tsx';
 import { ScheduleRevisionModal } from './ScheduleRevisionModal.tsx';
@@ -63,6 +70,7 @@ export const StudyView: React.FC = () => {
     setActiveStudyActivityType,
   } = useApp();
 
+  const { isDisabled, profile } = useMotionPreferences();
   const [activeSubTab, setActiveSubTab] = useState<StudySubTab>('syllabus');
   const [selectedTier, setSelectedTier] = useState<string>('all');
   const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>('all');
@@ -413,87 +421,101 @@ export const StudyView: React.FC = () => {
       </div>
 
       {/* Top Academic Pulse KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <ThemeCard className="p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
-            <span className="font-medium">Syllabus Completion</span>
-            <BookOpen className="w-4 h-4 text-indigo-400" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-[var(--ff-text-primary)]">
-              {progressSummary.overallCompletionPct}%
-            </span>
-            <span className="text-xs text-[var(--ff-text-muted)]">
-              {progressSummary.completedTopics}/{progressSummary.totalTopics} topics
-            </span>
-          </div>
-          <div className="w-full bg-[var(--ff-surface-muted)] h-1.5 rounded-full mt-3 overflow-hidden">
-            <div
-              className="bg-indigo-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${progressSummary.overallCompletionPct}%` }}
-            />
-          </div>
-        </ThemeCard>
-
-        <ThemeCard className="p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
-            <span className="font-medium">Due & Overdue Revisions</span>
-            <RotateCcw className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-[var(--ff-text-primary)]">
-              {progressSummary.dueRevisionsCount}
-            </span>
-            {progressSummary.overdueRevisionsCount > 0 && (
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400">
-                {progressSummary.overdueRevisionsCount} overdue
+      <MotionStaggerGrid className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <MotionStaggerItem>
+          <ThemeCard variant="interactive" className="p-4 flex flex-col justify-between h-full">
+            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
+              <span className="font-medium">Syllabus Completion</span>
+              <BookOpen className="w-4 h-4 text-indigo-400" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+                <AnimatedNumber value={progressSummary.overallCompletionPct} format={(v) => `${Math.round(v)}%`} />
               </span>
-            )}
-          </div>
-          <p className="text-[11px] text-[var(--ff-text-muted)] mt-2">
-            {progressSummary.masteredRevisionsCount} topics mastered in long-term memory
-          </p>
-        </ThemeCard>
+              <span className="text-xs font-mono tabular-nums text-[var(--ff-text-muted)]">
+                {progressSummary.completedTopics}/{progressSummary.totalTopics} topics
+              </span>
+            </div>
+            <div className="mt-3">
+              <AnimatedProgressBar
+                value={progressSummary.overallCompletionPct}
+                max={100}
+                heightClass="h-1.5"
+                customColor="#6366f1"
+                ariaLabel="Syllabus completion"
+              />
+            </div>
+          </ThemeCard>
+        </MotionStaggerItem>
 
-        <ThemeCard className="p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
-            <span className="font-medium">High Severity Traps</span>
-            <AlertTriangle className="w-4 h-4 text-rose-400" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-rose-400">
-              {progressSummary.highSeverityMistakesCount}
-            </span>
-            <span className="text-xs text-[var(--ff-text-muted)]">
-              of {progressSummary.unresolvedMistakesCount} unresolved
-            </span>
-          </div>
-          <p className="text-[11px] text-[var(--ff-text-muted)] mt-2">
-            Review Golden Rules before your next exam
-          </p>
-        </ThemeCard>
+        <MotionStaggerItem>
+          <ThemeCard variant="interactive" className="p-4 flex flex-col justify-between h-full">
+            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
+              <span className="font-medium">Due & Overdue Revisions</span>
+              <RotateCcw className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+                <AnimatedNumber value={progressSummary.dueRevisionsCount} />
+              </span>
+              {progressSummary.overdueRevisionsCount > 0 && (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 tabular-nums">
+                  {progressSummary.overdueRevisionsCount} overdue
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-[var(--ff-text-muted)] mt-2">
+              {progressSummary.masteredRevisionsCount} topics mastered in long-term memory
+            </p>
+          </ThemeCard>
+        </MotionStaggerItem>
 
-        <ThemeCard className="p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
-            <span className="font-medium">Deep Study Time</span>
-            <Clock className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-[var(--ff-text-primary)]">
-              {Math.round((progressSummary.totalStudyMinutes / 60) * 10) / 10}h
-            </span>
-            <span className="text-xs text-[var(--ff-text-muted)]">logged in focus</span>
-          </div>
-          <div className="flex items-center justify-between mt-2 pt-1 text-[11px]">
-            <button
-              onClick={() => setCurrentTab('focus')}
-              className="text-[var(--ff-accent-text)] hover:underline flex items-center gap-1"
-            >
-              Start Focus Session <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-        </ThemeCard>
-      </div>
+        <MotionStaggerItem>
+          <ThemeCard variant="interactive" className="p-4 flex flex-col justify-between h-full">
+            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
+              <span className="font-medium">High Severity Traps</span>
+              <AlertTriangle className="w-4 h-4 text-rose-400" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono tabular-nums text-rose-400">
+                <AnimatedNumber value={progressSummary.highSeverityMistakesCount} />
+              </span>
+              <span className="text-xs text-[var(--ff-text-muted)] tabular-nums">
+                of {progressSummary.unresolvedMistakesCount} unresolved
+              </span>
+            </div>
+            <p className="text-[11px] text-[var(--ff-text-muted)] mt-2">
+              Review Golden Rules before your next exam
+            </p>
+          </ThemeCard>
+        </MotionStaggerItem>
+
+        <MotionStaggerItem>
+          <ThemeCard variant="interactive" className="p-4 flex flex-col justify-between h-full">
+            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
+              <span className="font-medium">Deep Study Time</span>
+              <Clock className="w-4 h-4 text-emerald-400" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+                <AnimatedNumber
+                  value={Math.round((progressSummary.totalStudyMinutes / 60) * 10)}
+                  format={(v) => `${(Math.round(v) / 10).toFixed(1)}h`}
+                />
+              </span>
+              <span className="text-xs text-[var(--ff-text-muted)]">logged in focus</span>
+            </div>
+            <div className="flex items-center justify-between mt-2 pt-1 text-[11px]">
+              <button
+                onClick={() => setCurrentTab('focus')}
+                className="text-[var(--ff-accent-text)] hover:underline flex items-center gap-1"
+              >
+                Start Focus Session <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+          </ThemeCard>
+        </MotionStaggerItem>
+      </MotionStaggerGrid>
 
       {/* Sub-tab Navigation Bar */}
       <div className="flex items-center justify-between border-b border-[var(--ff-border-color)] pb-2 overflow-x-auto">
@@ -544,6 +566,7 @@ export const StudyView: React.FC = () => {
                 {isActive && (
                   <motion.div
                     layoutId="study-subtab-indicator"
+                    transition={profile.spring}
                     className="absolute bottom-0 left-2 right-2 h-0.5 bg-[var(--ff-accent)] rounded-full"
                   />
                 )}
@@ -567,34 +590,53 @@ export const StudyView: React.FC = () => {
             {/* Academic Tiers */}
             <div className="flex items-center gap-1.5 overflow-x-auto py-1">
               <button
+                type="button"
                 onClick={() => {
                   setSelectedTier('all');
                   setSelectedSubjectCode('all');
                 }}
-                className={`px-3 py-1.5 text-xs rounded-xl font-medium transition-all whitespace-nowrap border ${
+                className={`relative px-3 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap border ${
                   selectedTier === 'all'
-                    ? 'bg-[var(--ff-accent)] text-white border-[var(--ff-accent)] shadow-sm'
+                    ? 'text-white border-transparent'
                     : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border-[var(--ff-border-color)] hover:text-[var(--ff-text-primary)]'
                 }`}
               >
-                All Tiers
+                {selectedTier === 'all' && (
+                  <motion.span
+                    layoutId="study-tier-pill"
+                    transition={profile.spring}
+                    className="absolute inset-0 rounded-xl bg-[var(--ff-accent)] shadow-sm pointer-events-none"
+                  />
+                )}
+                <span className="relative z-10">All Tiers</span>
               </button>
-              {DEFAULT_ACADEMIC_TIERS.map((tier) => (
-                <button
-                  key={tier.id}
-                  onClick={() => {
-                    setSelectedTier(tier.id);
-                    setSelectedSubjectCode('all');
-                  }}
-                  className={`px-3 py-1.5 text-xs rounded-xl font-medium transition-all whitespace-nowrap border ${
-                    selectedTier === tier.id
-                      ? 'bg-[var(--ff-accent)] text-white border-[var(--ff-accent)] shadow-sm'
-                      : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border-[var(--ff-border-color)] hover:text-[var(--ff-text-primary)]'
-                  }`}
-                >
-                  {tier.shortTitle || tier.name}
-                </button>
-              ))}
+              {DEFAULT_ACADEMIC_TIERS.map((tier) => {
+                const active = selectedTier === tier.id;
+                return (
+                  <button
+                    key={tier.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedTier(tier.id);
+                      setSelectedSubjectCode('all');
+                    }}
+                    className={`relative px-3 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap border ${
+                      active
+                        ? 'text-white border-transparent'
+                        : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border-[var(--ff-border-color)] hover:text-[var(--ff-text-primary)]'
+                    }`}
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="study-tier-pill"
+                        transition={profile.spring}
+                        className="absolute inset-0 rounded-xl bg-[var(--ff-accent)] shadow-sm pointer-events-none"
+                      />
+                    )}
+                    <span className="relative z-10">{tier.shortTitle || tier.name}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Subject Dropdown & Search */}
@@ -708,13 +750,19 @@ export const StudyView: React.FC = () => {
               </div>
             ) : (
               <div className="divide-y divide-[var(--ff-border-color)]">
+                <AnimatePresence initial={false} mode="popLayout">
                 {visibleTopics.map((item) => {
                   const sub = subjects.find((s) => s.code === item.subjectCode);
                   const isFullyCompleted = item.theory && item.practice;
 
                   return (
-                    <div
+                    <motion.div
                       key={item.id}
+                      layout
+                      initial={isDisabled ? false : { opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={isDisabled ? { opacity: 0 } : { opacity: 0 }}
+                      transition={profile.listLayout}
                       className="p-3.5 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[var(--ff-surface-muted)]/50 transition-colors"
                     >
                       <div className="flex-1 min-w-0">
@@ -849,9 +897,10 @@ export const StudyView: React.FC = () => {
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })}
+                </AnimatePresence>
               </div>
             )}
           </ThemeCard>
@@ -1087,19 +1136,30 @@ export const StudyView: React.FC = () => {
           {/* Filter Bar */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 overflow-x-auto py-1">
-              {(['All', 'High', 'Medium', 'Low'] as const).map((sev) => (
-                <button
-                  key={sev}
-                  onClick={() => setMistakeSeverityFilter(sev)}
-                  className={`px-3 py-1.5 text-xs rounded-xl font-medium transition-all ${
-                    mistakeSeverityFilter === sev
-                      ? 'bg-[var(--ff-accent)] text-white shadow-sm'
-                      : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border border-[var(--ff-border-color)]'
-                  }`}
-                >
-                  {sev} Severity
-                </button>
-              ))}
+              {(['All', 'High', 'Medium', 'Low'] as const).map((sev) => {
+                const active = mistakeSeverityFilter === sev;
+                return (
+                  <button
+                    key={sev}
+                    type="button"
+                    onClick={() => setMistakeSeverityFilter(sev)}
+                    className={`relative px-3 py-1.5 text-xs rounded-xl font-medium transition-colors border ${
+                      active
+                        ? 'text-white border-transparent'
+                        : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border-[var(--ff-border-color)] hover:text-[var(--ff-text-primary)]'
+                    }`}
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="study-severity-pill"
+                        transition={profile.spring}
+                        className="absolute inset-0 rounded-xl bg-[var(--ff-accent)] shadow-sm pointer-events-none"
+                      />
+                    )}
+                    <span className="relative z-10">{sev} Severity</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex items-center gap-2">

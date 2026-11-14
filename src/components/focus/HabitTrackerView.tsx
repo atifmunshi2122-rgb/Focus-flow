@@ -68,7 +68,7 @@ const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const HabitTrackerView: React.FC = () => {
   const { refreshKey, triggerRefresh, confirmAction, settings } = useApp();
-  const { isDisabled } = useMotionPreferences();
+  const { isDisabled, profile } = useMotionPreferences();
 
   const [habits, setHabits] = useState<Habit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -264,7 +264,7 @@ export const HabitTrackerView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="ff-heading text-2xl font-bold text-[var(--ff-text-primary)] flex items-center gap-2">
-            <Flame className="w-6 h-6 text-amber-500 animate-pulse" />
+            <Flame className="w-6 h-6 text-amber-500" />
             Habits & Daily Streaks
           </h1>
           <p className="text-sm text-[var(--ff-text-muted)] mt-1">
@@ -369,23 +369,35 @@ export const HabitTrackerView: React.FC = () => {
             <Filter className="w-3.5 h-3.5" /> Filters:
           </span>
           <div className="flex items-center gap-1 bg-[var(--ff-surface-subtle)] p-0.5 rounded-lg border border-[var(--ff-border-color)]">
-            {(['all', 'today', 'pending', 'completed'] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setFilterStatus(mode)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all ${
-                  filterStatus === mode
-                    ? 'bg-[var(--ff-surface-card)] text-[var(--ff-accent-text)] shadow-xs'
-                    : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
-                }`}
-              >
-                {mode === 'all' && 'All'}
-                {mode === 'today' && 'Due Today'}
-                {mode === 'pending' && 'Pending Today'}
-                {mode === 'completed' && 'Done Today'}
-              </button>
-            ))}
+            {(['all', 'today', 'pending', 'completed'] as const).map((mode) => {
+              const active = filterStatus === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setFilterStatus(mode)}
+                  className={`relative px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    active
+                      ? 'text-[var(--ff-accent-text)]'
+                      : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="habit-status-pill"
+                      transition={profile.spring}
+                      className="absolute inset-0 rounded-md bg-[var(--ff-surface-card)] shadow-xs pointer-events-none"
+                    />
+                  )}
+                  <span className="relative z-10">
+                    {mode === 'all' && 'All'}
+                    {mode === 'today' && 'Due Today'}
+                    {mode === 'pending' && 'Pending Today'}
+                    {mode === 'completed' && 'Done Today'}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           <select
@@ -425,16 +437,24 @@ export const HabitTrackerView: React.FC = () => {
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <AnimatePresence initial={false} mode="popLayout">
           {filteredHabits.map((habit) => {
             const streak = computeHabitStreak(habit, todayStr);
             const isDoneToday = streak.isCompletedToday;
             const isDueToday = streak.isScheduledToday;
 
             return (
-              <ThemeCard
+              <motion.div
                 key={habit.id}
+                layout
+                initial={isDisabled ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={isDisabled ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
+                transition={profile.listLayout}
+              >
+              <ThemeCard
                 variant="interactive"
-                className="p-5 flex flex-col justify-between relative overflow-hidden group border-l-4"
+                className="p-5 flex flex-col justify-between relative overflow-hidden group border-l-4 h-full"
                 style={{
                   borderLeftColor: habit.color || 'var(--ff-accent)',
                 }}
@@ -497,7 +517,7 @@ export const HabitTrackerView: React.FC = () => {
                       type="button"
                       data-habit-id={habit.id}
                       onClick={() => handleToggleHabit(habit.id, todayStr)}
-                      className={`relative flex items-center justify-center w-10 h-10 rounded-xl border-2 transition-all shrink-0 ${
+                      className={`relative flex items-center justify-center w-10 h-10 rounded-xl border-2 transition-all active:scale-95 shrink-0 ${
                         isDoneToday
                           ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm'
                           : 'border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] hover:border-emerald-400 text-[var(--ff-text-muted)]'
@@ -506,7 +526,7 @@ export const HabitTrackerView: React.FC = () => {
                       aria-label={`Toggle habit ${habit.title}`}
                     >
                       {isDoneToday ? (
-                        <Check className="w-5 h-5 stroke-[2.5]" />
+                        <AnimatedCheckmark checked={true} size={20} strokeWidth={2.75} color="#ffffff" />
                       ) : (
                         <div className="w-3 h-3 rounded-sm border border-current opacity-40" />
                       )}
@@ -518,10 +538,10 @@ export const HabitTrackerView: React.FC = () => {
                     <div className="flex items-center gap-1.5 transition-transform duration-300 hover:scale-105">
                       <Flame
                         className={`w-4 h-4 transition-colors ${
-                          streak.currentStreak > 0 ? 'text-amber-500 animate-pulse' : 'text-[var(--ff-text-muted)]'
+                          streak.currentStreak > 0 ? 'text-amber-500' : 'text-[var(--ff-text-muted)]'
                         }`}
                       />
-                      <span className="text-xs font-bold font-mono text-[var(--ff-text-primary)]">
+                      <span className="text-xs font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
                         {streak.currentStreak}
                       </span>
                       <span className="text-[11px] text-[var(--ff-text-muted)]">day streak</span>
@@ -572,9 +592,9 @@ export const HabitTrackerView: React.FC = () => {
                             title={`${dStr}: ${isCompleted ? 'Completed' : isScheduled ? 'Scheduled' : 'Off day'} (Click to toggle)`}
                           >
                             <span className="text-[9px] opacity-75">{dayLetter}</span>
-                            <div className="mt-0.5">
+                            <div className="mt-0.5 flex items-center justify-center h-3">
                               {isCompleted ? (
-                                <Check className="w-3 h-3 stroke-[3]" />
+                                <AnimatedCheckmark checked={true} size={12} strokeWidth={3} />
                               ) : (
                                 <div className="w-1.5 h-1.5 rounded-full bg-current opacity-30" />
                               )}
@@ -586,8 +606,10 @@ export const HabitTrackerView: React.FC = () => {
                   </div>
                 </div>
               </ThemeCard>
+              </motion.div>
             );
           })}
+          </AnimatePresence>
         </div>
       )}
 

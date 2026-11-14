@@ -15,6 +15,7 @@ import {
 import {
   ConfirmationBurst,
   InteractiveSurface3D,
+  RollingTimerDigits,
   ValidationMessage,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
@@ -85,7 +86,7 @@ export const PomodoroTimer: React.FC = () => {
   const [resetSpinCount, setResetSpinCount] = useState(0);
   const [showCelebration, setShowCelebration] = useState(false);
   const prevCycleCountRef = useRef(completedCycleCount);
-  const { isDisabled } = useMotionPreferences();
+  const { isDisabled, profile } = useMotionPreferences();
 
   // Study Topic Linkage Modal State
   const [showStudyModal, setShowStudyModal] = useState(false);
@@ -213,6 +214,9 @@ export const PomodoroTimer: React.FC = () => {
       ? (displaySeconds % 60) / 60
       : Math.min(1, Math.max(0, (safeTotalDuration - displaySeconds) / safeTotalDuration));
   const strokeDashoffset = circumference - progressRatio * circumference;
+  const tipAngle = progressRatio * 2 * Math.PI;
+  const tipX = baseSize / 2 + radius * Math.cos(tipAngle);
+  const tipY = baseSize / 2 + radius * Math.sin(tipAngle);
 
   const modeTokenColors: Record<TimerMode, { ring: string; text: string; aura: string }> = {
     work: {
@@ -361,10 +365,11 @@ export const PomodoroTimer: React.FC = () => {
           {activeTask && (
             <motion.div
               key={`linked-${activeTask.id}`}
+              layout
               initial={isDisabled ? false : { opacity: 0, y: -4, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.96 }}
-              transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
+              transition={profile.spring}
               className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-xs truncate border"
               style={{
                 background: 'var(--ff-surface-muted)',
@@ -391,10 +396,11 @@ export const PomodoroTimer: React.FC = () => {
           {activeStudySubjectCode || activeStudyTopicId ? (
             <motion.div
               key={`linked-study-${activeStudySubjectCode}-${activeStudyTopicId}`}
+              layout
               initial={isDisabled ? false : { opacity: 0, y: -4, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.96 }}
-              transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
+              transition={profile.spring}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-xs border"
               style={{
                 background: 'var(--ff-surface-muted)',
@@ -476,22 +482,36 @@ export const PomodoroTimer: React.FC = () => {
           }}
         />
 
-        {/* Celebratory Radial Ripple */}
+        {/* Celebratory Concentric Radial Ripples */}
         <AnimatePresence>
           {showCelebration && !isDisabled && (
-            <motion.div
-              key="celebration-ripple"
-              aria-hidden="true"
-              initial={{ scale: 0.75, opacity: 0.85 }}
-              animate={{ scale: 1.45, opacity: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
-              className="absolute inset-0 rounded-full border-2 pointer-events-none"
-              style={{
-                borderColor: 'var(--ff-success)',
-                boxShadow: '0 0 24px var(--ff-success)',
-              }}
-            />
+            <>
+              <motion.div
+                key="celebration-ripple-1"
+                aria-hidden="true"
+                initial={{ scale: 0.75, opacity: 0.85 }}
+                animate={{ scale: 1.45, opacity: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.35, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute inset-0 rounded-full border-2 pointer-events-none"
+                style={{
+                  borderColor: 'var(--ff-success)',
+                  boxShadow: '0 0 24px var(--ff-success)',
+                }}
+              />
+              <motion.div
+                key="celebration-ripple-2"
+                aria-hidden="true"
+                initial={{ scale: 0.72, opacity: 0.6 }}
+                animate={{ scale: 1.65, opacity: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.65, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute inset-0 rounded-full border pointer-events-none"
+                style={{
+                  borderColor: 'var(--ff-accent)',
+                }}
+              />
+            </>
           )}
         </AnimatePresence>
 
@@ -531,25 +551,47 @@ export const PomodoroTimer: React.FC = () => {
             }}
             strokeLinecap="round"
           />
+
+          {progressRatio > 0.01 && (
+            <motion.circle
+              r={strokeWidth * 0.62}
+              fill="var(--ff-bg-canvas)"
+              stroke={currentModeColors.ring}
+              strokeWidth={3}
+              animate={{
+                cx: tipX,
+                cy: tipY,
+                opacity: isRunning ? 1 : 0.8,
+                scale: isRunning && !isDisabled ? [1, 1.16, 1] : 1,
+              }}
+              transition={{
+                cx: { duration: isDisabled ? 0.01 : 0.45, ease: 'linear' },
+                cy: { duration: isDisabled ? 0.01 : 0.45, ease: 'linear' },
+                scale:
+                  isRunning && !isDisabled
+                    ? { duration: 1.8, repeat: Infinity, ease: 'easeInOut' }
+                    : { duration: 0.2 },
+              }}
+              style={{
+                filter: `drop-shadow(0 0 6px ${currentModeColors.ring})`,
+              }}
+            />
+          )}
         </svg>
 
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 z-20">
           <ConfirmationBurst show={showCelebration} label="Session Complete!" />
 
-          <div className="relative overflow-hidden h-12 sm:h-14 flex items-center justify-center">
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.span
-                key={timeFormatted}
-                initial={isDisabled ? false : { opacity: 0.65, y: 3 }}
-                animate={{ opacity: 1, y: 0, scale: isRunning && !isDisabled ? 1.03 : 1 }}
-                exit={isDisabled ? undefined : { opacity: 0.65, y: -3 }}
-                transition={{ duration: isDisabled ? 0.01 : 0.18, ease: MOTION_EASING.standard }}
-                className="text-4xl sm:text-5xl font-extrabold font-mono tabular-nums text-[var(--ff-text-primary)] tracking-tight block"
-              >
-                {timeFormatted}
-              </motion.span>
-            </AnimatePresence>
-          </div>
+          <motion.div
+            animate={{ scale: isRunning && !isDisabled ? 1.02 : 1 }}
+            transition={profile.spring}
+            className="relative flex items-center justify-center min-h-[3.25rem] sm:min-h-[3.75rem]"
+          >
+            <RollingTimerDigits
+              value={timeFormatted}
+              className="text-4xl sm:text-5xl font-extrabold font-mono text-[var(--ff-text-primary)] tracking-tight"
+            />
+          </motion.div>
 
           <div className="relative overflow-hidden min-h-[1.25rem] flex items-center justify-center mt-1">
             <AnimatePresence mode="popLayout" initial={false}>
