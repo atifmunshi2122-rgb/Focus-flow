@@ -1916,23 +1916,44 @@ export const firestoreService = {
   async saveTimeBlock(userId: string, input: Partial<TimeBlock>): Promise<TimeBlock> {
     const id = input.id || `tb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const path = `users/${userId}/time_blocks/${id}`;
+    let existing: Partial<TimeBlock> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) {
+          existing = snap.data() as TimeBlock;
+        }
+      } catch {
+        // Proceed with defaults if doc does not exist yet
+      }
+    }
+    const rawStart = input.startMinute !== undefined ? Number(input.startMinute) : Number(existing.startMinute ?? 0);
+    const startMinute = Math.max(0, Math.min(1439, Number.isFinite(rawStart) ? Math.round(rawStart) : 0));
+    const rawEnd = input.endMinute !== undefined ? Number(input.endMinute) : Number(existing.endMinute ?? 60);
+    const endMinute = Math.max(startMinute + 1, Math.min(1440, Number.isFinite(rawEnd) ? Math.round(rawEnd) : startMinute + 60));
+
     const block: TimeBlock = {
       id,
       userId,
-      date: input.date || getTodayDateString(DEFAULT_TIMEZONE),
-      title: (input.title || 'Focus Block').trim(),
-      startMinute: Math.max(0, Math.min(1440, Number(input.startMinute) || 0)),
-      endMinute: Math.max(0, Math.min(1440, Number(input.endMinute) || 60)),
-      category: input.category || 'Focus',
-      taskId: input.taskId || null,
-      revisionId: input.revisionId || null,
-      completed: Boolean(input.completed),
-      notes: input.notes || '',
-      deletedAt: input.deletedAt || null,
-      createdAt: input.createdAt || nowIso,
+      date: input.date ?? existing.date ?? getTodayDateString(DEFAULT_TIMEZONE),
+      title: (input.title ?? existing.title ?? 'Focus Block').trim() || 'Focus Block',
+      startMinute,
+      endMinute,
+      category: input.category ?? existing.category ?? 'Focus',
+      taskId: input.taskId !== undefined ? input.taskId : (existing.taskId ?? null),
+      revisionId: input.revisionId !== undefined ? input.revisionId : (existing.revisionId ?? null),
+      completed: input.completed !== undefined ? Boolean(input.completed) : Boolean(existing.completed),
+      notes: input.notes !== undefined ? input.notes : (existing.notes ?? ''),
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
       updatedAt: nowIso,
     };
-    await setDoc(doc(db, `users/${userId}/time_blocks/${id}`), stripUndefined({ ...block }), { merge: true });
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...block }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
     return block;
   },
 
@@ -1961,25 +1982,41 @@ export const firestoreService = {
   async saveHabit(userId: string, input: Partial<Habit>): Promise<Habit> {
     const id = input.id || `habit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const path = `users/${userId}/habits/${id}`;
+    let existing: Partial<Habit> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) {
+          existing = snap.data() as Habit;
+        }
+      } catch {
+        // Proceed with defaults if doc does not exist yet
+      }
+    }
     const habit: Habit = {
       id,
       userId,
-      title: (input.title || 'Daily Habit').trim(),
-      description: input.description || '',
-      category: input.category || 'General',
-      color: input.color || '#10b981',
-      frequency: input.frequency || 'daily',
-      targetDaysPerWeek: Math.max(1, Math.min(7, Number(input.targetDaysPerWeek) || 7)),
-      customDays: input.customDays || [0, 1, 2, 3, 4, 5, 6],
-      completedDates: Array.isArray(input.completedDates) ? input.completedDates : [],
-      bestStreakDays: Number(input.bestStreakDays) || 0,
-      reminderTime: input.reminderTime || '',
-      archived: Boolean(input.archived),
-      deletedAt: input.deletedAt || null,
-      createdAt: input.createdAt || nowIso,
+      title: (input.title ?? existing.title ?? 'Daily Habit').trim() || 'Daily Habit',
+      description: input.description !== undefined ? input.description : (existing.description ?? ''),
+      category: input.category ?? existing.category ?? 'General',
+      color: input.color ?? existing.color ?? '#10b981',
+      frequency: input.frequency ?? existing.frequency ?? 'daily',
+      targetDaysPerWeek: Math.max(
+        1,
+        Math.min(7, Number(input.targetDaysPerWeek ?? existing.targetDaysPerWeek ?? 7) || 7)
+      ),
+      customDays: input.customDays ?? existing.customDays ?? [0, 1, 2, 3, 4, 5, 6],
+      completedDates: Array.isArray(input.completedDates)
+        ? input.completedDates
+        : (existing.completedDates ?? []),
+      bestStreakDays: Number(input.bestStreakDays ?? existing.bestStreakDays ?? 0) || 0,
+      reminderTime: input.reminderTime !== undefined ? input.reminderTime : (existing.reminderTime ?? ''),
+      archived: input.archived !== undefined ? Boolean(input.archived) : Boolean(existing.archived),
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
       updatedAt: nowIso,
     };
-    const path = `users/${userId}/habits/${id}`;
     try {
       await setDoc(doc(db, path), stripUndefined({ ...habit }), { merge: true });
     } catch (err) {
@@ -2445,22 +2482,38 @@ export const firestoreService = {
   async saveStudySubject(userId: string, input: Partial<StudySubject>): Promise<StudySubject> {
     const id = input.id || `subj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_subjects/${id}`;
+    let existing: Partial<StudySubject> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) {
+          existing = snap.data() as StudySubject;
+        }
+      } catch {
+        // Proceed with defaults if doc does not exist yet
+      }
+    }
     const item: StudySubject = {
       id,
       userId,
-      code: (input.code || `SUB_${Date.now().toString(36).toUpperCase()}`).trim(),
-      name: (input.name || 'Subject').trim(),
-      tierId: input.tierId || 'tier1_sem3',
-      semesterOrDomain: input.semesterOrDomain || '',
-      targetExam: input.targetExam || '',
-      totalSubtopics: Number(input.totalSubtopics) || 0,
-      completedSubtopics: Number(input.completedSubtopics) || 0,
-      color: input.color || '#3b82f6',
-      createdAt: input.createdAt || nowIso,
+      code: (existing.code ?? input.code ?? `SUB_${Date.now().toString(36).toUpperCase()}`).trim(),
+      name: (input.name ?? existing.name ?? 'Subject').trim() || 'Subject',
+      tierId: input.tierId ?? existing.tierId ?? 'tier1_sem3',
+      semesterOrDomain: input.semesterOrDomain !== undefined ? input.semesterOrDomain : (existing.semesterOrDomain ?? ''),
+      targetExam: input.targetExam !== undefined ? input.targetExam : (existing.targetExam ?? ''),
+      totalSubtopics: Number(input.totalSubtopics ?? existing.totalSubtopics ?? 0) || 0,
+      completedSubtopics: Number(input.completedSubtopics ?? existing.completedSubtopics ?? 0) || 0,
+      color: input.color ?? existing.color ?? '#3b82f6',
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
       updatedAt: nowIso,
-      deletedAt: input.deletedAt || null,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
     };
-    await setDoc(doc(db, `users/${userId}/study_subjects/${id}`), stripUndefined({ ...item }), { merge: true });
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
     return item;
   },
 
@@ -2482,25 +2535,41 @@ export const firestoreService = {
   async saveStudyTopic(userId: string, input: Partial<StudyTopic>): Promise<StudyTopic> {
     const id = input.id || `topic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_topics/${id}`;
+    let existing: Partial<StudyTopic> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) {
+          existing = snap.data() as StudyTopic;
+        }
+      } catch {
+        // Proceed with defaults if doc does not exist yet
+      }
+    }
     const item: StudyTopic = {
       id,
       userId,
-      subjectCode: input.subjectCode || 'Sub_General',
-      unit: input.unit || 'Unit 1',
-      topic: input.topic || 'General Topic',
-      subtopic: input.subtopic || 'Core Concept',
-      priority: input.priority || 'Medium',
-      theory: Boolean(input.theory),
-      practice: Boolean(input.practice),
-      pyq: Boolean(input.pyq),
-      revisionCount: Number(input.revisionCount) || 0,
-      notes: input.notes || '',
-      rowIndex: input.rowIndex || 0,
-      createdAt: input.createdAt || nowIso,
+      subjectCode: existing.subjectCode ?? input.subjectCode ?? 'Sub_General',
+      unit: input.unit ?? existing.unit ?? 'Unit 1',
+      topic: input.topic ?? existing.topic ?? 'General Topic',
+      subtopic: input.subtopic ?? existing.subtopic ?? 'Core Concept',
+      priority: input.priority ?? existing.priority ?? 'Medium',
+      theory: input.theory !== undefined ? Boolean(input.theory) : Boolean(existing.theory),
+      practice: input.practice !== undefined ? Boolean(input.practice) : Boolean(existing.practice),
+      pyq: input.pyq !== undefined ? Boolean(input.pyq) : Boolean(existing.pyq),
+      revisionCount: Number(input.revisionCount ?? existing.revisionCount ?? 0) || 0,
+      notes: input.notes !== undefined ? input.notes : (existing.notes ?? ''),
+      rowIndex: input.rowIndex !== undefined ? input.rowIndex : (existing.rowIndex ?? 0),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
       updatedAt: nowIso,
-      deletedAt: input.deletedAt || null,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
     };
-    await setDoc(doc(db, `users/${userId}/study_topics/${id}`), stripUndefined({ ...item }), { merge: true });
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
     return item;
   },
 
@@ -2520,25 +2589,41 @@ export const firestoreService = {
   async saveStudyRevision(userId: string, input: Partial<StudyRevision>): Promise<StudyRevision> {
     const id = input.id || `rev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_revisions/${id}`;
+    let existing: Partial<StudyRevision> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) {
+          existing = snap.data() as StudyRevision;
+        }
+      } catch {
+        // Proceed with defaults if doc does not exist yet
+      }
+    }
     const item: StudyRevision = {
       id,
       userId,
-      topicId: input.topicId || '',
-      subjectCode: input.subjectCode || 'Sub_General',
-      topicTitle: input.topicTitle || 'Revision Topic',
-      lastStudiedAt: input.lastStudiedAt || nowIso.slice(0, 10),
-      nextRevisionAt: input.nextRevisionAt || nowIso.slice(0, 10),
-      intervalDays: Number(input.intervalDays) || 1,
-      repetition: Number(input.repetition) || 1,
-      difficulty: input.difficulty || 'medium',
-      recallScore: input.recallScore,
-      status: input.status || 'scheduled',
-      notes: input.notes || '',
-      createdAt: input.createdAt || nowIso,
+      topicId: existing.topicId ?? input.topicId ?? `custom_${Date.now()}`,
+      subjectCode: existing.subjectCode ?? input.subjectCode ?? 'Sub_General',
+      topicTitle: existing.topicTitle ?? input.topicTitle ?? 'Revision Topic',
+      lastStudiedAt: input.lastStudiedAt ?? existing.lastStudiedAt ?? nowIso.slice(0, 10),
+      nextRevisionAt: input.nextRevisionAt ?? existing.nextRevisionAt ?? nowIso.slice(0, 10),
+      intervalDays: Number(input.intervalDays ?? existing.intervalDays ?? 1) || 1,
+      repetition: input.repetition !== undefined ? Number(input.repetition) : (existing.repetition ?? 0),
+      difficulty: input.difficulty ?? existing.difficulty ?? 'medium',
+      recallScore: input.recallScore !== undefined ? input.recallScore : existing.recallScore,
+      status: input.status ?? existing.status ?? 'scheduled',
+      notes: input.notes !== undefined ? input.notes : (existing.notes ?? ''),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
       updatedAt: nowIso,
-      deletedAt: input.deletedAt || null,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
     };
-    await setDoc(doc(db, `users/${userId}/study_revisions/${id}`), stripUndefined({ ...item }), { merge: true });
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
     return item;
   },
 
@@ -2567,24 +2652,40 @@ export const firestoreService = {
   async saveStudyMistake(userId: string, input: Partial<StudyMistake>): Promise<StudyMistake> {
     const id = input.id || `mistake_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_mistakes/${id}`;
+    let existing: Partial<StudyMistake> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) {
+          existing = snap.data() as StudyMistake;
+        }
+      } catch {
+        // Proceed with defaults if doc does not exist yet
+      }
+    }
     const item: StudyMistake = {
       id,
       userId,
-      date: input.date || nowIso.slice(0, 10),
-      subjectCode: input.subjectCode || 'Sub_General',
-      subjectName: input.subjectName || input.subjectCode || 'General',
-      topic: input.topic || 'General Topic',
-      source: input.source || 'Practice',
-      severity: input.severity || 'Medium',
-      trap: input.trap || '',
-      rootCause: input.rootCause || '',
-      goldenRule: input.goldenRule || '',
-      resolved: Boolean(input.resolved),
-      createdAt: input.createdAt || nowIso,
+      date: input.date ?? existing.date ?? nowIso.slice(0, 10),
+      subjectCode: existing.subjectCode ?? input.subjectCode ?? 'Sub_General',
+      subjectName: input.subjectName ?? existing.subjectName ?? input.subjectCode ?? 'General',
+      topic: input.topic ?? existing.topic ?? 'General Topic',
+      source: input.source ?? existing.source ?? 'Practice',
+      severity: input.severity ?? existing.severity ?? 'Medium',
+      trap: input.trap !== undefined ? input.trap : (existing.trap ?? ''),
+      rootCause: input.rootCause !== undefined ? input.rootCause : (existing.rootCause ?? ''),
+      goldenRule: input.goldenRule !== undefined ? input.goldenRule : (existing.goldenRule ?? ''),
+      resolved: input.resolved !== undefined ? Boolean(input.resolved) : Boolean(existing.resolved),
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
       updatedAt: nowIso,
-      deletedAt: input.deletedAt || null,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
     };
-    await setDoc(doc(db, `users/${userId}/study_mistakes/${id}`), stripUndefined({ ...item }), { merge: true });
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
     return item;
   },
 

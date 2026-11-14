@@ -10,6 +10,7 @@ import {
   saveTimerState,
   acquireCompletionLock,
 } from '../src/lib/timerEngine.ts';
+import { dbService } from '../server/db.ts';
 
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();
@@ -44,6 +45,7 @@ test('Phase 11 — FocusSession and TimeBlock Data Model Extensions', () => {
   const session: FocusSession = {
     id: 'fs_test_1',
     userId: 'user_p11',
+    taskId: null,
     mode: 'work',
     durationMinutes: 25,
     durationSeconds: 1500,
@@ -72,6 +74,8 @@ test('Phase 11 — FocusSession and TimeBlock Data Model Extensions', () => {
     endMinute: 9 * 60 + 45,
     completed: false,
     revisionId: 'rev_123',
+    createdAt: '2026-11-14T10:00:00.000Z',
+    updatedAt: '2026-11-14T10:00:00.000Z',
   };
 
   assert.equal(block.revisionId, 'rev_123');
@@ -132,6 +136,7 @@ test('Phase 11 — Study Progress Analytics Uses Actual Completed Duration', () 
     {
       id: 's1',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 50,
       durationSeconds: 3000,
@@ -146,6 +151,7 @@ test('Phase 11 — Study Progress Analytics Uses Actual Completed Duration', () 
     {
       id: 's2',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 25,
       durationSeconds: 1500,
@@ -159,6 +165,7 @@ test('Phase 11 — Study Progress Analytics Uses Actual Completed Duration', () 
     {
       id: 's3',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 30,
       durationSeconds: 1800,
@@ -171,6 +178,7 @@ test('Phase 11 — Study Progress Analytics Uses Actual Completed Duration', () 
     {
       id: 's4',
       userId: 'u1',
+      taskId: null,
       mode: 'work',
       durationMinutes: 45,
       durationSeconds: 2700,
@@ -339,3 +347,52 @@ test('Phase 11 — DailyTimeBlockPlanner and StudyView UI Linkage', () => {
     'PomodoroTimer must offer button to link study topic'
   );
 });
+
+test('Phase 11 — Partial Updates Preserve Existing StudyTopic & TimeBlock Fields', () => {
+  const uid = `user_p11_partial_${Date.now()}`;
+  const topicId = `topic_partial_${Date.now()}`;
+  const blockId = `tb_rev_partial_${Date.now()}`;
+
+  dbService.saveStudyTopic(uid, {
+    id: topicId,
+    subjectCode: 'Sub_DBMS',
+    unit: 'Unit 5',
+    topic: 'Indexing',
+    subtopic: 'B+ Trees',
+    priority: 'High',
+    theory: true,
+    practice: false,
+    pyq: false,
+    notes: 'Keep these notes intact',
+  });
+
+  // Partial update with only practice: true (as triggered by Pomodoro completion)
+  const updatedTopic = dbService.saveStudyTopic(uid, { id: topicId, practice: true });
+  assert.equal(updatedTopic.subjectCode, 'Sub_DBMS');
+  assert.equal(updatedTopic.unit, 'Unit 5');
+  assert.equal(updatedTopic.subtopic, 'B+ Trees');
+  assert.equal(updatedTopic.theory, true, 'Existing theory flag must not be reset');
+  assert.equal(updatedTopic.practice, true);
+  assert.equal(updatedTopic.notes, 'Keep these notes intact');
+
+  dbService.saveTimeBlock(uid, {
+    id: blockId,
+    date: '2026-11-15',
+    title: '[Revision] B+ Trees',
+    category: 'Learning',
+    startMinute: 540,
+    endMinute: 585,
+    revisionId: 'rev_999',
+    completed: false,
+  });
+
+  // Partial update with only completed: true (as triggered by planner checkbox)
+  const updatedBlock = dbService.saveTimeBlock(uid, { id: blockId, completed: true });
+  assert.equal(updatedBlock.title, '[Revision] B+ Trees');
+  assert.equal(updatedBlock.category, 'Learning');
+  assert.equal(updatedBlock.startMinute, 540);
+  assert.equal(updatedBlock.endMinute, 585);
+  assert.equal(updatedBlock.revisionId, 'rev_999', 'Revision link must not be wiped on completion toggle');
+  assert.equal(updatedBlock.completed, true);
+});
+

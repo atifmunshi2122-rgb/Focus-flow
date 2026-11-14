@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { TimerEngineMode, TimerMode, useApp } from '../../context/AppContext.tsx';
 import { AmbientPreset } from '../../lib/ambientAudio.ts';
 import { api } from '../../lib/api.ts';
+import { saveTimerState } from '../../lib/timerEngine.ts';
 import { StudySubject, StudyTopic } from '../../types/study.ts';
 import {
   ThemeButton,
@@ -97,16 +98,19 @@ export const PomodoroTimer: React.FC = () => {
 
   useEffect(() => {
     if (!showStudyModal) return;
+    let cancelled = false;
     setLoadingStudyData(true);
     api
       .getStudySubjects()
       .then((subs) => {
+        if (cancelled) return [];
         setStudySubjects(subs);
         const initialCode = activeStudySubjectCode || subs[0]?.code || '';
         setModalSubjectCode(initialCode);
         return api.getStudyTopics(initialCode ? initialCode : undefined);
       })
       .then((tops) => {
+        if (cancelled) return;
         setStudyTopics(tops);
         if (activeStudyTopicId && tops.some((t) => t.id === activeStudyTopicId)) {
           setModalTopicId(activeStudyTopicId);
@@ -118,8 +122,13 @@ export const PomodoroTimer: React.FC = () => {
       .catch((err) => {
         console.warn('Failed to load study entities for timer modal:', err);
       })
-      .finally(() => setLoadingStudyData(false));
-  }, [showStudyModal, activeStudySubjectCode, activeStudyTopicId, activeStudyActivityType]);
+      .finally(() => {
+        if (!cancelled) setLoadingStudyData(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showStudyModal]);
 
   const handleSubjectChange = async (newCode: string) => {
     setModalSubjectCode(newCode);
@@ -133,9 +142,17 @@ export const PomodoroTimer: React.FC = () => {
   };
 
   const handleApplyStudyLink = () => {
-    setActiveStudySubjectCode(modalSubjectCode || null);
-    setActiveStudyTopicId(modalTopicId || null);
+    const matchedTopic = studyTopics.find((t) => t.id === modalTopicId);
+    const resolvedSubjectCode = modalSubjectCode || matchedTopic?.subjectCode || null;
+    const resolvedTopicId = modalTopicId || null;
+    setActiveStudySubjectCode(resolvedSubjectCode);
+    setActiveStudyTopicId(resolvedTopicId);
     setActiveStudyActivityType(modalActivityType);
+    saveTimerState({
+      activeStudySubjectCode: resolvedSubjectCode,
+      activeStudyTopicId: resolvedTopicId,
+      activeStudyActivityType: modalActivityType,
+    });
     setShowStudyModal(false);
   };
 
@@ -143,6 +160,11 @@ export const PomodoroTimer: React.FC = () => {
     setActiveStudySubjectCode(null);
     setActiveStudyTopicId(null);
     setActiveStudyActivityType(null);
+    saveTimerState({
+      activeStudySubjectCode: null,
+      activeStudyTopicId: null,
+      activeStudyActivityType: null,
+    });
     setShowStudyModal(false);
   };
 
@@ -373,22 +395,29 @@ export const PomodoroTimer: React.FC = () => {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.96 }}
               transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-xs truncate border"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-xs border"
               style={{
                 background: 'var(--ff-surface-muted)',
                 borderColor: 'var(--ff-accent-border, var(--ff-border-color))',
                 color: 'var(--ff-accent-text, var(--ff-text-primary))',
               }}
             >
-              <GraduationCap className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
-              <span className="truncate">
-                Study: <strong>{activeStudySubjectCode || 'Subject'}</strong>
-                {activeStudyActivityType ? ` (${activeStudyActivityType})` : ''}
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowStudyModal(true)}
+                className="flex items-center gap-1.5 min-w-0 truncate hover:underline text-left"
+                title="Change linked study subject or topic"
+              >
+                <GraduationCap className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
+                <span className="truncate">
+                  Study: <strong>{activeStudySubjectCode || 'Topic'}</strong>
+                  {activeStudyActivityType ? ` (${activeStudyActivityType})` : ''}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={handleClearStudyLink}
-                className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] ml-1 text-xs"
+                className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] ml-1 text-xs shrink-0"
                 title="Unlink study topic"
                 aria-label="Unlink study topic"
               >

@@ -3,6 +3,7 @@ import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudySubject, StudyTopic, StudyRevision, RevisionDifficulty } from '../../types/study.ts';
 import { REVISION_INTERVAL_LADDER, calculateNextRevisionDate } from '../../lib/studyIntelligence.ts';
 import { api } from '../../lib/api.ts';
+import { useApp } from '../../context/AppContext.tsx';
 import { Calendar, Repeat, BookOpen, AlertCircle, Clock } from 'lucide-react';
 
 interface ScheduleRevisionModalProps {
@@ -24,6 +25,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
   defaultTopicId,
   onSchedule,
 }) => {
+  const { triggerRefresh } = useApp();
   const [subjectCode, setSubjectCode] = useState(defaultSubjectCode || subjects[0]?.code || 'Sub_DBMS');
   const [topicId, setTopicId] = useState(defaultTopicId || '');
   const [customTopicTitle, setCustomTopicTitle] = useState('');
@@ -112,9 +114,9 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
           const [startH, startM] = plannerStartTime.split(':').map(Number);
           const safeH = Number.isFinite(startH) ? Math.min(23, Math.max(0, startH)) : 9;
           const safeM = Number.isFinite(startM) ? Math.min(59, Math.max(0, startM)) : 0;
-          const startMinute = safeH * 60 + safeM;
+          const startMinute = Math.min(1439, safeH * 60 + safeM);
           const safeDuration = Number.isFinite(plannerDuration) ? Math.max(15, plannerDuration) : 45;
-          const endMinute = Math.min(24 * 60 - 1, startMinute + safeDuration);
+          const endMinute = Math.max(startMinute + 1, Math.min(1440, startMinute + safeDuration));
 
           await api.createTimeBlock({
             id: `tb_rev_${revisionId}`,
@@ -127,6 +129,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
             notes: notes.trim() ? `Subject: ${subjectCode}\n${notes.trim()}` : `Subject: ${subjectCode}`,
             completed: false,
           });
+          triggerRefresh();
         } catch (plannerErr) {
           // Graceful fallback: do NOT fail or rollback the revision if time block creation fails
           console.warn('Could not insert time block for revision:', plannerErr);

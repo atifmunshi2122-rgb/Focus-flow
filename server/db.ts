@@ -1403,21 +1403,27 @@ class DatabaseService {
     const nowIso = new Date().toISOString();
     const id = input.id || `tb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const idx = this.db.timeBlocks.findIndex((tb) => tb.id === id && tb.userId === userId);
+    const existing = idx >= 0 ? this.db.timeBlocks[idx] : undefined;
+
+    const rawStart = input.startMinute !== undefined ? Number(input.startMinute) : Number(existing?.startMinute ?? 0);
+    const startMinute = Math.max(0, Math.min(1439, Number.isFinite(rawStart) ? Math.round(rawStart) : 0));
+    const rawEnd = input.endMinute !== undefined ? Number(input.endMinute) : Number(existing?.endMinute ?? 60);
+    const endMinute = Math.max(startMinute + 1, Math.min(1440, Number.isFinite(rawEnd) ? Math.round(rawEnd) : startMinute + 60));
 
     const block: TimeBlock = {
       id,
       userId,
-      date: input.date || getTodayDateString(DEFAULT_TIMEZONE),
-      title: (input.title || 'Focus Block').trim(),
-      startMinute: Math.max(0, Math.min(1440, Number(input.startMinute) || 0)),
-      endMinute: Math.max(0, Math.min(1440, Number(input.endMinute) || 60)),
-      category: input.category || 'Focus',
-      taskId: input.taskId || null,
-      revisionId: input.revisionId || null,
-      completed: Boolean(input.completed),
-      notes: input.notes || '',
-      deletedAt: input.deletedAt || null,
-      createdAt: idx >= 0 ? this.db.timeBlocks[idx].createdAt : nowIso,
+      date: input.date ?? existing?.date ?? getTodayDateString(DEFAULT_TIMEZONE),
+      title: (input.title ?? existing?.title ?? 'Focus Block').trim() || 'Focus Block',
+      startMinute,
+      endMinute,
+      category: input.category ?? existing?.category ?? 'Focus',
+      taskId: input.taskId !== undefined ? input.taskId : (existing?.taskId ?? null),
+      revisionId: input.revisionId !== undefined ? input.revisionId : (existing?.revisionId ?? null),
+      completed: input.completed !== undefined ? Boolean(input.completed) : Boolean(existing?.completed),
+      notes: input.notes !== undefined ? input.notes : (existing?.notes ?? ''),
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing?.deletedAt ?? null),
+      createdAt: existing ? existing.createdAt : nowIso,
       updatedAt: nowIso,
     };
 
@@ -1916,23 +1922,24 @@ class DatabaseService {
     const id = input.id || `topic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
     const existingIdx = this.db.studyTopics.findIndex((t) => t.userId === userId && t.id === id);
+    const existing = existingIdx >= 0 ? this.db.studyTopics[existingIdx] : undefined;
     const topic: StudyTopic = {
       id,
       userId,
-      subjectCode: input.subjectCode || 'Sub_General',
-      unit: input.unit || 'Unit 1',
-      topic: input.topic || 'General Topic',
-      subtopic: input.subtopic || 'Core Concept',
-      priority: input.priority || 'Medium',
-      theory: Boolean(input.theory),
-      practice: Boolean(input.practice),
-      pyq: Boolean(input.pyq),
-      revisionCount: Number(input.revisionCount) || 0,
-      notes: input.notes || '',
-      rowIndex: input.rowIndex || 0,
-      createdAt: existingIdx >= 0 ? this.db.studyTopics[existingIdx].createdAt : nowIso,
+      subjectCode: existing?.subjectCode ?? input.subjectCode ?? 'Sub_General',
+      unit: input.unit ?? existing?.unit ?? 'Unit 1',
+      topic: input.topic ?? existing?.topic ?? 'General Topic',
+      subtopic: input.subtopic ?? existing?.subtopic ?? 'Core Concept',
+      priority: input.priority ?? existing?.priority ?? 'Medium',
+      theory: input.theory !== undefined ? Boolean(input.theory) : Boolean(existing?.theory),
+      practice: input.practice !== undefined ? Boolean(input.practice) : Boolean(existing?.practice),
+      pyq: input.pyq !== undefined ? Boolean(input.pyq) : Boolean(existing?.pyq),
+      revisionCount: Number(input.revisionCount ?? existing?.revisionCount ?? 0) || 0,
+      notes: input.notes !== undefined ? input.notes : (existing?.notes ?? ''),
+      rowIndex: input.rowIndex !== undefined ? input.rowIndex : (existing?.rowIndex ?? 0),
+      createdAt: existing ? existing.createdAt : nowIso,
       updatedAt: nowIso,
-      deletedAt: input.deletedAt || null,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing?.deletedAt ?? null),
     };
 
     if (existingIdx >= 0) {

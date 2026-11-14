@@ -2426,37 +2426,48 @@ apiRouter.get('/study/topics', (req: Request, res: Response) => {
 apiRouter.post('/study/topics', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-  const subjectCode = parseNonEmptyString(body.subjectCode, 64);
+  const topicId = parseOptionalString(body.id, 128) || undefined;
+  const existingTopic = topicId
+    ? dbService.getStudyTopics(userId).find((t) => t.id === topicId)
+    : undefined;
+
+  const subjectCode = existingTopic
+    ? existingTopic.subjectCode
+    : parseNonEmptyString(body.subjectCode, 64);
   if (!subjectCode) {
     res.status(400).json({ error: 'subjectCode is required' });
     return;
   }
-  const unit = parseNonEmptyString(body.unit, 128);
+  const unit = body.unit !== undefined ? parseNonEmptyString(body.unit, 128) : existingTopic?.unit;
   if (!unit) {
     res.status(400).json({ error: 'unit is required (max 128 characters)' });
     return;
   }
-  const subtopic = parseNonEmptyString(body.subtopic, 256);
+  const subtopic = body.subtopic !== undefined ? parseNonEmptyString(body.subtopic, 256) : existingTopic?.subtopic;
   if (!subtopic) {
     res.status(400).json({ error: 'subtopic is required (max 256 characters)' });
     return;
   }
-  const topic = parseOptionalString(body.topic, 256) || unit;
-  const priority = (body.priority ? parseEnum(body.priority, ALLOWED_STUDY_PRIORITIES) : 'Medium') || 'Medium';
-  const notes = parseOptionalString(body.notes, 2000) || undefined;
-  const rowIndex = parseNonNegativeInt(body.rowIndex, 100000) ?? 0;
+  const topic = body.topic !== undefined ? (parseOptionalString(body.topic, 256) || unit) : (existingTopic?.topic || unit);
+  const priority =
+    (body.priority ? parseEnum(body.priority, ALLOWED_STUDY_PRIORITIES) : existingTopic?.priority || 'Medium') || 'Medium';
+  const notes = body.notes !== undefined ? (parseOptionalString(body.notes, 2000) || '') : existingTopic?.notes;
+  const rowIndex = body.rowIndex !== undefined ? (parseNonNegativeInt(body.rowIndex, 100000) ?? 0) : existingTopic?.rowIndex;
 
   const topicRecord = dbService.saveStudyTopic(userId, {
-    id: parseOptionalString(body.id, 128) || undefined,
+    id: topicId,
     subjectCode,
     unit,
     topic,
     subtopic,
     priority,
-    theory: Boolean(body.theory),
-    practice: Boolean(body.practice),
-    pyq: Boolean(body.pyq),
-    revisionCount: parseNonNegativeInt(body.revisionCount, 1000) ?? 0,
+    theory: body.theory !== undefined ? Boolean(body.theory) : existingTopic?.theory,
+    practice: body.practice !== undefined ? Boolean(body.practice) : existingTopic?.practice,
+    pyq: body.pyq !== undefined ? Boolean(body.pyq) : existingTopic?.pyq,
+    revisionCount:
+      body.revisionCount !== undefined
+        ? (parseNonNegativeInt(body.revisionCount, 1000) ?? 0)
+        : existingTopic?.revisionCount,
     notes,
     rowIndex,
   });

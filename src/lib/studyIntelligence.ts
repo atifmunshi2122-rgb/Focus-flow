@@ -170,12 +170,16 @@ export function computeStudyProgressSummary(input: {
     (m) => !m.resolved && m.severity === 'High'
   ).length;
 
-  // Study focus minutes from focus sessions (reflecting actual completed time)
+  // Study focus minutes from completed work focus sessions (reflecting actual completed time)
   const studyFocusKeywords = ['study', 'dsa', 'exam', 'core', 'revision', 'gate', 'sem', 'sub_'];
+  const topicSubjectMap = new Map<string, string>();
+  for (const t of activeTopics) {
+    topicSubjectMap.set(t.id, t.subjectCode);
+  }
   let totalStudyMinutes = 0;
   if (input.focusSessions) {
     for (const fs of input.focusSessions) {
-      if (fs.completed) {
+      if (fs.completed && fs.mode === 'work') {
         const titleLower = (fs.taskTitle || '').toLowerCase();
         const isStudyKeyword = studyFocusKeywords.some((k) => titleLower.includes(k));
         const isStudyLinked = Boolean(fs.subjectCode || fs.topicId);
@@ -200,7 +204,8 @@ export function computeStudyProgressSummary(input: {
     let subjectStudyMinutes = 0;
     if (input.focusSessions) {
       for (const fs of input.focusSessions) {
-        if (fs.completed && fs.subjectCode === sub.code) {
+        const resolvedSubCode = fs.subjectCode || (fs.topicId ? topicSubjectMap.get(fs.topicId) : undefined);
+        if (fs.completed && fs.mode === 'work' && resolvedSubCode === sub.code) {
           const actualMins =
             typeof fs.durationSeconds === 'number' && fs.durationSeconds > 0
               ? Math.max(1, Math.round(fs.durationSeconds / 60))

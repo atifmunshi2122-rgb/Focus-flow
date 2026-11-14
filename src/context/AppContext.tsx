@@ -1726,7 +1726,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           created.startedAt.split('T')[0],
           'WORK',
           created.durationMinutes,
-          created.taskTitle || 'Stopwatch Focus',
+          created.taskTitle ||
+            (created.subjectCode
+              ? `Study: ${created.subjectCode}${created.activityType ? ` (${created.activityType})` : ''}`
+              : 'Stopwatch Focus'),
           'YES',
           created.startedAt,
           created.endedAt,
@@ -1898,7 +1901,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   newSession.startedAt.split('T')[0],
                   'WORK',
                   newSession.durationMinutes,
-                  newSession.taskTitle || 'Focus Session',
+                  newSession.taskTitle ||
+                    (newSession.subjectCode
+                      ? `Study: ${newSession.subjectCode}${newSession.activityType ? ` (${newSession.activityType})` : ''}`
+                      : 'Focus Session'),
                   'YES',
                   newSession.startedAt,
                   newSession.endedAt,

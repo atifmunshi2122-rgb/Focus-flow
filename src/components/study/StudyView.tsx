@@ -14,6 +14,7 @@ import {
   categorizeRevisions,
   computeStudyProgressSummary,
 } from '../../lib/studyIntelligence.ts';
+import { saveTimerState } from '../../lib/timerEngine.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import { motion } from 'motion/react';
 import { AddStudySubjectModal } from './AddStudySubjectModal.tsx';
@@ -52,6 +53,9 @@ export const StudyView: React.FC = () => {
     triggerRefresh,
     showToast,
     setCurrentTab,
+    timerMode,
+    isRunning,
+    switchTimerMode,
     setActiveStudySubjectCode,
     setActiveStudyTopicId,
     setActiveStudyActivityType,
@@ -814,6 +818,14 @@ export const StudyView: React.FC = () => {
                             setActiveStudySubjectCode(item.subjectCode);
                             setActiveStudyTopicId(item.id);
                             setActiveStudyActivityType('study');
+                            saveTimerState({
+                              activeStudySubjectCode: item.subjectCode,
+                              activeStudyTopicId: item.id,
+                              activeStudyActivityType: 'study',
+                            });
+                            if (timerMode !== 'work' && !isRunning) {
+                              switchTimerMode('work');
+                            }
                             setCurrentTab('focus');
                           }}
                           className="h-8 px-2 text-indigo-400 hover:bg-indigo-500/10"
