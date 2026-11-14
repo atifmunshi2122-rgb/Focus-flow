@@ -18,6 +18,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -30,8 +36,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test
-        run: npm test
+      - name: Test (with Firestore Emulator)
+        run: npx --yes firebase-tools@15 emulators:exec --project test-rules-project --only firestore "npm test"
 
       - name: Build
         run: npm run build
