@@ -49,6 +49,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { getOverdueTasks } from '../../lib/productivityIntelligence.ts';
+import { playTaskCompleteSound } from '../../lib/sound.ts';
 
 type TaskViewMode =
   | 'list'
@@ -66,6 +67,7 @@ export const TaskManager: React.FC = () => {
     refreshKey,
     triggerRefresh,
     showToast,
+    settings,
     setActiveTaskId,
     switchTimerMode,
     startTimer,
@@ -242,6 +244,9 @@ export const TaskManager: React.FC = () => {
       }
       triggerRefresh();
       loadTasks();
+      if (nextStatus === 'completed') {
+        playTaskCompleteSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+      }
       showToast(
         nextStatus === 'completed'
           ? task.recurrence && task.recurrence !== 'none'
@@ -256,12 +261,16 @@ export const TaskManager: React.FC = () => {
   };
 
   const toggleSubtaskInline = async (task: Task, subId: string) => {
+    const isTargetDone = task.subtasks?.find((s) => s.id === subId)?.done;
     const updatedSubs = (task.subtasks || []).map((s) =>
       s.id === subId ? { ...s, done: !s.done } : s
     );
     try {
       await api.updateTask(task.id, { subtasks: updatedSubs });
       setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, subtasks: updatedSubs } : t)));
+      if (!isTargetDone) {
+        playTaskCompleteSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+      }
     } catch {
       showToast('Failed to update subtask', 'error');
     }
@@ -419,7 +428,9 @@ export const TaskManager: React.FC = () => {
       >
         <ThemeCard
           variant="interactive"
-          className="space-y-3"
+          className={`space-y-3 transition-[background-color,border-color] duration-300 ${
+            isCompleted ? 'bg-[var(--ff-success-soft)]/20 border-[var(--ff-success)]/30' : ''
+          }`}
           draggable={allowDrag}
           onDragStart={() => setDraggedTaskId(task.id)}
           onDragOver={(e) => allowDrag && e.preventDefault()}
@@ -435,7 +446,7 @@ export const TaskManager: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void toggleTaskStatus(task)}
-                className="mt-0.5 shrink-0 transition-transform active:scale-90 flex items-center justify-center w-5 h-5 rounded-full border"
+                className="mt-0.5 shrink-0 transition-all duration-200 active:scale-95 hover:scale-105 flex items-center justify-center w-5 h-5 rounded-full border"
                 style={{
                   borderColor: isCompleted ? 'var(--ff-success)' : 'var(--ff-text-muted)',
                   backgroundColor: isCompleted

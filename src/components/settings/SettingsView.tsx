@@ -17,6 +17,12 @@ import {
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
+  playClickSound,
+  playSaveSuccessSound,
+  playTaskCompleteSound,
+  unlockAudioContext,
+} from '../../lib/sound.ts';
+import {
   Bell,
   Check,
   CheckSquare,
@@ -45,6 +51,8 @@ import {
   Trash2,
   Upload,
   User,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 
@@ -391,6 +399,7 @@ export const SettingsView: React.FC = () => {
   const [shortcutsEnabled, setShortcutsEnabled] = useState(settings?.keyboardShortcutsEnabled ?? true);
   const [autoSwitch, setAutoSwitch] = useState(settings?.autoSwitchSessions || false);
   const [sound, setSound] = useState(settings?.soundEnabled ?? true);
+  const [soundVolume, setSoundVolume] = useState(settings?.soundVolume ?? 70);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>(
     settings?.notificationPrefs || {
       enabled: true,
@@ -426,6 +435,7 @@ export const SettingsView: React.FC = () => {
       if (settings.notificationPrefs) setNotifPrefs(settings.notificationPrefs);
       setAutoSwitch(Boolean(settings.autoSwitchSessions));
       setSound(settings.soundEnabled ?? true);
+      setSoundVolume(settings.soundVolume ?? 70);
     }
   }, [settings]);
 
@@ -461,8 +471,10 @@ export const SettingsView: React.FC = () => {
         notificationPrefs: notifPrefs,
         autoSwitchSessions: autoSwitch,
         soundEnabled: sound,
+        soundVolume: soundVolume,
       });
       setSaveSuccess(true);
+      playSaveSuccessSound(sound, soundVolume);
       showToast('Settings saved and synchronized', 'success');
       setTimeout(() => setSaveSuccess(false), 1600);
     } finally {
@@ -980,17 +992,72 @@ export const SettingsView: React.FC = () => {
                       </span>
                     </label>
 
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={sound}
-                        onChange={(e) => setSound(e.target.checked)}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className="text-xs text-[var(--ff-text-secondary)] font-medium">
-                        Synthesized audio alerts (Web Audio API focus completion and break chimes)
-                      </span>
-                    </label>
+                    <div className="space-y-3 pt-1">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={sound}
+                            onChange={(e) => {
+                              const next = e.target.checked;
+                              setSound(next);
+                              if (next) {
+                                unlockAudioContext();
+                                playClickSound(true, soundVolume);
+                              }
+                            }}
+                            className="w-4 h-4 rounded"
+                          />
+                          <div className="flex items-center gap-2">
+                            {sound ? (
+                              <Volume2 className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                            ) : (
+                              <VolumeX className="w-4 h-4 text-[var(--ff-text-muted)]" />
+                            )}
+                            <span className="text-xs text-[var(--ff-text-secondary)] font-medium">
+                              Synthesized UI Audio Alerts &amp; Sound Effects
+                            </span>
+                          </div>
+                        </label>
+
+                        <ThemeButton
+                          variant="ghost"
+                          size="xs"
+                          disabled={!sound}
+                          onClick={() => {
+                            unlockAudioContext();
+                            playTaskCompleteSound(true, soundVolume);
+                          }}
+                          className="text-[11px] font-semibold self-start sm:self-center"
+                          title="Preview sound at current volume"
+                        >
+                          Test Sound
+                        </ThemeButton>
+                      </div>
+
+                      {sound && (
+                        <div className="pt-2 pl-7 flex items-center gap-4">
+                          <div className="flex-1 max-w-sm">
+                            <div className="flex justify-between text-[11px] text-[var(--ff-text-muted)] mb-1">
+                              <span>Alert Volume</span>
+                              <span className="font-mono font-bold text-[var(--ff-text-primary)]">
+                                {soundVolume}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={soundVolume}
+                              onChange={(e) => setSoundVolume(Number(e.target.value))}
+                              className="w-full accent-[var(--ff-accent)] h-1.5 bg-[var(--ff-surface-muted)] rounded-lg cursor-pointer"
+                              aria-label="Sound effects volume"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </ThemeCard>
 

@@ -9,7 +9,16 @@ import {
   SavedCustomTheme,
 } from '../types/index.ts';
 import { api } from '../lib/api.ts';
-import { playFocusCompleteSound, playBreakEndSound, playClickSound, unlockAudioContext } from '../lib/sound.ts';
+import {
+  playFocusCompleteSound,
+  playBreakEndSound,
+  playClickSound,
+  playTimerStartSound,
+  playTimerPauseSound,
+  playSaveSuccessSound,
+  playErrorSound,
+  unlockAudioContext,
+} from '../lib/sound.ts';
 import {
   auth,
   signInWithGoogle as fbSignInWithGoogle,
@@ -340,6 +349,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
   const [user, setUser] = useState<User | null>(null);
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const settingsRef = useRef<UserSettings | null>(settings);
+  settingsRef.current = settings;
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -495,6 +506,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = `toast_${Date.now()}_${Math.random()}`;
     setToasts((prev) => [...prev, { id, message, type }]);
+    if (type === 'error') {
+      const currentSettings = settingsRef.current;
+      playErrorSound(currentSettings?.soundEnabled ?? true, currentSettings?.soundVolume);
+    }
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4500);
@@ -1547,7 +1562,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sessionStartTimeRef.current = new Date().toISOString();
       }
       setIsRunning(true);
-      playClickSound(settings?.soundEnabled ?? true);
+      playTimerStartSound(settings?.soundEnabled ?? true, settings?.soundVolume);
       saveTimerState({
         timerEngine: 'stopwatch',
         isRunning: true,
@@ -1590,7 +1605,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sessionStartTimeRef.current = new Date().toISOString();
     }
     setIsRunning(true);
-    playClickSound(settings?.soundEnabled ?? true);
+    playTimerStartSound(settings?.soundEnabled ?? true, settings?.soundVolume);
 
     saveTimerState({
       timerEngine,
@@ -1652,7 +1667,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       broadcastTimerEvent({ type: 'TIMER_SYNC_PAUSE', payload: { timeLeft: remaining, stopwatchElapsed: 0, timerEngine } });
     }
     setIsRunning(false);
-    playClickSound(settings?.soundEnabled ?? true);
+    playTimerPauseSound(settings?.soundEnabled ?? true, settings?.soundVolume);
   }, [settings, clearTimerHandles, timerEngine]);
 
   const resetTimer = useCallback(() => {
@@ -1673,7 +1688,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTimeLeft(safeTotal);
     }
     sessionStartTimeRef.current = null;
-    playClickSound(settings?.soundEnabled ?? true);
+    playClickSound(settings?.soundEnabled ?? true, settings?.soundVolume);
     saveTimerState({
       isRunning: false,
       timeLeft: safeTotal,
@@ -1870,7 +1885,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const isSound = settingsNow?.soundEnabled ?? true;
       if (modeNow === 'work') {
-        playFocusCompleteSound(isSound);
+        playFocusCompleteSound(isSound, settingsNow?.soundVolume);
         toastNow('Focus session complete! Great work!', 'success');
 
         if (isLeader) {
@@ -1940,7 +1955,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }, 1000);
         }
       } else {
-        playBreakEndSound(isSound);
+        playBreakEndSound(isSound, settingsNow?.soundVolume);
         toastNow('Break finished! Ready to focus?', 'info');
         switchModeNow('work');
         if (settingsNow?.autoSwitchSessions) {

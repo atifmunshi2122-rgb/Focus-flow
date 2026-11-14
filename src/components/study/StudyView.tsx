@@ -16,6 +16,7 @@ import {
 } from '../../lib/studyIntelligence.ts';
 import { saveTimerState } from '../../lib/timerEngine.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { playStudyMilestoneSound } from '../../lib/sound.ts';
 import { motion } from 'motion/react';
 import { AddStudySubjectModal } from './AddStudySubjectModal.tsx';
 import { AddStudyTopicModal } from './AddStudyTopicModal.tsx';
@@ -48,6 +49,7 @@ type StudySubTab = 'syllabus' | 'revisions' | 'mistakes' | 'habits' | 'analytics
 export const StudyView: React.FC = () => {
   const {
     user,
+    settings,
     habits,
     refreshKey,
     triggerRefresh,
@@ -240,6 +242,9 @@ export const StudyView: React.FC = () => {
 
     // Optimistic state
     setTopics((prev) => prev.map((t) => (t.id === topicId ? updated : t)));
+    if (!existing[flag]) {
+      playStudyMilestoneSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+    }
 
     try {
       await api.saveStudyTopic(updated);
@@ -261,6 +266,7 @@ export const StudyView: React.FC = () => {
       } else {
         await loadData();
       }
+      playStudyMilestoneSound(settings?.soundEnabled ?? true, settings?.soundVolume);
       showToast(
         difficulty === 'easy'
           ? '🌟 Mastered recall! Interval extended.'
@@ -762,10 +768,10 @@ export const StudyView: React.FC = () => {
                             type="button"
                             onClick={() => handleToggleTopicFlag(item.id, 'theory')}
                             title="Theory: Concept understood"
-                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${
+                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all duration-200 active:scale-95 flex items-center justify-center ${
                               item.theory
-                                ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30'
-                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 scale-100'
+                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)]'
                             }`}
                           >
                             T
@@ -775,10 +781,10 @@ export const StudyView: React.FC = () => {
                             type="button"
                             onClick={() => handleToggleTopicFlag(item.id, 'practice')}
                             title="Practice: Solved problems / implemented"
-                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${
+                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all duration-200 active:scale-95 flex items-center justify-center ${
                               item.practice
-                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 scale-100'
+                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)]'
                             }`}
                           >
                             P
@@ -788,10 +794,10 @@ export const StudyView: React.FC = () => {
                             type="button"
                             onClick={() => handleToggleTopicFlag(item.id, 'pyq')}
                             title="PYQ: Previous Year Questions solved"
-                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${
+                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all duration-200 active:scale-95 flex items-center justify-center ${
                               item.pyq
-                                ? 'bg-purple-500 text-white shadow-sm shadow-purple-500/30'
-                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                ? 'bg-purple-500 text-white shadow-sm shadow-purple-500/30 scale-100'
+                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)]'
                             }`}
                           >
                             Q

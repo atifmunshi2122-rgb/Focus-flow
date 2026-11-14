@@ -15,6 +15,7 @@ import {
   parseDateString,
 } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { playHabitCompleteSound } from '../../lib/sound.ts';
 import {
   AnimatedCheckmark,
   AnimatedNumber,
@@ -66,7 +67,7 @@ const COLOR_OPTIONS = [
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const HabitTrackerView: React.FC = () => {
-  const { refreshKey, triggerRefresh, confirmAction } = useApp();
+  const { refreshKey, triggerRefresh, confirmAction, settings } = useApp();
   const { isDisabled } = useMotionPreferences();
 
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -174,6 +175,12 @@ export const HabitTrackerView: React.FC = () => {
   };
 
   const handleToggleHabit = async (habitId: string, dateStr: string) => {
+    const targetHabit = habits.find((h) => h.id === habitId);
+    const willComplete = !targetHabit?.completedDates?.includes(dateStr);
+    if (willComplete) {
+      playHabitCompleteSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+    }
+
     // Optimistic UI update
     setHabits((prev) =>
       prev.map((h) => {
@@ -508,10 +515,10 @@ export const HabitTrackerView: React.FC = () => {
 
                   {/* Streak & Consistency Bar */}
                   <div className="flex items-center gap-4 mt-4 pt-3 border-t border-[var(--ff-border-color)]/50">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 transition-transform duration-300 hover:scale-105">
                       <Flame
-                        className={`w-4 h-4 ${
-                          streak.currentStreak > 0 ? 'text-amber-500' : 'text-[var(--ff-text-muted)]'
+                        className={`w-4 h-4 transition-colors ${
+                          streak.currentStreak > 0 ? 'text-amber-500 animate-pulse' : 'text-[var(--ff-text-muted)]'
                         }`}
                       />
                       <span className="text-xs font-bold font-mono text-[var(--ff-text-primary)]">
@@ -555,7 +562,7 @@ export const HabitTrackerView: React.FC = () => {
                             key={dStr}
                             type="button"
                             onClick={() => handleToggleHabit(habit.id, dStr)}
-                            className={`flex flex-col items-center justify-center py-1.5 px-0.5 rounded-lg text-[10px] transition-all border ${
+                            className={`flex flex-col items-center justify-center py-1.5 px-0.5 rounded-lg text-[10px] transition-all duration-200 active:scale-95 hover:scale-105 border ${
                               isCompleted
                                 ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-600 dark:text-emerald-400 font-bold'
                                 : isScheduled

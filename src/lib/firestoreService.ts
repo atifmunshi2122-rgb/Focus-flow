@@ -130,6 +130,7 @@ function defaultSettingsForUser(userId: string): UserSettings {
     longBreakDuration: 15,
     autoSwitchSessions: false,
     soundEnabled: true,
+    soundVolume: 70,
     theme: 'dark',
     dailyFocusGoalMinutes: 100,
     weeklyFocusGoalMinutes: 500,

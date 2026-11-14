@@ -54,6 +54,7 @@ export interface UserSettings {
   longBreakDuration: number;
   autoSwitchSessions: boolean;
   soundEnabled: boolean;
+  soundVolume?: number; // 0-100 master volume percentage (default: 70)
   theme: 'light' | 'dark' | 'system';
   themeConfig?: ThemeConfig;
   savedThemes?: SavedCustomTheme[];
