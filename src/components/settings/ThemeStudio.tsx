@@ -202,6 +202,16 @@ export const ThemeStudio: React.FC = () => {
     }
   };
 
+  const buildCleanPresetConfig = (presetConfig: ThemeConfig): ThemeConfig =>
+    sanitizeThemeConfig({
+      ...DEFAULT_THEME_CONFIG,
+      ...presetConfig,
+      customPalette: presetConfig.customPalette,
+      customGradient: presetConfig.customGradient ?? null,
+      fusionConfig: presetConfig.fusionConfig,
+      threeDLighting: presetConfig.threeDLighting,
+    });
+
   const handleSelectStyleForPreview = (styleId: DesignStyleId) => {
     const targetStyle = getStyleDefinition(styleId);
     const next = sanitizeThemeConfig({
@@ -508,12 +518,30 @@ export const ThemeStudio: React.FC = () => {
         <SignatureThemeCollection
           currentConfig={themeConfig}
           draftConfig={draftConfig}
+          systemColorMode={systemColorMode}
+          isFullAppPreview={isFullAppPreview}
           onSelectTheme={(theme) => {
-            updateDraft(theme.config);
+            const cleanConfig = buildCleanPresetConfig(theme.config);
+            const isSamePreview =
+              isFullAppPreview &&
+              draftConfig.styleId === cleanConfig.styleId &&
+              draftConfig.colorMode === cleanConfig.colorMode &&
+              (draftConfig.accentColor || null) === (cleanConfig.accentColor || null) &&
+              (draftConfig.customPalette?.bgCanvas || null) ===
+                (cleanConfig.customPalette?.bgCanvas || null);
+
+            if (isSamePreview) {
+              stopFullAppPreview();
+              setDraftConfig(themeConfig);
+              return;
+            }
+            setDraftConfig(cleanConfig);
+            startFullAppPreview(cleanConfig);
           }}
           onApplyDirectly={async (theme) => {
-            updateDraft(theme.config);
-            await applyThemeConfig(theme.config, null);
+            const cleanConfig = buildCleanPresetConfig(theme.config);
+            setDraftConfig(cleanConfig);
+            await applyThemeConfig(cleanConfig, null);
           }}
           favoriteThemeIds={favoriteThemeIds}
           onToggleFavorite={(themeId) => void toggleFavoriteTheme(themeId)}
