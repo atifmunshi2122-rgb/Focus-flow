@@ -13,6 +13,7 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
+    "test:rules": "firebase emulators:exec --only firestore \"node --import tsx --test test/firestore_emulator_rules.test.ts\"",
     "validate": "npm run lint && npm test",
     "build:prod": "npm run clean && npm run build"
   },
