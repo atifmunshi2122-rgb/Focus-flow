@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { TimerEngineMode, TimerMode, useApp } from '../../context/AppContext.tsx';
 import { AmbientPreset } from '../../lib/ambientAudio.ts';
+import { api } from '../../lib/api.ts';
+import { StudySubject, StudyTopic } from '../../types/study.ts';
 import {
   ThemeButton,
   ThemeCard,
@@ -31,6 +33,8 @@ import {
   Music,
   Save,
   X,
+  BookOpen,
+  GraduationCap,
 } from 'lucide-react';
 
 const AMBIENT_OPTIONS: Array<{ id: AmbientPreset; label: string }> = [
@@ -66,6 +70,12 @@ export const PomodoroTimer: React.FC = () => {
     ambientPreset,
     ambientVolume,
     setAmbientSound,
+    activeStudySubjectCode,
+    setActiveStudySubjectCode,
+    activeStudyTopicId,
+    setActiveStudyTopicId,
+    activeStudyActivityType,
+    setActiveStudyActivityType,
   } = useApp();
 
   const [showCustomModal, setShowCustomModal] = useState(false);
@@ -75,6 +85,66 @@ export const PomodoroTimer: React.FC = () => {
   const [showCelebration, setShowCelebration] = useState(false);
   const prevCycleCountRef = useRef(completedCycleCount);
   const { isDisabled } = useMotionPreferences();
+
+  // Study Topic Linkage Modal State
+  const [showStudyModal, setShowStudyModal] = useState(false);
+  const [studySubjects, setStudySubjects] = useState<StudySubject[]>([]);
+  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>([]);
+  const [modalSubjectCode, setModalSubjectCode] = useState<string>('');
+  const [modalTopicId, setModalTopicId] = useState<string>('');
+  const [modalActivityType, setModalActivityType] = useState<'study' | 'practice' | 'theory' | 'revision'>('study');
+  const [loadingStudyData, setLoadingStudyData] = useState(false);
+
+  useEffect(() => {
+    if (!showStudyModal) return;
+    setLoadingStudyData(true);
+    api
+      .getStudySubjects()
+      .then((subs) => {
+        setStudySubjects(subs);
+        const initialCode = activeStudySubjectCode || subs[0]?.code || '';
+        setModalSubjectCode(initialCode);
+        return api.getStudyTopics(initialCode ? initialCode : undefined);
+      })
+      .then((tops) => {
+        setStudyTopics(tops);
+        if (activeStudyTopicId && tops.some((t) => t.id === activeStudyTopicId)) {
+          setModalTopicId(activeStudyTopicId);
+        } else {
+          setModalTopicId(tops[0]?.id || '');
+        }
+        setModalActivityType(activeStudyActivityType || 'study');
+      })
+      .catch((err) => {
+        console.warn('Failed to load study entities for timer modal:', err);
+      })
+      .finally(() => setLoadingStudyData(false));
+  }, [showStudyModal, activeStudySubjectCode, activeStudyTopicId, activeStudyActivityType]);
+
+  const handleSubjectChange = async (newCode: string) => {
+    setModalSubjectCode(newCode);
+    try {
+      const tops = await api.getStudyTopics(newCode || undefined);
+      setStudyTopics(tops);
+      setModalTopicId(tops[0]?.id || '');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleApplyStudyLink = () => {
+    setActiveStudySubjectCode(modalSubjectCode || null);
+    setActiveStudyTopicId(modalTopicId || null);
+    setActiveStudyActivityType(modalActivityType);
+    setShowStudyModal(false);
+  };
+
+  const handleClearStudyLink = () => {
+    setActiveStudySubjectCode(null);
+    setActiveStudyTopicId(null);
+    setActiveStudyActivityType(null);
+    setShowStudyModal(false);
+  };
 
   useEffect(() => {
     if (completedCycleCount > prevCycleCountRef.current) {
@@ -263,17 +333,17 @@ export const PomodoroTimer: React.FC = () => {
         </div>
       )}
 
-      {/* Linked Task Indicator */}
-      <div className="relative z-10 mb-5 min-h-[2rem] flex items-center justify-center">
+      {/* Linked Task & Study Indicators */}
+      <div className="relative z-10 mb-5 min-h-[2rem] flex flex-wrap items-center justify-center gap-2">
         <AnimatePresence mode="popLayout" initial={false}>
-          {activeTask ? (
+          {activeTask && (
             <motion.div
               key={`linked-${activeTask.id}`}
               initial={isDisabled ? false : { opacity: 0, y: -4, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.96 }}
               transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-sm truncate border"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-xs truncate border"
               style={{
                 background: 'var(--ff-surface-muted)',
                 borderColor: 'var(--ff-border-color)',
@@ -282,7 +352,7 @@ export const PomodoroTimer: React.FC = () => {
             >
               <Target className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
               <span className="truncate">
-                Focusing on: <strong>{activeTask.title}</strong>
+                Focus: <strong>{activeTask.title}</strong>
               </span>
               <button
                 type="button"
@@ -294,7 +364,50 @@ export const PomodoroTimer: React.FC = () => {
                 ×
               </button>
             </motion.div>
+          )}
+
+          {activeStudySubjectCode || activeStudyTopicId ? (
+            <motion.div
+              key={`linked-study-${activeStudySubjectCode}-${activeStudyTopicId}`}
+              initial={isDisabled ? false : { opacity: 0, y: -4, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.96 }}
+              transition={{ duration: MOTION_DURATION.dropdown, ease: MOTION_EASING.decelerate }}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium max-w-xs truncate border"
+              style={{
+                background: 'var(--ff-surface-muted)',
+                borderColor: 'var(--ff-accent-border, var(--ff-border-color))',
+                color: 'var(--ff-accent-text, var(--ff-text-primary))',
+              }}
+            >
+              <GraduationCap className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
+              <span className="truncate">
+                Study: <strong>{activeStudySubjectCode || 'Subject'}</strong>
+                {activeStudyActivityType ? ` (${activeStudyActivityType})` : ''}
+              </span>
+              <button
+                type="button"
+                onClick={handleClearStudyLink}
+                className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] ml-1 text-xs"
+                title="Unlink study topic"
+                aria-label="Unlink study topic"
+              >
+                ×
+              </button>
+            </motion.div>
           ) : (
+            <button
+              type="button"
+              onClick={() => setShowStudyModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] rounded-full border border-dashed border-[var(--ff-border-color)] hover:border-[var(--ff-accent)] transition-colors min-h-[32px]"
+              title="Link a Study Subject & Topic"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>+ Link Study</span>
+            </button>
+          )}
+
+          {!activeTask && !(activeStudySubjectCode || activeStudyTopicId) && (
             <motion.div
               key="unlinked-session"
               initial={isDisabled ? false : { opacity: 0 }}
@@ -304,7 +417,7 @@ export const PomodoroTimer: React.FC = () => {
               className="flex items-center gap-2 text-xs text-[var(--ff-text-muted)]"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Independent Session (Link any task from Tasks)</span>
+              <span>Independent Session</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -680,6 +793,118 @@ export const PomodoroTimer: React.FC = () => {
             </ThemeButton>
           </div>
         </form>
+      </ThemeModal>
+
+      {/* Link Study Topic Modal */}
+      <ThemeModal
+        isOpen={showStudyModal}
+        onClose={() => setShowStudyModal(false)}
+        title="Link Study Topic to Focus"
+        subtitle="Pomodoro focus time will automatically count toward your study analytics"
+        maxWidthClass="max-w-md"
+      >
+        <div className="space-y-4">
+          {loadingStudyData ? (
+            <div className="py-6 text-center text-xs text-[var(--ff-text-muted)]">
+              Loading study topics...
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-[var(--ff-text-muted)] mb-1">
+                  Study Subject
+                </label>
+                <select
+                  value={modalSubjectCode}
+                  onChange={(e) => void handleSubjectChange(e.target.value)}
+                  className="w-full px-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+                >
+                  <option value="">-- None / Select Subject --</option>
+                  {studySubjects.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.name} ({s.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--ff-text-muted)] mb-1">
+                  Topic from Syllabus (Optional)
+                </label>
+                <select
+                  value={modalTopicId}
+                  onChange={(e) => setModalTopicId(e.target.value)}
+                  className="w-full px-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+                >
+                  <option value="">-- General Subject Study --</option>
+                  {studyTopics.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.unit ? `[${t.unit}] ` : ''}{t.subtopic || t.topic}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--ff-text-muted)] mb-1">
+                  Activity Classification
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(
+                    [
+                      { id: 'study', label: 'Study' },
+                      { id: 'practice', label: 'Practice' },
+                      { id: 'theory', label: 'Theory' },
+                      { id: 'revision', label: 'Revision' },
+                    ] as const
+                  ).map((type) => (
+                    <button
+                      key={type.id}
+                      type="button"
+                      onClick={() => setModalActivityType(type.id)}
+                      className={`min-h-[44px] py-2 px-2 text-xs rounded-xl font-medium border text-center flex items-center justify-center transition-all ${
+                        modalActivityType === type.id
+                          ? 'bg-[var(--ff-accent)] text-white border-[var(--ff-accent)] shadow-xs'
+                          : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                      }`}
+                    >
+                      {type.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-[var(--ff-text-muted)] mt-1.5">
+                  Selecting <strong>Practice</strong> will mark topic practice complete when session finishes. Standard study logs actual hours.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-[var(--ff-border-color)]">
+                <ThemeButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearStudyLink}
+                  className="text-rose-400 hover:bg-rose-500/10 min-h-[44px]"
+                >
+                  Clear Link
+                </ThemeButton>
+                <div className="flex items-center gap-2">
+                  <ThemeButton variant="ghost" size="sm" onClick={() => setShowStudyModal(false)} className="min-h-[44px]">
+                    Cancel
+                  </ThemeButton>
+                  <ThemeButton
+                    variant="primary"
+                    size="sm"
+                    onClick={handleApplyStudyLink}
+                    disabled={!modalSubjectCode && !modalTopicId}
+                    className="min-h-[44px]"
+                  >
+                    Apply Link
+                  </ThemeButton>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </ThemeModal>
     </>
   );

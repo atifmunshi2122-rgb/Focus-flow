@@ -21,6 +21,7 @@ import {
   Tag,
   Link as LinkIcon,
   GripVertical,
+  BookOpen,
 } from 'lucide-react';
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -33,7 +34,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export const DailyTimeBlockPlanner: React.FC = () => {
-  const { settings, showToast, refreshKey, triggerRefresh, confirmAction } = useApp();
+  const { settings, showToast, refreshKey, triggerRefresh, confirmAction, setCurrentTab } = useApp();
   const { intensity, isDisabled } = useMotionPreferences();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
@@ -125,6 +126,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
           endMinute,
           taskId: formTaskId || null,
           notes: formNotes,
+          revisionId: editingBlock.revisionId || null,
         });
         showToast('Time block updated', 'success');
       } else {
@@ -414,6 +416,23 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                                 <span style={{ color: catColor }} className="font-semibold">
                                   {b.category}
                                 </span>
+                                {b.revisionId && (
+                                  <>
+                                    <span>•</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCurrentTab('study');
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 border border-indigo-500/25 transition-colors cursor-pointer"
+                                      title="Linked Spaced Revision. Click to view in Study OS."
+                                    >
+                                      <BookOpen className="w-3 h-3" />
+                                      <span>Revision</span>
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>

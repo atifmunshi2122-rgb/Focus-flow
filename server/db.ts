@@ -80,6 +80,10 @@ export interface FocusSession {
   userId: string;
   taskId: string | null;
   taskTitle?: string;
+  subjectCode?: string | null;
+  subjectId?: string | null;
+  topicId?: string | null;
+  activityType?: 'study' | 'practice' | 'theory' | 'revision' | null;
   mode: 'work' | 'short_break' | 'long_break';
   durationMinutes: number;
   durationSeconds: number;
@@ -195,6 +199,7 @@ export interface TimeBlock {
   endMinute: number;
   category: string;
   taskId?: string | null;
+  revisionId?: string | null;
   completed: boolean;
   notes?: string;
   deletedAt?: string | null;
@@ -1408,6 +1413,7 @@ class DatabaseService {
       endMinute: Math.max(0, Math.min(1440, Number(input.endMinute) || 60)),
       category: input.category || 'Focus',
       taskId: input.taskId || null,
+      revisionId: input.revisionId || null,
       completed: Boolean(input.completed),
       notes: input.notes || '',
       deletedAt: input.deletedAt || null,
