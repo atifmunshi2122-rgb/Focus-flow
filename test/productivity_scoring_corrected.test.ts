@@ -584,99 +584,119 @@ test('Study — Active subjects prerequisite: deleted-only subjects make Study I
 });
 
 test('Study — 50:50 blend when both Revisions and Plan tasks are active today', () => {
-  const studySubjects: StudySubject[] = [
-    {
-      id: 'subj_1',
-      userId: 'test_u1',
-      code: 'Sub_DSA',
-      name: 'Algorithms',
-      tierId: 't1',
-      totalSubtopics: 20,
-      completedSubtopics: 10,
-      createdAt: '2026-11-01T00:00:00Z',
-      updatedAt: '2026-11-01T00:00:00Z',
-      deletedAt: null,
-    },
-  ];
-  // 1 completed revision, 0 pending due -> R_rev = 1.0
-  const studyRevisions: StudyRevision[] = [
-    {
-      id: 'rev_1',
-      userId: 'test_u1',
-      topicId: 'top_1',
-      subjectCode: 'Sub_DSA',
-      topicTitle: 'Dynamic Programming',
-      lastStudiedAt: '2026-11-15',
-      nextRevisionAt: '2026-11-22',
-      intervalDays: 7,
-      repetition: 2,
-      difficulty: 'medium',
-      status: 'scheduled',
-      createdAt: '2026-11-01T00:00:00Z',
-      updatedAt: '2026-11-15T00:00:00Z',
-      deletedAt: null,
-    },
-  ];
-  // 1 completed of 2 scheduled plan tasks -> R_plan = 0.50
-  const studyPlanTasks: StudyPlanTask[] = [
-    {
-      id: 'spt_1',
-      userId: 'test_u1',
-      planId: 'p1',
-      subjectId: 'subj_1',
-      topicId: 'top_1',
-      title: 'Practice DP',
-      description: '',
-      scheduledDate: '2026-11-15',
-      startTime: null,
-      endTime: null,
-      estimatedMinutes: 45,
-      actualMinutes: 45,
-      priority: 'high',
-      status: 'completed',
-      completedAt: '2026-11-15T11:00:00+05:30',
-      createdAt: '2026-11-15T00:00:00Z',
-      updatedAt: '2026-11-15T11:00:00Z',
-      deletedAt: null,
-    },
-    {
-      id: 'spt_2',
-      userId: 'test_u1',
-      planId: 'p1',
-      subjectId: 'subj_1',
-      topicId: 'top_1',
-      title: 'Theory DP',
-      description: '',
-      scheduledDate: '2026-11-15',
-      startTime: null,
-      endTime: null,
-      estimatedMinutes: 45,
-      actualMinutes: 0,
-      priority: 'medium',
-      status: 'pending',
-      completedAt: null,
-      createdAt: '2026-11-15T00:00:00Z',
-      updatedAt: '2026-11-15T00:00:00Z',
-      deletedAt: null,
-    },
-  ];
+  const OriginalDate = globalThis.Date;
+  class MockDate extends OriginalDate {
+    constructor(...args: unknown[]) {
+      if (args.length === 0) {
+        super('2026-11-15T10:00:00+05:30');
+      } else {
+        super(...(args as [string | number | Date]));
+      }
+    }
+    static override now() {
+      return new MockDate().getTime();
+    }
+  }
 
-  // Study ratio = 0.5 * 1.0 + 0.5 * 0.50 = 0.75
-  // Active: Focus (35) + Study (15) = 50.
-  // Study points = round(15 * 0.75 / 50 * 100) = 23 pts.
-  const score = computeProductivityScore({
-    tasks: [],
-    sessions: [],
-    habits: [],
-    settings: mockSettings,
-    studySubjects,
-    studyRevisions,
-    studyPlanTasks,
-    referenceDateStr: '2026-11-15',
-    timezone: 'Asia/Kolkata',
-  });
-  assert.equal(score.studyActivityPoints, 23);
-  assert.equal(score.totalScore, 23);
+  try {
+    globalThis.Date = MockDate as unknown as DateConstructor;
+
+    const studySubjects: StudySubject[] = [
+      {
+        id: 'subj_1',
+        userId: 'test_u1',
+        code: 'Sub_DSA',
+        name: 'Algorithms',
+        tierId: 't1',
+        totalSubtopics: 20,
+        completedSubtopics: 10,
+        createdAt: '2026-11-01T00:00:00Z',
+        updatedAt: '2026-11-01T00:00:00Z',
+        deletedAt: null,
+      },
+    ];
+    // 1 completed revision, 0 pending due -> R_rev = 1.0
+    const studyRevisions: StudyRevision[] = [
+      {
+        id: 'rev_1',
+        userId: 'test_u1',
+        topicId: 'top_1',
+        subjectCode: 'Sub_DSA',
+        topicTitle: 'Dynamic Programming',
+        lastStudiedAt: '2026-11-15',
+        nextRevisionAt: '2026-11-22',
+        intervalDays: 7,
+        repetition: 2,
+        difficulty: 'medium',
+        status: 'scheduled',
+        createdAt: '2026-11-01T00:00:00Z',
+        updatedAt: '2026-11-15T00:00:00Z',
+        deletedAt: null,
+      },
+    ];
+    // 1 completed of 2 scheduled plan tasks -> R_plan = 0.50
+    const studyPlanTasks: StudyPlanTask[] = [
+      {
+        id: 'spt_1',
+        userId: 'test_u1',
+        planId: 'p1',
+        subjectId: 'subj_1',
+        topicId: 'top_1',
+        title: 'Practice DP',
+        description: '',
+        scheduledDate: '2026-11-15',
+        startTime: null,
+        endTime: null,
+        estimatedMinutes: 45,
+        actualMinutes: 45,
+        priority: 'high',
+        status: 'completed',
+        completedAt: '2026-11-15T11:00:00+05:30',
+        createdAt: '2026-11-15T00:00:00Z',
+        updatedAt: '2026-11-15T11:00:00Z',
+        deletedAt: null,
+      },
+      {
+        id: 'spt_2',
+        userId: 'test_u1',
+        planId: 'p1',
+        subjectId: 'subj_1',
+        topicId: 'top_1',
+        title: 'Theory DP',
+        description: '',
+        scheduledDate: '2026-11-15',
+        startTime: null,
+        endTime: null,
+        estimatedMinutes: 45,
+        actualMinutes: 0,
+        priority: 'medium',
+        status: 'pending',
+        completedAt: null,
+        createdAt: '2026-11-15T00:00:00Z',
+        updatedAt: '2026-11-15T00:00:00Z',
+        deletedAt: null,
+      },
+    ];
+
+    // Study ratio = 0.5 * 1.0 + 0.5 * 0.50 = 0.75
+    // Active: Focus (35) + Study (15) = 50.
+    // Study points = round(15 * 0.75 / 50 * 100) = 23 pts.
+    const score = computeProductivityScore({
+      tasks: [],
+      sessions: [],
+      habits: [],
+      settings: mockSettings,
+      studySubjects,
+      studyRevisions,
+      studyPlanTasks,
+      referenceDateStr: '2026-11-15',
+      timezone: 'Asia/Kolkata',
+    });
+    assert.equal(score.studyActivityPoints, 23);
+    assert.equal(score.totalScore, 23);
+  } finally {
+    globalThis.Date = OriginalDate;
+  }
 });
 
 test('Study — Late plan task completion receives 0.25 and 4 tasks cap at 1.0', () => {

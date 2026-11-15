@@ -73,7 +73,6 @@ import {
   PomodoroInterruption,
   PomodoroAmbientPreset,
 } from '../types/index.ts';
-import { buildDefaultStudyWorkspace } from '../data/studySeedData.ts';
 import { processRevisionRecall } from './studyIntelligence.ts';
 
 const DEFAULT_CATEGORY_TEMPLATES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -2777,6 +2776,7 @@ export const firestoreService = {
     // FIX 4: Atomically initialize default subjects, topics, revisions, and mistakes via writeBatch
     try {
       const batch = writeBatch(db);
+      const { buildDefaultStudyWorkspace } = await import('../data/studySeedData.ts');
       const { subjects, topics, revisions, mistakes } = buildDefaultStudyWorkspace(userId);
 
       for (const s of subjects) {

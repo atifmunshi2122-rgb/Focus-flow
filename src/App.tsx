@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense, lazy } from 'react';
 import { AppProvider, NavTab, useApp } from './context/AppContext.tsx';
 import { Sidebar } from './components/layout/Sidebar.tsx';
 import { Header } from './components/layout/Header.tsx';
@@ -14,28 +14,32 @@ import { TrashRestoreModal } from './components/common/TrashRestoreModal.tsx';
 import { ConfirmDialogModal } from './components/common/ConfirmDialogModal.tsx';
 import { AuthRecoveryModal } from './components/common/AuthRecoveryModal.tsx';
 import { KeyboardShortcutsModal } from './components/common/KeyboardShortcutsModal.tsx';
+import { TabLoadingFallback } from './components/common/TabLoadingFallback.tsx';
+import { LazyChunkErrorBoundary } from './components/common/LazyChunkErrorBoundary.tsx';
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard.tsx';
 import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
-import { RealClock } from './components/focus/RealClock.tsx';
-import { FocusAnalytics } from './components/focus/FocusAnalytics.tsx';
-import { TaskManager } from './components/tasks/TaskManager.tsx';
-import { HabitTrackerView } from './components/focus/HabitTrackerView.tsx';
-import { FinanceOverview } from './components/finance/FinanceOverview.tsx';
-import { BillsTracker } from './components/finance/BillsTracker.tsx';
-import { TransactionsLedger } from './components/finance/TransactionsLedger.tsx';
-import { AnalyticsReportsView } from './components/analytics/AnalyticsReportsView.tsx';
-import { SettingsView } from './components/settings/SettingsView.tsx';
-import { ProductivityCalendar } from './components/calendar/ProductivityCalendar.tsx';
-import { DailyTimeBlockPlanner } from './components/focus/DailyTimeBlockPlanner.tsx';
-import { EnvelopeBudgetManager } from './components/finance/EnvelopeBudgetManager.tsx';
-import { SubscriptionManager } from './components/finance/SubscriptionManager.tsx';
-import { StudyView } from './components/study/StudyView.tsx';
-import { DataRecoveryCenter } from './components/settings/DataRecoveryCenter.tsx';
 import { getStyleDefinition } from './theme/stylesRegistry.ts';
 import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
 import { MotionPage } from './components/ui/MotionPrimitives.tsx';
 import { MOTION_EASING, MOTION_DURATION, getIntensityFactor, getThemeMotionProfile } from './theme/motionTokens.ts';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
+
+// Lazy-loaded tab components (loaded on-demand to optimize initial bundle size)
+const RealClock = lazy(() => import('./components/focus/RealClock.tsx').then((m) => ({ default: m.RealClock })));
+const FocusAnalytics = lazy(() => import('./components/focus/FocusAnalytics.tsx').then((m) => ({ default: m.FocusAnalytics })));
+const TaskManager = lazy(() => import('./components/tasks/TaskManager.tsx').then((m) => ({ default: m.TaskManager })));
+const HabitTrackerView = lazy(() => import('./components/focus/HabitTrackerView.tsx').then((m) => ({ default: m.HabitTrackerView })));
+const FinanceOverview = lazy(() => import('./components/finance/FinanceOverview.tsx').then((m) => ({ default: m.FinanceOverview })));
+const BillsTracker = lazy(() => import('./components/finance/BillsTracker.tsx').then((m) => ({ default: m.BillsTracker })));
+const TransactionsLedger = lazy(() => import('./components/finance/TransactionsLedger.tsx').then((m) => ({ default: m.TransactionsLedger })));
+const EnvelopeBudgetManager = lazy(() => import('./components/finance/EnvelopeBudgetManager.tsx').then((m) => ({ default: m.EnvelopeBudgetManager })));
+const SubscriptionManager = lazy(() => import('./components/finance/SubscriptionManager.tsx').then((m) => ({ default: m.SubscriptionManager })));
+const StudyView = lazy(() => import('./components/study/StudyView.tsx').then((m) => ({ default: m.StudyView })));
+const AnalyticsReportsView = lazy(() => import('./components/analytics/AnalyticsReportsView.tsx').then((m) => ({ default: m.AnalyticsReportsView })));
+const ProductivityCalendar = lazy(() => import('./components/calendar/ProductivityCalendar.tsx').then((m) => ({ default: m.ProductivityCalendar })));
+const DailyTimeBlockPlanner = lazy(() => import('./components/focus/DailyTimeBlockPlanner.tsx').then((m) => ({ default: m.DailyTimeBlockPlanner })));
+const SettingsView = lazy(() => import('./components/settings/SettingsView.tsx').then((m) => ({ default: m.SettingsView })));
+const DataRecoveryCenter = lazy(() => import('./components/settings/DataRecoveryCenter.tsx').then((m) => ({ default: m.DataRecoveryCenter })));
 import {
   Check,
   Eye,
@@ -259,56 +263,60 @@ const MainContent: React.FC = () => {
           className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1920px] mx-auto min-w-0 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-8"
           style={{ paddingBottom: isFullAppPreview ? '8rem' : undefined }}
         >
-          <AnimatePresence mode="wait" initial={false}>
-            <MotionPage routeKey={currentTab}>
-              {currentTab === 'dashboard' && (
-                <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
-              )}
+          <LazyChunkErrorBoundary onReset={() => setCurrentTab('dashboard')}>
+            <Suspense fallback={<TabLoadingFallback />}>
+              <AnimatePresence mode="wait" initial={false}>
+                <MotionPage routeKey={currentTab}>
+                  {currentTab === 'dashboard' && (
+                    <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
+                  )}
 
-              {currentTab === 'calendar' && <ProductivityCalendar />}
+                  {currentTab === 'calendar' && <ProductivityCalendar />}
 
-              {currentTab === 'focus' && (
-                <div className="space-y-8">
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                    <div className="lg:col-span-5 lg:sticky lg:top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto scrollbar-thin">
-                      <PomodoroTimer />
+                  {currentTab === 'focus' && (
+                    <div className="space-y-8">
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                        <div className="lg:col-span-5 lg:sticky lg:top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto scrollbar-thin">
+                          <PomodoroTimer />
+                        </div>
+                        <div className="lg:col-span-7">
+                          <FocusAnalytics />
+                        </div>
+                      </div>
                     </div>
-                    <div className="lg:col-span-7">
-                      <FocusAnalytics />
-                    </div>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              {currentTab === 'clock' && <RealClock />}
+                  {currentTab === 'clock' && <RealClock />}
 
-              {currentTab === 'timeblocks' && <DailyTimeBlockPlanner />}
+                  {currentTab === 'timeblocks' && <DailyTimeBlockPlanner />}
 
-              {currentTab === 'tasks' && <TaskManager />}
+                  {currentTab === 'tasks' && <TaskManager />}
 
-              {currentTab === 'habits' && <HabitTrackerView />}
+                  {currentTab === 'habits' && <HabitTrackerView />}
 
-              {currentTab === 'finance' && (
-                <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
-              )}
+                  {currentTab === 'finance' && (
+                    <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
+                  )}
 
-              {currentTab === 'transactions' && <TransactionsLedger />}
+                  {currentTab === 'transactions' && <TransactionsLedger />}
 
-              {currentTab === 'bills' && <BillsTracker />}
+                  {currentTab === 'bills' && <BillsTracker />}
 
-              {currentTab === 'envelopes' && <EnvelopeBudgetManager />}
+                  {currentTab === 'envelopes' && <EnvelopeBudgetManager />}
 
-              {currentTab === 'subscriptions' && <SubscriptionManager />}
+                  {currentTab === 'subscriptions' && <SubscriptionManager />}
 
-              {currentTab === 'study' && <StudyView />}
+                  {currentTab === 'study' && <StudyView />}
 
-              {currentTab === 'analytics' && <AnalyticsReportsView />}
+                  {currentTab === 'analytics' && <AnalyticsReportsView />}
 
-              {currentTab === 'recovery' && <DataRecoveryCenter />}
+                  {currentTab === 'recovery' && <DataRecoveryCenter />}
 
-              {currentTab === 'settings' && <SettingsView />}
-            </MotionPage>
-          </AnimatePresence>
+                  {currentTab === 'settings' && <SettingsView />}
+                </MotionPage>
+              </AnimatePresence>
+            </Suspense>
+          </LazyChunkErrorBoundary>
         </main>
 
         {/* Sticky Mobile Bottom Navigation Bar (lg:hidden) */}

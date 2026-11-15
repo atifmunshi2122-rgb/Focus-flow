@@ -21,6 +21,8 @@ These variables are consumed exclusively by the Express backend running in Node.
 | `FIREBASE_PROJECT_ID` | **Yes** | Auto-detected | Public | Firebase Project ID used to verify JWT audience (`aud`) and issuer (`iss`) signatures. |
 | `RATE_LIMIT_MAX_REQUESTS` | No | `300` | Internal | Maximum allowed API requests per IP within the rate-limit window. |
 | `RATE_LIMIT_WINDOW_MS` | No | `60000` | Internal | Sliding window duration in milliseconds (default: 60,000 ms = 1 minute). |
+| `TRUST_PROXY` | No | `false` | Internal | Express reverse proxy trust setting (`false` for direct connections; `1` for single reverse proxy e.g. Cloud Run/Nginx; `loopback`, `true`, or CIDRs). |
+| `SHUTDOWN_TIMEOUT_MS` | No | `10000` | Internal | Maximum milliseconds to wait during graceful SIGTERM/SIGINT shutdown for in-flight requests and database flushes before forcing exit. |
 
 ---
 

@@ -124,20 +124,20 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
   return (
     <header
       data-scrolled={isScrolled ? 'true' : 'false'}
-      className="ff-header sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-4 md:gap-6 h-16 px-3 sm:px-4 md:px-6 lg:px-8 max-w-full"
+      className="ff-header sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-3 lg:gap-4 h-16 px-3 sm:px-4 md:px-6 lg:px-6 2xl:px-8 max-w-full"
     >
       {/* Zone 1: Mobile Menu Trigger + Section Heading */}
-      <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
         <button
           type="button"
           onClick={onOpenMobileMenu}
-          className="lg:hidden min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+          className="lg:hidden min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
           aria-label="Open navigation menu"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2 overflow-hidden">
+        <div className="flex items-center gap-2 overflow-hidden min-w-0">
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.span
               key={currentTab}
@@ -145,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               animate={{ opacity: 1, y: 0 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -5 }}
               transition={{ duration: MOTION_DURATION.dropdown * 0.8, ease: MOTION_EASING.decelerate }}
-              className="ff-heading text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap inline-block truncate max-w-[200px] sm:max-w-none"
+              className="ff-heading text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap inline-block truncate max-w-[150px] sm:max-w-[200px] xl:max-w-none"
             >
               {tabLabels[currentTab] || 'Dashboard'}
             </motion.span>
@@ -153,8 +153,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         </div>
       </div>
 
-      {/* Zone 2: Animated Breadcrumbs & Workspace Context */}
-      <div className="hidden lg:flex items-center gap-1.5 text-xs shrink-0 select-none">
+      {/* Zone 2: Animated Breadcrumbs & Workspace Context (Shown on wide displays) */}
+      <div className="hidden 2xl:flex items-center gap-1.5 text-xs shrink-0 select-none">
         <button
           type="button"
           onClick={() => setCurrentTab('dashboard')}
@@ -201,14 +201,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           whileTap={isDisabled ? undefined : { scale: profile.tapScale }}
           transition={profile.microSpring}
           onClick={() => setCommandCenterOpen(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-medium border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
           style={{ borderRadius: 'var(--ff-radius-button)' }}
           title="Open Command Center (Cmd/Ctrl + K)"
           aria-label="Open Command Center"
         >
-          <Search className="w-3.5 h-3.5" />
-          <span className="hidden lg:inline">Search</span>
-          <kbd className="hidden xl:inline text-[10px] font-bold px-1 py-0.2 rounded bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
+          <Search className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden 2xl:inline">Search</span>
+          <kbd className="hidden sm:inline text-[10px] font-bold px-1 py-0.2 rounded bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
             ⌘K
           </kbd>
         </motion.button>
@@ -220,7 +220,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           whileTap={isDisabled ? undefined : { scale: profile.tapScale }}
           transition={profile.microSpring}
           onClick={() => setKeyboardShortcutsGuideOpen(true)}
-          className="hidden sm:flex items-center justify-center p-2 rounded-lg border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+          className="hidden sm:flex items-center justify-center p-2 rounded-lg border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
           style={{ borderRadius: 'var(--ff-radius-button)' }}
           title="Keyboard Shortcuts Cheat-Sheet (?)"
           aria-label="Keyboard Shortcuts Guide"
@@ -233,7 +233,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
 
         {/* Floating Mini Timer Indicator (Stable layout capsule with zero overlap) */}
         <div
-          className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border transition-colors select-none"
+          className="hidden xl:flex items-center gap-1.5 2xl:gap-2 px-2 2xl:px-2.5 py-1.5 text-xs font-mono font-medium border transition-colors select-none shrink-0"
           style={{
             borderRadius: 'var(--ff-radius-button)',
             background: isRunning
@@ -277,7 +277,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
             value={formatTimerMinSec(timerEngine === 'stopwatch' ? stopwatchElapsed : timeLeft)}
             className="font-semibold tabular-nums"
           />
-          <span className="text-[10px] uppercase font-sans text-[var(--ff-text-muted)] shrink-0">
+          <span className="hidden 2xl:inline text-[10px] uppercase font-sans text-[var(--ff-text-muted)] shrink-0">
             {timerEngine === 'stopwatch'
               ? 'SW'
               : timerEngine === 'countdown'
@@ -302,23 +302,24 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         <button
           type="button"
           onClick={() => setCurrentTab('settings')}
-          className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border transition-colors"
+          className="hidden xl:flex items-center gap-1.5 px-2 2xl:px-2.5 py-1.5 text-xs font-semibold border transition-colors shrink-0"
           style={{
             borderRadius: 'var(--ff-radius-button)',
             background: 'var(--ff-accent-soft)',
             borderColor: 'var(--ff-accent-border)',
             color: 'var(--ff-accent-text)',
           }}
-          title="Customize design style in Theme Studio"
+          title={`Active theme: ${activeStyle.name}. Click to open Theme Studio`}
+          aria-label={`Active theme: ${activeStyle.name}`}
         >
           <Palette className="w-3.5 h-3.5 shrink-0" />
-          <span className="hidden lg:inline">{activeStyle.name}</span>
+          <span className="hidden 2xl:inline">{activeStyle.name}</span>
         </button>
 
         {/* Google Sheets Sync Pill */}
         {googleSpreadsheetId ? (
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border"
+            className="flex items-center gap-1.5 px-2 2xl:px-2.5 py-1.5 text-xs border shrink-0"
             style={{
               borderRadius: 'var(--ff-radius-button)',
               background: 'var(--ff-success-soft)',
@@ -331,7 +332,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               href={`https://docs.google.com/spreadsheets/d/${googleSpreadsheetId}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden sm:inline font-semibold hover:underline"
+              className="hidden 2xl:inline font-semibold hover:underline"
               title="Open Google Sheets workbook"
             >
               Sheets Synced
@@ -351,7 +352,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           <button
             type="button"
             onClick={() => setCurrentTab('settings')}
-            className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+            className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
             style={{ borderRadius: 'var(--ff-radius-button)' }}
             title="Connect Google Sheets in Settings"
           >

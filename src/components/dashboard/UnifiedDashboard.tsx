@@ -24,7 +24,7 @@ import { clientDataCache } from '../../lib/dataCache.ts';
 import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import { GamificationCard } from './GamificationCard.tsx';
 import { ProductivityScoreCard } from '../focus/ProductivityScoreCard.tsx';
-import { AnalogClockDial } from '../focus/RealClock.tsx';
+import { AnalogClockDial } from '../focus/AnalogClockDial.tsx';
 import {
   computeProductivityScore,
   isHabitScheduledOnDate,

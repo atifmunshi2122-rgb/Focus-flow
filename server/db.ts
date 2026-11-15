@@ -391,7 +391,34 @@ const DEFAULT_CATEGORIES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
   { name: 'Emergency & Miscellaneous', type: 'variable', icon: 'AlertCircle', color: '#64748b' },
 ];
 
+export class DatabaseCorruptError extends Error {
+  public readonly dbPath: string;
+  constructor(message: string, dbPath: string, cause?: unknown) {
+    super(message);
+    this.name = 'DatabaseCorruptError';
+    this.dbPath = dbPath;
+    if (cause) {
+      this.cause = cause;
+    }
+  }
+}
+
+export class PersistenceDegradedError extends Error {
+  public readonly dbPath: string;
+  constructor(message: string, dbPath: string, cause?: unknown) {
+    super(message);
+    this.name = 'PersistenceDegradedError';
+    this.dbPath = dbPath;
+    if (cause) {
+      this.cause = cause;
+    }
+  }
+}
+
 export class DatabaseService {
+  private dataDir: string;
+  private dbFile: string;
+
   private db: DatabaseSchema = {
     users: [],
     userSettings: [],
@@ -416,10 +443,20 @@ export class DatabaseService {
   };
 
   private writeQueue: Promise<void> = Promise.resolve();
-  private hasPendingWrite = false;
+  private pendingWrites: Promise<void>[] = [];
+  private tempCounter = 0;
+  private isCorrupted = false;
+  private corruptionError: DatabaseCorruptError | null = null;
+  private isPersistenceDegraded = false;
+  private persistenceError: Error | null = null;
 
-  constructor() {
-    if (process.env.NODE_ENV === 'production' && !process.env.DATA_DIR) {
+  constructor(customDataDir?: string) {
+    this.dataDir = customDataDir
+      ? path.resolve(customDataDir)
+      : (process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(process.cwd(), 'data'));
+    this.dbFile = path.resolve(this.dataDir, 'database.json');
+
+    if (process.env.NODE_ENV === 'production' && !process.env.DATA_DIR && !customDataDir) {
       console.warn(
         '[DB] Warning: DATA_DIR is not set in production; using local ./data/database.json fallback (ephemeral on container restarts unless a volume is mounted). Signed-in users persist directly in Cloud Firestore.'
       );
@@ -434,67 +471,225 @@ export class DatabaseService {
   }
 
   private ensureDataDir() {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
+    } else {
+      // Clean up orphaned .tmp files from previous unexpected process crashes
+      try {
+        const files = fs.readdirSync(this.dataDir);
+        for (const f of files) {
+          if (f.startsWith('.database.') && f.endsWith('.tmp')) {
+            try {
+              fs.unlinkSync(path.resolve(this.dataDir, f));
+            } catch {
+              // Ignore cleanup error of individual file
+            }
+          }
+        }
+      } catch {
+        // Ignore directory read error
+      }
     }
   }
 
   private load() {
+    if (!fs.existsSync(this.dbFile)) {
+      // Missing database file is a valid clean workspace state; start with fresh schema
+      return;
+    }
+
+    const raw = fs.readFileSync(this.dbFile, 'utf-8');
+    if (raw.trim().length === 0) {
+      this.isCorrupted = true;
+      this.corruptionError = new DatabaseCorruptError(
+        `Database file at ${this.dbFile} is empty/truncated and cannot be parsed as JSON.`,
+        this.dbFile
+      );
+      throw this.corruptionError;
+    }
+
     try {
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        const parsed = JSON.parse(raw) as Partial<DatabaseSchema>;
-        this.db = {
-          users: parsed.users || [],
-          userSettings: parsed.userSettings || [],
-          tasks: parsed.tasks || [],
-          focusSessions: parsed.focusSessions || [],
-          categories: parsed.categories || [],
-          recurringExpenses: parsed.recurringExpenses || [],
-          bills: parsed.bills || [],
-          paymentHistory: parsed.paymentHistory || [],
-          incomeTransactions: parsed.incomeTransactions || [],
-          expenseTransactions: parsed.expenseTransactions || [],
-          savingsGoals: parsed.savingsGoals || [],
-          timeBlocks: parsed.timeBlocks || [],
-          envelopes: parsed.envelopes || [],
-          subscriptions: parsed.subscriptions || [],
-          auditLogs: parsed.auditLogs || [],
-          syncQueue: parsed.syncQueue || [],
-          studySubjects: parsed.studySubjects || [],
-          studyTopics: parsed.studyTopics || [],
-          studyRevisions: parsed.studyRevisions || [],
-          studyMistakes: parsed.studyMistakes || [],
-        };
+      const parsed = JSON.parse(raw) as Partial<DatabaseSchema>;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Database JSON root must be an object');
       }
+      this.db = {
+        users: Array.isArray(parsed.users) ? parsed.users : [],
+        userSettings: Array.isArray(parsed.userSettings) ? parsed.userSettings : [],
+        tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+        focusSessions: Array.isArray(parsed.focusSessions) ? parsed.focusSessions : [],
+        categories: Array.isArray(parsed.categories) ? parsed.categories : [],
+        recurringExpenses: Array.isArray(parsed.recurringExpenses) ? parsed.recurringExpenses : [],
+        bills: Array.isArray(parsed.bills) ? parsed.bills : [],
+        paymentHistory: Array.isArray(parsed.paymentHistory) ? parsed.paymentHistory : [],
+        incomeTransactions: Array.isArray(parsed.incomeTransactions) ? parsed.incomeTransactions : [],
+        expenseTransactions: Array.isArray(parsed.expenseTransactions) ? parsed.expenseTransactions : [],
+        savingsGoals: Array.isArray(parsed.savingsGoals) ? parsed.savingsGoals : [],
+        timeBlocks: Array.isArray(parsed.timeBlocks) ? parsed.timeBlocks : [],
+        envelopes: Array.isArray(parsed.envelopes) ? parsed.envelopes : [],
+        subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
+        auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
+        syncQueue: Array.isArray(parsed.syncQueue) ? parsed.syncQueue : [],
+        studySubjects: Array.isArray(parsed.studySubjects) ? parsed.studySubjects : [],
+        studyTopics: Array.isArray(parsed.studyTopics) ? parsed.studyTopics : [],
+        studyRevisions: Array.isArray(parsed.studyRevisions) ? parsed.studyRevisions : [],
+        studyMistakes: Array.isArray(parsed.studyMistakes) ? parsed.studyMistakes : [],
+      };
     } catch (err) {
-      console.error('Failed to load database file, initializing empty database:', err);
+      this.isCorrupted = true;
+      const causeMsg = err instanceof Error ? err.message : String(err);
+      this.corruptionError = new DatabaseCorruptError(
+        `Database file at ${this.dbFile} is corrupted and cannot be parsed: ${causeMsg}`,
+        this.dbFile,
+        err
+      );
+      throw this.corruptionError;
     }
   }
 
-  public save() {
-    this.hasPendingWrite = true;
+  public isHealthy(): boolean {
+    return !this.isCorrupted && !this.isPersistenceDegraded;
+  }
 
-    this.writeQueue = this.writeQueue
-      .then(async () => {
-        if (!this.hasPendingWrite) return;
-        this.hasPendingWrite = false;
-        const snapshot = JSON.stringify(this.db, null, 2);
-        await fs.promises.mkdir(DATA_DIR, { recursive: true });
-        const tempPath = `${DB_FILE}.${process.pid}.${Date.now()}.tmp`;
-        await fs.promises.writeFile(tempPath, snapshot, 'utf-8');
-        await fs.promises.rename(tempPath, DB_FILE);
-      })
-      .catch((err) => {
-        console.error('Failed to save database file:', err);
-      });
+  public isDegraded(): boolean {
+    return this.isPersistenceDegraded;
+  }
+
+  public getCorruptionError(): DatabaseCorruptError | null {
+    return this.corruptionError;
+  }
+
+  public getPersistenceError(): Error | null {
+    return this.persistenceError;
+  }
+
+  public getDatabasePath(): string {
+    return this.dbFile;
+  }
+
+  public resetPersistenceHealth(): void {
+    this.isPersistenceDegraded = false;
+    this.persistenceError = null;
+  }
+
+  public async recoverPersistence(): Promise<void> {
+    this.resetPersistenceHealth();
+    await this.save();
+  }
+
+  public save(): Promise<void> {
+    if (this.isCorrupted) {
+      const err = new DatabaseCorruptError(
+        `Database at ${this.dbFile} is corrupted. Refusing write operation to protect original data.`,
+        this.dbFile
+      );
+      const rejected = Promise.reject(err);
+      rejected.catch(() => {});
+      return rejected;
+    }
+
+    if (this.isPersistenceDegraded) {
+      const err = new PersistenceDegradedError(
+        `Database at ${this.dbFile} is in a degraded read-only state due to earlier write failure: ${this.persistenceError?.message || ''}`,
+        this.dbFile,
+        this.persistenceError
+      );
+      const rejected = Promise.reject(err);
+      rejected.catch(() => {});
+      return rejected;
+    }
+
+    const snapshot = JSON.stringify(this.db, null, 2);
+
+    const currentWrite = async () => {
+      if (this.isPersistenceDegraded) {
+        throw new PersistenceDegradedError(
+          `Database at ${this.dbFile} is in a degraded read-only state due to earlier write failure: ${this.persistenceError?.message || ''}`,
+          this.dbFile,
+          this.persistenceError
+        );
+      }
+      const counter = ++this.tempCounter;
+      const tempPath = path.resolve(
+        this.dataDir,
+        `.database.${process.pid}.${Date.now()}.${counter}.tmp`
+      );
+
+      try {
+        await fs.promises.mkdir(this.dataDir, { recursive: true });
+        await fs.promises.writeFile(tempPath, snapshot, {
+          encoding: 'utf-8',
+          mode: 0o600,
+        });
+        await fs.promises.rename(tempPath, this.dbFile);
+      } catch (err) {
+        this.isPersistenceDegraded = true;
+        this.persistenceError = err instanceof Error ? err : new Error(String(err));
+        try {
+          if (fs.existsSync(tempPath)) {
+            await fs.promises.unlink(tempPath);
+          }
+        } catch {
+          // Ignore temp cleanup error
+        }
+        throw err;
+      }
+    };
+
+    const previousQueue = this.writeQueue;
+    let opResolve!: () => void;
+    let opReject!: (err: unknown) => void;
+    const writePromise = new Promise<void>((resolve, reject) => {
+      opResolve = resolve;
+      opReject = reject;
+    });
+
+    this.pendingWrites.push(writePromise);
+    const cleanup = () => {
+      const idx = this.pendingWrites.indexOf(writePromise);
+      if (idx >= 0) {
+        this.pendingWrites.splice(idx, 1);
+      }
+    };
+    writePromise.then(cleanup, () => { cleanup(); });
+
+    this.writeQueue = (async () => {
+      try {
+        await previousQueue;
+      } catch {
+        // Do not poison the queue execution sequence on previous write failure
+      }
+      try {
+        await currentWrite();
+        opResolve();
+      } catch (err) {
+        opReject(err);
+      }
+    })();
+
+    return writePromise;
   }
 
   public async flush(): Promise<void> {
-    await this.writeQueue;
+    while (this.pendingWrites.length > 0) {
+      if (this.isPersistenceDegraded && this.persistenceError) {
+        throw this.persistenceError;
+      }
+      const batch = [...this.pendingWrites];
+      await Promise.all(batch);
+    }
+    if (this.isPersistenceDegraded && this.persistenceError) {
+      throw this.persistenceError;
+    }
   }
 
   public getRaw(): DatabaseSchema {
+    if (this.isCorrupted) {
+      throw new DatabaseCorruptError(
+        `Database at ${this.dbFile} is corrupted. Refusing read operation to protect integrity.`,
+        this.dbFile
+      );
+    }
     return this.db;
   }
 
@@ -643,9 +838,8 @@ export class DatabaseService {
     this.save();
   }
 
-  public clearWorkspace(targetUserId: string, isGuest = false) {
-    const isTarget = (id: string) =>
-      id === targetUserId || (isGuest && (id === 'usr_atif_default' || id === 'usr_default'));
+  public clearWorkspace(targetUserId: string) {
+    const isTarget = (id: string) => id === targetUserId;
     this.db.tasks = this.db.tasks.filter((t) => !isTarget(t.userId));
     this.db.focusSessions = this.db.focusSessions.filter((s) => !isTarget(s.userId));
     this.db.recurringExpenses = this.db.recurringExpenses.filter((r) => !isTarget(r.userId));
@@ -1450,10 +1644,9 @@ export class DatabaseService {
     return block;
   }
 
-  public deleteTimeBlock(userId: string, id: string, isGuest = false): boolean {
+  public deleteTimeBlock(userId: string, id: string): boolean {
     this.db.timeBlocks = this.db.timeBlocks || [];
-    const isTarget = (uid: string) => uid === userId || (isGuest && (uid === 'usr_atif_default' || uid === 'usr_default'));
-    const block = this.db.timeBlocks.find((tb) => tb.id === id && isTarget(tb.userId));
+    const block = this.db.timeBlocks.find((tb) => tb.id === id && tb.userId === userId);
     if (!block) return false;
     block.deletedAt = new Date().toISOString();
     block.updatedAt = new Date().toISOString();
@@ -1545,10 +1738,9 @@ export class DatabaseService {
     return { success: true };
   }
 
-  public deleteEnvelope(userId: string, id: string, isGuest = false): boolean {
+  public deleteEnvelope(userId: string, id: string): boolean {
     this.db.envelopes = this.db.envelopes || [];
-    const isTarget = (uid: string) => uid === userId || (isGuest && (uid === 'usr_atif_default' || uid === 'usr_default'));
-    const env = this.db.envelopes.find((e) => e.id === id && isTarget(e.userId));
+    const env = this.db.envelopes.find((e) => e.id === id && e.userId === userId);
     if (!env) return false;
     env.deletedAt = new Date().toISOString();
     env.updatedAt = new Date().toISOString();
@@ -1597,10 +1789,9 @@ export class DatabaseService {
     return sub;
   }
 
-  public deleteSubscription(userId: string, id: string, isGuest = false): boolean {
+  public deleteSubscription(userId: string, id: string): boolean {
     this.db.subscriptions = this.db.subscriptions || [];
-    const isTarget = (uid: string) => uid === userId || (isGuest && (uid === 'usr_atif_default' || uid === 'usr_default'));
-    const sub = this.db.subscriptions.find((s) => s.id === id && isTarget(s.userId));
+    const sub = this.db.subscriptions.find((s) => s.id === id && s.userId === userId);
     if (!sub) return false;
     sub.deletedAt = new Date().toISOString();
     sub.updatedAt = new Date().toISOString();
@@ -1910,15 +2101,11 @@ export class DatabaseService {
     return tier;
   }
 
-  public deleteStudyTier(userId: string, id: string, isGuest = false): boolean {
+  public deleteStudyTier(userId: string, id: string): boolean {
     this.db.studyTiers = this.db.studyTiers || [];
-    const idx = this.db.studyTiers.findIndex((t) => t.id === id && (!t.userId || t.userId === userId));
+    const idx = this.db.studyTiers.findIndex((t) => t.id === id && t.userId === userId);
     if (idx === -1) return false;
-    if (isGuest) {
-      this.db.studyTiers.splice(idx, 1);
-    } else {
-      this.db.studyTiers[idx].deletedAt = new Date().toISOString();
-    }
+    this.db.studyTiers[idx].deletedAt = new Date().toISOString();
     this.save();
     return true;
   }
@@ -1962,8 +2149,7 @@ export class DatabaseService {
 
   public deleteStudySubject(
     userId: string,
-    codeOrId: string,
-    isGuest = false
+    codeOrId: string
   ): { success: boolean; deletedCount: number; subjectCode?: string } {
     this.db.studySubjects = this.db.studySubjects || [];
     this.db.studyTopics = this.db.studyTopics || [];
@@ -2063,17 +2249,13 @@ export class DatabaseService {
     }
   }
 
-  public deleteStudyTopic(userId: string, topicId: string, isGuest = false): boolean {
+  public deleteStudyTopic(userId: string, topicId: string): boolean {
     this.db.studyTopics = this.db.studyTopics || [];
     const idx = this.db.studyTopics.findIndex((t) => t.userId === userId && t.id === topicId);
     if (idx === -1) return false;
 
     const subjectCode = this.db.studyTopics[idx].subjectCode;
-    if (isGuest) {
-      this.db.studyTopics.splice(idx, 1);
-    } else {
-      this.db.studyTopics[idx].deletedAt = new Date().toISOString();
-    }
+    this.db.studyTopics[idx].deletedAt = new Date().toISOString();
     this.recomputeSubjectCounts(userId, subjectCode);
     this.save();
     return true;
@@ -2168,16 +2350,12 @@ export class DatabaseService {
     return updated;
   }
 
-  public deleteStudyRevision(userId: string, revisionId: string, isGuest = false): boolean {
+  public deleteStudyRevision(userId: string, revisionId: string): boolean {
     this.db.studyRevisions = this.db.studyRevisions || [];
     const idx = this.db.studyRevisions.findIndex((r) => r.userId === userId && r.id === revisionId);
     if (idx === -1) return false;
 
-    if (isGuest) {
-      this.db.studyRevisions.splice(idx, 1);
-    } else {
-      this.db.studyRevisions[idx].deletedAt = new Date().toISOString();
-    }
+    this.db.studyRevisions[idx].deletedAt = new Date().toISOString();
     this.save();
     return true;
   }
@@ -2220,16 +2398,12 @@ export class DatabaseService {
     return mistake;
   }
 
-  public deleteStudyMistake(userId: string, mistakeId: string, isGuest = false): boolean {
+  public deleteStudyMistake(userId: string, mistakeId: string): boolean {
     this.db.studyMistakes = this.db.studyMistakes || [];
     const idx = this.db.studyMistakes.findIndex((m) => m.userId === userId && m.id === mistakeId);
     if (idx === -1) return false;
 
-    if (isGuest) {
-      this.db.studyMistakes.splice(idx, 1);
-    } else {
-      this.db.studyMistakes[idx].deletedAt = new Date().toISOString();
-    }
+    this.db.studyMistakes[idx].deletedAt = new Date().toISOString();
     this.save();
     return true;
   }

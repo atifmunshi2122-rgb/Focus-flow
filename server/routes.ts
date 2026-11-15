@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import {
   dbService,
   Task,
@@ -62,8 +62,7 @@ apiRouter.use(requireUserContext);
 
 const getAuth = (req: Request) => (req as AuthenticatedRequest).auth;
 
-const canAccess = (itemUserId: string, authUserId: string, isGuest: boolean) =>
-  itemUserId === authUserId || (isGuest && (itemUserId === 'usr_atif_default' || itemUserId === 'usr_default'));
+const canAccess = (itemUserId: string, authUserId: string) => itemUserId === authUserId;
 
 // ----------------------------------------------------
 // User & Settings
@@ -74,7 +73,7 @@ apiRouter.get('/auth/me', (req: Request, res: Response) => {
   res.json({ user, settings });
 });
 
-apiRouter.put('/settings', (req: Request, res: Response) => {
+apiRouter.put('/settings', async (req: Request, res: Response, next: NextFunction) => {
   const auth = getAuth(req);
   const { settings } = dbService.ensureUserWorkspace(auth.userId, auth);
 
@@ -288,14 +287,23 @@ apiRouter.put('/settings', (req: Request, res: Response) => {
     settings.keyboardShortcutsEnabled = keyboardShortcutsEnabled;
   }
 
-  dbService.save();
-  res.json({ success: true, settings });
+  try {
+    await dbService.save();
+    res.json({ success: true, settings });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.post('/reseed', (req: Request, res: Response) => {
+apiRouter.post('/reseed', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
-  dbService.reseed(userId);
-  res.json({ success: true, message: 'Workspace reset to starter seed data' });
+  try {
+    dbService.reseed(userId);
+    await dbService.flush();
+    res.json({ success: true, message: 'Workspace reset to starter seed data' });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -450,7 +458,7 @@ apiRouter.get('/focus/sessions', (req: Request, res: Response) => {
   res.json(sessions);
 });
 
-apiRouter.post('/focus/sessions', (req: Request, res: Response) => {
+apiRouter.post('/focus/sessions', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -535,8 +543,12 @@ apiRouter.post('/focus/sessions', (req: Request, res: Response) => {
   };
 
   db.focusSessions.push(session);
-  dbService.save();
-  res.status(201).json(session);
+  try {
+    await dbService.save();
+    res.status(201).json(session);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 apiRouter.get('/focus/stats', (req: Request, res: Response) => {
@@ -623,7 +635,7 @@ apiRouter.get('/tasks', (req: Request, res: Response) => {
   res.json(tasks);
 });
 
-apiRouter.post('/tasks', (req: Request, res: Response) => {
+apiRouter.post('/tasks', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -720,11 +732,15 @@ apiRouter.post('/tasks', (req: Request, res: Response) => {
   };
 
   db.tasks.unshift(newTask);
-  dbService.save();
-  res.status(201).json(newTask);
+  try {
+    await dbService.save();
+    res.status(201).json(newTask);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.put('/tasks/:id', (req: Request, res: Response) => {
+apiRouter.put('/tasks/:id', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const task = db.tasks.find((t) => t.id === req.params.id && t.userId === userId && !t.deletedAt);
@@ -888,15 +904,19 @@ apiRouter.put('/tasks/:id', (req: Request, res: Response) => {
     db.tasks.unshift(nextTask);
   }
 
-  dbService.save();
-  res.json(task);
+  try {
+    await dbService.save();
+    res.json(task);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/tasks/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
+apiRouter.delete('/tasks/:id', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const task = db.tasks.find(
-    (t) => t.id === req.params.id && canAccess(t.userId, userId, isGuest) && !t.deletedAt
+    (t) => t.id === req.params.id && canAccess(t.userId, userId) && !t.deletedAt
   );
 
   if (!task) {
@@ -906,8 +926,12 @@ apiRouter.delete('/tasks/:id', (req: Request, res: Response) => {
 
   task.deletedAt = new Date().toISOString();
   task.updatedAt = task.deletedAt;
-  dbService.save();
-  res.json({ success: true, message: 'Task moved to trash' });
+  try {
+    await dbService.save();
+    res.json({ success: true, message: 'Task moved to trash' });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -921,7 +945,7 @@ apiRouter.get('/finance/categories', (req: Request, res: Response) => {
   res.json(categories);
 });
 
-apiRouter.post('/finance/categories', (req: Request, res: Response) => {
+apiRouter.post('/finance/categories', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -949,8 +973,12 @@ apiRouter.post('/finance/categories', (req: Request, res: Response) => {
   };
 
   db.categories.push(category);
-  dbService.save();
-  res.status(201).json(category);
+  try {
+    await dbService.save();
+    res.status(201).json(category);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -1108,7 +1136,7 @@ apiRouter.get('/finance/income', (req: Request, res: Response) => {
   res.json(incomes);
 });
 
-apiRouter.post('/finance/income', (req: Request, res: Response) => {
+apiRouter.post('/finance/income', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -1160,11 +1188,15 @@ apiRouter.post('/finance/income', (req: Request, res: Response) => {
   };
 
   db.incomeTransactions.unshift(newIncome);
-  dbService.save();
-  res.status(201).json(newIncome);
+  try {
+    await dbService.save();
+    res.status(201).json(newIncome);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.put('/finance/income/:id', (req: Request, res: Response) => {
+apiRouter.put('/finance/income/:id', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const income = db.incomeTransactions.find(
@@ -1224,15 +1256,19 @@ apiRouter.put('/finance/income/:id', (req: Request, res: Response) => {
     income.notes = parsedNotes;
   }
 
-  dbService.save();
-  res.json(income);
+  try {
+    await dbService.save();
+    res.json(income);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/finance/income/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
+apiRouter.delete('/finance/income/:id', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const income = db.incomeTransactions.find(
-    (inc) => inc.id === req.params.id && canAccess(inc.userId, userId, isGuest) && !inc.deletedAt
+    (inc) => inc.id === req.params.id && canAccess(inc.userId, userId) && !inc.deletedAt
   );
 
   if (!income) {
@@ -1241,8 +1277,12 @@ apiRouter.delete('/finance/income/:id', (req: Request, res: Response) => {
   }
 
   income.deletedAt = new Date().toISOString();
-  dbService.save();
-  res.json({ success: true, message: 'Income record moved to trash' });
+  try {
+    await dbService.save();
+    res.json({ success: true, message: 'Income record moved to trash' });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -1269,7 +1309,7 @@ apiRouter.get('/finance/expenses', (req: Request, res: Response) => {
   res.json(mapped);
 });
 
-apiRouter.post('/finance/expenses', (req: Request, res: Response) => {
+apiRouter.post('/finance/expenses', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -1335,15 +1375,18 @@ apiRouter.post('/finance/expenses', (req: Request, res: Response) => {
   };
 
   db.expenseTransactions.unshift(newExpense);
-  dbService.save();
-
-  res.status(201).json({
-    ...newExpense,
-    categoryName: db.categories.find((c) => c.id === newExpense.categoryId)?.name || 'Expense',
-  });
+  try {
+    await dbService.save();
+    res.status(201).json({
+      ...newExpense,
+      categoryName: db.categories.find((c) => c.id === newExpense.categoryId)?.name || 'Expense',
+    });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.put('/finance/expenses/:id', (req: Request, res: Response) => {
+apiRouter.put('/finance/expenses/:id', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const expense = db.expenseTransactions.find(
@@ -1419,18 +1462,22 @@ apiRouter.put('/finance/expenses/:id', (req: Request, res: Response) => {
     expense.type = type;
   }
 
-  dbService.save();
-  res.json({
-    ...expense,
-    categoryName: db.categories.find((c) => c.id === expense.categoryId)?.name || 'Expense',
-  });
+  try {
+    await dbService.save();
+    res.json({
+      ...expense,
+      categoryName: db.categories.find((c) => c.id === expense.categoryId)?.name || 'Expense',
+    });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/finance/expenses/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
+apiRouter.delete('/finance/expenses/:id', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const expense = db.expenseTransactions.find(
-    (e) => e.id === req.params.id && canAccess(e.userId, userId, isGuest) && !e.deletedAt
+    (e) => e.id === req.params.id && canAccess(e.userId, userId) && !e.deletedAt
   );
 
   if (!expense) {
@@ -1439,8 +1486,12 @@ apiRouter.delete('/finance/expenses/:id', (req: Request, res: Response) => {
   }
 
   expense.deletedAt = new Date().toISOString();
-  dbService.save();
-  res.json({ success: true, message: 'Expense record moved to trash' });
+  try {
+    await dbService.save();
+    res.json({ success: true, message: 'Expense record moved to trash' });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -1459,7 +1510,7 @@ apiRouter.get('/finance/recurring', (req: Request, res: Response) => {
   res.json(recurring);
 });
 
-apiRouter.post('/finance/recurring', (req: Request, res: Response) => {
+apiRouter.post('/finance/recurring', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -1516,16 +1567,19 @@ apiRouter.post('/finance/recurring', (req: Request, res: Response) => {
   };
 
   db.recurringExpenses.push(newRec);
-  dbService.save();
-  dbService.checkRecurringBills(userId);
-
-  res.status(201).json({
-    ...newRec,
-    categoryName: db.categories.find((c) => c.id === newRec.categoryId)?.name || 'Fixed Expense',
-  });
+  try {
+    await dbService.save();
+    dbService.checkRecurringBills(userId);
+    res.status(201).json({
+      ...newRec,
+      categoryName: db.categories.find((c) => c.id === newRec.categoryId)?.name || 'Fixed Expense',
+    });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.put('/finance/recurring/:id', (req: Request, res: Response) => {
+apiRouter.put('/finance/recurring/:id', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const rec = db.recurringExpenses.find((r) => r.id === req.params.id && r.userId === userId);
@@ -1600,18 +1654,22 @@ apiRouter.put('/finance/recurring/:id', (req: Request, res: Response) => {
   }
 
   rec.updatedAt = new Date().toISOString();
-  dbService.save();
-  res.json({
-    ...rec,
-    categoryName: db.categories.find((c) => c.id === rec.categoryId)?.name || 'Fixed Expense',
-  });
+  try {
+    await dbService.save();
+    res.json({
+      ...rec,
+      categoryName: db.categories.find((c) => c.id === rec.categoryId)?.name || 'Fixed Expense',
+    });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/finance/recurring/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
+apiRouter.delete('/finance/recurring/:id', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const index = db.recurringExpenses.findIndex(
-    (r) => r.id === req.params.id && canAccess(r.userId, userId, isGuest)
+    (r) => r.id === req.params.id && canAccess(r.userId, userId)
   );
 
   if (index === -1) {
@@ -1620,8 +1678,12 @@ apiRouter.delete('/finance/recurring/:id', (req: Request, res: Response) => {
   }
 
   db.recurringExpenses.splice(index, 1);
-  dbService.save();
-  res.json({ success: true, message: 'Recurring expense removed' });
+  try {
+    await dbService.save();
+    res.json({ success: true, message: 'Recurring expense removed' });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -1656,7 +1718,7 @@ apiRouter.get('/finance/bills', (req: Request, res: Response) => {
   res.json(mapped);
 });
 
-apiRouter.post('/finance/bills', (req: Request, res: Response) => {
+apiRouter.post('/finance/bills', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -1712,15 +1774,18 @@ apiRouter.post('/finance/bills', (req: Request, res: Response) => {
   };
 
   db.bills.unshift(newBill);
-  dbService.save();
-
-  res.status(201).json({
-    ...newBill,
-    categoryName: db.categories.find((c) => c.id === newBill.categoryId)?.name || 'Bill',
-  });
+  try {
+    await dbService.save();
+    res.status(201).json({
+      ...newBill,
+      categoryName: db.categories.find((c) => c.id === newBill.categoryId)?.name || 'Bill',
+    });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.post('/finance/bills/:id/pay', (req: Request, res: Response) => {
+apiRouter.post('/finance/bills/:id/pay', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
   const { paidDate, paymentMethod, notes, idempotencyKey } = body;
@@ -1753,56 +1818,64 @@ apiRouter.post('/finance/bills/:id/pay', (req: Request, res: Response) => {
       ? idempotencyKey.trim().slice(0, 128)
       : undefined;
 
-  const result = dbService.markBillAsPaid(
-    userId,
-    req.params.id,
-    validPaidDate,
-    parsedMethod,
-    parsedNotes,
-    parsedIdemKey
-  );
+  try {
+    const result = dbService.markBillAsPaid(
+      userId,
+      req.params.id,
+      validPaidDate,
+      parsedMethod,
+      parsedNotes,
+      parsedIdemKey
+    );
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    await dbService.flush();
 
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
+    const db = dbService.getRaw();
+    const bill = result.bill!;
+    res.json({
+      success: true,
+      bill: {
+        ...bill,
+        categoryName: db.categories.find((c) => c.id === bill.categoryId)?.name || 'Bill',
+      },
+    });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-
-  const db = dbService.getRaw();
-  const bill = result.bill!;
-  res.json({
-    success: true,
-    bill: {
-      ...bill,
-      categoryName: db.categories.find((c) => c.id === bill.categoryId)?.name || 'Bill',
-    },
-  });
 });
 
-apiRouter.post('/finance/bills/:id/undo', (req: Request, res: Response) => {
+apiRouter.post('/finance/bills/:id/undo', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
-  const result = dbService.undoBillPayment(userId, req.params.id);
+  try {
+    const result = dbService.undoBillPayment(userId, req.params.id);
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    await dbService.flush();
 
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
+    const db = dbService.getRaw();
+    const bill = result.bill!;
+    res.json({
+      success: true,
+      bill: {
+        ...bill,
+        categoryName: db.categories.find((c) => c.id === bill.categoryId)?.name || 'Bill',
+      },
+    });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-
-  const db = dbService.getRaw();
-  const bill = result.bill!;
-  res.json({
-    success: true,
-    bill: {
-      ...bill,
-      categoryName: db.categories.find((c) => c.id === bill.categoryId)?.name || 'Bill',
-    },
-  });
 });
 
-apiRouter.delete('/finance/bills/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
+apiRouter.delete('/finance/bills/:id', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const bill = db.bills.find(
-    (b) => b.id === req.params.id && canAccess(b.userId, userId, isGuest) && !b.deletedAt
+    (b) => b.id === req.params.id && canAccess(b.userId, userId) && !b.deletedAt
   );
 
   if (!bill) {
@@ -1814,13 +1887,17 @@ apiRouter.delete('/finance/bills/:id', (req: Request, res: Response) => {
   bill.deletedAt = nowIso;
   bill.updatedAt = nowIso;
   for (const exp of db.expenseTransactions) {
-    if (canAccess(exp.userId, userId, isGuest) && exp.billId === bill.id && !exp.deletedAt) {
+    if (canAccess(exp.userId, userId) && exp.billId === bill.id && !exp.deletedAt) {
       exp.deletedAt = nowIso;
     }
   }
 
-  dbService.save();
-  res.json({ success: true, message: 'Bill moved to trash' });
+  try {
+    await dbService.save();
+    res.json({ success: true, message: 'Bill moved to trash' });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 apiRouter.get('/finance/payments-history', (req: Request, res: Response) => {
@@ -1844,7 +1921,7 @@ apiRouter.get('/finance/savings-goals', (req: Request, res: Response) => {
   res.json(goals);
 });
 
-apiRouter.post('/finance/savings-goals', (req: Request, res: Response) => {
+apiRouter.post('/finance/savings-goals', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -1888,11 +1965,15 @@ apiRouter.post('/finance/savings-goals', (req: Request, res: Response) => {
     updatedAt: nowIso,
   };
   db.savingsGoals.unshift(created);
-  dbService.save();
-  res.status(201).json(created);
+  try {
+    await dbService.save();
+    res.status(201).json(created);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.put('/finance/savings-goals/:id', (req: Request, res: Response) => {
+apiRouter.put('/finance/savings-goals/:id', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const goal = db.savingsGoals.find((g) => g.id === req.params.id && g.userId === userId);
@@ -1945,11 +2026,15 @@ apiRouter.put('/finance/savings-goals/:id', (req: Request, res: Response) => {
   }
 
   goal.updatedAt = new Date().toISOString();
-  dbService.save();
-  res.json(goal);
+  try {
+    await dbService.save();
+    res.json(goal);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.post('/finance/savings-goals/:id/contribute', (req: Request, res: Response) => {
+apiRouter.post('/finance/savings-goals/:id/contribute', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const goal = db.savingsGoals.find((g) => g.id === req.params.id && g.userId === userId);
@@ -1969,23 +2054,31 @@ apiRouter.post('/finance/savings-goals/:id/contribute', (req: Request, res: Resp
   }
   goal.savedPaise = goal.savedPaise + delta;
   goal.updatedAt = new Date().toISOString();
-  dbService.save();
-  res.json(goal);
+  try {
+    await dbService.save();
+    res.json(goal);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/finance/savings-goals/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
+apiRouter.delete('/finance/savings-goals/:id', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const idx = db.savingsGoals.findIndex(
-    (g) => g.id === req.params.id && canAccess(g.userId, userId, isGuest)
+    (g) => g.id === req.params.id && canAccess(g.userId, userId)
   );
   if (idx === -1) {
     res.status(404).json({ error: 'Savings goal not found' });
     return;
   }
   db.savingsGoals.splice(idx, 1);
-  dbService.save();
-  res.json({ success: true });
+  try {
+    await dbService.save();
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -2069,7 +2162,7 @@ apiRouter.get('/trash', (req: Request, res: Response) => {
   res.json(items);
 });
 
-apiRouter.post('/trash/:entityType/:id/restore', (req: Request, res: Response) => {
+apiRouter.post('/trash/:entityType/:id/restore', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const { entityType, id } = req.params;
   const db = dbService.getRaw();
@@ -2137,11 +2230,15 @@ apiRouter.post('/trash/:entityType/:id/restore', (req: Request, res: Response) =
     return;
   }
 
-  dbService.save();
-  res.json({ success: true });
+  try {
+    await dbService.save();
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/trash/:entityType/:id', (req: Request, res: Response) => {
+apiRouter.delete('/trash/:entityType/:id', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const { entityType, id } = req.params;
   const db = dbService.getRaw();
@@ -2207,8 +2304,12 @@ apiRouter.delete('/trash/:entityType/:id', (req: Request, res: Response) => {
     return;
   }
 
-  dbService.save();
-  res.json({ success: true });
+  try {
+    await dbService.save();
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -2221,30 +2322,45 @@ apiRouter.get('/time-blocks', (req: Request, res: Response) => {
   res.json(blocks);
 });
 
-apiRouter.post('/time-blocks', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  const body = req.body || {};
-  const block = dbService.saveTimeBlock(userId, body);
-  res.status(201).json(block);
-});
-
-apiRouter.put('/time-blocks/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  const { id } = req.params;
-  const body = req.body || {};
-  const block = dbService.saveTimeBlock(userId, { ...body, id });
-  res.json(block);
-});
-
-apiRouter.delete('/time-blocks/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
-  const { id } = req.params;
-  const ok = dbService.deleteTimeBlock(userId, id, isGuest);
-  if (!ok) {
-    res.status(404).json({ error: 'Time block not found' });
-    return;
+apiRouter.post('/time-blocks', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const body = req.body || {};
+    const block = dbService.saveTimeBlock(userId, body);
+    await dbService.flush();
+    res.status(201).json(block);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json({ success: true, message: 'Time block moved to trash' });
+});
+
+apiRouter.put('/time-blocks/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const { id } = req.params;
+    const body = req.body || {};
+    const block = dbService.saveTimeBlock(userId, { ...body, id });
+    await dbService.flush();
+    res.json(block);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.delete('/time-blocks/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const { id } = req.params;
+    const ok = dbService.deleteTimeBlock(userId, id);
+    if (!ok) {
+      res.status(404).json({ error: 'Time block not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json({ success: true, message: 'Time block moved to trash' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -2257,33 +2373,48 @@ apiRouter.get('/envelopes', (req: Request, res: Response) => {
   res.json(envelopes);
 });
 
-apiRouter.post('/envelopes', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  const body = req.body || {};
-  const env = dbService.saveEnvelope(userId, body);
-  res.status(201).json(env);
-});
-
-apiRouter.put('/envelopes/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  const { id } = req.params;
-  const body = req.body || {};
-  const env = dbService.saveEnvelope(userId, { ...body, id });
-  res.json(env);
-});
-
-apiRouter.delete('/envelopes/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
-  const { id } = req.params;
-  const ok = dbService.deleteEnvelope(userId, id, isGuest);
-  if (!ok) {
-    res.status(404).json({ error: 'Envelope not found' });
-    return;
+apiRouter.post('/envelopes', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const body = req.body || {};
+    const env = dbService.saveEnvelope(userId, body);
+    await dbService.flush();
+    res.status(201).json(env);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json({ success: true, message: 'Envelope moved to trash' });
 });
 
-apiRouter.post('/envelopes/transfer', (req: Request, res: Response) => {
+apiRouter.put('/envelopes/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const { id } = req.params;
+    const body = req.body || {};
+    const env = dbService.saveEnvelope(userId, { ...body, id });
+    await dbService.flush();
+    res.json(env);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.delete('/envelopes/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const { id } = req.params;
+    const ok = dbService.deleteEnvelope(userId, id);
+    if (!ok) {
+      res.status(404).json({ error: 'Envelope not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json({ success: true, message: 'Envelope moved to trash' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.post('/envelopes/transfer', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const { fromId, toId, amountPaise } = req.body || {};
   const parsedFromId = parseNonEmptyString(fromId, 128);
@@ -2297,12 +2428,17 @@ apiRouter.post('/envelopes/transfer', (req: Request, res: Response) => {
     res.status(400).json({ error: 'Cannot transfer funds to the same envelope' });
     return;
   }
-  const result = dbService.transferEnvelopeFunds(userId, parsedFromId, parsedToId, parsedAmount);
-  if (!result.success) {
-    res.status(400).json({ error: result.error || 'Failed to transfer envelope funds' });
-    return;
+  try {
+    const result = dbService.transferEnvelopeFunds(userId, parsedFromId, parsedToId, parsedAmount);
+    if (!result.success) {
+      res.status(400).json({ error: result.error || 'Failed to transfer envelope funds' });
+      return;
+    }
+    await dbService.flush();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json({ success: true });
 });
 
 // ----------------------------------------------------
@@ -2314,39 +2450,59 @@ apiRouter.get('/subscriptions', (req: Request, res: Response) => {
   res.json(subs);
 });
 
-apiRouter.post('/subscriptions', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  const body = req.body || {};
-  const sub = dbService.saveSubscription(userId, body);
-  res.status(201).json(sub);
-});
-
-apiRouter.put('/subscriptions/:id', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  const { id } = req.params;
-  const body = req.body || {};
-  const sub = dbService.saveSubscription(userId, { ...body, id });
-  res.json(sub);
-});
-
-apiRouter.delete('/subscriptions/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
-  const { id } = req.params;
-  const ok = dbService.deleteSubscription(userId, id, isGuest);
-  if (!ok) {
-    res.status(404).json({ error: 'Subscription not found' });
-    return;
+apiRouter.post('/subscriptions', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const body = req.body || {};
+    const sub = dbService.saveSubscription(userId, body);
+    await dbService.flush();
+    res.status(201).json(sub);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json({ success: true, message: 'Subscription moved to trash' });
+});
+
+apiRouter.put('/subscriptions/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const { id } = req.params;
+    const body = req.body || {};
+    const sub = dbService.saveSubscription(userId, { ...body, id });
+    await dbService.flush();
+    res.json(sub);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.delete('/subscriptions/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const { id } = req.params;
+    const ok = dbService.deleteSubscription(userId, id);
+    if (!ok) {
+      res.status(404).json({ error: 'Subscription not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json({ success: true, message: 'Subscription moved to trash' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
 // WORKSPACE MANAGEMENT (CLEAN DATA)
 // ----------------------------------------------------
-apiRouter.post('/workspace/clear', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
-  dbService.clearWorkspace(userId, isGuest);
-  res.json({ success: true, message: 'All transactions, tasks, bills, and demo data cleared successfully' });
+apiRouter.post('/workspace/clear', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    dbService.clearWorkspace(userId);
+    await dbService.flush();
+    res.json({ success: true, message: 'All transactions, tasks, bills, and demo data cleared successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------
@@ -2358,7 +2514,7 @@ apiRouter.get('/study/tiers', (req: Request, res: Response) => {
   res.json(tiers);
 });
 
-apiRouter.post('/study/tiers', (req: Request, res: Response) => {
+apiRouter.post('/study/tiers', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
   const name = parseNonEmptyString(body.name, 128);
@@ -2368,29 +2524,44 @@ apiRouter.post('/study/tiers', (req: Request, res: Response) => {
   }
   const shortTitle = parseNonEmptyString(body.shortTitle, 64) || name.slice(0, 24);
   const description = parseOptionalString(body.description, 256) || '';
-  const tier = dbService.saveStudyTier(userId, {
-    id: parseOptionalString(body.id, 128) || undefined,
-    name,
-    shortTitle,
-    description,
-  });
-  res.json(tier);
-});
-
-apiRouter.delete('/study/tiers/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
-  const success = dbService.deleteStudyTier(userId, req.params.id, isGuest);
-  if (!success) {
-    res.status(404).json({ error: 'Tier not found' });
-    return;
+  try {
+    const tier = dbService.saveStudyTier(userId, {
+      id: parseOptionalString(body.id, 128) || undefined,
+      name,
+      shortTitle,
+      description,
+    });
+    await dbService.flush();
+    res.json(tier);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json({ success: true, message: 'Tier deleted' });
 });
 
-apiRouter.delete('/study/all', (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  dbService.clearStudyData(userId);
-  res.json({ success: true, message: 'All study subjects and topics cleared' });
+apiRouter.delete('/study/tiers/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const success = dbService.deleteStudyTier(userId, req.params.id);
+    if (!success) {
+      res.status(404).json({ error: 'Tier not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json({ success: true, message: 'Tier deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.delete('/study/all', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    dbService.clearStudyData(userId);
+    await dbService.flush();
+    res.json({ success: true, message: 'All study subjects and topics cleared' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 apiRouter.get('/study/subjects', (req: Request, res: Response) => {
@@ -2399,7 +2570,7 @@ apiRouter.get('/study/subjects', (req: Request, res: Response) => {
   res.json(subjects);
 });
 
-apiRouter.post('/study/subjects', (req: Request, res: Response) => {
+apiRouter.post('/study/subjects', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
   const code = parseNonEmptyString(body.code, 64);
@@ -2417,36 +2588,42 @@ apiRouter.post('/study/subjects', (req: Request, res: Response) => {
   const targetExam = parseOptionalString(body.targetExam, 128) || undefined;
   const color = parseOptionalString(body.color, 32) || '#3b82f6';
 
-  const subject = dbService.saveStudySubject(userId, {
-    id: parseOptionalString(body.id, 128) || undefined,
-    code,
-    name,
-    tierId,
-    semesterOrDomain,
-    targetExam,
-    color,
-    totalSubtopics: parseNonNegativeInt(body.totalSubtopics, 10000) ?? 0,
-    completedSubtopics: parseNonNegativeInt(body.completedSubtopics, 10000) ?? 0,
-  });
-  res.json(subject);
+  try {
+    const subject = dbService.saveStudySubject(userId, {
+      id: parseOptionalString(body.id, 128) || undefined,
+      code,
+      name,
+      tierId,
+      semesterOrDomain,
+      targetExam,
+      color,
+      totalSubtopics: parseNonNegativeInt(body.totalSubtopics, 10000) ?? 0,
+      completedSubtopics: parseNonNegativeInt(body.completedSubtopics, 10000) ?? 0,
+    });
+    await dbService.flush();
+    res.json(subject);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/study/subjects/:code', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
+apiRouter.delete('/study/subjects/:code', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
   try {
-    const result = dbService.deleteStudySubject(userId, req.params.code, isGuest);
+    const result = dbService.deleteStudySubject(userId, req.params.code);
     if (!result.success) {
       res.status(404).json({ error: 'Subject not found' });
       return;
     }
+    await dbService.flush();
     res.json({
       success: true,
       deletedCount: result.deletedCount,
       subjectCode: result.subjectCode,
       message: 'Subject and associated topics deleted',
     });
-  } catch {
-    res.status(500).json({ error: 'Failed to delete subject and associated topics' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
 });
 
@@ -2457,7 +2634,7 @@ apiRouter.get('/study/topics', (req: Request, res: Response) => {
   res.json(topics);
 });
 
-apiRouter.post('/study/topics', (req: Request, res: Response) => {
+apiRouter.post('/study/topics', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
   const topicId = parseOptionalString(body.id, 128) || undefined;
@@ -2488,34 +2665,44 @@ apiRouter.post('/study/topics', (req: Request, res: Response) => {
   const notes = body.notes !== undefined ? (parseOptionalString(body.notes, 2000) || '') : existingTopic?.notes;
   const rowIndex = body.rowIndex !== undefined ? (parseNonNegativeInt(body.rowIndex, 100000) ?? 0) : existingTopic?.rowIndex;
 
-  const topicRecord = dbService.saveStudyTopic(userId, {
-    id: topicId,
-    subjectCode,
-    unit,
-    topic,
-    subtopic,
-    priority,
-    theory: body.theory !== undefined ? Boolean(body.theory) : existingTopic?.theory,
-    practice: body.practice !== undefined ? Boolean(body.practice) : existingTopic?.practice,
-    pyq: body.pyq !== undefined ? Boolean(body.pyq) : existingTopic?.pyq,
-    revisionCount:
-      body.revisionCount !== undefined
-        ? (parseNonNegativeInt(body.revisionCount, 1000) ?? 0)
-        : existingTopic?.revisionCount,
-    notes,
-    rowIndex,
-  });
-  res.json(topicRecord);
+  try {
+    const topicRecord = dbService.saveStudyTopic(userId, {
+      id: topicId,
+      subjectCode,
+      unit,
+      topic,
+      subtopic,
+      priority,
+      theory: body.theory !== undefined ? Boolean(body.theory) : existingTopic?.theory,
+      practice: body.practice !== undefined ? Boolean(body.practice) : existingTopic?.practice,
+      pyq: body.pyq !== undefined ? Boolean(body.pyq) : existingTopic?.pyq,
+      revisionCount:
+        body.revisionCount !== undefined
+          ? (parseNonNegativeInt(body.revisionCount, 1000) ?? 0)
+          : existingTopic?.revisionCount,
+      notes,
+      rowIndex,
+    });
+    await dbService.flush();
+    res.json(topicRecord);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/study/topics/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
-  const success = dbService.deleteStudyTopic(userId, req.params.id, isGuest);
-  if (!success) {
-    res.status(404).json({ error: 'Topic not found' });
-    return;
+apiRouter.delete('/study/topics/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const success = dbService.deleteStudyTopic(userId, req.params.id);
+    if (!success) {
+      res.status(404).json({ error: 'Topic not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json({ success: true, message: 'Topic deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json({ success: true, message: 'Topic deleted' });
 });
 
 apiRouter.get('/study/revisions', (req: Request, res: Response) => {
@@ -2524,7 +2711,7 @@ apiRouter.get('/study/revisions', (req: Request, res: Response) => {
   res.json(revisions);
 });
 
-apiRouter.post('/study/revisions', (req: Request, res: Response) => {
+apiRouter.post('/study/revisions', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
   const topicId = parseNonEmptyString(body.topicId, 128);
@@ -2550,45 +2737,60 @@ apiRouter.post('/study/revisions', (req: Request, res: Response) => {
   const repetition = parseNonNegativeInt(body.repetition, 100) || 0;
   const notes = parseOptionalString(body.notes, 2000) || undefined;
 
-  const revision = dbService.saveStudyRevision(userId, {
-    id: parseOptionalString(body.id, 128) || undefined,
-    topicId,
-    subjectCode,
-    topicTitle,
-    lastStudiedAt,
-    nextRevisionAt,
-    intervalDays,
-    repetition,
-    difficulty,
-    status,
-    notes,
-  });
-  res.json(revision);
+  try {
+    const revision = dbService.saveStudyRevision(userId, {
+      id: parseOptionalString(body.id, 128) || undefined,
+      topicId,
+      subjectCode,
+      topicTitle,
+      lastStudiedAt,
+      nextRevisionAt,
+      intervalDays,
+      repetition,
+      difficulty,
+      status,
+      notes,
+    });
+    await dbService.flush();
+    res.json(revision);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.post('/study/revisions/:id/recall', (req: Request, res: Response) => {
+apiRouter.post('/study/revisions/:id/recall', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const difficulty = req.body.difficulty as 'easy' | 'medium' | 'hard';
   if (!difficulty || !['easy', 'medium', 'hard'].includes(difficulty)) {
     res.status(400).json({ error: 'Invalid difficulty. Must be easy, medium, or hard' });
     return;
   }
-  const updated = dbService.recordStudyRecall(userId, req.params.id, difficulty);
-  if (!updated) {
-    res.status(404).json({ error: 'Revision not found' });
-    return;
+  try {
+    const updated = dbService.recordStudyRecall(userId, req.params.id, difficulty);
+    if (!updated) {
+      res.status(404).json({ error: 'Revision not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json(updated);
 });
 
-apiRouter.delete('/study/revisions/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
-  const success = dbService.deleteStudyRevision(userId, req.params.id, isGuest);
-  if (!success) {
-    res.status(404).json({ error: 'Revision not found' });
-    return;
+apiRouter.delete('/study/revisions/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const success = dbService.deleteStudyRevision(userId, req.params.id);
+    if (!success) {
+      res.status(404).json({ error: 'Revision not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json({ success: true, message: 'Revision deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json({ success: true, message: 'Revision deleted' });
 });
 
 apiRouter.get('/study/mistakes', (req: Request, res: Response) => {
@@ -2597,7 +2799,7 @@ apiRouter.get('/study/mistakes', (req: Request, res: Response) => {
   res.json(mistakes);
 });
 
-apiRouter.post('/study/mistakes', (req: Request, res: Response) => {
+apiRouter.post('/study/mistakes', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
   const subjectCode = parseNonEmptyString(body.subjectCode, 64);
@@ -2626,30 +2828,40 @@ apiRouter.post('/study/mistakes', (req: Request, res: Response) => {
   const rootCause = parseOptionalString(body.rootCause, 1024) || '';
   const subjectName = parseOptionalString(body.subjectName, 128) || undefined;
 
-  const mistake = dbService.saveStudyMistake(userId, {
-    id: parseOptionalString(body.id, 128) || undefined,
-    date,
-    subjectCode,
-    subjectName,
-    topic,
-    source,
-    severity,
-    trap,
-    rootCause,
-    goldenRule,
-    resolved: Boolean(body.resolved),
-  });
-  res.json(mistake);
+  try {
+    const mistake = dbService.saveStudyMistake(userId, {
+      id: parseOptionalString(body.id, 128) || undefined,
+      date,
+      subjectCode,
+      subjectName,
+      topic,
+      source,
+      severity,
+      trap,
+      rootCause,
+      goldenRule,
+      resolved: Boolean(body.resolved),
+    });
+    await dbService.flush();
+    res.json(mistake);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/study/mistakes/:id', (req: Request, res: Response) => {
-  const { userId, isGuest } = getAuth(req);
-  const success = dbService.deleteStudyMistake(userId, req.params.id, isGuest);
-  if (!success) {
-    res.status(404).json({ error: 'Mistake not found' });
-    return;
+apiRouter.delete('/study/mistakes/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = getAuth(req);
+    const success = dbService.deleteStudyMistake(userId, req.params.id);
+    if (!success) {
+      res.status(404).json({ error: 'Mistake not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json({ success: true, message: 'Mistake deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json({ success: true, message: 'Mistake deleted' });
 });
 
 // ----------------------------------------------------
@@ -2671,18 +2883,23 @@ apiRouter.get('/sync/queue', (req: Request, res: Response) => {
   res.json(queue);
 });
 
-apiRouter.post('/sync/queue/enqueue', (req: Request, res: Response) => {
+apiRouter.post('/sync/queue/enqueue', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const body = req.body || {};
   if (!body.entityType || !body.action || !body.sheetName) {
     res.status(400).json({ error: 'entityType, action, and sheetName are required' });
     return;
   }
-  const item = dbService.enqueueSync(userId, body);
-  res.status(201).json(item);
+  try {
+    const item = dbService.enqueueSync(userId, body);
+    await dbService.flush();
+    res.status(201).json(item);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.post('/sync/queue/:id/status', (req: Request, res: Response) => {
+apiRouter.post('/sync/queue/:id/status', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const { id } = req.params;
   const { status, errorMessage, nextRetryAt, attempts } = req.body || {};
@@ -2695,12 +2912,17 @@ apiRouter.post('/sync/queue/:id/status', (req: Request, res: Response) => {
   if (typeof attempts === 'number' && Number.isFinite(attempts) && attempts >= 0) {
     updates.attempts = Math.floor(attempts);
   }
-  const item = dbService.updateSyncOp(userId, id, updates);
-  if (!item) {
-    res.status(404).json({ error: 'Queue item not found' });
-    return;
+  try {
+    const item = dbService.updateSyncOp(userId, id, updates);
+    if (!item) {
+      res.status(404).json({ error: 'Queue item not found' });
+      return;
+    }
+    await dbService.flush();
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: 'Database persistence failed' });
   }
-  res.json(item);
 });
 
 // ----------------------------------------------------
@@ -2859,6 +3081,7 @@ apiRouter.post('/sheets/flush-queue', async (req: Request, res: Response) => {
         lastAttemptAt: new Date().toISOString(),
       });
     }
+    await dbService.flush();
     res.json(summary);
   } catch (err) {
     sendSheetsError(res, err, 'Queue flush failed.');
@@ -2874,7 +3097,7 @@ apiRouter.get('/backup/export', (req: Request, res: Response) => {
   res.json(backup);
 });
 
-apiRouter.post('/backup/restore', (req: Request, res: Response) => {
+apiRouter.post('/backup/restore', async (req: Request, res: Response, next: NextFunction) => {
   const { userId } = getAuth(req);
   const body = req.body;
   const result = dbService.restoreUserData(userId, body);
@@ -2882,5 +3105,17 @@ apiRouter.post('/backup/restore', (req: Request, res: Response) => {
     res.status(400).json(result);
     return;
   }
-  res.json(result);
+  try {
+    await dbService.flush();
+    res.json(result);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+// ----------------------------------------------------
+// Final 404 handler for unmatched /api routes
+// ----------------------------------------------------
+apiRouter.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: 'API route not found' });
 });

@@ -27,6 +27,97 @@ export interface RateLimitOptions {
 }
 
 /**
+ * Safely configures proxy trust on an Express application based on TRUST_PROXY environment configuration.
+ *
+ * Supported values:
+ * - undefined / "" / "false" / "0" -> false (direct connection, default)
+ * - "true" -> true (trust all upstream proxies)
+ * - Positive integer (e.g. "1", "2") -> number of trusted hops
+ * - Subnets / IP ranges / predefined names (e.g. "loopback", "linklocal", "uniquelocal", or comma-separated IPs)
+ *
+ * Missing, invalid, or unsupported configurations fail safely to false (no proxy trusted).
+ */
+export function configureTrustProxy(
+  app: { set: (setting: string, val: unknown) => unknown },
+  trustProxyEnv?: string
+): boolean | number | string {
+  if (!trustProxyEnv || trustProxyEnv.trim() === '' || trustProxyEnv === 'false' || trustProxyEnv === '0') {
+    app.set('trust proxy', false);
+    return false;
+  }
+
+  const trimmed = trustProxyEnv.trim();
+
+  // Boolean true
+  if (trimmed.toLowerCase() === 'true') {
+    app.set('trust proxy', true);
+    return true;
+  }
+
+  // Integer hop count (must be positive)
+  if (/^[+-]?\d+$/.test(trimmed)) {
+    const hops = parseInt(trimmed, 10);
+    if (!isNaN(hops) && hops > 0) {
+      app.set('trust proxy', hops);
+      return hops;
+    }
+    app.set('trust proxy', false);
+    return false;
+  }
+
+  // Subnets, CIDR, or predefined ranges (e.g. loopback, linklocal)
+  try {
+    app.set('trust proxy', trimmed);
+    return trimmed;
+  } catch (err) {
+    console.warn(
+      `[Security] Warning: Invalid TRUST_PROXY configuration "${trimmed}" (${err instanceof Error ? err.message : String(err)}). Failing safely to trust proxy = false.`
+    );
+    app.set('trust proxy', false);
+    return false;
+  }
+}
+
+/**
+ * Resolves the client IP address safely according to the configured proxy trust policy.
+ * - If proxy trust is explicitly configured on the Express app (`app.get('trust proxy')` is truthy),
+ *   uses Express's validated `req.ip`.
+ * - Otherwise (for direct connections, or missing/falsy proxy trust), strictly uses the
+ *   underlying socket peer address (`req.socket.remoteAddress`).
+ * - Raw `X-Forwarded-For` headers are NEVER trusted directly.
+ */
+export function resolveClientIp(req: Request): string {
+  const trustProxySetting = req.app?.get ? req.app.get('trust proxy') : false;
+  const isProxyTrusted = Boolean(trustProxySetting);
+
+  let rawIp: string | undefined;
+
+  if (isProxyTrusted && req.ip) {
+    rawIp = req.ip;
+  } else {
+    rawIp = req.socket?.remoteAddress;
+  }
+
+  if (!rawIp) {
+    rawIp = req.ip || 'unknown_client';
+  }
+
+  // Normalize IPv4-mapped IPv6 address (::ffff:x.x.x.x -> x.x.x.x)
+  if (rawIp.startsWith('::ffff:')) {
+    rawIp = rawIp.slice(7);
+  }
+
+  return rawIp;
+}
+
+/**
+ * Reset in-memory rate limit table (useful for isolated tests).
+ */
+export function _resetRateLimitMap(): void {
+  rateLimitMap.clear();
+}
+
+/**
  * In-memory sliding-window rate limiting middleware for Express.
  */
 export function rateLimiter(options: RateLimitOptions = {}) {
@@ -36,17 +127,7 @@ export function rateLimiter(options: RateLimitOptions = {}) {
 
   return (req: Request, res: Response, next: NextFunction): void => {
     const authUser = (req as unknown as { auth?: { userId?: string } }).auth?.userId;
-    const rawForwarded = req.headers['x-forwarded-for'];
-    let clientIp = '';
-    if (typeof rawForwarded === 'string') {
-      const firstCandidate = rawForwarded.split(',')[0].trim();
-      if (/^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[a-fA-F0-9:]+$/.test(firstCandidate)) {
-        clientIp = firstCandidate;
-      }
-    }
-    if (!clientIp) {
-      clientIp = req.socket.remoteAddress || 'unknown_client';
-    }
+    const clientIp = resolveClientIp(req);
 
     const key = authUser ? `usr:${authUser}:${req.method}` : `ip:${clientIp}:${req.method}`;
     const now = Date.now();

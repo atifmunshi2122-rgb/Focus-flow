@@ -2,13 +2,15 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { apiRouter } from './server/routes.js';
-import { securityHeaders, rateLimiter, corsHandler, errorHandler } from './server/security.js';
+import { securityHeaders, rateLimiter, corsHandler, errorHandler, configureTrustProxy } from './server/security.js';
+import { setupGracefulShutdown } from './server/shutdown.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
+  configureTrustProxy(app, process.env.TRUST_PROXY);
   // Port resolution: CLI flag --port, DEFAULT_APP_PORT, or fallback to 3000 (avoid nginx port 8080)
   const portArgIndex = process.argv.indexOf('--port');
   const cliPort = portArgIndex !== -1 ? parseInt(process.argv[portArgIndex + 1], 10) : null;
@@ -56,9 +58,12 @@ async function startServer() {
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
+  const server = app.listen(port, '0.0.0.0', () => {
     console.log(`[Server] Running at http://0.0.0.0:${port}`);
   });
+
+  setupGracefulShutdown(server);
+  return server;
 }
 
 startServer().catch((err) => {

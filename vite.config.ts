@@ -26,26 +26,17 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (id.includes('node_modules/firebase')) {
+            if (id.includes('node_modules/firebase') || id.includes('node_modules/@firebase')) {
               return 'vendor-firebase';
             }
-            if (id.includes('node_modules/motion')) {
+            if (id.includes('node_modules/motion') || id.includes('node_modules/framer-motion')) {
               return 'vendor-motion';
             }
             if (id.includes('node_modules/lucide-react')) {
               return 'vendor-lucide';
             }
-            if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/scheduler')) {
               return 'vendor-react';
-            }
-            if (id.includes('src/lib/sheetsSpec') || id.includes('src/lib/googleSheetsService')) {
-              return 'sheets-engine';
-            }
-            if (id.includes('src/theme/stylesRegistry') || id.includes('src/theme/palettes100') || id.includes('src/components/settings/ThemeStudio') || id.includes('src/components/settings/ColorEcosystemStudio')) {
-              return 'theme-studio';
-            }
-            if (id.includes('src/components/study/') || id.includes('src/data/studySeedData')) {
-              return 'study-module';
             }
           },
         },

@@ -1399,6 +1399,13 @@
       "name": "Focus User",
       "avatarUrl": "",
       "createdAt": "2026-11-14T19:30:08.862Z"
+    },
+    {
+      "id": "gst_mwgs161h_7va2rpla",
+      "email": "guest@focusflow.local",
+      "name": "Guest Workspace",
+      "avatarUrl": "",
+      "createdAt": "2026-11-15T19:50:10.780Z"
     }
   ],
   "userSettings": [
@@ -3456,6 +3463,16 @@
     },
     {
       "userId": "usr_test_tasks_1794684608862",
+      "currency": "INR",
+      "pomodoroWorkDuration": 25,
+      "shortBreakDuration": 5,
+      "longBreakDuration": 15,
+      "autoSwitchSessions": false,
+      "soundEnabled": true,
+      "theme": "dark"
+    },
+    {
+      "userId": "gst_mwgs161h_7va2rpla",
       "currency": "INR",
       "pomodoroWorkDuration": 25,
       "shortBreakDuration": 5,
@@ -23425,6 +23442,102 @@
       "type": "variable",
       "icon": "AlertCircle",
       "color": "#64748b"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_1",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Housing & Rent",
+      "type": "fixed",
+      "icon": "Home",
+      "color": "#6366f1"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_2",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Internet & Utilities",
+      "type": "fixed",
+      "icon": "Wifi",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_3",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Subscriptions",
+      "type": "fixed",
+      "icon": "Tv",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_4",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Insurance & Healthcare",
+      "type": "fixed",
+      "icon": "Shield",
+      "color": "#ec4899"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_5",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Education & Fees",
+      "type": "fixed",
+      "icon": "GraduationCap",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_6",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Food & Dining",
+      "type": "variable",
+      "icon": "Utensils",
+      "color": "#10b981"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_7",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Groceries",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_8",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Transportation & Fuel",
+      "type": "variable",
+      "icon": "Car",
+      "color": "#f97316"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_9",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Shopping & Retail",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#a855f7"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_10",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Entertainment & Leisure",
+      "type": "variable",
+      "icon": "Film",
+      "color": "#06b6d4"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_11",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Personal & Wellness",
+      "type": "variable",
+      "icon": "Heart",
+      "color": "#e11d48"
+    },
+    {
+      "id": "cat_gst_mwgs161h_7va2rpla_12",
+      "userId": "gst_mwgs161h_7va2rpla",
+      "name": "Emergency & Miscellaneous",
+      "type": "variable",
+      "icon": "AlertCircle",
+      "color": "#64748b"
     }
   ],
   "recurringExpenses": [
@@ -23673,12 +23786,12 @@
       "amountPaise": 240000,
       "categoryId": "cat_3",
       "dueDate": "2026-11-15",
-      "status": "UNPAID",
+      "status": "OVERDUE",
       "paymentDate": null,
       "notes": "Invoice received, due mid month",
       "periodKey": "2026-11",
       "createdAt": "2026-11-13T11:16:33.672Z",
-      "updatedAt": "2026-11-13T11:16:33.672Z"
+      "updatedAt": "2026-11-15T19:49:11.484Z"
     },
     {
       "id": "bill_cur_4",

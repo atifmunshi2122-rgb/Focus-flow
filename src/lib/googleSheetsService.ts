@@ -1,41 +1,15 @@
 import { DurableSyncOperation } from '../types/index.ts';
 import { api } from './api.ts';
 import { auth } from './firebase.ts';
-import {
-  WORKSHEET_NAMES,
+import type {
   WorksheetName,
-  getSheetId,
-  isDashboardWorksheet,
-  colIndexToLetter,
-  WORKSHEET_HEADERS,
-  SHEET_COLUMN_FORMATS,
   SheetFormatSpec,
   SyncQueueItem,
   SheetsSnapshotPayload,
   SpreadsheetSheetMeta,
   VerifiedSpreadsheetMetadata,
-  formatPaymentMethodLabel,
-  buildCreateStylingRequests,
-  buildSyncResizeRequests,
-  buildSyncValueUpdates,
-  buildDynamicClearRanges,
-  buildInitialHeaderValueUpdates,
 } from './sheetsSpec.ts';
 
-export {
-  WORKSHEET_NAMES,
-  getSheetId,
-  isDashboardWorksheet,
-  colIndexToLetter,
-  WORKSHEET_HEADERS,
-  SHEET_COLUMN_FORMATS,
-  formatPaymentMethodLabel,
-  buildCreateStylingRequests,
-  buildSyncResizeRequests,
-  buildSyncValueUpdates,
-  buildDynamicClearRanges,
-  buildInitialHeaderValueUpdates,
-};
 export type {
   WorksheetName,
   SheetFormatSpec,
@@ -44,6 +18,20 @@ export type {
   SpreadsheetSheetMeta,
   VerifiedSpreadsheetMetadata,
 };
+
+/**
+ * Lightweight helper to format payment method labels without loading the 723 kB sheetsSpec.
+ */
+export function formatPaymentMethodLabel(method?: string | null, isPaid = false): string {
+  if (!isPaid && !method) return '—';
+  const normalized = (method || '').trim().toLowerCase();
+  if (normalized === 'cash') return 'Cash';
+  if (normalized === 'card') return 'Card';
+  if (normalized === 'upi_bank' || normalized === 'upi') return 'UPI / Bank';
+  if (normalized === 'auto_debit') return 'Auto-Debit';
+  if (normalized) return normalized.replace(/_/g, ' ').toUpperCase();
+  return isPaid ? 'UPI / Bank' : '—';
+}
 
 type QueueListener = (count: number) => void;
 
@@ -143,26 +131,35 @@ class GoogleSheetsService {
 
   /**
    * Creates a 23-worksheet styled workbook via the backend Google Sheets worker.
+   * Loads the heavy sheetsSpec engine on demand.
    */
   public async createMasterWorkbook(accessToken: string): Promise<string> {
+    await import('./sheetsSpec.ts').catch((err) => {
+      console.warn('[GoogleSheetsService] Dynamic sheetsSpec preload notice:', err);
+    });
     const res = await api.sheetsCreateWorkbook(accessToken);
     return res.spreadsheetId;
   }
 
   /**
    * Explicit user-requested formatting & auto-resize repair via backend worker.
+   * Loads the heavy sheetsSpec engine on demand.
    */
   public async applyFormatting(
     spreadsheetId: string,
     accessToken: string,
     includeAutoResize = true
   ): Promise<void> {
+    await import('./sheetsSpec.ts').catch((err) => {
+      console.warn('[GoogleSheetsService] Dynamic sheetsSpec preload notice:', err);
+    });
     await api.sheetsApplyFormatting(spreadsheetId, accessToken, includeAutoResize);
     this.lastError = null;
   }
 
   /**
    * Synchronizes all 23 worksheets via backend worker (value-only updates; preserves widths, charts & validations).
+   * Loads the heavy sheetsSpec engine on demand.
    */
   public async syncAllData(
     spreadsheetId: string,
@@ -170,6 +167,9 @@ class GoogleSheetsService {
     data: SheetsSnapshotPayload
   ): Promise<void> {
     try {
+      await import('./sheetsSpec.ts').catch((err) => {
+        console.warn('[GoogleSheetsService] Dynamic sheetsSpec preload notice:', err);
+      });
       await api.sheetsSync(spreadsheetId, accessToken, data);
       this.lastError = null;
     } catch (err) {
@@ -191,6 +191,7 @@ class GoogleSheetsService {
   /**
    * Safe historical resync requiring explicit user confirmation (`confirmed === true`).
    * Executed strictly on the backend worker with metadata verification and dynamic clear ranges.
+   * Loads the heavy sheetsSpec engine on demand.
    */
   public async historicalResync(
     spreadsheetId: string,
@@ -202,6 +203,9 @@ class GoogleSheetsService {
       throw new Error('Historical resync cancelled: explicit confirmation is required.');
     }
     try {
+      await import('./sheetsSpec.ts').catch((err) => {
+        console.warn('[GoogleSheetsService] Dynamic sheetsSpec preload notice:', err);
+      });
       const res = await api.sheetsHistoricalResync(spreadsheetId, accessToken, data, true);
       this.lastError = null;
       return res;

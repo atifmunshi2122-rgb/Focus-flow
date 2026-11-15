@@ -9,7 +9,7 @@ import {
   buildSyncValueUpdates,
   buildSyncResizeRequests,
   formatPaymentMethodLabel,
-} from '../src/lib/googleSheetsService.ts';
+} from '../src/lib/sheetsSpec.ts';
 import {
   FocusSession,
   IncomeTransaction,

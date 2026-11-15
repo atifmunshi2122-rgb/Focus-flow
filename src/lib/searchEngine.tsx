@@ -12,7 +12,7 @@ import {
   UserSettings,
 } from '../types/index.ts';
 import { formatCurrency } from './currency.ts';
-import { SETTINGS_CATEGORIES } from '../components/settings/SettingsView.tsx';
+import { SETTINGS_CATEGORIES } from '../components/settings/settingsCategories.ts';
 import { COMPLETE_THEME_COLLECTION } from '../theme/presetThemes.ts';
 
 import { NavTab } from '../context/AppContext.tsx';
@@ -77,7 +77,7 @@ function getStorage(custom?: Storage): Storage | null {
   if (custom) return custom;
   try {
     if (typeof localStorage !== 'undefined') return localStorage;
-  } catch {}
+  } catch { }
   return null;
 }
 
@@ -100,7 +100,7 @@ export function saveRecentSearch(query: string, storage?: Storage): void {
     const current = getRecentSearches(s).filter((q) => q.toLowerCase() !== trimmed.toLowerCase());
     const updated = [trimmed, ...current].slice(0, 8);
     s.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated));
-  } catch {}
+  } catch { }
 }
 
 export function removeRecentSearch(query: string, storage?: Storage): void {
@@ -109,14 +109,14 @@ export function removeRecentSearch(query: string, storage?: Storage): void {
     if (!s) return;
     const updated = getRecentSearches(s).filter((q) => q !== query);
     s.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated));
-  } catch {}
+  } catch { }
 }
 
 export function clearRecentSearches(storage?: Storage): void {
   try {
     const s = getStorage(storage);
     s?.removeItem(RECENT_SEARCHES_KEY);
-  } catch {}
+  } catch { }
 }
 
 export function getRecentActions(storage?: Storage): string[] {
@@ -136,7 +136,7 @@ export function recordRecentAction(actionId: string, storage?: Storage): void {
     const current = getRecentActions(s).filter((id) => id !== actionId);
     const updated = [actionId, ...current].slice(0, 8);
     s.setItem(RECENT_ACTIONS_KEY, JSON.stringify(updated));
-  } catch {}
+  } catch { }
 }
 
 export function calculateRelevancyScore(query: string, text: string, secondaryText?: string): number {
@@ -586,7 +586,7 @@ export function getContextualCommandSuggestions(sources: {
     iconName: 'Receipt',
     badge: formatCurrency(todayTotal),
     badgeTone: todayTotal > 0 ? ('warning' as const) : ('success' as const),
-    action: () => {},
+    action: () => { },
   });
 
   // 2. Incomplete tasks
@@ -599,7 +599,7 @@ export function getContextualCommandSuggestions(sources: {
     iconName: 'CheckSquare',
     badge: `${pendingTasks.length} Pending`,
     badgeTone: overdueTasks.length > 0 ? ('danger' as const) : ('accent' as const),
-    action: () => {},
+    action: () => { },
   });
 
   // 3. Active habits
@@ -611,7 +611,7 @@ export function getContextualCommandSuggestions(sources: {
     iconName: 'Flame',
     badge: `${activeHabits.length} Active`,
     badgeTone: 'accent' as const,
-    action: () => {},
+    action: () => { },
   });
 
   // 4. Pomodoro focus sprint
@@ -622,7 +622,7 @@ export function getContextualCommandSuggestions(sources: {
     iconName: 'Timer',
     badge: sources.isTimerRunning ? 'Active' : 'Ready',
     badgeTone: sources.isTimerRunning ? ('success' as const) : ('warning' as const),
-    action: () => {},
+    action: () => { },
   });
 
   return suggestions;
