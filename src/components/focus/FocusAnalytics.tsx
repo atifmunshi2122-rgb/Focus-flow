@@ -348,7 +348,12 @@ export const FocusAnalytics: React.FC = () => {
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {goals.map((g) => {
-              const prog = computePomodoroGoalProgress(sessions, g);
+              const prog = computePomodoroGoalProgress(
+                sessions,
+                g,
+                new Date(),
+                settings?.timezone || DEFAULT_TIMEZONE
+              );
               return (
                 <div
                   key={g.id}
@@ -392,7 +397,7 @@ export const FocusAnalytics: React.FC = () => {
             </p>
           </div>
           <ThemeBadge tone={dailyPct >= 100 ? 'success' : 'accent'}>
-            {stats?.last7Days.filter((d) => d.minutes >= dailyGoalMin).length} / 7 Days On-Target
+            {stats?.last7Days.filter((d) => d.minutes >= dailyGoalMin).length ?? 0} / 7 Days On-Target
           </ThemeBadge>
         </div>
 
@@ -718,9 +723,19 @@ export const FocusAnalytics: React.FC = () => {
 
                   <div className="text-right shrink-0">
                     <span className="font-mono tabular-nums font-semibold text-[var(--ff-text-primary)]">
-                      {typeof s.actualDurationSeconds === 'number' && s.actualDurationSeconds > 0
-                        ? `${Math.max(1, Math.round(s.actualDurationSeconds / 60))} min`
-                        : `${s.durationMinutes || Math.max(1, Math.round((s.durationSeconds || 0) / 60))} min`}
+                      {(() => {
+                        const actualSecs =
+                          typeof s.actualDurationSeconds === 'number' &&
+                          !Number.isNaN(s.actualDurationSeconds) &&
+                          (!s.completed || s.actualDurationSeconds > 0)
+                            ? s.actualDurationSeconds
+                            : null;
+                        if (actualSecs !== null) {
+                          if (actualSecs < 60) return `${Math.round(actualSecs)}s`;
+                          return `${Math.round(actualSecs / 60)} min`;
+                        }
+                        return `${s.durationMinutes || Math.max(1, Math.round((s.durationSeconds || 0) / 60))} min`;
+                      })()}
                     </span>
                     {s.completed ? (
                       <span
@@ -737,10 +752,8 @@ export const FocusAnalytics: React.FC = () => {
                         In Progress
                       </span>
                     ) : (
-                      <span
-                        className="block text-[10px] font-semibold text-amber-500"
-                      >
-                        Interrupted
+                      <span className="block text-[10px] font-semibold text-amber-500">
+                        {s.endReason === 'skipped' ? 'Ended Early' : 'Interrupted'}
                       </span>
                     )}
                   </div>

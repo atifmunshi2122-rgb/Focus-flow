@@ -316,9 +316,12 @@ export function computePomodoroGoalProgress(
   const matchingSessions = sessions.filter((s) => {
     if (s.mode !== 'work' || !s.completed) return false;
 
-    // Strict subject linkage: if goal specifies a subject, session MUST have an exact match
+    // Strict subject linkage: if goal specifies a subject, session MUST match by subjectId
+    // (or legacy subjectId-as-subjectCode when session has no subjectId), never matching untagged sessions
     if (goal.subjectId) {
-      if (!s.subjectId || s.subjectId !== goal.subjectId) return false;
+      const matchesSubjectId = Boolean(s.subjectId && s.subjectId === goal.subjectId);
+      const matchesLegacySubjectCode = Boolean(!s.subjectId && s.subjectCode && s.subjectCode === goal.subjectId);
+      if (!matchesSubjectId && !matchesLegacySubjectCode) return false;
     }
     if (goal.subjectCode) {
       if (!s.subjectCode || s.subjectCode !== goal.subjectCode) return false;

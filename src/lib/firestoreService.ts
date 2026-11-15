@@ -685,7 +685,7 @@ export const firestoreService = {
             : (s.durationMinutes || 0) * 60),
         0
       );
-      const dayIndex = new Date(dateStr + 'T12:00:00Z').getDay();
+      const dayIndex = new Date(dateStr + 'T12:00:00Z').getUTCDay();
       last7Days.push({
         date: dateStr,
         dayName: dayNames[dayIndex],
@@ -3747,7 +3747,10 @@ export const firestoreService = {
   async deletePomodoroPreset(userId: string, id: string): Promise<void> {
     const path = `users/${userId}/pomodoro_presets/${id}`;
     try {
-      await setDoc(doc(db, path), { deletedAt: new Date().toISOString() }, { merge: true });
+      const snap = await getDoc(doc(db, path));
+      if (!snap.exists()) return;
+      const nowIso = new Date().toISOString();
+      await setDoc(doc(db, path), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, path);
     }
@@ -3825,9 +3828,12 @@ export const firestoreService = {
   async deletePomodoroGoal(userId: string, id: string): Promise<void> {
     const path = `users/${userId}/pomodoro_goals/${id}`;
     try {
+      const snap = await getDoc(doc(db, path));
+      if (!snap.exists()) return;
+      const nowIso = new Date().toISOString();
       await setDoc(
         doc(db, path),
-        { deletedAt: new Date().toISOString(), status: 'cancelled' },
+        { deletedAt: nowIso, updatedAt: nowIso },
         { merge: true }
       );
     } catch (err) {
@@ -3882,23 +3888,37 @@ export const firestoreService = {
   },
 
   async getPomodoroSettings(userId: string): Promise<PomodoroSettings | null> {
+    const pomPath = `users/${userId}/pomodoro_settings/default`;
+    let pomDoc: Partial<PomodoroSettings> | null = null;
+    try {
+      const snap = await getDoc(doc(db, pomPath));
+      if (snap.exists()) {
+        pomDoc = snap.data() as Partial<PomodoroSettings>;
+      }
+    } catch {
+      // Fallback to general settings if pomodoro_settings doc is absent
+    }
+
     const s = await this.getSettings(userId);
-    if (!s) return null;
+    if (!s && !pomDoc) return null;
+
     return {
+      id: 'default',
       userId,
-      focusDuration: s.pomodoroWorkDuration || 25,
-      shortBreakDuration: s.shortBreakDuration || 5,
-      longBreakDuration: s.longBreakDuration || 15,
-      longBreakInterval: s.longBreakInterval || 4,
-      autoStartBreaks: s.autoSwitchSessions ?? false,
-      autoStartFocus: s.autoSwitchSessions ?? false,
-      alertTone: 'chime',
-      soundVolume: s.soundVolume ?? 70,
-      ambientPreset: 'off',
-      ambientVolume: 0.35,
-      desktopNotifications: false,
-      selectedPresetId: s.selectedPresetId ?? null,
-      updatedAt: s.updatedAt || new Date().toISOString(),
+      focusDuration: pomDoc?.focusDuration ?? s?.pomodoroWorkDuration ?? 25,
+      shortBreakDuration: pomDoc?.shortBreakDuration ?? s?.shortBreakDuration ?? 5,
+      longBreakDuration: pomDoc?.longBreakDuration ?? s?.longBreakDuration ?? 15,
+      longBreakInterval: pomDoc?.longBreakInterval ?? s?.longBreakInterval ?? 4,
+      autoStartBreaks: pomDoc?.autoStartBreaks ?? s?.autoSwitchSessions ?? false,
+      autoStartFocus: pomDoc?.autoStartFocus ?? s?.autoSwitchSessions ?? false,
+      alertTone: pomDoc?.alertTone ?? 'chime',
+      soundVolume: pomDoc?.soundVolume ?? s?.soundVolume ?? 70,
+      ambientPreset: pomDoc?.ambientPreset ?? 'off',
+      ambientVolume: pomDoc?.ambientVolume ?? 0.35,
+      desktopNotifications: pomDoc?.desktopNotifications ?? false,
+      tickingSoundEnabled: pomDoc?.tickingSoundEnabled ?? false,
+      selectedPresetId: pomDoc?.selectedPresetId ?? s?.selectedPresetId ?? null,
+      updatedAt: pomDoc?.updatedAt || s?.updatedAt || new Date().toISOString(),
     };
   },
 
@@ -3906,33 +3926,48 @@ export const firestoreService = {
     userId: string,
     input: Partial<PomodoroSettings>
   ): Promise<PomodoroSettings> {
-    const patch: Partial<UserSettings> = {};
+    const pomPath = `users/${userId}/pomodoro_settings/default`;
+    const existing = await this.getPomodoroSettings(userId);
+    const nowIso = new Date().toISOString();
+
+    const merged: PomodoroSettings = {
+      id: 'default',
+      userId,
+      focusDuration: input.focusDuration ?? existing?.focusDuration ?? 25,
+      shortBreakDuration: input.shortBreakDuration ?? existing?.shortBreakDuration ?? 5,
+      longBreakDuration: input.longBreakDuration ?? existing?.longBreakDuration ?? 15,
+      longBreakInterval: input.longBreakInterval ?? existing?.longBreakInterval ?? 4,
+      autoStartBreaks: input.autoStartBreaks ?? existing?.autoStartBreaks ?? false,
+      autoStartFocus: input.autoStartFocus ?? existing?.autoStartFocus ?? false,
+      alertTone: input.alertTone ?? existing?.alertTone ?? 'chime',
+      soundVolume: input.soundVolume ?? existing?.soundVolume ?? 70,
+      ambientPreset: input.ambientPreset ?? existing?.ambientPreset ?? 'off',
+      ambientVolume: input.ambientVolume ?? existing?.ambientVolume ?? 0.35,
+      desktopNotifications: input.desktopNotifications ?? existing?.desktopNotifications ?? false,
+      tickingSoundEnabled: input.tickingSoundEnabled ?? existing?.tickingSoundEnabled ?? false,
+      selectedPresetId:
+        input.selectedPresetId !== undefined ? input.selectedPresetId : (existing?.selectedPresetId ?? null),
+      updatedAt: nowIso,
+    };
+
+    try {
+      await setDoc(doc(db, pomPath), stripUndefined({ ...merged }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, pomPath);
+    }
+
+    const patch: Partial<UserSettings> = { userId, updatedAt: nowIso };
     if (input.focusDuration !== undefined) patch.pomodoroWorkDuration = input.focusDuration;
     if (input.shortBreakDuration !== undefined) patch.shortBreakDuration = input.shortBreakDuration;
     if (input.longBreakDuration !== undefined) patch.longBreakDuration = input.longBreakDuration;
     if (input.longBreakInterval !== undefined) patch.longBreakInterval = input.longBreakInterval;
-    if (input.autoStartBreaks !== undefined) patch.autoSwitchSessions = input.autoStartBreaks;
+    if (input.autoStartBreaks !== undefined || input.autoStartFocus !== undefined) {
+      patch.autoSwitchSessions = merged.autoStartBreaks || merged.autoStartFocus;
+    }
     if (input.soundVolume !== undefined) patch.soundVolume = input.soundVolume;
     if (input.selectedPresetId !== undefined) patch.selectedPresetId = input.selectedPresetId;
+
     await this.saveSettings(userId, patch);
-    const updated = await this.getPomodoroSettings(userId);
-    return (
-      updated || {
-        userId,
-        focusDuration: input.focusDuration || 25,
-        shortBreakDuration: input.shortBreakDuration || 5,
-        longBreakDuration: input.longBreakDuration || 15,
-        longBreakInterval: input.longBreakInterval || 4,
-        autoStartBreaks: input.autoStartBreaks ?? false,
-        autoStartFocus: input.autoStartFocus ?? false,
-        alertTone: input.alertTone || 'chime',
-        soundVolume: input.soundVolume ?? 70,
-        ambientPreset: input.ambientPreset || 'off',
-        ambientVolume: input.ambientVolume ?? 0.35,
-        desktopNotifications: input.desktopNotifications ?? false,
-        selectedPresetId: input.selectedPresetId ?? null,
-        updatedAt: new Date().toISOString(),
-      }
-    );
+    return merged;
   },
 };

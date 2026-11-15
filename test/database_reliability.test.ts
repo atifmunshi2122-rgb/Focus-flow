@@ -26,6 +26,38 @@ function cleanTempDir(dir: string): void {
   }
 }
 
+async function withSimulatedWriteFailure(dir: string, fn: () => Promise<void>): Promise<void> {
+  fs.chmodSync(dir, 0o555);
+  const isRoot = typeof process.geteuid === 'function' && process.geteuid() === 0;
+  const originalWriteFile = fs.promises.writeFile;
+  if (isRoot) {
+    const resolvedDir = path.resolve(dir);
+    (fs.promises as unknown as { writeFile: typeof fs.promises.writeFile }).writeFile = (async (
+      filePath: Parameters<typeof fs.promises.writeFile>[0],
+      ...rest: unknown[]
+    ) => {
+      if (typeof filePath === 'string' && path.resolve(filePath).startsWith(resolvedDir)) {
+        const err = new Error(`EACCES: permission denied, open '${filePath}'`) as NodeJS.ErrnoException;
+        err.code = 'EACCES';
+        throw err;
+      }
+      return (originalWriteFile as (...args: unknown[]) => Promise<void>).call(fs.promises, filePath, ...rest);
+    }) as typeof fs.promises.writeFile;
+  }
+  try {
+    await fn();
+  } finally {
+    if (isRoot) {
+      fs.promises.writeFile = originalWriteFile;
+    }
+    try {
+      fs.chmodSync(dir, 0o755);
+    } catch {
+      // Ignore chmod errors on cleanup
+    }
+  }
+}
+
 function computeSha256(filePath: string): string {
   const content = fs.readFileSync(filePath);
   return crypto.createHash('sha256').update(content).digest('hex');
@@ -179,21 +211,19 @@ test('Scenario 6 — Simulated write failure propagates rejection to caller', as
     const db = new DatabaseService(tempDir);
     await db.save(); // Initial successful save
 
-    // Make directory read-only so creating temp file fails with EACCES
-    fs.chmodSync(tempDir, 0o555);
-
-    await assert.rejects(
-      async () => {
-        await db.save();
-      },
-      (err: unknown) => {
-        assert.ok(err instanceof Error, 'Rejected value must be an Error');
-        return true;
-      },
-      'db.save() must propagate rejection when filesystem write fails'
-    );
+    await withSimulatedWriteFailure(tempDir, async () => {
+      await assert.rejects(
+        async () => {
+          await db.save();
+        },
+        (err: unknown) => {
+          assert.ok(err instanceof Error, 'Rejected value must be an Error');
+          return true;
+        },
+        'db.save() must propagate rejection when filesystem write fails'
+      );
+    });
   } finally {
-    fs.chmodSync(tempDir, 0o755);
     cleanTempDir(tempDir);
   }
 });
@@ -218,16 +248,12 @@ test('Scenario 7 — Failed write does not damage previously valid database', as
     const validHash = computeSha256(dbPath);
     const validContent = fs.readFileSync(dbPath, 'utf-8');
 
-    // Simulate failure by making directory read-only
-    fs.chmodSync(tempDir, 0o555);
-
-    // Attempt save that fails
-    await assert.rejects(async () => {
-      await db.save();
+    // Simulate write failure (read-only directory / EACCES)
+    await withSimulatedWriteFailure(tempDir, async () => {
+      await assert.rejects(async () => {
+        await db.save();
+      });
     });
-
-    // Restore permissions to inspect
-    fs.chmodSync(tempDir, 0o755);
 
     const postFailureHash = computeSha256(dbPath);
     const postFailureContent = fs.readFileSync(dbPath, 'utf-8');
@@ -239,7 +265,6 @@ test('Scenario 7 — Failed write does not damage previously valid database', as
     const leftoverTmps = fs.readdirSync(tempDir).filter((f) => f.endsWith('.tmp'));
     assert.equal(leftoverTmps.length, 0, 'No orphaned .tmp file should remain after failed write');
   } finally {
-    fs.chmodSync(tempDir, 0o755);
     cleanTempDir(tempDir);
   }
 });
@@ -451,25 +476,23 @@ test('Scenario 13 — flush() rejects when write fails, does not swallow error',
     const db = new DatabaseService(tempDir);
     await db.save();
 
-    // Make directory read-only to inject failure
-    fs.chmodSync(tempDir, 0o555);
+    await withSimulatedWriteFailure(tempDir, async () => {
+      // Trigger save (tracked fire-and-forget inside mutation)
+      db.saveTimeBlock('usr_test', { title: 'Failing Block' });
 
-    // Trigger save (tracked fire-and-forget inside mutation)
-    db.saveTimeBlock('usr_test', { title: 'Failing Block' });
-
-    // flush() must propagate the rejection
-    await assert.rejects(
-      async () => {
-        await db.flush();
-      },
-      (err: unknown) => {
-        assert.ok(err instanceof Error, 'flush() must reject with an Error');
-        return true;
-      },
-      'flush() must reject on write failure'
-    );
+      // flush() must propagate the rejection
+      await assert.rejects(
+        async () => {
+          await db.flush();
+        },
+        (err: unknown) => {
+          assert.ok(err instanceof Error, 'flush() must reject with an Error');
+          return true;
+        },
+        'flush() must reject on write failure'
+      );
+    });
   } finally {
-    fs.chmodSync(tempDir, 0o755);
     cleanTempDir(tempDir);
   }
 });
@@ -487,30 +510,30 @@ test('Scenario 14 — In-memory failure policy: marks degraded on failure and re
     assert.equal(db.isDegraded(), false);
 
     // Simulate disk failure
-    fs.chmodSync(tempDir, 0o555);
-    await assert.rejects(async () => {
-      await db.save();
+    await withSimulatedWriteFailure(tempDir, async () => {
+      await assert.rejects(async () => {
+        await db.save();
+      });
+
+      // Database must now be marked degraded
+      assert.equal(db.isHealthy(), false);
+      assert.equal(db.isDegraded(), true);
+      assert.ok(db.getPersistenceError() !== null);
+
+      // Further saves must immediately reject due to degradation
+      await assert.rejects(
+        async () => {
+          await db.save();
+        },
+        (err: unknown) => {
+          assert.ok(err instanceof Error);
+          assert.ok(err.message.includes('degraded'));
+          return true;
+        }
+      );
     });
 
-    // Database must now be marked degraded
-    assert.equal(db.isHealthy(), false);
-    assert.equal(db.isDegraded(), true);
-    assert.ok(db.getPersistenceError() !== null);
-
-    // Further saves must immediately reject due to degradation
-    await assert.rejects(
-      async () => {
-        await db.save();
-      },
-      (err: unknown) => {
-        assert.ok(err instanceof Error);
-        assert.ok(err.message.includes('degraded'));
-        return true;
-      }
-    );
-
-    // Recovery: restore directory permissions and recover persistence
-    fs.chmodSync(tempDir, 0o755);
+    // Recovery: permissions restored, recover persistence
     await db.recoverPersistence();
 
     assert.equal(db.isHealthy(), true);
@@ -521,7 +544,6 @@ test('Scenario 14 — In-memory failure policy: marks degraded on failure and re
     await db.save();
     await db.flush();
   } finally {
-    fs.chmodSync(tempDir, 0o755);
     cleanTempDir(tempDir);
   }
 });
@@ -541,19 +563,17 @@ test('Scenario 15 — Zero unhandled promise rejections on background save failu
     const db = new DatabaseService(tempDir);
     await db.save();
 
-    // Make directory read-only
-    fs.chmodSync(tempDir, 0o555);
+    await withSimulatedWriteFailure(tempDir, async () => {
+      // Fire background unawaited mutation
+      db.saveTimeBlock('usr_test', { title: 'Background Unhandled Check' });
 
-    // Fire background unawaited mutation
-    db.saveTimeBlock('usr_test', { title: 'Background Unhandled Check' });
-
-    // Wait 50ms for event loop turns
-    await new Promise((r) => setTimeout(r, 60));
+      // Wait 60ms for event loop turns
+      await new Promise((r) => setTimeout(r, 60));
+    });
 
     assert.equal(unhandledOccurred, false, 'Node.js must not encounter unhandledRejection');
   } finally {
     process.off('unhandledRejection', onUnhandled);
-    fs.chmodSync(tempDir, 0o755);
     cleanTempDir(tempDir);
   }
 });

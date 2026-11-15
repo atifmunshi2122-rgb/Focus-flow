@@ -62,12 +62,20 @@
         "userId": { "type": "string", "maxLength": 128 },
         "taskId": { "type": "string", "maxLength": 128 },
         "taskTitle": { "type": "string", "maxLength": 256 },
+        "presetId": { "type": "string", "maxLength": 128 },
         "mode": { "type": "string", "enum": ["work", "short_break", "long_break"] },
         "durationMinutes": { "type": "number" },
         "durationSeconds": { "type": "number" },
+        "actualDurationSeconds": { "type": "number" },
         "completed": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["in_progress", "completed", "interrupted"] },
+        "interrupted": { "type": "boolean" },
+        "pauseCount": { "type": "number" },
+        "totalPauseSeconds": { "type": "number" },
+        "interruptionReason": { "type": "string", "maxLength": 512 },
         "startedAt": { "type": "string" },
-        "endedAt": { "type": "string" }
+        "endedAt": { "type": "string" },
+        "endReason": { "type": "string", "enum": ["completed", "reset", "skipped", "abandoned"] }
       },
       "required": ["id", "userId", "mode", "durationSeconds", "completed", "startedAt"]
     },
@@ -240,6 +248,106 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "userId", "status"]
+    },
+    "PomodoroPreset": {
+      "title": "PomodoroPreset",
+      "description": "Custom or system Pomodoro timer interval preset",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 512 },
+        "workDuration": { "type": "number" },
+        "shortBreakDuration": { "type": "number" },
+        "longBreakDuration": { "type": "number" },
+        "longBreakInterval": { "type": "number" },
+        "autoStartBreaks": { "type": "boolean" },
+        "autoStartFocus": { "type": "boolean" },
+        "soundEnabled": { "type": "boolean" },
+        "soundVolume": { "type": "number" },
+        "isDefault": { "type": "boolean" },
+        "isSystemPreset": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "workDuration", "shortBreakDuration", "longBreakDuration", "longBreakInterval"]
+    },
+    "PomodoroGoal": {
+      "title": "PomodoroGoal",
+      "description": "User focus goal across daily, weekly, monthly, or custom windows",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "goalType": { "type": "string", "enum": ["daily", "weekly", "monthly", "custom"] },
+        "metricType": { "type": "string", "enum": ["focus_minutes", "session_count"] },
+        "targetValue": { "type": "number" },
+        "subjectId": { "type": "string", "maxLength": 128 },
+        "subjectCode": { "type": "string", "maxLength": 128 },
+        "topicId": { "type": "string", "maxLength": 128 },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "paused", "completed", "cancelled"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "PomodoroSettings": {
+      "title": "PomodoroSettings",
+      "description": "Persisted Pomodoro timer, sound, and ambient audio preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "focusDuration": { "type": "number" },
+        "shortBreakDuration": { "type": "number" },
+        "longBreakDuration": { "type": "number" },
+        "longBreakInterval": { "type": "number" },
+        "autoStartBreaks": { "type": "boolean" },
+        "autoStartFocus": { "type": "boolean" },
+        "alertTone": { "type": "string", "enum": ["bell", "digital", "chime", "bowl", "gentle"] },
+        "soundVolume": { "type": "number" },
+        "ambientPreset": { "type": "string", "maxLength": 64 },
+        "ambientVolume": { "type": "number" },
+        "desktopNotifications": { "type": "boolean" },
+        "tickingSoundEnabled": { "type": "boolean" },
+        "selectedPresetId": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "focusDuration", "shortBreakDuration", "longBreakDuration"]
+    },
+    "PomodoroAmbientPreset": {
+      "title": "PomodoroAmbientPreset",
+      "description": "Custom saved ambient soundscape preset",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "soundType": { "type": "string", "enum": ["rain", "drone", "ocean", "cafe", "white_noise", "forest"] },
+        "volume": { "type": "number" },
+        "isFavorite": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "soundType", "volume"]
+    },
+    "PomodoroInterruption": {
+      "title": "PomodoroInterruption",
+      "description": "Immutable pause/resume interruption audit event on a focus session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "sessionId": { "type": "string", "maxLength": 128 },
+        "eventType": { "type": "string", "enum": ["pause", "resume"] },
+        "occurredAt": { "type": "string" },
+        "reason": { "type": "string", "maxLength": 512 }
+      },
+      "required": ["id", "userId", "sessionId", "eventType", "occurredAt"]
     }
   },
   "firestore": {
@@ -298,6 +406,26 @@
     "/users/{userId}/sync_queue/{queueId}": {
       "schema": { "$ref": "#/entities/SyncQueueRecord" },
       "description": "Google Sheets durable sync queue"
+    },
+    "/users/{userId}/pomodoro_presets/{presetId}": {
+      "schema": { "$ref": "#/entities/PomodoroPreset" },
+      "description": "Custom Pomodoro timer presets"
+    },
+    "/users/{userId}/pomodoro_goals/{goalId}": {
+      "schema": { "$ref": "#/entities/PomodoroGoal" },
+      "description": "Pomodoro multi-goal targets"
+    },
+    "/users/{userId}/pomodoro_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/PomodoroSettings" },
+      "description": "Pomodoro timer and audio preferences"
+    },
+    "/users/{userId}/pomodoro_ambient_presets/{presetId}": {
+      "schema": { "$ref": "#/entities/PomodoroAmbientPreset" },
+      "description": "Saved ambient audio presets"
+    },
+    "/users/{userId}/focus_sessions/{sessionId}/interruptions/{eventId}": {
+      "schema": { "$ref": "#/entities/PomodoroInterruption" },
+      "description": "Append-only interruption audit log for focus sessions"
     }
   }
 }

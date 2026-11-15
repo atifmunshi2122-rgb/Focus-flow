@@ -496,6 +496,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [stopwatchElapsed, setStopwatchElapsed] = useState<number>(initialTimer.stopwatchElapsed);
   const [isRunning, setIsRunning] = useState<boolean>(initialTimer.isRunning);
   const [completedCycleCount, setCompletedCycleCount] = useState<number>(0);
+  const completedCycleCountRef = useRef<number>(0);
+  completedCycleCountRef.current = completedCycleCount;
+  const guestInitialRecoveryDoneRef = useRef<boolean>(false);
   const [pomodoroSettings, setPomodoroSettings] = useState<PomodoroSettings>({
     id: 'default',
     userId: '',
@@ -979,12 +982,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             timeLeftRef.current = userTimer.timeLeft;
             setTotalDuration(userTimer.totalDuration);
             totalDurationRef.current = userTimer.totalDuration;
+            targetEndTimeMsRef.current = userTimer.targetEndTimeMs;
+            stopwatchStartMsRef.current = userTimer.stopwatchStartMs;
+            stopwatchElapsedRef.current = userTimer.stopwatchElapsed;
+            setStopwatchElapsed(userTimer.stopwatchElapsed);
+            sessionStartTimeRef.current = userTimer.sessionStartTime;
             setIsRunning(userTimer.isRunning);
             setActiveTaskId(userTimer.activeTaskId);
+            setActiveStudySubjectCode(userTimer.activeStudySubjectCode);
+            setActiveStudyTopicId(userTimer.activeStudyTopicId);
+            setActiveStudyActivityType(userTimer.activeStudyActivityType);
             activeSessionIdRef.current = userTimer.activeSessionId;
             setActiveSessionIdState(userTimer.activeSessionId);
             activePresetIdRef.current = userTimer.activePresetId;
             setActivePresetId(userTimer.activePresetId);
+            if (userTimer.isRunning) {
+              setTimerSyncVersion((v) => v + 1);
+            }
           }
         } catch {
           // Ignore timer restore errors
@@ -1250,8 +1264,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Expired Timer Recovery (Tab reopen or sleep/wake completion for initial guest/fallback timer)
   useEffect(() => {
-    finalizeExpiredSession(initialTimer, firebaseUser?.uid);
-  }, [finalizeExpiredSession, initialTimer, firebaseUser?.uid]);
+    if (guestInitialRecoveryDoneRef.current) return;
+    guestInitialRecoveryDoneRef.current = true;
+    if (initialTimer.isExpired) {
+      finalizeExpiredSession(initialTimer, null);
+    }
+  }, [finalizeExpiredSession, initialTimer]);
 
   const reseedData = async () => {
     try {
@@ -1624,10 +1642,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimerHandles();
   }, [clearTimerHandles]);
 
+  const finalizeInterruptedWorkSession = useCallback(
+    (reason: 'reset' | 'skipped' | 'abandoned') => {
+      const sessId = activeSessionIdRef.current;
+      if (timerEngine === 'pomodoro' && timerMode === 'work' && sessionStartTimeRef.current && sessId) {
+        const liveRemaining =
+          targetEndTimeMsRef.current !== null
+            ? Math.max(0, Math.ceil((targetEndTimeMsRef.current - Date.now()) / 1000))
+            : timeLeftRef.current;
+        const plannedSecs = Math.max(0, Math.floor(totalDurationRef.current));
+        const elapsedActiveSecs = Math.max(0, Math.min(plannedSecs, Math.round(plannedSecs - liveRemaining)));
+        const updatePayload = {
+          status: 'interrupted' as const,
+          completed: false,
+          actualDurationSeconds: elapsedActiveSecs,
+          endedAt: new Date().toISOString(),
+          endReason: reason,
+          interrupted: true,
+          pauseCount: pauseCountRef.current,
+          totalPauseSeconds: totalPauseSecsRef.current,
+        };
+        const pendingCreation = pendingSessionCreationRef.current[sessId];
+        if (pendingCreation) {
+          pendingCreation
+            .then(() => api.updateFocusSession(sessId, updatePayload))
+            .catch(() => api.updateFocusSession(sessId, updatePayload))
+            .catch(console.warn);
+        } else {
+          api.updateFocusSession(sessId, updatePayload).catch(console.warn);
+        }
+      }
+      activeSessionIdRef.current = null;
+      setActiveSessionIdState(null);
+      sessionStartTimeRef.current = null;
+      pauseCountRef.current = 0;
+      pauseStartedMsRef.current = null;
+      totalPauseSecsRef.current = 0;
+    },
+    [timerEngine, timerMode]
+  );
+
   // Timer controls
   const switchTimerMode = useCallback(
     (mode: TimerMode, durationMinutes?: number) => {
       clearTimerHandles();
+      finalizeInterruptedWorkSession('abandoned');
       targetEndTimeMsRef.current = null;
       completionHandledRef.current = false;
       timerModifiedByUserRef.current = true;
@@ -1665,29 +1724,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalDurationRef.current = totalSec;
       setTimeLeft(totalSec);
       setTotalDuration(totalSec);
-      sessionStartTimeRef.current = null;
 
-      saveTimerState({
-        timerEngine,
-        timerMode: mode,
-        isRunning: false,
-        timeLeft: totalSec,
-        totalDuration: totalSec,
-        targetEndTimeMs: null,
-        stopwatchStartMs: null,
-        sessionStartTime: null,
-      });
+      saveTimerState(
+        {
+          timerEngine,
+          timerMode: mode,
+          isRunning: false,
+          timeLeft: totalSec,
+          totalDuration: totalSec,
+          targetEndTimeMs: null,
+          stopwatchStartMs: null,
+          sessionStartTime: null,
+          activeSessionId: null,
+        },
+        typeof window !== 'undefined' ? window.localStorage : null,
+        firebaseUser?.uid
+      );
       broadcastTimerEvent({
         type: 'TIMER_SYNC_MODE',
         payload: { mode, durationSecs: totalSec },
       });
     },
-    [settings, clearTimerHandles, timerEngine]
+    [settings, clearTimerHandles, finalizeInterruptedWorkSession, timerEngine, firebaseUser?.uid]
   );
 
   const setCustomDuration = useCallback(
     (minutes: number) => {
       clearTimerHandles();
+      finalizeInterruptedWorkSession('abandoned');
       targetEndTimeMsRef.current = null;
       completionHandledRef.current = false;
       timerModifiedByUserRef.current = true;
@@ -1700,26 +1764,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalDurationRef.current = secs;
       setTimeLeft(secs);
       setTotalDuration(secs);
-      sessionStartTimeRef.current = null;
 
-      saveTimerState({
-        isRunning: false,
-        timeLeft: secs,
-        totalDuration: secs,
-        targetEndTimeMs: null,
-        sessionStartTime: null,
-      });
+      saveTimerState(
+        {
+          isRunning: false,
+          timeLeft: secs,
+          totalDuration: secs,
+          targetEndTimeMs: null,
+          sessionStartTime: null,
+          activeSessionId: null,
+        },
+        typeof window !== 'undefined' ? window.localStorage : null,
+        firebaseUser?.uid
+      );
       broadcastTimerEvent({
         type: 'TIMER_SYNC_MODE',
         payload: { mode: timerMode, durationSecs: secs },
       });
     },
-    [clearTimerHandles, timerMode]
+    [clearTimerHandles, finalizeInterruptedWorkSession, timerMode, firebaseUser?.uid]
   );
 
   const setTimerEngine = useCallback(
     (engine: TimerEngineMode) => {
       clearTimerHandles();
+      finalizeInterruptedWorkSession('abandoned');
       targetEndTimeMsRef.current = null;
       stopwatchStartMsRef.current = null;
       completionHandledRef.current = false;
@@ -1728,50 +1797,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (engine === 'stopwatch') {
         stopwatchElapsedRef.current = 0;
         setStopwatchElapsed(0);
-        sessionStartTimeRef.current = null;
-        saveTimerState({
-          timerEngine: 'stopwatch',
-          isRunning: false,
-          stopwatchElapsed: 0,
-          stopwatchStartMs: null,
-          sessionStartTime: null,
-        });
+        saveTimerState(
+          {
+            timerEngine: 'stopwatch',
+            isRunning: false,
+            stopwatchElapsed: 0,
+            stopwatchStartMs: null,
+            sessionStartTime: null,
+            activeSessionId: null,
+          },
+          typeof window !== 'undefined' ? window.localStorage : null,
+          firebaseUser?.uid
+        );
       } else if (engine === 'countdown') {
         const secs = 15 * 60;
         timeLeftRef.current = secs;
         totalDurationRef.current = secs;
         setTimeLeft(secs);
         setTotalDuration(secs);
-        saveTimerState({
-          timerEngine: 'countdown',
-          isRunning: false,
-          timeLeft: secs,
-          totalDuration: secs,
-          targetEndTimeMs: null,
-        });
+        saveTimerState(
+          {
+            timerEngine: 'countdown',
+            isRunning: false,
+            timeLeft: secs,
+            totalDuration: secs,
+            targetEndTimeMs: null,
+            sessionStartTime: null,
+            activeSessionId: null,
+          },
+          typeof window !== 'undefined' ? window.localStorage : null,
+          firebaseUser?.uid
+        );
       } else {
-        const workMins = Math.max(1, Math.min(180, Math.round(settings?.pomodoroWorkDuration || 25)));
+        const rawFocusMins = pomodoroSettingsRef.current?.focusDuration || settings?.pomodoroWorkDuration || 25;
+        const workMins = Math.max(1, Math.min(180, Math.round(rawFocusMins)));
         const secs = workMins * 60;
         setTimerMode('work');
         timeLeftRef.current = secs;
         totalDurationRef.current = secs;
         setTimeLeft(secs);
         setTotalDuration(secs);
-        saveTimerState({
-          timerEngine: 'pomodoro',
-          timerMode: 'work',
-          isRunning: false,
-          timeLeft: secs,
-          totalDuration: secs,
-          targetEndTimeMs: null,
-        });
+        saveTimerState(
+          {
+            timerEngine: 'pomodoro',
+            timerMode: 'work',
+            isRunning: false,
+            timeLeft: secs,
+            totalDuration: secs,
+            targetEndTimeMs: null,
+            sessionStartTime: null,
+            activeSessionId: null,
+          },
+          typeof window !== 'undefined' ? window.localStorage : null,
+          firebaseUser?.uid
+        );
       }
       broadcastTimerEvent({
         type: 'TIMER_SYNC_ENGINE',
         payload: { engine },
       });
     },
-    [clearTimerHandles, settings]
+    [clearTimerHandles, finalizeInterruptedWorkSession, settings, firebaseUser?.uid]
   );
 
   const startTimer = useCallback(() => {
@@ -1973,6 +2059,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const resetTimer = useCallback(() => {
     clearTimerHandles();
     unlockAudioContext();
+    finalizeInterruptedWorkSession('reset');
     targetEndTimeMsRef.current = null;
     stopwatchStartMsRef.current = null;
     completionHandledRef.current = false;
@@ -1988,44 +2075,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTimeLeft(safeTotal);
     }
 
-    if (timerEngine === 'pomodoro' && timerMode === 'work' && sessionStartTimeRef.current) {
-      const elapsedActiveSecs = Math.max(
-        0,
-        Math.min(
-          Math.floor(totalDurationRef.current),
-          Math.round(totalDurationRef.current - timeLeftRef.current)
-        )
-      );
-      const sessIdToReset = activeSessionIdRef.current;
-      if (sessIdToReset) {
-        const updatePayload = {
-          status: 'interrupted' as const,
-          completed: false,
-          actualDurationSeconds: elapsedActiveSecs,
-          endedAt: new Date().toISOString(),
-          endReason: 'reset' as const,
-          interrupted: true,
-          pauseCount: pauseCountRef.current,
-          totalPauseSeconds: totalPauseSecsRef.current,
-        };
-        const pendingCreation = pendingSessionCreationRef.current[sessIdToReset];
-        if (pendingCreation) {
-          pendingCreation
-            .then(() => api.updateFocusSession(sessIdToReset, updatePayload))
-            .catch(() => api.updateFocusSession(sessIdToReset, updatePayload))
-            .catch(console.warn);
-        } else {
-          api.updateFocusSession(sessIdToReset, updatePayload).catch(console.warn);
-        }
-      }
-    }
-    activeSessionIdRef.current = null;
-    setActiveSessionIdState(null);
-
-    sessionStartTimeRef.current = null;
-    pauseCountRef.current = 0;
-    pauseStartedMsRef.current = null;
-    totalPauseSecsRef.current = 0;
     playClickSound(settings?.soundEnabled ?? true, settings?.soundVolume);
     saveTimerState(
       {
@@ -2044,7 +2093,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       type: 'TIMER_SYNC_RESET',
       payload: { totalDuration: safeTotal, timerEngine, timerMode },
     });
-  }, [settings, clearTimerHandles, timerEngine, timerMode, firebaseUser?.uid]);
+  }, [settings, clearTimerHandles, finalizeInterruptedWorkSession, timerEngine, timerMode, firebaseUser?.uid]);
 
   const skipInterval = useCallback(() => {
     clearTimerHandles();
@@ -2058,46 +2107,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    if (timerEngine === 'pomodoro' && timerMode === 'work' && sessionStartTimeRef.current) {
-      const elapsedActiveSecs = Math.max(
-        0,
-        Math.min(
-          Math.floor(totalDurationRef.current),
-          Math.round(totalDurationRef.current - timeLeftRef.current)
-        )
-      );
-      const sessIdToSkip = activeSessionIdRef.current;
-      if (sessIdToSkip) {
-        const updatePayload = {
-          status: 'interrupted' as const,
-          completed: false,
-          actualDurationSeconds: elapsedActiveSecs,
-          endedAt: new Date().toISOString(),
-          endReason: 'skipped' as const,
-          interrupted: true,
-          pauseCount: pauseCountRef.current,
-          totalPauseSeconds: totalPauseSecsRef.current,
-        };
-        const pendingCreation = pendingSessionCreationRef.current[sessIdToSkip];
-        if (pendingCreation) {
-          pendingCreation
-            .then(() => api.updateFocusSession(sessIdToSkip, updatePayload))
-            .catch(() => api.updateFocusSession(sessIdToSkip, updatePayload))
-            .catch(console.warn);
-        } else {
-          api.updateFocusSession(sessIdToSkip, updatePayload).catch(console.warn);
-        }
-      }
-    }
-    activeSessionIdRef.current = null;
-    setActiveSessionIdState(null);
-
-    pauseCountRef.current = 0;
-    pauseStartedMsRef.current = null;
-    totalPauseSecsRef.current = 0;
+    finalizeInterruptedWorkSession('skipped');
+    targetEndTimeMsRef.current = null;
 
     if (timerMode === 'work') {
-      const currentCycles = (completedCycleCount || 0) + 1;
+      const currentCycles = (completedCycleCountRef.current || 0) + 1;
+      completedCycleCountRef.current = currentCycles;
       setCompletedCycleCount(currentCycles);
       const interval = pomodoroSettingsRef.current?.longBreakInterval || 4;
       const nextMode: TimerMode = currentCycles % interval === 0 ? 'long_break' : 'short_break';
@@ -2109,9 +2124,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [
     clearTimerHandles,
+    finalizeInterruptedWorkSession,
     timerEngine,
     timerMode,
-    completedCycleCount,
     resetTimer,
     switchTimerMode,
     showToast,
@@ -2260,7 +2275,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       clearTimerHandles();
       targetEndTimeMsRef.current = null;
       setIsRunning(false);
-      setCompletedCycleCount((c) => c + 1);
 
       const {
         timerMode: modeNow,
@@ -2291,6 +2305,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           isRunning: false,
           targetEndTimeMs: null,
           timeLeft: 0,
+          sessionStartTime: null,
           activeSessionId: null,
         },
         typeof window !== 'undefined' ? window.localStorage : null,
@@ -2311,7 +2326,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         playAlertTone(tone, isSound, soundVol);
         toastNow('Focus session complete! Great work!', 'success');
 
-        const currentCycles = (completedCycleCount || 0) + 1;
+        const currentCycles = (completedCycleCountRef.current || 0) + 1;
+        completedCycleCountRef.current = currentCycles;
         setCompletedCycleCount(currentCycles);
         const interval = currentPom?.longBreakInterval || 4;
         const nextMode: TimerMode = currentCycles % interval === 0 ? 'long_break' : 'short_break';
@@ -2333,6 +2349,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const activeSessId = activeSessionIdRef.current;
         activeSessionIdRef.current = null;
         setActiveSessionIdState(null);
+        sessionStartTimeRef.current = null;
         pauseCountRef.current = 0;
         pauseStartedMsRef.current = null;
         totalPauseSecsRef.current = 0;
@@ -2593,7 +2610,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             clearTimerHandles();
             targetEndTimeMsRef.current = null;
             setIsRunning(false);
-            setCompletedCycleCount((c) => c + 1);
+            completedCycleCountRef.current = (completedCycleCountRef.current || 0) + 1;
+            setCompletedCycleCount(completedCycleCountRef.current);
             break;
           }
         }

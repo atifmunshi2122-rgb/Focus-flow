@@ -50,6 +50,25 @@ import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
 const BASE_URL = '/api';
 const GUEST_SESSION_KEY = 'ff_guest_session_id';
 
+function readGuestStore<T>(bucket: string, fallback: T): T {
+  if (typeof window === 'undefined' || !window.localStorage) return fallback;
+  try {
+    const raw = window.localStorage.getItem(`ff_guest_${bucket}_${getOrCreateGuestSessionId()}`);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeGuestStore<T>(bucket: string, value: T): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(`ff_guest_${bucket}_${getOrCreateGuestSessionId()}`, JSON.stringify(value));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
 function getOrCreateGuestSessionId(): string {
   try {
     const existing = localStorage.getItem(GUEST_SESSION_KEY);
@@ -538,7 +557,21 @@ export const api = {
     const payloadWithId = { ...interruption, id: eventId, sessionId };
     return withPrimaryWrite(
       (uid) => firestoreService.recordInterruption(uid, sessionId, payloadWithId),
-      () => Promise.resolve(payloadWithId as PomodoroInterruption),
+      () => {
+        const record: PomodoroInterruption = {
+          id: eventId,
+          userId: getOrCreateGuestSessionId(),
+          sessionId,
+          eventType: interruption.eventType === 'resume' ? 'resume' : 'pause',
+          occurredAt: interruption.occurredAt || new Date().toISOString(),
+          reason: interruption.reason || null,
+        };
+        const map = readGuestStore<Record<string, PomodoroInterruption[]>>('pom_interruptions', {});
+        const existing = Array.isArray(map[sessionId]) ? map[sessionId] : [];
+        map[sessionId] = [...existing.filter((x) => x.id !== eventId), record];
+        writeGuestStore('pom_interruptions', map);
+        return Promise.resolve(record);
+      },
       {
         operationType: 'record_interruption',
         dedupeKey: `int_${eventId}`,
@@ -558,7 +591,11 @@ export const api = {
   listInterruptions: (sessionId: string) =>
     withPrimaryRead(
       (uid) => firestoreService.listInterruptions(uid, sessionId),
-      () => Promise.resolve([] as PomodoroInterruption[])
+      () => {
+        const map = readGuestStore<Record<string, PomodoroInterruption[]>>('pom_interruptions', {});
+        const list = Array.isArray(map[sessionId]) ? map[sessionId] : [];
+        return Promise.resolve([...list].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)));
+      }
     ),
 
   getFocusStats: () =>
@@ -2341,7 +2378,54 @@ export const api = {
   getPomodoroPresets: () =>
     withPrimaryRead(
       (uid) => firestoreService.getPomodoroPresets(uid),
-      () => Promise.resolve([] as PomodoroPreset[])
+      () => {
+        const stored = readGuestStore<PomodoroPreset[] | null>('pom_presets', null);
+        if (Array.isArray(stored)) {
+          return Promise.resolve(stored.filter((p) => !p.deletedAt));
+        }
+        const nowIso = new Date().toISOString();
+        const guestId = getOrCreateGuestSessionId();
+        const defaults: PomodoroPreset[] = [
+          {
+            id: 'preset_classic',
+            userId: guestId,
+            name: 'Classic Pomodoro',
+            workDuration: 25,
+            shortBreakDuration: 5,
+            longBreakDuration: 15,
+            longBreakInterval: 4,
+            autoStartBreaks: false,
+            autoStartFocus: false,
+            soundEnabled: true,
+            soundVolume: 70,
+            isDefault: true,
+            isSystemPreset: true,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null,
+          },
+          {
+            id: 'preset_deep_work',
+            userId: guestId,
+            name: 'Deep Work (50/10)',
+            workDuration: 50,
+            shortBreakDuration: 10,
+            longBreakDuration: 20,
+            longBreakInterval: 3,
+            autoStartBreaks: false,
+            autoStartFocus: false,
+            soundEnabled: true,
+            soundVolume: 70,
+            isDefault: false,
+            isSystemPreset: true,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null,
+          },
+        ];
+        writeGuestStore('pom_presets', defaults);
+        return Promise.resolve(defaults);
+      }
     ),
 
   savePomodoroPreset: (preset: Partial<PomodoroPreset>) => {
@@ -2349,7 +2433,32 @@ export const api = {
     const withId = { ...preset, id };
     return withPrimaryWrite(
       (uid) => firestoreService.savePomodoroPreset(uid, withId),
-      () => Promise.resolve(withId as PomodoroPreset),
+      () => {
+        const nowIso = new Date().toISOString();
+        const list = readGuestStore<PomodoroPreset[]>('pom_presets', []);
+        const existing = list.find((p) => p.id === id);
+        const saved: PomodoroPreset = {
+          id,
+          userId: getOrCreateGuestSessionId(),
+          name: (preset.name ?? existing?.name ?? 'Custom Preset').trim().slice(0, 128),
+          description: preset.description ?? existing?.description,
+          workDuration: Math.max(1, Math.min(180, Number(preset.workDuration ?? existing?.workDuration ?? 25))),
+          shortBreakDuration: Math.max(1, Math.min(60, Number(preset.shortBreakDuration ?? existing?.shortBreakDuration ?? 5))),
+          longBreakDuration: Math.max(1, Math.min(90, Number(preset.longBreakDuration ?? existing?.longBreakDuration ?? 15))),
+          longBreakInterval: Math.max(1, Math.min(12, Number(preset.longBreakInterval ?? existing?.longBreakInterval ?? 4))),
+          autoStartBreaks: preset.autoStartBreaks ?? existing?.autoStartBreaks ?? false,
+          autoStartFocus: preset.autoStartFocus ?? existing?.autoStartFocus ?? false,
+          soundEnabled: preset.soundEnabled ?? existing?.soundEnabled ?? true,
+          soundVolume: Math.max(0, Math.min(100, Number(preset.soundVolume ?? existing?.soundVolume ?? 70))),
+          isDefault: preset.isDefault ?? existing?.isDefault ?? false,
+          isSystemPreset: existing?.isSystemPreset ?? false,
+          createdAt: existing?.createdAt ?? nowIso,
+          updatedAt: nowIso,
+          deletedAt: null,
+        };
+        writeGuestStore('pom_presets', [...list.filter((p) => p.id !== id), saved]);
+        return Promise.resolve(saved);
+      },
       {
         operationType: 'save_pomodoro_preset',
         dedupeKey: `preset_${id}`,
@@ -2382,7 +2491,11 @@ export const api = {
         await firestoreService.deletePomodoroPreset(uid, presetId);
         return true;
       },
-      () => Promise.resolve(true),
+      () => {
+        const list = readGuestStore<PomodoroPreset[]>('pom_presets', []);
+        writeGuestStore('pom_presets', list.filter((p) => p.id !== presetId));
+        return Promise.resolve(true);
+      },
       {
         operationType: 'delete_pomodoro_preset',
         dedupeKey: `del_preset_${presetId}`,
@@ -2394,7 +2507,7 @@ export const api = {
   getPomodoroGoals: () =>
     withPrimaryRead(
       (uid) => firestoreService.getPomodoroGoals(uid),
-      () => Promise.resolve([] as PomodoroGoal[])
+      () => Promise.resolve(readGuestStore<PomodoroGoal[]>('pom_goals', []).filter((g) => !g.deletedAt))
     ),
 
   savePomodoroGoal: (goal: Partial<PomodoroGoal>) => {
@@ -2402,7 +2515,34 @@ export const api = {
     const withId = { ...goal, id };
     return withPrimaryWrite(
       (uid) => firestoreService.savePomodoroGoal(uid, withId),
-      () => Promise.resolve(withId as PomodoroGoal),
+      () => {
+        const nowIso = new Date().toISOString();
+        const list = readGuestStore<PomodoroGoal[]>('pom_goals', []);
+        const status = goal.status || 'active';
+        const saved: PomodoroGoal = {
+          id,
+          userId: getOrCreateGuestSessionId(),
+          title: (goal.title || 'Focus Goal').trim().slice(0, 256),
+          description: goal.description,
+          goalType: goal.goalType || 'daily',
+          metricType: goal.metricType || 'focus_minutes',
+          targetValue: Math.max(1, Number(goal.targetValue || 120)),
+          currentValue: Number(goal.currentValue || 0),
+          subjectId: goal.subjectId || null,
+          subjectCode: goal.subjectCode || null,
+          topicId: goal.topicId || null,
+          startDate: goal.startDate || nowIso.split('T')[0],
+          endDate: goal.endDate || null,
+          status,
+          isActive: status === 'active',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          completedAt: null,
+          deletedAt: null,
+        };
+        writeGuestStore('pom_goals', [...list.filter((g) => g.id !== id), saved]);
+        return Promise.resolve(saved);
+      },
       {
         operationType: 'save_pomodoro_goal',
         dedupeKey: `pgoal_${id}`,
@@ -2422,6 +2562,7 @@ export const api = {
           startDate: goal.startDate || new Date().toISOString().split('T')[0],
           endDate: goal.endDate || null,
           status: goal.status || 'active',
+          isActive: (goal.status || 'active') === 'active',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           completedAt: null,
@@ -2437,7 +2578,11 @@ export const api = {
         await firestoreService.deletePomodoroGoal(uid, goalId);
         return true;
       },
-      () => Promise.resolve(true),
+      () => {
+        const list = readGuestStore<PomodoroGoal[]>('pom_goals', []);
+        writeGuestStore('pom_goals', list.filter((g) => g.id !== goalId));
+        return Promise.resolve(true);
+      },
       {
         operationType: 'delete_pomodoro_goal',
         dedupeKey: `del_pgoal_${goalId}`,
@@ -2449,13 +2594,36 @@ export const api = {
   getPomodoroSettings: () =>
     withPrimaryRead(
       (uid) => firestoreService.getPomodoroSettings(uid),
-      () => Promise.resolve(null)
+      () => Promise.resolve(readGuestStore<PomodoroSettings | null>('pom_settings', null))
     ),
 
   savePomodoroSettings: (settings: Partial<PomodoroSettings>) =>
     withPrimaryWrite(
       (uid) => firestoreService.savePomodoroSettings(uid, settings),
-      () => Promise.resolve(settings as PomodoroSettings)
+      () => {
+        const existing = readGuestStore<PomodoroSettings | null>('pom_settings', null);
+        const merged: PomodoroSettings = {
+          id: 'default',
+          userId: getOrCreateGuestSessionId(),
+          focusDuration: settings.focusDuration ?? existing?.focusDuration ?? 25,
+          shortBreakDuration: settings.shortBreakDuration ?? existing?.shortBreakDuration ?? 5,
+          longBreakDuration: settings.longBreakDuration ?? existing?.longBreakDuration ?? 15,
+          longBreakInterval: settings.longBreakInterval ?? existing?.longBreakInterval ?? 4,
+          autoStartBreaks: settings.autoStartBreaks ?? existing?.autoStartBreaks ?? false,
+          autoStartFocus: settings.autoStartFocus ?? existing?.autoStartFocus ?? false,
+          alertTone: settings.alertTone ?? existing?.alertTone ?? 'chime',
+          soundVolume: settings.soundVolume ?? existing?.soundVolume ?? 70,
+          ambientPreset: settings.ambientPreset ?? existing?.ambientPreset ?? 'off',
+          ambientVolume: settings.ambientVolume ?? existing?.ambientVolume ?? 0.35,
+          desktopNotifications: settings.desktopNotifications ?? existing?.desktopNotifications ?? false,
+          tickingSoundEnabled: settings.tickingSoundEnabled ?? existing?.tickingSoundEnabled ?? false,
+          selectedPresetId:
+            settings.selectedPresetId !== undefined ? settings.selectedPresetId : (existing?.selectedPresetId ?? null),
+          updatedAt: new Date().toISOString(),
+        };
+        writeGuestStore('pom_settings', merged);
+        return Promise.resolve(merged);
+      }
     ),
 
   getPomodoroAmbientPresets: () =>

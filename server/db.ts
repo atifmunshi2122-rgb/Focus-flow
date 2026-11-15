@@ -80,17 +80,26 @@ export interface FocusSession {
   id: string;
   userId: string;
   taskId: string | null;
-  taskTitle?: string;
+  taskTitle?: string | null;
   subjectCode?: string | null;
   subjectId?: string | null;
   topicId?: string | null;
   activityType?: 'study' | 'practice' | 'theory' | 'revision' | null;
   mode: 'work' | 'short_break' | 'long_break';
+  presetId?: string | null;
   durationMinutes: number;
   durationSeconds: number;
+  actualDurationSeconds?: number;
   completed: boolean;
+  status?: 'in_progress' | 'completed' | 'interrupted';
+  interrupted?: boolean;
+  pauseCount?: number;
+  totalPauseSeconds?: number;
+  interruptionReason?: string;
   startedAt: string;
-  endedAt: string;
+  endedAt: string | null;
+  endReason?: 'completed' | 'reset' | 'skipped' | 'abandoned' | null;
+  createdAt?: string;
 }
 
 export interface ExpenseCategory {

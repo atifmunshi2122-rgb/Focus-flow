@@ -141,6 +141,10 @@ service cloud.firestore {
           && request.resource.data.userId == resource.data.userId
           && request.resource.data.startedAt == resource.data.startedAt
           && (
+            !('status' in request.resource.data) ||
+            request.resource.data.status in ['in_progress', 'completed', 'interrupted']
+          )
+          && (
             !('actualDurationSeconds' in request.resource.data) ||
             isBoundedInt(request.resource.data.actualDurationSeconds, 0, 86400)
           )
@@ -713,6 +717,14 @@ service cloud.firestore {
               && (
                 !('targetValue' in request.resource.data) ||
                 isBoundedInt(request.resource.data.targetValue, 1, 100000)
+              )
+              && (
+                !('goalType' in request.resource.data) ||
+                request.resource.data.goalType in ['daily', 'weekly', 'monthly', 'custom']
+              )
+              && (
+                !('status' in request.resource.data) ||
+                request.resource.data.status in ['active', 'paused', 'completed', 'cancelled']
               )
             )
           );

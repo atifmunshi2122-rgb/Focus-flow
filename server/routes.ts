@@ -329,9 +329,13 @@ apiRouter.get('/dashboard', (req: Request, res: Response) => {
     (s) => s.completed && s.mode === 'work' && s.startedAt.slice(0, 10) >= weekStartStr
   );
 
-  const todayFocusSeconds = todaySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
+  const getSessionDurationSecs = (s: FocusSession) =>
+    typeof s.actualDurationSeconds === 'number' ? s.actualDurationSeconds : s.durationSeconds;
+  const todayFocusSeconds = todaySessions
+    .filter((s) => s.mode === 'work')
+    .reduce((acc, s) => acc + getSessionDurationSecs(s), 0);
   const weeklyFocusMinutes = Math.round(
-    weekSessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60
+    weekSessions.reduce((acc, s) => acc + getSessionDurationSecs(s), 0) / 60
   );
   const completedPomodoroSessions = todaySessions.filter((s) => s.mode === 'work').length;
   const streak = calculateBoundedStreakDays(userSessions, new Date());
@@ -458,11 +462,32 @@ apiRouter.get('/focus/sessions', (req: Request, res: Response) => {
   res.json(sessions);
 });
 
-apiRouter.post('/focus/sessions', async (req: Request, res: Response, next: NextFunction) => {
+apiRouter.post('/focus/sessions', async (req: Request, res: Response, _next: NextFunction) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-  const { taskId, subjectCode, subjectId, topicId, activityType, mode, durationMinutes, durationSeconds, completed, startedAt, endedAt } = body;
+  const {
+    id,
+    taskId,
+    subjectCode,
+    subjectId,
+    topicId,
+    activityType,
+    mode,
+    presetId,
+    durationMinutes,
+    durationSeconds,
+    actualDurationSeconds,
+    completed,
+    status,
+    interrupted,
+    pauseCount,
+    totalPauseSeconds,
+    interruptionReason,
+    startedAt,
+    endedAt,
+    endReason,
+  } = body;
 
   const parsedMode = mode === undefined ? 'work' : parseEnum(mode, ALLOWED_FOCUS_MODES);
   if (!parsedMode) {
@@ -496,22 +521,88 @@ apiRouter.post('/focus/sessions', async (req: Request, res: Response, next: Next
     return;
   }
 
+  const parsedStatus =
+    status === undefined
+      ? undefined
+      : parseEnum(status, ['in_progress', 'completed', 'interrupted'] as const);
+  if (status !== undefined && !parsedStatus) {
+    res.status(400).json({ error: 'Invalid session status' });
+    return;
+  }
+
+  const parsedEndReason =
+    endReason === undefined || endReason === null
+      ? null
+      : parseEnum(endReason, ['completed', 'reset', 'skipped', 'abandoned'] as const);
+  if (endReason !== undefined && endReason !== null && !parsedEndReason) {
+    res.status(400).json({ error: 'Invalid endReason' });
+    return;
+  }
+
+  const isCompleted =
+    completed !== undefined
+      ? completed
+      : parsedStatus !== undefined
+      ? parsedStatus === 'completed'
+      : true;
+  const resolvedStatus: 'in_progress' | 'completed' | 'interrupted' =
+    parsedStatus || (isCompleted ? 'completed' : 'in_progress');
+
+  const parsedActualDurationSeconds =
+    actualDurationSeconds === undefined
+      ? isCompleted
+        ? parsedSeconds
+        : 0
+      : parseNonNegativeInt(actualDurationSeconds, 86400);
+  if (parsedActualDurationSeconds === null) {
+    res.status(400).json({ error: 'actualDurationSeconds must be a non-negative integer between 0 and 86400' });
+    return;
+  }
+
+  const parsedPauseCount =
+    pauseCount === undefined ? 0 : parseNonNegativeInt(pauseCount, 1000);
+  if (parsedPauseCount === null) {
+    res.status(400).json({ error: 'pauseCount must be a non-negative integer' });
+    return;
+  }
+
+  const parsedTotalPauseSeconds =
+    totalPauseSeconds === undefined ? 0 : parseNonNegativeInt(totalPauseSeconds, 86400);
+  if (parsedTotalPauseSeconds === null) {
+    res.status(400).json({ error: 'totalPauseSeconds must be a non-negative integer' });
+    return;
+  }
+
   const startIso =
     typeof startedAt === 'string' && !Number.isNaN(Date.parse(startedAt))
       ? startedAt
       : new Date().toISOString();
-  const endIso =
-    typeof endedAt === 'string' && !Number.isNaN(Date.parse(endedAt))
+  const endIso: string | null =
+    endedAt === null
+      ? null
+      : typeof endedAt === 'string' && !Number.isNaN(Date.parse(endedAt))
       ? endedAt
-      : new Date().toISOString();
+      : isCompleted
+      ? new Date().toISOString()
+      : null;
 
-  let taskTitle: string | undefined;
+  const clientProvidedId =
+    typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128 ? id.trim() : null;
+  const resolvedSessionId =
+    clientProvidedId || `foc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+  const existing = clientProvidedId
+    ? db.focusSessions.find((s) => s.id === resolvedSessionId && s.userId === userId)
+    : undefined;
+  const wasCompleted = Boolean(existing?.completed);
+
+  let taskTitle: string | null | undefined = existing?.taskTitle;
   const resolvedTaskId = typeof taskId === 'string' && taskId.trim() ? taskId.trim() : null;
   if (resolvedTaskId) {
     const task = db.tasks.find((t) => t.id === resolvedTaskId && t.userId === userId && !t.deletedAt);
     if (task) {
       taskTitle = task.title;
-      if ((completed ?? true) && parsedMode === 'work') {
+      if (!wasCompleted && isCompleted && parsedMode === 'work') {
         task.completedPomodoros = (task.completedPomodoros || 0) + 1;
         task.updatedAt = new Date().toISOString();
       }
@@ -521,31 +612,157 @@ apiRouter.post('/focus/sessions', async (req: Request, res: Response, next: Next
   const resolvedSubjectCode = typeof subjectCode === 'string' && subjectCode.trim() ? subjectCode.trim() : null;
   const resolvedSubjectId = typeof subjectId === 'string' && subjectId.trim() ? subjectId.trim() : null;
   const resolvedTopicId = typeof topicId === 'string' && topicId.trim() ? topicId.trim() : null;
-  const resolvedActivityType = typeof activityType === 'string' && ['study', 'practice', 'theory', 'revision'].includes(activityType)
-    ? (activityType as 'study' | 'practice' | 'theory' | 'revision')
-    : null;
+  const resolvedPresetId = typeof presetId === 'string' && presetId.trim() ? presetId.trim() : null;
+  const resolvedActivityType =
+    typeof activityType === 'string' && ['study', 'practice', 'theory', 'revision'].includes(activityType)
+      ? (activityType as 'study' | 'practice' | 'theory' | 'revision')
+      : null;
 
-  const session: FocusSession = {
-    id: `foc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+  const sessionPayload: FocusSession = {
+    id: resolvedSessionId,
     userId,
     taskId: resolvedTaskId,
-    taskTitle,
+    taskTitle: taskTitle ?? null,
     subjectCode: resolvedSubjectCode,
     subjectId: resolvedSubjectId,
     topicId: resolvedTopicId,
     activityType: resolvedActivityType,
     mode: parsedMode,
+    presetId: resolvedPresetId,
     durationMinutes: parsedMinutes,
     durationSeconds: parsedSeconds,
-    completed: completed !== undefined ? completed : true,
-    startedAt: startIso,
+    actualDurationSeconds: parsedActualDurationSeconds,
+    completed: isCompleted,
+    status: resolvedStatus,
+    interrupted: typeof interrupted === 'boolean' ? interrupted : resolvedStatus === 'interrupted',
+    pauseCount: parsedPauseCount,
+    totalPauseSeconds: parsedTotalPauseSeconds,
+    interruptionReason: typeof interruptionReason === 'string' ? interruptionReason.trim() : undefined,
+    startedAt: existing?.startedAt || startIso,
     endedAt: endIso,
+    endReason: parsedEndReason ?? (isCompleted ? 'completed' : null),
   };
 
-  db.focusSessions.push(session);
+  if (existing) {
+    Object.assign(existing, sessionPayload);
+  } else {
+    db.focusSessions.push(sessionPayload);
+  }
+
   try {
     await dbService.save();
-    res.status(201).json(session);
+    res.status(existing ? 200 : 201).json(existing || sessionPayload);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.patch('/focus/sessions/:id', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { id } = req.params;
+  const db = dbService.getRaw();
+  const session = db.focusSessions.find((s) => s.id === id && s.userId === userId);
+  if (!session) {
+    res.status(404).json({ error: 'Focus session not found' });
+    return;
+  }
+
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const wasCompleted = Boolean(session.completed);
+
+  if (body.status !== undefined) {
+    const parsedStatus = parseEnum(body.status, ['in_progress', 'completed', 'interrupted'] as const);
+    if (!parsedStatus) {
+      res.status(400).json({ error: 'Invalid session status' });
+      return;
+    }
+    session.status = parsedStatus;
+    if (body.completed === undefined) {
+      session.completed = parsedStatus === 'completed';
+    }
+  }
+
+  if (body.completed !== undefined) {
+    if (typeof body.completed !== 'boolean') {
+      res.status(400).json({ error: 'completed must be a boolean' });
+      return;
+    }
+    session.completed = body.completed;
+    if (body.status === undefined) {
+      session.status = body.completed ? 'completed' : 'interrupted';
+    }
+  }
+
+  if (body.actualDurationSeconds !== undefined) {
+    const parsedActual = parseNonNegativeInt(body.actualDurationSeconds, 86400);
+    if (parsedActual === null) {
+      res.status(400).json({ error: 'actualDurationSeconds must be a non-negative integer between 0 and 86400' });
+      return;
+    }
+    session.actualDurationSeconds = parsedActual;
+  }
+
+  if (body.endedAt !== undefined) {
+    if (body.endedAt === null) {
+      session.endedAt = null;
+    } else if (typeof body.endedAt === 'string' && !Number.isNaN(Date.parse(body.endedAt))) {
+      session.endedAt = body.endedAt;
+    } else {
+      res.status(400).json({ error: 'Invalid endedAt timestamp' });
+      return;
+    }
+  }
+
+  if (body.endReason !== undefined) {
+    if (body.endReason === null) {
+      session.endReason = null;
+    } else {
+      const parsedEndReason = parseEnum(body.endReason, ['completed', 'reset', 'skipped', 'abandoned'] as const);
+      if (!parsedEndReason) {
+        res.status(400).json({ error: 'Invalid endReason' });
+        return;
+      }
+      session.endReason = parsedEndReason;
+    }
+  }
+
+  if (body.interrupted !== undefined) {
+    session.interrupted = Boolean(body.interrupted);
+  }
+
+  if (body.pauseCount !== undefined) {
+    const parsedPauseCount = parseNonNegativeInt(body.pauseCount, 1000);
+    if (parsedPauseCount === null) {
+      res.status(400).json({ error: 'pauseCount must be a non-negative integer' });
+      return;
+    }
+    session.pauseCount = parsedPauseCount;
+  }
+
+  if (body.totalPauseSeconds !== undefined) {
+    const parsedTotalPause = parseNonNegativeInt(body.totalPauseSeconds, 86400);
+    if (parsedTotalPause === null) {
+      res.status(400).json({ error: 'totalPauseSeconds must be a non-negative integer' });
+      return;
+    }
+    session.totalPauseSeconds = parsedTotalPause;
+  }
+
+  if (typeof body.interruptionReason === 'string') {
+    session.interruptionReason = body.interruptionReason.trim();
+  }
+
+  if (!wasCompleted && session.completed && session.mode === 'work' && session.taskId) {
+    const task = db.tasks.find((t) => t.id === session.taskId && t.userId === userId && !t.deletedAt);
+    if (task) {
+      task.completedPomodoros = (task.completedPomodoros || 0) + 1;
+      task.updatedAt = new Date().toISOString();
+    }
+  }
+
+  try {
+    await dbService.save();
+    res.json(session);
   } catch {
     res.status(500).json({ error: 'Database persistence failed' });
   }
@@ -557,7 +774,11 @@ apiRouter.get('/focus/stats', (req: Request, res: Response) => {
   const userSettings = db.userSettings.find((s) => s.userId === userId);
   const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = getTodayDateString(tz);
-  const sessions = db.focusSessions.filter((s) => s.userId === userId && s.completed);
+  const workSessions = db.focusSessions.filter(
+    (s) => s.userId === userId && s.completed && s.mode === 'work'
+  );
+  const getSessionDurationSecs = (s: FocusSession) =>
+    typeof s.actualDurationSeconds === 'number' ? s.actualDurationSeconds : s.durationSeconds;
 
   const last7Days: { date: string; dayName: string; minutes: number; sessionsCount: number }[] = [];
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -568,8 +789,8 @@ apiRouter.get('/focus/stats', (req: Request, res: Response) => {
     const dateStr = d.toISOString().split('T')[0];
     const dayName = dayNames[d.getUTCDay()];
 
-    const daysSessions = sessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === dateStr && s.mode === 'work');
-    const totalSecs = daysSessions.reduce((acc, s) => acc + s.durationSeconds, 0);
+    const daysSessions = workSessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === dateStr);
+    const totalSecs = daysSessions.reduce((acc, s) => acc + getSessionDurationSecs(s), 0);
 
     last7Days.push({
       date: dateStr,
@@ -585,8 +806,8 @@ apiRouter.get('/focus/stats', (req: Request, res: Response) => {
     const d = new Date(`${todayStr}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    const daySessions = sessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === dateStr && s.mode === 'work');
-    const totalSecs = daySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
+    const daySessions = workSessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === dateStr);
+    const totalSecs = daySessions.reduce((acc, s) => acc + getSessionDurationSecs(s), 0);
     dailyHeatmap.push({
       date: dateStr,
       minutes: Math.round(totalSecs / 60),
@@ -597,15 +818,17 @@ apiRouter.get('/focus/stats', (req: Request, res: Response) => {
   const weeklyMinutes = last7Days.reduce((acc, d) => acc + d.minutes, 0);
 
   const currentMonthKey = todayStr.substring(0, 7);
-  const monthSessions = sessions.filter(
-    (s) => formatDateInTimezone(s.startedAt, tz).startsWith(currentMonthKey) && s.mode === 'work'
+  const monthSessions = workSessions.filter((s) =>
+    formatDateInTimezone(s.startedAt, tz).startsWith(currentMonthKey)
   );
   const monthMinutes = Math.round(
-    monthSessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60
+    monthSessions.reduce((acc, s) => acc + getSessionDurationSecs(s), 0) / 60
   );
 
-  const totalMinutes = Math.round(sessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60);
-  const totalCompletedSessions = sessions.filter((s) => s.mode === 'work').length;
+  const totalMinutes = Math.round(
+    workSessions.reduce((acc, s) => acc + getSessionDurationSecs(s), 0) / 60
+  );
+  const totalCompletedSessions = workSessions.length;
 
   res.json({
     last7Days,

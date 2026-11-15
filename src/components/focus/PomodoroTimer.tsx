@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { TimerEngineMode, TimerMode, useApp } from '../../context/AppContext.tsx';
 import { AmbientPreset } from '../../lib/ambientAudio.ts';
 import { api } from '../../lib/api.ts';
-import { getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { saveTimerState } from '../../lib/timerEngine.ts';
 import { playAlertTone } from '../../lib/sound.ts';
 import {
@@ -123,6 +123,7 @@ export const PomodoroTimer: React.FC = () => {
     activePresetId,
     applyPomodoroPreset,
     activeSessionId,
+    firebaseUser,
     refreshKey,
     showToast,
   } = useApp();
@@ -304,7 +305,7 @@ export const PomodoroTimer: React.FC = () => {
         status: 'active',
         startDate: getTodayDateString(settings?.timezone || 'Asia/Kolkata'),
         endDate: null,
-        subjectId: activeStudySubjectCode || null,
+        subjectId: null,
         subjectCode: activeStudySubjectCode || null,
         topicId: activeStudyTopicId || null,
       });
@@ -330,15 +331,22 @@ export const PomodoroTimer: React.FC = () => {
   };
 
   // Streak summary and goal progress calculations
-  const streakSummary = useMemo(() => computeFocusStreaks(sessions), [sessions]);
+  const userTimezone = settings?.timezone || DEFAULT_TIMEZONE;
+  const streakSummary = useMemo(
+    () => computeFocusStreaks(sessions, undefined, userTimezone),
+    [sessions, userTimezone]
+  );
   const subjectBreakdown = useMemo(
     () => computeSubjectFocusBreakdown(sessions, studySubjects),
     [sessions, studySubjects]
   );
-  const activeGoal = useMemo(() => goals.find((g) => g.isActive) || null, [goals]);
+  const activeGoal = useMemo(
+    () => goals.find((g) => g.isActive ?? (g.status ? g.status === 'active' : true)) || null,
+    [goals]
+  );
   const goalProgress = useMemo(
-    () => (activeGoal ? computePomodoroGoalProgress(sessions, activeGoal) : null),
-    [sessions, activeGoal]
+    () => (activeGoal ? computePomodoroGoalProgress(sessions, activeGoal, new Date(), userTimezone) : null),
+    [sessions, activeGoal, userTimezone]
   );
 
   // Load study subjects for linking modal
@@ -394,11 +402,15 @@ export const PomodoroTimer: React.FC = () => {
     setActiveStudySubjectCode(resolvedSubjectCode);
     setActiveStudyTopicId(resolvedTopicId);
     setActiveStudyActivityType(modalActivityType);
-    saveTimerState({
-      activeStudySubjectCode: resolvedSubjectCode,
-      activeStudyTopicId: resolvedTopicId,
-      activeStudyActivityType: modalActivityType,
-    });
+    saveTimerState(
+      {
+        activeStudySubjectCode: resolvedSubjectCode,
+        activeStudyTopicId: resolvedTopicId,
+        activeStudyActivityType: modalActivityType,
+      },
+      typeof window !== 'undefined' ? window.localStorage : null,
+      firebaseUser?.uid
+    );
     setShowStudyModal(false);
   };
 
@@ -406,12 +418,27 @@ export const PomodoroTimer: React.FC = () => {
     setActiveStudySubjectCode(null);
     setActiveStudyTopicId(null);
     setActiveStudyActivityType(null);
-    saveTimerState({
-      activeStudySubjectCode: null,
-      activeStudyTopicId: null,
-      activeStudyActivityType: null,
-    });
+    saveTimerState(
+      {
+        activeStudySubjectCode: null,
+        activeStudyTopicId: null,
+        activeStudyActivityType: null,
+      },
+      typeof window !== 'undefined' ? window.localStorage : null,
+      firebaseUser?.uid
+    );
     setShowStudyModal(false);
+  };
+
+  const handleReset = () => {
+    setResetSpinCount((c) => c + 1);
+    resetTimer();
+  };
+
+  const toggleSound = () => {
+    if (settings) {
+      void updateSettings({ soundEnabled: !settings.soundEnabled });
+    }
   };
 
   useEffect(() => {
@@ -425,20 +452,36 @@ export const PomodoroTimer: React.FC = () => {
 
   // Fullscreen keyboard escape & general shortcut handler
   useEffect(() => {
+    const anyModalOpen =
+      showCustomModal ||
+      showPreferencesModal ||
+      showStatsModal ||
+      showPresetModal ||
+      showGoalModal ||
+      showInterruptionsModal ||
+      showStudyModal;
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && fullScreenFocus) {
+      if (e.key === 'Escape' && fullScreenFocus && !anyModalOpen) {
         setFullScreenFocus(false);
         return;
       }
 
-      // Ignore shortcuts if input, textarea or select is focused
+      if (anyModalOpen || e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      }
+
+      // Ignore shortcuts if input, textarea, select, button, or link is focused
       const target = e.target as HTMLElement | null;
       if (
         target &&
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT' ||
-          target.isContentEditable)
+          target.tagName === 'BUTTON' ||
+          target.tagName === 'A' ||
+          target.isContentEditable ||
+          Boolean(target.closest('button, a, summary, input, textarea, select, [role="button"]')))
       ) {
         return;
       }
@@ -452,16 +495,36 @@ export const PomodoroTimer: React.FC = () => {
         skipInterval();
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
-        handleReset();
+        setResetSpinCount((c) => c + 1);
+        resetTimer();
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
-        toggleSound();
+        if (settings) {
+          void updateSettings({ soundEnabled: !settings.soundEnabled });
+        }
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [fullScreenFocus, isRunning, pauseTimer, startTimer, skipInterval]);
+  }, [
+    fullScreenFocus,
+    setFullScreenFocus,
+    isRunning,
+    pauseTimer,
+    startTimer,
+    skipInterval,
+    resetTimer,
+    settings,
+    updateSettings,
+    showCustomModal,
+    showPreferencesModal,
+    showStatsModal,
+    showPresetModal,
+    showGoalModal,
+    showInterruptionsModal,
+    showStudyModal,
+  ]);
 
   const handleModeSwitch = (mode: TimerMode) => {
     setShowCelebration(false);
@@ -567,17 +630,6 @@ export const PomodoroTimer: React.FC = () => {
     } else {
       setPrefNotifications(false);
       showToast('Notifications permission was not granted.', 'info');
-    }
-  };
-
-  const handleReset = () => {
-    setResetSpinCount((c) => c + 1);
-    resetTimer();
-  };
-
-  const toggleSound = () => {
-    if (settings) {
-      void updateSettings({ soundEnabled: !settings.soundEnabled });
     }
   };
 
@@ -712,7 +764,7 @@ export const PomodoroTimer: React.FC = () => {
       )}
 
       {/* Preset Selector Strip */}
-      {timerEngine === 'pomodoro' && presets.length > 0 && (
+      {timerEngine === 'pomodoro' && (
         <div className="relative z-10 w-full mb-3 flex flex-wrap items-center justify-between gap-1.5 px-1">
           <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-[85%] no-scrollbar">
             {presets.slice(0, 6).map((p) => {
@@ -1083,18 +1135,19 @@ export const PomodoroTimer: React.FC = () => {
       {/* Goal Progress Bar if active goal exists */}
       {goalProgress && (
         <div className="relative z-10 w-full max-w-xs mx-auto my-2 px-2 py-1.5 rounded-lg bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
-          <div className="flex items-center justify-between text-[11px] mb-1 font-medium">
+          <div className="flex items-center justify-between gap-2 text-[11px] mb-1 font-medium">
             <span className="text-[var(--ff-text-secondary)] truncate">
               🎯 {goalProgress.title}
             </span>
-            <span className="text-[var(--ff-text-primary)]">
-              {goalProgress.dailyCurrentMinutes}/{goalProgress.dailyTargetMinutes}m ({goalProgress.dailyProgressPct}%)
+            <span className="text-[var(--ff-text-primary)] shrink-0 font-mono">
+              {goalProgress.currentValue}/{goalProgress.targetValue}
+              {goalProgress.metricType === 'session_count' ? ' sess' : 'm'} ({goalProgress.progressPct}%)
             </span>
           </div>
           <div className="w-full bg-[var(--ff-border-color)] h-1.5 rounded-full overflow-hidden">
             <div
               className="bg-[var(--ff-accent)] h-full rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(100, goalProgress.dailyProgressPct)}%` }}
+              style={{ width: `${Math.min(100, goalProgress.progressPct)}%` }}
             />
           </div>
         </div>
@@ -1321,21 +1374,25 @@ export const PomodoroTimer: React.FC = () => {
       </InteractiveSurface3D>
 
       {/* Multiple Pomodoro Goals Grid */}
-      {goals.length > 0 && (
-        <ThemeCard className="w-full mt-4 p-4 sm:p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
-              <Target className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" /> Active Focus Goals ({goals.length})
-            </h4>
-            <ThemeButton
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowGoalModal(true)}
-              className="text-xs py-1 px-2.5 min-h-[32px] flex items-center gap-1"
-            >
-              <Plus className="w-3 h-3" /> New Goal
-            </ThemeButton>
-          </div>
+      <ThemeCard className="w-full mt-4 p-4 sm:p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
+            <Target className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" /> Focus Goals ({goals.length})
+          </h4>
+          <ThemeButton
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowGoalModal(true)}
+            className="text-xs py-1 px-2.5 min-h-[32px] flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" /> New Goal
+          </ThemeButton>
+        </div>
+        {goals.length === 0 ? (
+          <p className="text-xs text-[var(--ff-text-muted)]">
+            No focus goals configured yet. Create a daily, weekly, or monthly goal to track your deep work consistency.
+          </p>
+        ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {goals.map((g) => {
               const prog = computePomodoroGoalProgress(sessions, g);
@@ -1378,8 +1435,8 @@ export const PomodoroTimer: React.FC = () => {
               );
             })}
           </div>
-        </ThemeCard>
-      )}
+        )}
+      </ThemeCard>
 
       {/* Distraction-Free Full-Screen Focus Overlay */}
       <AnimatePresence>

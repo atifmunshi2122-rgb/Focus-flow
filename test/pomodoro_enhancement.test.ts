@@ -975,6 +975,131 @@ test('Pomodoro Phase 17 — Firestore Security Rules: Nested Interruptions, Pres
     /isBoundedInt\(request\.resource\.data\.longBreakInterval,\s*1,\s*12\)/,
     'pomodoro_presets longBreakInterval must be bounded 1-12'
   );
+
+  // Verify goalType & status enum enforcement on pomodoro_goals update
+  assert.match(
+    rules,
+    /match\s+\/pomodoro_goals\/\{goalId\}[\s\S]*allow\s+update:[\s\S]*request\.resource\.data\.goalType\s+in\s+\['daily',\s*'weekly',\s*'monthly',\s*'custom'\]/,
+    'pomodoro_goals update must validate goalType enum'
+  );
+});
+
+test('Regression — computePomodoroGoalProgress rejects untagged sessions for scoped goals and supports legacy subjectId-as-code fallback', () => {
+  const refDate = new Date('2026-11-15T12:00:00Z');
+  const sessions: FocusSession[] = [
+    {
+      id: 's_untagged',
+      userId: 'u1',
+      taskId: null,
+      mode: 'work',
+      durationMinutes: 25,
+      durationSeconds: 1500,
+      actualDurationSeconds: 1500,
+      completed: true,
+      startedAt: '2026-11-15T08:00:00Z',
+      endedAt: '2026-11-15T08:25:00Z',
+    },
+    {
+      id: 's_math',
+      userId: 'u1',
+      taskId: null,
+      subjectCode: 'MATH101',
+      mode: 'work',
+      durationMinutes: 30,
+      durationSeconds: 1800,
+      actualDurationSeconds: 1800,
+      completed: true,
+      startedAt: '2026-11-15T09:00:00Z',
+      endedAt: '2026-11-15T09:30:00Z',
+    },
+    {
+      id: 's_phys',
+      userId: 'u1',
+      taskId: null,
+      subjectCode: 'PHYS201',
+      mode: 'work',
+      durationMinutes: 40,
+      durationSeconds: 2400,
+      actualDurationSeconds: 2400,
+      completed: true,
+      startedAt: '2026-11-15T10:00:00Z',
+      endedAt: '2026-11-15T10:40:00Z',
+    },
+  ];
+
+  const subjectCodeGoal: PomodoroGoal = {
+    id: 'g_code',
+    userId: 'u1',
+    title: 'Math Focus',
+    goalType: 'daily',
+    metricType: 'focus_minutes',
+    targetValue: 60,
+    subjectCode: 'MATH101',
+    subjectId: null,
+    createdAt: '2026-11-15T00:00:00Z',
+    updatedAt: '2026-11-15T00:00:00Z',
+  };
+
+  const resCode = computePomodoroGoalProgress(sessions, subjectCodeGoal, refDate, 'UTC');
+  assert.equal(resCode.currentValue, 30, 'Only MATH101 sessions must count; untagged and PHYS201 must be excluded');
+
+  const legacySubjectIdGoal: PomodoroGoal = {
+    id: 'g_legacy',
+    userId: 'u1',
+    title: 'Legacy Math Focus',
+    goalType: 'daily',
+    metricType: 'focus_minutes',
+    targetValue: 60,
+    subjectId: 'MATH101',
+    createdAt: '2026-11-15T00:00:00Z',
+    updatedAt: '2026-11-15T00:00:00Z',
+  };
+
+  const resLegacy = computePomodoroGoalProgress(sessions, legacySubjectIdGoal, refDate, 'UTC');
+  assert.equal(resLegacy.currentValue, 30, 'Legacy goal storing subjectCode in subjectId must match session.subjectCode and reject untagged sessions');
+});
+
+test('Regression — computePeriodicFocusStats 7-day trend stays aligned across UTC midnight vs America/New_York', () => {
+  // 2026-11-15T02:30:00Z is 2026-11-14T21:30:00 in America/New_York (EST, UTC-5)
+  const refDate = new Date('2026-11-15T02:30:00Z');
+  const sessions: FocusSession[] = [
+    {
+      id: 's_ny_night',
+      userId: 'u1',
+      taskId: null,
+      mode: 'work',
+      durationMinutes: 25,
+      durationSeconds: 1500,
+      actualDurationSeconds: 1500,
+      completed: true,
+      startedAt: '2026-11-15T02:00:00Z',
+      endedAt: '2026-11-15T02:25:00Z',
+    },
+  ];
+
+  const statsNY = computePeriodicFocusStats(sessions, refDate, 'America/New_York');
+  assert.equal(statsNY.dailyTrend.length, 7);
+  assert.equal(statsNY.dailyTrend[6].date, '2026-11-14', 'Last day in NY must be 2026-11-14');
+  assert.equal(statsNY.dailyTrend[6].dayLabel, 'Sat', '2026-11-14 is Saturday');
+  assert.equal(statsNY.dailyTrend[6].minutes, 25, 'Session at 02:00Z must count on NY 2026-11-14');
+  assert.equal(statsNY.todayMinutes, 25);
+});
+
+test('Regression — Server Express routes support PATCH /focus/sessions/:id and work-only actualDurationSeconds stats', () => {
+  const routesPath = path.resolve('server/routes.ts');
+  const routesCode = fs.readFileSync(routesPath, 'utf8');
+
+  assert.match(
+    routesCode,
+    /apiRouter\.patch\('\/focus\/sessions\/:id'/,
+    'Server routes must expose PATCH /focus/sessions/:id for session lifecycle completion/interruption updates'
+  );
+
+  assert.match(
+    routesCode,
+    /workSessions\.reduce\(\(acc,\s*s\)\s*=>\s*acc\s*\+\s*getSessionDurationSecs\(s\),\s*0\)/,
+    'Server /focus/stats must compute workSessions minutes using actualDurationSeconds fallback'
+  );
 });
 
 test('Phase 17.2 Fix 1 — Expiring completion lock with TTL, ownership awareness, and safe retry', () => {
