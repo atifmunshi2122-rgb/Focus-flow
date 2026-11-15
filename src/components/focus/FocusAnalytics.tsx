@@ -53,7 +53,10 @@ export const FocusAnalytics: React.FC = () => {
   const [goals, setGoals] = useState<PomodoroGoal[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const todayStr = useMemo(() => getTodayDateString(DEFAULT_TIMEZONE), []);
+  const todayStr = useMemo(
+    () => getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE),
+    [settings?.timezone]
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -341,7 +344,7 @@ export const FocusAnalytics: React.FC = () => {
           {stats?.last7Days.map((d) => {
             const hitTarget = d.minutes >= dailyGoalMin;
             const hasActivity = d.minutes > 0;
-            const isToday = d.date === new Date().toISOString().split('T')[0];
+            const isToday = d.date === todayStr;
             return (
               <div
                 key={d.date}
@@ -456,7 +459,7 @@ export const FocusAnalytics: React.FC = () => {
             const heightPercent =
               maxMinutesInWeek > 0 ? (day.minutes / maxMinutesInWeek) * chartHeight : 8;
             const targetHeight = Math.max(12, Math.round(heightPercent));
-            const isToday = day.date === new Date().toISOString().split('T')[0];
+            const isToday = day.date === todayStr;
 
             return (
               <div key={day.date} className="flex-1 flex flex-col items-center gap-2 group">

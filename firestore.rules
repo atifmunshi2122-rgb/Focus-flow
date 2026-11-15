@@ -114,10 +114,38 @@ service cloud.firestore {
           && request.resource.data.mode in ['work', 'short_break', 'long_break']
           && isBoundedInt(request.resource.data.durationSeconds, 1, 86400)
           && request.resource.data.completed is bool
-          && isNonEmptyString(request.resource.data.startedAt, 64);
+          && isNonEmptyString(request.resource.data.startedAt, 64)
+          && (
+            !('status' in request.resource.data) ||
+            request.resource.data.status in ['in_progress', 'completed', 'interrupted']
+          )
+          && (
+            !('actualDurationSeconds' in request.resource.data) ||
+            isBoundedInt(request.resource.data.actualDurationSeconds, 0, 86400)
+          )
+          && (
+            !('pauseCount' in request.resource.data) ||
+            (request.resource.data.pauseCount is int && request.resource.data.pauseCount >= 0)
+          )
+          && (
+            !('totalPauseSeconds' in request.resource.data) ||
+            (request.resource.data.totalPauseSeconds is int && request.resource.data.totalPauseSeconds >= 0)
+          );
         allow update: if isOwner(userId)
           && request.resource.data.userId == resource.data.userId
-          && request.resource.data.startedAt == resource.data.startedAt;
+          && request.resource.data.startedAt == resource.data.startedAt
+          && (
+            !('actualDurationSeconds' in request.resource.data) ||
+            isBoundedInt(request.resource.data.actualDurationSeconds, 0, 86400)
+          )
+          && (
+            !('pauseCount' in request.resource.data) ||
+            (request.resource.data.pauseCount is int && request.resource.data.pauseCount >= 0)
+          )
+          && (
+            !('totalPauseSeconds' in request.resource.data) ||
+            (request.resource.data.totalPauseSeconds is int && request.resource.data.totalPauseSeconds >= 0)
+          );
         allow delete: if isOwner(userId);
 
         // Nested interruptions subcollection (Phase 17)
@@ -610,7 +638,11 @@ service cloud.firestore {
           && isBoundedInt(request.resource.data.workDuration, 1, 180)
           && isBoundedInt(request.resource.data.shortBreakDuration, 1, 60)
           && isBoundedInt(request.resource.data.longBreakDuration, 1, 90)
-          && isBoundedInt(request.resource.data.longBreakInterval, 1, 12);
+          && isBoundedInt(request.resource.data.longBreakInterval, 1, 12)
+          && (
+            !('soundVolume' in request.resource.data) ||
+            isBoundedInt(request.resource.data.soundVolume, 0, 100)
+          );
         allow update: if isOwner(userId)
           && (
             isSoftDelete(resource.data) || (
@@ -620,6 +652,10 @@ service cloud.firestore {
               && isBoundedInt(request.resource.data.shortBreakDuration, 1, 60)
               && isBoundedInt(request.resource.data.longBreakDuration, 1, 90)
               && isBoundedInt(request.resource.data.longBreakInterval, 1, 12)
+              && (
+                !('soundVolume' in request.resource.data) ||
+                isBoundedInt(request.resource.data.soundVolume, 0, 100)
+              )
             )
           );
         allow delete: if isOwner(userId);
@@ -633,6 +669,10 @@ service cloud.firestore {
           && request.resource.data.userId == userId
           && isNonEmptyString(request.resource.data.title, 256)
           && (
+            !('targetValue' in request.resource.data) ||
+            isBoundedInt(request.resource.data.targetValue, 1, 100000)
+          )
+          && (
             !('goalType' in request.resource.data) ||
             request.resource.data.goalType in ['daily', 'weekly', 'monthly', 'custom']
           )
@@ -645,6 +685,10 @@ service cloud.firestore {
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
               && isNonEmptyString(request.resource.data.title, 256)
+              && (
+                !('targetValue' in request.resource.data) ||
+                isBoundedInt(request.resource.data.targetValue, 1, 100000)
+              )
             )
           );
         allow delete: if isOwner(userId);

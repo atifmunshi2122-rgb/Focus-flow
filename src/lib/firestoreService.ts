@@ -528,6 +528,20 @@ export const firestoreService = {
       createdAt: input.createdAt || new Date().toISOString(),
     };
 
+    const path = `users/${userId}/focus_sessions/${session.id}`;
+    try {
+      const snap = await getDoc(doc(db, path));
+      if (snap.exists()) {
+        const existing = snap.data() as FocusSession;
+        // If document already reached terminal state ('completed' or 'interrupted'), do not revert to 'in_progress'
+        if ((existing.status === 'completed' || existing.status === 'interrupted') && session.status === 'in_progress') {
+          return existing;
+        }
+      }
+    } catch {
+      // Non-fatal, proceed with save
+    }
+
     await this.saveFocusSession(userId, session);
     return session;
   },

@@ -315,10 +315,22 @@ export function computePomodoroGoalProgress(
   // Filter completed work sessions matching study subject or topic linkage
   const matchingSessions = sessions.filter((s) => {
     if (s.mode !== 'work' || !s.completed) return false;
-    if (goal.subjectCode && s.subjectCode && s.subjectCode !== goal.subjectCode) return false;
-    if (goal.subjectId && s.subjectId && s.subjectId !== goal.subjectId) return false;
-    if (goal.topicId && s.topicId && s.topicId !== goal.topicId) return false;
-    if (goal.targetSubjectCode && s.subjectCode !== goal.targetSubjectCode) return false;
+
+    // Strict subject linkage: if goal specifies a subject, session MUST have an exact match
+    if (goal.subjectId) {
+      if (!s.subjectId || s.subjectId !== goal.subjectId) return false;
+    }
+    if (goal.subjectCode) {
+      if (!s.subjectCode || s.subjectCode !== goal.subjectCode) return false;
+    }
+    if (goal.targetSubjectCode) {
+      if (!s.subjectCode || s.subjectCode !== goal.targetSubjectCode) return false;
+    }
+
+    // Strict topic linkage: if goal specifies a topic, session MUST have an exact match
+    if (goal.topicId) {
+      if (!s.topicId || s.topicId !== goal.topicId) return false;
+    }
 
     const sessionDate = formatDateInTimezone(s.startedAt, timezone);
 

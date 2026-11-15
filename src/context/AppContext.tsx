@@ -538,6 +538,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeSessionId, setActiveSessionIdState] = useState<string | null>(initialTimer.activeSessionId);
   const activeSessionIdRef = useRef<string | null>(initialTimer.activeSessionId);
   activeSessionIdRef.current = activeSessionId;
+  const pendingSessionCreationRef = useRef<{ [sessionId: string]: Promise<FocusSession> }>({});
 
   const isFullAppPreview = previewThemeConfig !== null;
   const effectiveThemeConfig = previewThemeConfig ?? themeConfig;
@@ -1849,24 +1850,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const sessionId = `foc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       activeSessionIdRef.current = sessionId;
       setActiveSessionIdState(sessionId);
-      api
-        .createFocusSession({
-          id: sessionId,
-          mode: 'work',
-          durationMinutes: Math.max(1, Math.round(effectiveSecs / 60)),
-          durationSeconds: effectiveSecs,
-          actualDurationSeconds: 0,
-          completed: false,
-          status: 'in_progress',
-          presetId: activePresetIdRef.current || undefined,
-          taskId: activeTaskId || undefined,
-          subjectCode: activeStudySubjectCode || undefined,
-          topicId: activeStudyTopicId || undefined,
-          activityType: activeStudyActivityType || (activeStudySubjectCode || activeStudyTopicId ? 'study' : undefined),
-          startedAt: sessionStartTimeRef.current || new Date().toISOString(),
-          endedAt: null,
-        })
-        .catch(console.warn);
+      const creationPromise = api.createFocusSession({
+        id: sessionId,
+        mode: 'work',
+        durationMinutes: Math.max(1, Math.round(effectiveSecs / 60)),
+        durationSeconds: effectiveSecs,
+        actualDurationSeconds: 0,
+        completed: false,
+        status: 'in_progress',
+        presetId: activePresetIdRef.current || undefined,
+        taskId: activeTaskId || undefined,
+        subjectCode: activeStudySubjectCode || undefined,
+        topicId: activeStudyTopicId || undefined,
+        activityType: activeStudyActivityType || (activeStudySubjectCode || activeStudyTopicId ? 'study' : undefined),
+        startedAt: sessionStartTimeRef.current || new Date().toISOString(),
+        endedAt: null,
+      });
+      pendingSessionCreationRef.current[sessionId] = creationPromise;
+      creationPromise
+        .catch(console.warn)
+        .finally(() => {
+          delete pendingSessionCreationRef.current[sessionId];
+        });
     }
 
     setIsRunning(true);
@@ -1988,19 +1993,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           Math.round(totalDurationRef.current - timeLeftRef.current)
         )
       );
-      if (activeSessionIdRef.current) {
-        api
-          .updateFocusSession(activeSessionIdRef.current, {
-            status: 'interrupted',
-            completed: false,
-            actualDurationSeconds: elapsedActiveSecs,
-            endedAt: new Date().toISOString(),
-            endReason: 'reset',
-            interrupted: true,
-            pauseCount: pauseCountRef.current,
-            totalPauseSeconds: totalPauseSecsRef.current,
-          })
-          .catch(console.warn);
+      const sessIdToReset = activeSessionIdRef.current;
+      if (sessIdToReset) {
+        const updatePayload = {
+          status: 'interrupted' as const,
+          completed: false,
+          actualDurationSeconds: elapsedActiveSecs,
+          endedAt: new Date().toISOString(),
+          endReason: 'reset' as const,
+          interrupted: true,
+          pauseCount: pauseCountRef.current,
+          totalPauseSeconds: totalPauseSecsRef.current,
+        };
+        const pendingCreation = pendingSessionCreationRef.current[sessIdToReset];
+        if (pendingCreation) {
+          pendingCreation
+            .then(() => api.updateFocusSession(sessIdToReset, updatePayload))
+            .catch(() => api.updateFocusSession(sessIdToReset, updatePayload))
+            .catch(console.warn);
+        } else {
+          api.updateFocusSession(sessIdToReset, updatePayload).catch(console.warn);
+        }
       }
     }
     activeSessionIdRef.current = null;
@@ -2050,19 +2063,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           Math.round(totalDurationRef.current - timeLeftRef.current)
         )
       );
-      if (activeSessionIdRef.current) {
-        api
-          .updateFocusSession(activeSessionIdRef.current, {
-            status: 'interrupted',
-            completed: false,
-            actualDurationSeconds: elapsedActiveSecs,
-            endedAt: new Date().toISOString(),
-            endReason: 'skipped',
-            interrupted: true,
-            pauseCount: pauseCountRef.current,
-            totalPauseSeconds: totalPauseSecsRef.current,
-          })
-          .catch(console.warn);
+      const sessIdToSkip = activeSessionIdRef.current;
+      if (sessIdToSkip) {
+        const updatePayload = {
+          status: 'interrupted' as const,
+          completed: false,
+          actualDurationSeconds: elapsedActiveSecs,
+          endedAt: new Date().toISOString(),
+          endReason: 'skipped' as const,
+          interrupted: true,
+          pauseCount: pauseCountRef.current,
+          totalPauseSeconds: totalPauseSecsRef.current,
+        };
+        const pendingCreation = pendingSessionCreationRef.current[sessIdToSkip];
+        if (pendingCreation) {
+          pendingCreation
+            .then(() => api.updateFocusSession(sessIdToSkip, updatePayload))
+            .catch(() => api.updateFocusSession(sessIdToSkip, updatePayload))
+            .catch(console.warn);
+        } else {
+          api.updateFocusSession(sessIdToSkip, updatePayload).catch(console.warn);
+        }
       }
     }
     activeSessionIdRef.current = null;

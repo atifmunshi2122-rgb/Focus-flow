@@ -350,20 +350,88 @@ export function clearTimerState(
   }
 }
 
+export const DEFAULT_LOCK_TTL_MS = 15000; // 15 seconds lock window for async completion/recovery
+
+export interface CompletionLockEntry {
+  acquiredAt: number;
+  ownerTabId: string;
+}
+
 export function acquireCompletionLock(
   completionKey: string,
-  storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null
+  storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
+  nowMs: number = Date.now(),
+  ttlMs: number = DEFAULT_LOCK_TTL_MS,
+  ownerTabId?: string
 ): boolean {
-  if (!storage) return true;
+  return acquireCompletionLockEntry(completionKey, storage, nowMs, ttlMs, ownerTabId).acquired;
+}
+
+export function acquireCompletionLockEntry(
+  completionKey: string,
+  storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
+  nowMs: number = Date.now(),
+  ttlMs: number = DEFAULT_LOCK_TTL_MS,
+  ownerTabId?: string
+): { acquired: boolean; ownerToken: string } {
+  const token = ownerTabId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tab_${nowMs}_${Math.random().toString(36).slice(2, 8)}`);
+  if (!storage) return { acquired: true, ownerToken: token };
   const lockKey = `ff_comp_lock_${completionKey}`;
   try {
-    if (storage.getItem(lockKey)) {
-      return false; // Already locked/processed
+    const existing = storage.getItem(lockKey);
+    if (existing) {
+      try {
+        const parsed = JSON.parse(existing);
+        const acquiredAt = typeof parsed.acquiredAt === 'number' ? parsed.acquiredAt : Number(existing);
+        if (nowMs - acquiredAt < ttlMs) {
+          // Lock is still active and valid
+          return { acquired: false, ownerToken: parsed.ownerTabId || '' };
+        }
+      } catch {
+        // Fallback for legacy numeric timestamp lock format
+        const acquiredAt = Number(existing);
+        if (!Number.isNaN(acquiredAt) && nowMs - acquiredAt < ttlMs) {
+          return { acquired: false, ownerToken: '' };
+        }
+      }
     }
-    storage.setItem(lockKey, Date.now().toString());
-    return true;
+    // Lock is either absent or expired -> acquire
+    const entry: CompletionLockEntry = {
+      acquiredAt: nowMs,
+      ownerTabId: token,
+    };
+    storage.setItem(lockKey, JSON.stringify(entry));
+    return { acquired: true, ownerToken: token };
   } catch {
-    return true;
+    return { acquired: true, ownerToken: token };
+  }
+}
+
+export function releaseCompletionLock(
+  completionKey: string,
+  storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
+  ownerToken?: string
+): void {
+  if (!storage) return;
+  const lockKey = `ff_comp_lock_${completionKey}`;
+  try {
+    if (ownerToken) {
+      const existing = storage.getItem(lockKey);
+      if (existing) {
+        try {
+          const parsed = JSON.parse(existing);
+          if (parsed.ownerTabId && parsed.ownerTabId !== ownerToken) {
+            // Do not release a lock owned by another tab/process
+            return;
+          }
+        } catch {
+          // If unparseable legacy format, allow removal
+        }
+      }
+    }
+    storage.removeItem(lockKey);
+  } catch {
+    // Ignore storage errors
   }
 }
 

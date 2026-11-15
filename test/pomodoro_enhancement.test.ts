@@ -11,10 +11,13 @@ import {
 import {
   computeRemainingSeconds,
   acquireCompletionLock,
+  acquireCompletionLockEntry,
+  releaseCompletionLock,
   loadInitialTimerState,
   saveTimerState,
   getTimerStorageKey,
 } from '../src/lib/timerEngine.ts';
+import { getTodayDateString } from '../src/lib/dateTime.ts';
 import type { FocusSession } from '../src/types/index.ts';
 import type {
   PomodoroGoal,
@@ -968,4 +971,228 @@ test('Pomodoro Phase 17 — Firestore Security Rules: Nested Interruptions, Pres
     /isBoundedInt\(request\.resource\.data\.longBreakInterval,\s*1,\s*12\)/,
     'pomodoro_presets longBreakInterval must be bounded 1-12'
   );
+});
+
+test('Phase 17.2 Fix 1 — Expiring completion lock with TTL, ownership awareness, and safe retry', () => {
+  const mockStorage: Record<string, string> = {};
+  const storageAdapter = {
+    getItem: (k: string) => mockStorage[k] || null,
+    setItem: (k: string, v: string) => {
+      mockStorage[k] = v;
+    },
+    removeItem: (k: string) => {
+      delete mockStorage[k];
+    },
+  } as unknown as Storage;
+
+  const key = 'test_expiring_lock';
+  const lockStorageKey = `ff_comp_lock_${key}`;
+  const ownerA = 'tab_token_alpha';
+  const ownerB = 'tab_token_beta';
+  const now = Date.now();
+
+  // 1. Owner A acquires lock with 5000ms TTL
+  const resA = acquireCompletionLockEntry(key, storageAdapter, now, 5000, ownerA);
+  assert.equal(resA.acquired, true, 'Owner A should successfully acquire active lock');
+  assert.equal(resA.ownerToken, ownerA);
+
+  // 2. Owner B tries to acquire same lock before TTL -> rejected
+  const resB = acquireCompletionLockEntry(key, storageAdapter, now + 1000, 5000, ownerB);
+  assert.equal(resB.acquired, false, 'Owner B must be rejected while Owner A holds unexpired lock');
+
+  // 3. Attempt release with wrong owner token -> rejected, lock preserved
+  releaseCompletionLock(key, storageAdapter, ownerB);
+  assert.ok(mockStorage[lockStorageKey], 'Lock must remain in storage after failed release attempt');
+
+  // 4. Release with valid owner token -> succeeds, lock cleared
+  releaseCompletionLock(key, storageAdapter, ownerA);
+  assert.equal(mockStorage[lockStorageKey], undefined, 'Lock must be completely cleared from storage');
+
+  // 5. Owner B can now acquire the released lock
+  const resBAfterRelease = acquireCompletionLockEntry(key, storageAdapter, now + 2000, 5000, ownerB);
+  assert.equal(resBAfterRelease.acquired, true, 'Owner B should now acquire previously released lock');
+
+  // 6. Test stale lock expiration (simulating crashed tab past TTL)
+  mockStorage[lockStorageKey] = JSON.stringify({
+    acquiredAt: now - 20000,
+    ownerTabId: ownerB,
+  });
+
+  const resAfterStale = acquireCompletionLockEntry(key, storageAdapter, now, 5000, ownerA);
+  assert.equal(resAfterStale.acquired, true, 'Stale lock past TTL must be overridden by new acquisition attempt');
+});
+
+test('Phase 17.2 Fix 2 — Strict subject and topic isolation for Pomodoro goals', () => {
+  const refDate = new Date('2026-11-15T12:00:00Z');
+
+  const sessions: FocusSession[] = [
+    {
+      id: 's_math_calc',
+      userId: 'u1',
+      taskId: null,
+      mode: 'work',
+      durationMinutes: 30,
+      durationSeconds: 1800,
+      actualDurationSeconds: 1800,
+      completed: true,
+      subjectId: 'subj_math',
+      subjectCode: 'MATH101',
+      topicId: 'top_calculus',
+      startedAt: '2026-11-15T08:00:00Z',
+      endedAt: '2026-11-15T08:30:00Z',
+    },
+    {
+      id: 's_unlinked',
+      userId: 'u1',
+      taskId: null,
+      mode: 'work',
+      durationMinutes: 40,
+      durationSeconds: 2400,
+      actualDurationSeconds: 2400,
+      completed: true,
+      subjectId: null,
+      subjectCode: null,
+      topicId: null,
+      startedAt: '2026-11-15T09:00:00Z',
+      endedAt: '2026-11-15T09:40:00Z',
+    },
+    {
+      id: 's_cs',
+      userId: 'u1',
+      taskId: null,
+      mode: 'work',
+      durationMinutes: 50,
+      durationSeconds: 3000,
+      actualDurationSeconds: 3000,
+      completed: true,
+      subjectId: 'subj_cs',
+      subjectCode: 'CS101',
+      topicId: null,
+      startedAt: '2026-11-15T10:00:00Z',
+      endedAt: '2026-11-15T10:50:00Z',
+    },
+    {
+      id: 's_math_geom',
+      userId: 'u1',
+      taskId: null,
+      mode: 'work',
+      durationMinutes: 20,
+      durationSeconds: 1200,
+      actualDurationSeconds: 1200,
+      completed: true,
+      subjectId: 'subj_math',
+      subjectCode: 'MATH101',
+      topicId: 'top_geometry',
+      startedAt: '2026-11-15T11:00:00Z',
+      endedAt: '2026-11-15T11:20:00Z',
+    },
+  ];
+
+  // Subject-specific goal (Math)
+  const mathGoal: PomodoroGoal = {
+    id: 'g_math',
+    userId: 'u1',
+    title: 'Daily Math Study',
+    goalType: 'daily',
+    metricType: 'focus_minutes',
+    targetValue: 60,
+    currentValue: 0,
+    status: 'active',
+    subjectId: 'subj_math',
+    createdAt: '2026-11-01T00:00:00Z',
+    updatedAt: '2026-11-01T00:00:00Z',
+  };
+  const mathProg = computePomodoroGoalProgress(sessions, mathGoal, refDate);
+  // Must count only s_math_calc (30m) + s_math_geom (20m) = 50m. Must exclude unlinked (40m) and CS (50m).
+  assert.equal(mathProg.currentValue, 50, 'Subject-specific goal must only count sessions with matching subjectId');
+
+  // Topic-specific goal (Math Calculus)
+  const calculusGoal: PomodoroGoal = {
+    id: 'g_calc',
+    userId: 'u1',
+    title: 'Daily Calculus Study',
+    goalType: 'daily',
+    metricType: 'focus_minutes',
+    targetValue: 45,
+    currentValue: 0,
+    status: 'active',
+    subjectId: 'subj_math',
+    topicId: 'top_calculus',
+    createdAt: '2026-11-01T00:00:00Z',
+    updatedAt: '2026-11-01T00:00:00Z',
+  };
+  const calcProg = computePomodoroGoalProgress(sessions, calculusGoal, refDate);
+  // Must count only s_math_calc (30m). Must exclude s_math_geom (20m), s_unlinked (40m), s_cs (50m).
+  assert.equal(calcProg.currentValue, 30, 'Topic-specific goal must only count sessions matching both subject and topic');
+
+  // Global goal (no subject or topic constraint)
+  const globalGoal: PomodoroGoal = {
+    id: 'g_global',
+    userId: 'u1',
+    title: 'Daily All Focus',
+    goalType: 'daily',
+    metricType: 'focus_minutes',
+    targetValue: 120,
+    currentValue: 0,
+    status: 'active',
+    createdAt: '2026-11-01T00:00:00Z',
+    updatedAt: '2026-11-01T00:00:00Z',
+  };
+  const globalProg = computePomodoroGoalProgress(sessions, globalGoal, refDate);
+  // Must count all work sessions: 30 + 40 + 50 + 20 = 140m.
+  assert.equal(globalProg.currentValue, 140, 'Global goal must accumulate all work sessions regardless of subject/topic');
+});
+
+test('Phase 17.2 Fix 3 — Firestore Security Rules: Hardened bounds for focus_sessions, presets, goals', () => {
+  const rulesPath = path.resolve('firestore.rules');
+  const rules = fs.readFileSync(rulesPath, 'utf8');
+
+  // Bounds on actualDurationSeconds
+  assert.match(
+    rules,
+    /isBoundedInt\(request\.resource\.data\.actualDurationSeconds,\s*0,\s*86400\)/,
+    'firestore.rules must bound actualDurationSeconds between 0 and 86400'
+  );
+
+  // Bounds on pauseCount and totalPauseSeconds
+  assert.match(
+    rules,
+    /request\.resource\.data\.pauseCount\s+is\s+int\s+&&\s+request\.resource\.data\.pauseCount\s*>=\s*0/,
+    'firestore.rules must enforce pauseCount is a non-negative integer'
+  );
+
+  assert.match(
+    rules,
+    /request\.resource\.data\.totalPauseSeconds\s+is\s+int\s+&&\s+request\.resource\.data\.totalPauseSeconds\s*>=\s*0/,
+    'firestore.rules must enforce totalPauseSeconds is a non-negative integer'
+  );
+
+  // Status enum check
+  assert.match(
+    rules,
+    /request\.resource\.data\.status\s+in\s+\['in_progress',\s*'completed',\s*'interrupted'\]/,
+    'firestore.rules must validate status enum on focus_sessions'
+  );
+
+  // pomodoro_presets soundVolume check
+  assert.match(
+    rules,
+    /isBoundedInt\(request\.resource\.data\.soundVolume,\s*0,\s*100\)/,
+    'pomodoro_presets must enforce soundVolume is bounded between 0 and 100'
+  );
+
+  // pomodoro_goals targetValue check
+  assert.match(
+    rules,
+    /isBoundedInt\(request\.resource\.data\.targetValue,\s*1,\s*100000\)/,
+    'pomodoro_goals must enforce targetValue is bounded between 1 and 100000'
+  );
+});
+
+test('Phase 17.2 Fix 5 — Timezone-aware date string calculation', () => {
+  const todayIST = getTodayDateString('Asia/Kolkata');
+  assert.match(todayIST, /^\d{4}-\d{2}-\d{2}$/, 'getTodayDateString must return YYYY-MM-DD');
+
+  const todayUTC = getTodayDateString('UTC');
+  assert.match(todayUTC, /^\d{4}-\d{2}-\d{2}$/, 'getTodayDateString(UTC) must return YYYY-MM-DD');
 });

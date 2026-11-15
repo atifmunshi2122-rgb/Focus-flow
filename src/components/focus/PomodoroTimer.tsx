@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { TimerEngineMode, TimerMode, useApp } from '../../context/AppContext.tsx';
 import { AmbientPreset } from '../../lib/ambientAudio.ts';
 import { api } from '../../lib/api.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { saveTimerState } from '../../lib/timerEngine.ts';
 import { playAlertTone } from '../../lib/sound.ts';
 import {
@@ -295,7 +296,7 @@ export const PomodoroTimer: React.FC = () => {
         targetValue: goalTarget,
         currentValue: 0,
         status: 'active',
-        startDate: new Date().toISOString().split('T')[0],
+        startDate: getTodayDateString(settings?.timezone || 'Asia/Kolkata'),
         endDate: null,
         subjectId: activeStudySubjectCode || null,
         subjectCode: activeStudySubjectCode || null,
