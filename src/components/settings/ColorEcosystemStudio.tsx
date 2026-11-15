@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
+import { useApp } from '../../context/AppContext.tsx';
+import { formatCurrency } from '../../lib/currency.ts';
 import {
   ColorPaletteCategory,
   CuratedPalette,
@@ -91,6 +93,7 @@ export const ColorEcosystemStudio: React.FC<ColorEcosystemStudioProps> = ({
   stopFullAppPreview,
   showToast,
 }) => {
+  const { currency } = useApp();
   // Navigation sub-tab inside Color Ecosystem
   const [activeSubTab, setActiveSubTab] = useState<'library' | 'harmony' | '3d-gradient'>('library');
   const [previewTimerPaused, setPreviewTimerPaused] = useState(false);
@@ -997,7 +1000,7 @@ export const ColorEcosystemStudio: React.FC<ColorEcosystemStudioProps> = ({
                         <button
                           type="button"
                           onClick={() =>
-                            showToast('Preview sample action: $140 expense style verified', 'success')
+                            showToast(`Preview sample action: ${formatCurrency(14000, currency)} expense style verified`, 'success')
                           }
                           className="px-3 py-1 text-xs font-semibold rounded-lg border"
                           style={{
@@ -1005,7 +1008,7 @@ export const ColorEcosystemStudio: React.FC<ColorEcosystemStudioProps> = ({
                             color: editableTokens.textSecondary,
                           }}
                         >
-                          Log Expense ($140)
+                          Log Expense ({formatCurrency(14000, currency)})
                         </button>
                       </div>
                     </div>

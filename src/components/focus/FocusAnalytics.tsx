@@ -13,7 +13,7 @@ import {
   computeSubjectFocusBreakdown,
   computePomodoroGoalProgress,
 } from '../../lib/pomodoroAnalytics.ts';
-import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString, formatDateInTimezone } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
@@ -121,6 +121,49 @@ export const FocusAnalytics: React.FC = () => {
     return <SkeletonDashboard />;
   }
 
+  const derivedFocusTotals = useMemo(() => {
+    const tz = settings?.timezone || DEFAULT_TIMEZONE;
+    const currentMonthPrefix = todayStr.slice(0, 7);
+    const completedWorkSessions = sessions.filter((s) => s.completed && s.mode === 'work');
+
+    const totalMinutes = Math.round(
+      completedWorkSessions.reduce(
+        (acc, s) =>
+          acc +
+          (typeof s.actualDurationSeconds === 'number' && s.actualDurationSeconds > 0
+            ? s.actualDurationSeconds
+            : typeof s.durationSeconds === 'number' && s.durationSeconds > 0
+            ? s.durationSeconds
+            : (s.durationMinutes || 0) * 60),
+        0
+      ) / 60
+    );
+
+    const monthSessions = completedWorkSessions.filter((s) =>
+      formatDateInTimezone(s.startedAt, tz).startsWith(currentMonthPrefix)
+    );
+
+    const monthMinutes = Math.round(
+      monthSessions.reduce(
+        (acc, s) =>
+          acc +
+          (typeof s.actualDurationSeconds === 'number' && s.actualDurationSeconds > 0
+            ? s.actualDurationSeconds
+            : typeof s.durationSeconds === 'number' && s.durationSeconds > 0
+            ? s.durationSeconds
+            : (s.durationMinutes || 0) * 60),
+        0
+      ) / 60
+    );
+
+    return {
+      totalCompletedSessions: Math.max(completedWorkSessions.length, stats?.totalCompletedSessions || 0),
+      totalMinutes: Math.max(totalMinutes, stats?.totalMinutes || 0),
+      monthSessionsCount: Math.max(monthSessions.length, stats?.monthSessionsCount || 0),
+      monthMinutes: Math.max(monthMinutes, stats?.monthMinutes || 0),
+    };
+  }, [sessions, stats, settings?.timezone, todayStr]);
+
   const maxMinutesInWeek = stats?.last7Days.reduce((max, d) => Math.max(max, d.minutes), 0) || 60;
   const chartHeight = 130;
 
@@ -197,32 +240,32 @@ export const FocusAnalytics: React.FC = () => {
           {/* KPI Cards Row */}
       <MotionStaggerGrid className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 'var(--ff-grid-gap)' }}>
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="h-full">
+          <ThemeCard variant="3d" className="h-full">
             <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
               <span className="text-xs font-medium">Monthly Focus</span>
               <Clock className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
             </div>
             <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
               <AnimatedNumber
-                value={stats?.monthMinutes || 0}
+                value={derivedFocusTotals.monthMinutes}
                 format={(mins) => `${Math.floor(mins / 60)}h ${Math.round(mins) % 60}m`}
               />
             </div>
             <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-              {stats?.monthSessionsCount || 0} completed sessions
+              {derivedFocusTotals.monthSessionsCount} completed sessions
             </span>
           </ThemeCard>
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="h-full">
+          <ThemeCard variant="3d" className="h-full">
             <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
               <span className="text-xs font-medium">Lifetime Focus</span>
               <Sparkles className="w-4 h-4" style={{ color: 'var(--ff-success)' }} />
             </div>
             <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
               <AnimatedNumber
-                value={stats?.totalMinutes || 0}
+                value={derivedFocusTotals.totalMinutes}
                 format={(mins) => `${(mins / 60).toFixed(1)}h`}
               />
             </div>
@@ -233,13 +276,13 @@ export const FocusAnalytics: React.FC = () => {
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="h-full">
+          <ThemeCard variant="3d" className="h-full">
             <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
               <span className="text-xs font-medium">Work Sessions</span>
               <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--ff-info)' }} />
             </div>
             <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-              <AnimatedNumber value={stats?.totalCompletedSessions || 0} />
+              <AnimatedNumber value={derivedFocusTotals.totalCompletedSessions} />
             </div>
             <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
               Pomodoro cycles finished
@@ -248,7 +291,7 @@ export const FocusAnalytics: React.FC = () => {
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="h-full">
+          <ThemeCard variant="3d" className="h-full">
             <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
               <span className="text-xs font-medium">Weekly Target</span>
               <Flame className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
@@ -675,14 +718,31 @@ export const FocusAnalytics: React.FC = () => {
 
                   <div className="text-right shrink-0">
                     <span className="font-mono tabular-nums font-semibold text-[var(--ff-text-primary)]">
-                      {s.durationMinutes} min
+                      {typeof s.actualDurationSeconds === 'number' && s.actualDurationSeconds > 0
+                        ? `${Math.max(1, Math.round(s.actualDurationSeconds / 60))} min`
+                        : `${s.durationMinutes || Math.max(1, Math.round((s.durationSeconds || 0) / 60))} min`}
                     </span>
-                    <span
-                      className="block text-[10px] font-medium"
-                      style={{ color: 'var(--ff-success)' }}
-                    >
-                      Completed
-                    </span>
+                    {s.completed ? (
+                      <span
+                        className="block text-[10px] font-semibold"
+                        style={{ color: 'var(--ff-success)' }}
+                      >
+                        Completed
+                      </span>
+                    ) : s.status === 'in_progress' ? (
+                      <span
+                        className="block text-[10px] font-semibold"
+                        style={{ color: 'var(--ff-accent-text)' }}
+                      >
+                        In Progress
+                      </span>
+                    ) : (
+                      <span
+                        className="block text-[10px] font-semibold text-amber-500"
+                      >
+                        Interrupted
+                      </span>
+                    )}
                   </div>
                 </div>
               );

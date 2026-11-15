@@ -2601,11 +2601,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [clearTimerHandles]);
 
-  // Dynamic Browser Tab Countdown in document.title
+  // Dynamic Route & Timer Browser Tab Title in document.title
   useEffect(() => {
     if (typeof document === 'undefined') return;
+
+    const tabTitles: Record<NavTab, string> = {
+      dashboard: 'Executive Dashboard',
+      calendar: 'Master Calendar',
+      timeblocks: 'Daily Time Blocks',
+      focus: 'Pomodoro Timer & Focus Lab',
+      clock: 'Real Clock',
+      habits: 'Habit Tracker',
+      tasks: 'Task Manager',
+      study: 'Study Management System',
+      finance: 'Finance Overview',
+      transactions: 'Transactions Ledger',
+      bills: 'Bills & Subscriptions',
+      envelopes: 'Cash Envelope Allocator',
+      subscriptions: 'Subscription Manager',
+      analytics: 'Analytics & Reports',
+      recovery: 'Data Recovery Center',
+      settings: 'Settings & Preferences',
+    };
+    const routeTitle = tabTitles[currentTab] || 'Executive OS';
+
     if (!isRunning) {
-      document.title = 'FocusFlow & Finance';
+      document.title = `${routeTitle} | FocusFlow & Finance`;
       return;
     }
 
@@ -2613,20 +2634,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const mins = Math.floor(stopwatchElapsed / 60);
       const secs = stopwatchElapsed % 60;
       const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-      document.title = `(${timeStr}) Stopwatch | FocusFlow`;
+      document.title = `(${timeStr}) Stopwatch · ${routeTitle} | FocusFlow`;
     } else {
       const mins = Math.floor(timeLeft / 60);
       const secs = timeLeft % 60;
       const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
       const modeLabel =
         timerMode === 'work' ? 'Focus' : timerMode === 'short_break' ? 'Break' : 'Long Break';
-      document.title = `(${timeStr}) ${modeLabel} | FocusFlow`;
+      document.title = `(${timeStr}) ${modeLabel} · ${routeTitle} | FocusFlow`;
     }
 
     return () => {
-      document.title = 'FocusFlow & Finance';
+      document.title = `${routeTitle} | FocusFlow & Finance`;
     };
-  }, [isRunning, timeLeft, stopwatchElapsed, timerEngine, timerMode]);
+  }, [isRunning, timeLeft, stopwatchElapsed, timerEngine, timerMode, currentTab]);
 
   const currency = settings?.currency || 'INR';
 

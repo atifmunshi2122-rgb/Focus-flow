@@ -94,6 +94,14 @@ export const AnalyticsReportsView: React.FC = () => {
     }
   };
 
+  const isPeriodEmpty =
+    !financeSummary ||
+    (financeSummary.totalIncomePaise === 0 &&
+      financeSummary.totalExpensePaise === 0 &&
+      (!focusStats || focusStats.totalMinutes === 0) &&
+      tasks.length === 0 &&
+      sessions.length === 0);
+
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
       {/* Export & Date Filter Header */}
@@ -146,84 +154,12 @@ export const AnalyticsReportsView: React.FC = () => {
         />
       </div>
 
-      <MotionStaggerGrid
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
-        style={{ gap: 'var(--ff-grid-gap)' }}
-      >
-        <MotionStaggerItem>
-          <ThemeCard>
-            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-              <span>Task Completion Rate</span>
-              <CheckSquare className="w-4 h-4 text-[var(--ff-accent-text)]" />
-            </div>
-            <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-              {completionRate}%
-            </div>
-            <span className="text-[11px] text-[var(--ff-text-muted)]">
-              {completedTasks} finished · {pendingTasks} active
-            </span>
-          </ThemeCard>
-        </MotionStaggerItem>
-
-        <MotionStaggerItem>
-          <ThemeCard>
-            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-              <span>Month Focus Volume</span>
-              <Clock className="w-4 h-4 text-[var(--ff-accent-text)]" />
-            </div>
-            <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-              {focusStats?.monthMinutes || 0} min
-            </div>
-            <span className="text-[11px] text-[var(--ff-text-muted)]">
-              {focusStats?.monthSessionsCount || 0} work sessions
-            </span>
-          </ThemeCard>
-        </MotionStaggerItem>
-
-        <MotionStaggerItem>
-          <ThemeCard>
-            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-              <span>Budget Headroom</span>
-              <Wallet className="w-4 h-4 text-[var(--ff-warning)]" />
-            </div>
-            <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-              {monthlyCap > 0 ? `${budgetAdherence}%` : 'Unbounded'}
-            </div>
-            <span className="text-[11px] text-[var(--ff-text-muted)]">
-              {monthlyCap > 0
-                ? `Cap: ${formatCurrency(monthlyCap, currency)}`
-                : 'Configure cap in Finance'}
-            </span>
-          </ThemeCard>
-        </MotionStaggerItem>
-
-        <MotionStaggerItem>
-          <ThemeCard>
-            <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-              <span>Savings Reserves</span>
-              <PiggyBank className="w-4 h-4 text-[var(--ff-success)]" />
-            </div>
-            <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-              {formatCurrency(totalSavedPaise, currency)}
-            </div>
-            <span className="text-[11px] text-[var(--ff-text-muted)]">
-              Across {goals.length} active savings goal{goals.length === 1 ? '' : 's'}
-            </span>
-          </ThemeCard>
-        </MotionStaggerItem>
-      </MotionStaggerGrid>
-
-      {(!financeSummary ||
-        (financeSummary.totalIncomePaise === 0 &&
-          financeSummary.totalExpensePaise === 0 &&
-          (!focusStats || focusStats.totalMinutes === 0) &&
-          tasks.length === 0 &&
-          sessions.length === 0)) ? (
-        <ThemeCard className="py-12">
+      {isPeriodEmpty ? (
+        <ThemeCard className="py-14">
           <EmptyStateIllustration
-            icon={<BarChart3 className="w-8 h-8 text-[var(--ff-accent-text)]" />}
+            icon={<BarChart3 className="w-9 h-9 text-[var(--ff-accent-text)]" />}
             title="No activity recorded in this period"
-            description="Complete tasks, run Pomodoro sessions, or record transactions to unlock cross-domain productivity and financial insights."
+            description="Complete tasks, run Pomodoro sessions, or record income & expenses to unlock cross-domain productivity and financial insights."
             action={
               <ThemeButton variant="primary" size="sm" onClick={() => setCurrentTab('dashboard')}>
                 Go to Dashboard
@@ -232,7 +168,76 @@ export const AnalyticsReportsView: React.FC = () => {
           />
         </ThemeCard>
       ) : (
-        <AnalyticsCharts data={financeSummary} />
+        <>
+          <MotionStaggerGrid
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+            style={{ gap: 'var(--ff-grid-gap)' }}
+          >
+            <MotionStaggerItem>
+              <ThemeCard>
+                <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                  <span>Task Completion Rate</span>
+                  <CheckSquare className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                </div>
+                <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                  {completionRate}%
+                </div>
+                <span className="text-[11px] text-[var(--ff-text-muted)]">
+                  {completedTasks} finished · {pendingTasks} active
+                </span>
+              </ThemeCard>
+            </MotionStaggerItem>
+
+            <MotionStaggerItem>
+              <ThemeCard>
+                <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                  <span>Month Focus Volume</span>
+                  <Clock className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                </div>
+                <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                  {focusStats?.monthMinutes || 0} min
+                </div>
+                <span className="text-[11px] text-[var(--ff-text-muted)]">
+                  {focusStats?.monthSessionsCount || 0} work sessions
+                </span>
+              </ThemeCard>
+            </MotionStaggerItem>
+
+            <MotionStaggerItem>
+              <ThemeCard>
+                <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                  <span>Budget Headroom</span>
+                  <Wallet className="w-4 h-4 text-[var(--ff-warning)]" />
+                </div>
+                <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                  {monthlyCap > 0 ? `${budgetAdherence}%` : 'Unbounded'}
+                </div>
+                <span className="text-[11px] text-[var(--ff-text-muted)]">
+                  {monthlyCap > 0
+                    ? `Cap: ${formatCurrency(monthlyCap, currency)}`
+                    : 'Configure cap in Finance'}
+                </span>
+              </ThemeCard>
+            </MotionStaggerItem>
+
+            <MotionStaggerItem>
+              <ThemeCard>
+                <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                  <span>Savings Reserves</span>
+                  <PiggyBank className="w-4 h-4 text-[var(--ff-success)]" />
+                </div>
+                <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                  {formatCurrency(totalSavedPaise, currency)}
+                </div>
+                <span className="text-[11px] text-[var(--ff-text-muted)]">
+                  Across {goals.length} active savings goal{goals.length === 1 ? '' : 's'}
+                </span>
+              </ThemeCard>
+            </MotionStaggerItem>
+          </MotionStaggerGrid>
+
+          <AnalyticsCharts data={financeSummary} />
+        </>
       )}
     </div>
   );

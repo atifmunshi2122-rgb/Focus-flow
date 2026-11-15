@@ -168,8 +168,8 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
           ]}
         />
 
-        <ThemeButton variant="primary" size="md" onClick={onOpenQuickAction} className="shrink-0">
-          <Plus className="w-4 h-4" />
+        <ThemeButton variant="secondary" size="sm" onClick={onOpenQuickAction} className="shrink-0">
+          <Plus className="w-3.5 h-3.5" />
           <span>Add Transaction</span>
         </ThemeButton>
       </div>
@@ -242,7 +242,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
         >
           {/* Total Income */}
           <MotionStaggerItem>
-            <ThemeCard variant="interactive" className="h-full">
+            <ThemeCard variant="3d" className="h-full">
               <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
                 <span className="text-xs font-medium">Total Income</span>
                 <div
@@ -270,7 +270,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
 
           {/* Total Expenses */}
           <MotionStaggerItem>
-            <ThemeCard variant="interactive" className="h-full">
+            <ThemeCard variant="3d" className="h-full">
               <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
                 <span className="text-xs font-medium">Total Expenses</span>
                 <div
@@ -303,11 +303,11 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
             </ThemeCard>
           </MotionStaggerItem>
 
-          {/* Remaining Balance */}
+          {/* Net Balance / Cashflow */}
           <MotionStaggerItem>
-            <ThemeCard variant="interactive" className="h-full">
+            <ThemeCard variant="3d" className="h-full">
               <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                <span className="text-xs font-medium">Remaining Balance</span>
+                <span className="text-xs font-medium">Net Cashflow (Period)</span>
                 <div
                   className="w-7 h-7 flex items-center justify-center"
                   style={{
@@ -340,14 +340,14 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
                 />
               </div>
               <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-                Net balance (Income - Expenses)
+                Net savings (Income - Expenses)
               </span>
             </ThemeCard>
           </MotionStaggerItem>
 
           {/* Bills Status Summary */}
           <MotionStaggerItem>
-            <ThemeCard variant="interactive" className="h-full">
+            <ThemeCard variant="3d" className="h-full">
               <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
                 <span className="text-xs font-medium">Bill Commitments</span>
                 <div

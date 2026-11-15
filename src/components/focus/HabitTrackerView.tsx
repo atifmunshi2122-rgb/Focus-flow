@@ -269,7 +269,8 @@ export const HabitTrackerView: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <ThemeButton
-            variant="primary"
+            variant="secondary"
+            size="sm"
             onClick={openCreateModal}
             className="flex items-center gap-2"
           >
@@ -282,7 +283,7 @@ export const HabitTrackerView: React.FC = () => {
       {/* KPI Overview Cards */}
       <MotionStaggerGrid className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="p-4">
+          <ThemeCard variant="3d" className="p-4">
             <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
               <span className="text-xs font-medium">Today's Progress</span>
               <CheckCircle2 className="w-4 h-4 text-emerald-500" />
@@ -304,7 +305,7 @@ export const HabitTrackerView: React.FC = () => {
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="p-4">
+          <ThemeCard variant="3d" className="p-4">
             <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
               <span className="text-xs font-medium">Best Active Streak</span>
               <Flame className="w-4 h-4 text-amber-500" />
@@ -320,7 +321,7 @@ export const HabitTrackerView: React.FC = () => {
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="p-4">
+          <ThemeCard variant="3d" className="p-4">
             <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
               <span className="text-xs font-medium">7-Day Consistency</span>
               <TrendingUp className="w-4 h-4 text-indigo-500" />
@@ -342,7 +343,7 @@ export const HabitTrackerView: React.FC = () => {
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="p-4">
+          <ThemeCard variant="3d" className="p-4">
             <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
               <span className="text-xs font-medium">Active Habits</span>
               <Sparkles className="w-4 h-4 text-purple-500" />
@@ -448,7 +449,7 @@ export const HabitTrackerView: React.FC = () => {
                 transition={profile.listLayout}
               >
               <ThemeCard
-                variant="interactive"
+                variant="3d"
                 className="p-5 flex flex-col justify-between relative overflow-hidden group border-l-4 h-full"
                 style={{
                   borderLeftColor: habit.color || 'var(--ff-accent)',

@@ -21,6 +21,7 @@ import {
   DEFAULT_TIMEZONE,
   getTodayDateString,
   getDaysInMonth,
+  getStartOfWeek,
   formatYmd,
   parseDateString,
   formatDateInTimezone,
@@ -142,7 +143,7 @@ function defaultSettingsForUser(userId: string): UserSettings {
     theme: 'dark',
     dailyFocusGoalMinutes: 100,
     weeklyFocusGoalMinutes: 500,
-    monthlyBudgetPaise: 5000000,
+    monthlyBudgetPaise: 0,
     categoryBudgets: {},
     dashboardLayout: DEFAULT_DASHBOARD_LAYOUT,
     notificationPrefs: DEFAULT_NOTIFICATION_PREFS,
@@ -1623,32 +1624,36 @@ export const firestoreService = {
 
   // Aggregated Dashboard & Finance Summary
   async getDashboard(userId: string): Promise<DashboardData> {
-    const [sessions, tasks, incomes, expenses, bills, cats] = await Promise.all([
+    const [sessions, tasks, incomes, expenses, bills, cats, userSettings]: [
+      FocusSession[],
+      Task[],
+      IncomeTransaction[],
+      ExpenseTransaction[],
+      Bill[],
+      ExpenseCategory[],
+      Partial<UserSettings> | null,
+    ] = await Promise.all([
       this.getFocusSessions(userId),
       this.getTasks(userId),
       this.getIncomes(userId),
       this.getExpenses(userId),
       this.getBills(userId),
       this.getCategories(userId),
+      this.getSettings(userId).catch(() => null),
     ]);
 
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayDateString(tz);
+    const currentMonthKey = todayStr.substring(0, 7);
+    const weekStartStr = getStartOfWeek(todayStr);
 
-    const day = now.getDay();
-    const diffToMonday = (day + 6) % 7;
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - diffToMonday);
-    const weekStartStr = startOfWeek.toISOString().split('T')[0];
-
-    const todaySessions = sessions.filter((s) => s.startedAt.startsWith(todayStr) && s.completed);
+    const todaySessions = sessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === todayStr && s.completed);
     const todayFocusSeconds = todaySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
     const weeklyFocusSeconds = sessions
-      .filter((s) => s.mode === 'work' && s.completed && s.startedAt.slice(0, 10) >= weekStartStr)
+      .filter((s) => s.mode === 'work' && s.completed && formatDateInTimezone(s.startedAt, tz) >= weekStartStr)
       .reduce((acc, s) => acc + s.durationSeconds, 0);
     const completedPomodoroSessions = todaySessions.filter((s) => s.mode === 'work').length;
-    const focusStreakDays = calculateBoundedStreakDays(sessions, now);
+    const focusStreakDays = calculateBoundedStreakDays(sessions, new Date());
     const bestStreakDays = computeBestStreakDays(sessions);
 
     const completedTasksCount = tasks.filter((t) => t.status === 'completed').length;
@@ -1750,38 +1755,49 @@ export const firestoreService = {
     customStart?: string,
     customEnd?: string
   ): Promise<FinanceSummaryData> {
-    const [allIncomes, allExpenses, allBills, cats] = await Promise.all([
+    const [allIncomes, allExpenses, allBills, cats, userSettings] = await Promise.all([
       this.getIncomes(userId),
       this.getExpenses(userId),
       this.getBills(userId),
       this.getCategories(userId),
+      this.getSettings(userId).catch(() => null),
     ]);
 
-    const now = new Date();
+    const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayDateString(tz);
+    const [currentY, currentM] = todayStr.split('-').map(Number);
+
     let startDateStr = '';
     let endDateStr = '';
 
     if (filter === 'today') {
-      startDateStr = now.toISOString().split('T')[0];
-      endDateStr = startDateStr;
+      startDateStr = todayStr;
+      endDateStr = todayStr;
     } else if (filter === 'this_week') {
+      const now = new Date(`${todayStr}T12:00:00.000Z`);
       const day = now.getDay();
       const diffToMonday = (day + 6) % 7;
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - diffToMonday);
       startDateStr = startOfWeek.toISOString().split('T')[0];
-      endDateStr = now.toISOString().split('T')[0];
+      endDateStr = todayStr;
     } else if (filter === 'last_month') {
-      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
-      startDateStr = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-01`;
-      endDateStr = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      let lmYear = currentY;
+      let lmMonth = currentM - 1;
+      if (lmMonth === 0) {
+        lmMonth = 12;
+        lmYear -= 1;
+      }
+      const lastDay = new Date(lmYear, lmMonth, 0).getDate();
+      startDateStr = `${lmYear}-${String(lmMonth).padStart(2, '0')}-01`;
+      endDateStr = `${lmYear}-${String(lmMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     } else if (filter === 'custom' && customStart && customEnd) {
       startDateStr = customStart;
       endDateStr = customEnd;
     } else {
-      startDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      endDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+      const lastDay = new Date(currentY, currentM, 0).getDate();
+      startDateStr = `${currentY}-${String(currentM).padStart(2, '0')}-01`;
+      endDateStr = `${currentY}-${String(currentM).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     }
 
     const incomes = allIncomes.filter((i) => i.date >= startDateStr && i.date <= endDateStr);
@@ -1822,9 +1838,14 @@ export const firestoreService = {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthlyTrend: FinanceSummaryData['monthlyTrend'] = [];
     for (let m = 5; m >= 0; m--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const label = `${monthNames[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`;
+      let y = currentY;
+      let mo = currentM - m;
+      while (mo <= 0) {
+        mo += 12;
+        y -= 1;
+      }
+      const key = `${y}-${String(mo).padStart(2, '0')}`;
+      const label = `${monthNames[mo - 1]} ${String(y).slice(-2)}`;
       monthlyTrend.push({
         month: label,
         incomePaise: allIncomes

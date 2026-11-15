@@ -34,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     setCurrentTab,
     isRunning,
     timeLeft,
+    totalDuration,
     stopwatchElapsed,
     timerEngine,
     timerMode,
@@ -58,6 +59,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
   const { isDisabled, profile } = useMotionPreferences();
   const activeStyle = getStyleDefinition(effectiveThemeConfig.styleId);
   const [isScrolled, setIsScrolled] = useState(false);
+
+  const isPaused = !isRunning && (
+    timerEngine === 'stopwatch'
+      ? stopwatchElapsed > 0
+      : timeLeft < totalDuration && timeLeft > 0
+  );
 
   useEffect(() => {
     const onScroll = () => {
@@ -147,17 +154,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
       </div>
 
       {/* Zone 2: Animated Breadcrumbs & Workspace Context */}
-      <div className="hidden lg:flex items-center gap-1.5 text-xs min-w-0">
+      <div className="hidden lg:flex items-center gap-1.5 text-xs shrink-0 select-none">
         <button
           type="button"
           onClick={() => setCurrentTab('dashboard')}
-          className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors font-medium truncate"
+          className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors font-medium whitespace-nowrap shrink-0"
           title="Go to Dashboard"
         >
           FocusFlow
         </button>
         <span className="text-[var(--ff-text-muted)] opacity-50 select-none">/</span>
-        <span className="text-[var(--ff-text-muted)] font-medium truncate">
+        <span className="text-[var(--ff-text-muted)] font-medium whitespace-nowrap shrink-0">
           {tabSectionMap[currentTab] || 'Workspace'}
         </span>
         <span className="text-[var(--ff-text-muted)] opacity-50 select-none">/</span>
@@ -168,7 +175,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
             animate={{ opacity: 1, x: 0 }}
             exit={isDisabled ? { opacity: 0 } : { opacity: 0, x: 3 }}
             transition={{ duration: 0.16 }}
-            className="font-bold text-[var(--ff-accent-text)] truncate max-w-[200px]"
+            className="font-bold text-[var(--ff-accent-text)] whitespace-nowrap shrink-0"
           >
             {tabLabels[currentTab] || 'Dashboard'}
           </motion.span>
@@ -224,48 +231,53 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         {/* Rule-Based Notifications Bell */}
         <NotificationCenter />
 
-        {/* Floating Mini Timer Indicator (layout-morphing capsule) */}
-        <motion.div
-          layout
-          transition={profile.spring}
-          className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border transition-colors overflow-hidden"
+        {/* Floating Mini Timer Indicator (Stable layout capsule with zero overlap) */}
+        <div
+          className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 text-xs font-mono font-medium border transition-colors select-none"
           style={{
             borderRadius: 'var(--ff-radius-button)',
-            background: isRunning ? 'var(--ff-accent-soft)' : 'var(--ff-surface-muted)',
-            borderColor: isRunning ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
+            background: isRunning
+              ? 'var(--ff-accent-soft)'
+              : isPaused
+              ? 'rgba(245, 158, 11, 0.14)'
+              : 'var(--ff-surface-muted)',
+            borderColor: isRunning
+              ? 'var(--ff-accent-border)'
+              : isPaused
+              ? 'rgba(245, 158, 11, 0.45)'
+              : 'var(--ff-border-color)',
             color: 'var(--ff-text-primary)',
           }}
         >
-          <AnimatePresence initial={false}>
-            {isRunning && (
-              <motion.span
-                key="header-timer-dot"
-                aria-hidden="true"
-                initial={isDisabled ? false : { scale: 0, opacity: 0 }}
-                animate={
-                  isDisabled
-                    ? { scale: 1, opacity: 1 }
-                    : { scale: [1, 1.3, 1], opacity: [0.7, 1, 0.7] }
-                }
-                exit={isDisabled ? { opacity: 0 } : { scale: 0, opacity: 0 }}
-                transition={
-                  isDisabled
-                    ? { duration: 0 }
-                    : {
-                        scale: { duration: 1.8, repeat: Infinity, ease: 'easeInOut' },
-                        opacity: { duration: 1.8, repeat: Infinity, ease: 'easeInOut' },
-                      }
-                }
+          {/* Status Indicator Dot with fixed layout slot */}
+          <div className="w-2 h-2 flex items-center justify-center shrink-0">
+            {isRunning ? (
+              <span
                 className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: timerMode === 'work' ? 'var(--ff-accent)' : 'var(--ff-success)' }}
+                style={{
+                  backgroundColor: timerMode === 'work' ? 'var(--ff-accent)' : 'var(--ff-success)',
+                  animation: isDisabled ? 'none' : 'pulse 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                }}
+                aria-hidden="true"
+              />
+            ) : isPaused ? (
+              <span
+                className="w-2 h-2 rounded-full shrink-0 bg-amber-500"
+                aria-hidden="true"
+              />
+            ) : (
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--ff-text-muted)] opacity-40"
+                aria-hidden="true"
               />
             )}
-          </AnimatePresence>
+          </div>
+
           <RollingTimerDigits
             value={formatTimerMinSec(timerEngine === 'stopwatch' ? stopwatchElapsed : timeLeft)}
-            className="font-semibold"
+            className="font-semibold tabular-nums"
           />
-          <span className="text-[10px] uppercase font-sans text-[var(--ff-text-muted)]">
+          <span className="text-[10px] uppercase font-sans text-[var(--ff-text-muted)] shrink-0">
             {timerEngine === 'stopwatch'
               ? 'SW'
               : timerEngine === 'countdown'
@@ -274,30 +286,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
                   ? 'Work'
                   : 'Break'}
           </span>
-          <motion.button
+          <button
             type="button"
-            whileTap={isDisabled ? undefined : { scale: 0.88 }}
-            transition={profile.microSpring}
             onClick={isRunning ? pauseTimer : startTimer}
-            className="p-1 rounded hover:bg-[var(--ff-surface-hover)] transition-colors"
-            style={{ color: 'var(--ff-accent-text)' }}
-            title={isRunning ? 'Pause timer' : 'Start timer'}
-            aria-label={isRunning ? 'Pause timer' : 'Start timer'}
+            className="p-1 rounded hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0 ml-0.5"
+            style={{ color: isPaused ? '#f59e0b' : 'var(--ff-accent-text)' }}
+            title={isRunning ? 'Pause timer' : isPaused ? 'Resume timer' : 'Start timer'}
+            aria-label={isRunning ? 'Pause timer' : isPaused ? 'Resume timer' : 'Start timer'}
           >
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.span
-                key={isRunning ? 'pause' : 'play'}
-                initial={isDisabled ? false : { scale: 0.7, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={isDisabled ? { opacity: 0 } : { scale: 0.7, opacity: 0 }}
-                transition={{ duration: MOTION_DURATION.micro }}
-                className="inline-flex"
-              >
-                {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              </motion.span>
-            </AnimatePresence>
-          </motion.button>
-        </motion.div>
+            {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+        </div>
 
         {/* Theme Studio Quick Pill */}
         <button

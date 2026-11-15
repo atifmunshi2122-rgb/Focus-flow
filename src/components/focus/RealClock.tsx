@@ -248,23 +248,27 @@ export const AnalogClockDial: React.FC<AnalogClockDialProps> = ({
       role="img"
       aria-label={`Analog clock showing ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`}
     >
-      {/* Dial Surface & Outer Bezel */}
+      {/* Dial Surface & Outer Bezel (Styled with inline CSS properties for 100% SVG cross-browser support) */}
       <circle
         cx="160"
         cy="160"
         r="154"
-        fill="var(--ff-surface-subtle)"
-        stroke="var(--ff-border-color)"
-        strokeWidth="2.5"
+        style={{
+          fill: 'var(--ff-surface-subtle, var(--ff-card-bg, #ffffff))',
+          stroke: 'var(--ff-border-strong, #cbd5e1)',
+          strokeWidth: 2.5,
+        }}
       />
       <circle
         cx="160"
         cy="160"
         r="148"
-        fill="var(--ff-surface-card)"
-        stroke="var(--ff-border-color)"
-        strokeOpacity="0.45"
-        strokeWidth="1"
+        style={{
+          fill: 'var(--ff-card-bg, #ffffff)',
+          stroke: 'var(--ff-border-color, #e2e8f0)',
+          strokeOpacity: 0.6,
+          strokeWidth: 1.5,
+        }}
       />
 
       {/* Subtle Inner Chapter Ring */}
@@ -274,9 +278,11 @@ export const AnalogClockDial: React.FC<AnalogClockDialProps> = ({
           cy="160"
           r="94"
           fill="none"
-          stroke="var(--ff-border-color)"
-          strokeOpacity="0.28"
-          strokeWidth="0.75"
+          style={{
+            stroke: 'var(--ff-border-color, #cbd5e1)',
+            strokeOpacity: 0.28,
+            strokeWidth: 0.75,
+          }}
         />
       )}
 
@@ -288,10 +294,12 @@ export const AnalogClockDial: React.FC<AnalogClockDialProps> = ({
           y1={t.y1}
           x2={t.x2}
           y2={t.y2}
-          stroke={t.isHourTick ? 'var(--ff-text-primary)' : 'var(--ff-text-muted)'}
-          strokeOpacity={t.isHourTick ? 0.9 : 0.45}
-          strokeWidth={t.isHourTick ? 2.4 : 1.1}
           strokeLinecap="round"
+          style={{
+            stroke: t.isHourTick ? 'var(--ff-text-primary, #0f172a)' : 'var(--ff-text-muted, #94a3b8)',
+            strokeOpacity: t.isHourTick ? 0.9 : 0.45,
+            strokeWidth: t.isHourTick ? 2.4 : 1.1,
+          }}
         />
       ))}
 
@@ -304,10 +312,10 @@ export const AnalogClockDial: React.FC<AnalogClockDialProps> = ({
             y={n.y}
             textAnchor="middle"
             dominantBaseline="central"
-            fill="var(--ff-text-primary)"
             fontSize={n.value % 3 === 0 ? '16' : '13.5'}
             fontWeight={n.value % 3 === 0 ? '700' : '600'}
             style={{
+              fill: 'var(--ff-text-primary, #0f172a)',
               fontFamily: 'var(--ff-font-display, inherit)',
               fontVariantNumeric: 'tabular-nums',
             }}
@@ -325,19 +333,21 @@ export const AnalogClockDial: React.FC<AnalogClockDialProps> = ({
             width="34"
             height="24"
             rx="5"
-            fill="var(--ff-surface-subtle)"
-            stroke="var(--ff-border-color)"
-            strokeWidth="1.2"
+            style={{
+              fill: 'var(--ff-surface-subtle, #f8fafc)',
+              stroke: 'var(--ff-border-color, #e2e8f0)',
+              strokeWidth: 1.2,
+            }}
           />
           <text
             x="0"
             y="1"
             textAnchor="middle"
             dominantBaseline="central"
-            fill="var(--ff-accent-text)"
             fontSize="12"
             fontWeight="700"
             style={{
+              fill: 'var(--ff-accent-text, #6366f1)',
               fontFamily: 'var(--ff-font-mono, monospace)',
               fontVariantNumeric: 'tabular-nums',
             }}
@@ -354,9 +364,11 @@ export const AnalogClockDial: React.FC<AnalogClockDialProps> = ({
           y1="176"
           x2="160"
           y2="82"
-          stroke="var(--ff-text-primary)"
-          strokeWidth="6.5"
           strokeLinecap="round"
+          style={{
+            stroke: 'var(--ff-text-primary, #0f172a)',
+            strokeWidth: 6.5,
+          }}
         />
       </g>
 
@@ -367,9 +379,11 @@ export const AnalogClockDial: React.FC<AnalogClockDialProps> = ({
           y1="180"
           x2="160"
           y2="46"
-          stroke="var(--ff-text-primary)"
-          strokeWidth="4.2"
           strokeLinecap="round"
+          style={{
+            stroke: 'var(--ff-text-primary, #0f172a)',
+            strokeWidth: 4.2,
+          }}
         />
       </g>
 
@@ -380,16 +394,18 @@ export const AnalogClockDial: React.FC<AnalogClockDialProps> = ({
           y1="194"
           x2="160"
           y2="34"
-          stroke="var(--ff-accent)"
-          strokeWidth="2"
           strokeLinecap="round"
+          style={{
+            stroke: 'var(--ff-accent, #6366f1)',
+            strokeWidth: 2,
+          }}
         />
-        <circle cx="160" cy="186" r="3.2" fill="var(--ff-accent)" />
+        <circle cx="160" cy="186" r="3.2" style={{ fill: 'var(--ff-accent, #6366f1)' }} />
       </g>
 
       {/* Center Pinion Jewel */}
-      <circle cx="160" cy="160" r="6.5" fill="var(--ff-accent)" />
-      <circle cx="160" cy="160" r="2.6" fill="var(--ff-surface-card)" />
+      <circle cx="160" cy="160" r="6.5" style={{ fill: 'var(--ff-accent, #6366f1)' }} />
+      <circle cx="160" cy="160" r="2.6" style={{ fill: 'var(--ff-surface-card, #ffffff)' }} />
     </svg>
   );
 };
@@ -677,7 +693,7 @@ export const RealClock: React.FC = () => {
             </h2>
           </div>
           <p className="text-xs sm:text-sm text-[var(--ff-text-muted)]">
-            Synchronized analog &amp; digital horology · {primaryZoneMeta.city} ({primaryUtcOffset})
+            Synchronized analog &amp; digital horology &middot; {primaryZoneMeta.city} ({primaryUtcOffset})
           </p>
         </div>
 

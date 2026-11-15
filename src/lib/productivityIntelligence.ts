@@ -244,8 +244,8 @@ export function computeAllHabitsStats(
       totalActiveHabits: 0,
       scheduledToday: 0,
       completedToday: 0,
-      adherenceRateToday: 100,
-      weeklyConsistencyRate: 100,
+      adherenceRateToday: 0,
+      weeklyConsistencyRate: 0,
       bestCurrentStreak: 0,
     };
   }
@@ -268,7 +268,7 @@ export function computeAllHabitsStats(
   }
 
   const adherenceRateToday =
-    scheduledToday > 0 ? Math.round((completedToday / scheduledToday) * 100) : 100;
+    scheduledToday > 0 ? Math.round((completedToday / scheduledToday) * 100) : 0;
   const weeklyConsistencyRate = Math.round(weeklyTotalRates / activeHabits.length);
 
   return {
@@ -504,10 +504,9 @@ export function computeProductivityScore(input: ProductivityScoreInput): Product
     habitConsistencyPoints = w_habit > 0 ? Math.round((w_habit * R_habit / W_active) * 100) : 0;
     studyActivityPoints = w_study > 0 ? Math.round((w_study * R_study / W_active) * 100) : 0;
 
-    const rawTotal = Math.round(
-      ((w_focus * R_focus + w_task * R_task + w_habit * R_habit + w_study * R_study) / W_active) * 100
-    );
-    totalScore = Math.min(100, Math.max(0, rawTotal));
+    // Composite total matches exact sum of displayed component points
+    const sumPoints = focusTimePoints + taskCompletionPoints + habitConsistencyPoints + studyActivityPoints + targetBonusPoints;
+    totalScore = Math.min(100, Math.max(0, sumPoints));
   }
 
   let tier: ProductivityScoreBreakdown['tier'] = 'Building Momentum';

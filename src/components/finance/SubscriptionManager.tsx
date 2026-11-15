@@ -218,7 +218,7 @@ export const SubscriptionManager: React.FC = () => {
           </div>
         </div>
 
-        <ThemeButton variant="primary" size="sm" onClick={openCreateModal}>
+        <ThemeButton variant="secondary" size="sm" onClick={openCreateModal}>
           <Plus className="w-4 h-4 mr-1.5" />
           Add Subscription
         </ThemeButton>
@@ -246,7 +246,11 @@ export const SubscriptionManager: React.FC = () => {
               />
             </p>
           </div>
-          <ThemeBadge tone="neutral">Normalized</ThemeBadge>
+          {activeSubs.length > 0 ? (
+            <ThemeBadge tone="neutral">Normalized</ThemeBadge>
+          ) : (
+            <ThemeBadge tone="neutral">0 Active</ThemeBadge>
+          )}
         </MotionStaggerItem>
 
         <MotionStaggerItem className="p-4 rounded-xl bg-[var(--ff-card-bg)] border ff-divider flex items-center justify-between">

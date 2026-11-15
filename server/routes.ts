@@ -316,7 +316,7 @@ apiRouter.get('/dashboard', (req: Request, res: Response) => {
 
   // 1. Focus metrics
   const userSessions = db.focusSessions.filter((s) => s.userId === userId);
-  const todaySessions = userSessions.filter((s) => s.startedAt.startsWith(todayStr) && s.completed);
+  const todaySessions = userSessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === todayStr && s.completed);
   const weekSessions = userSessions.filter(
     (s) => s.completed && s.mode === 'work' && s.startedAt.slice(0, 10) >= weekStartStr
   );
@@ -556,7 +556,7 @@ apiRouter.get('/focus/stats', (req: Request, res: Response) => {
     const dateStr = d.toISOString().split('T')[0];
     const dayName = dayNames[d.getUTCDay()];
 
-    const daysSessions = sessions.filter((s) => s.startedAt.startsWith(dateStr) && s.mode === 'work');
+    const daysSessions = sessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === dateStr && s.mode === 'work');
     const totalSecs = daysSessions.reduce((acc, s) => acc + s.durationSeconds, 0);
 
     last7Days.push({
@@ -573,7 +573,7 @@ apiRouter.get('/focus/stats', (req: Request, res: Response) => {
     const d = new Date(`${todayStr}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    const daySessions = sessions.filter((s) => s.startedAt.startsWith(dateStr) && s.mode === 'work');
+    const daySessions = sessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === dateStr && s.mode === 'work');
     const totalSecs = daySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
     dailyHeatmap.push({
       date: dateStr,
@@ -584,10 +584,9 @@ apiRouter.get('/focus/stats', (req: Request, res: Response) => {
 
   const weeklyMinutes = last7Days.reduce((acc, d) => acc + d.minutes, 0);
 
-  const now = new Date();
-  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const currentMonthKey = todayStr.substring(0, 7);
   const monthSessions = sessions.filter(
-    (s) => s.startedAt.startsWith(currentMonthKey) && s.mode === 'work'
+    (s) => formatDateInTimezone(s.startedAt, tz).startsWith(currentMonthKey) && s.mode === 'work'
   );
   const monthMinutes = Math.round(
     monthSessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60

@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { googleSheetsService } from '../../lib/googleSheetsService.ts';
 import { SubtaskItem, Task, TaskRecurrence } from '../../types/index.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import {
   ThemeBadge,
   ThemeButton,
@@ -77,8 +78,9 @@ export const TaskManager: React.FC = () => {
   } = useApp();
 
   const { intensity, isDisabled, profile } = useMotionPreferences();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedTasks = clientDataCache.getTasks();
+  const [tasks, setTasks] = useState<Task[]>(() => cachedTasks || []);
+  const [loading, setLoading] = useState(!cachedTasks);
   const [viewMode, setViewMode] = useState<TaskViewMode>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -103,10 +105,15 @@ export const TaskManager: React.FC = () => {
   const [isSubmittingQuick, setIsSubmittingQuick] = useState(false);
 
   const loadTasks = () => {
-    setLoading(true);
+    if (!clientDataCache.getTasks()) {
+      setLoading(true);
+    }
     api
       .getTasks()
-      .then(setTasks)
+      .then((taskList) => {
+        clientDataCache.setTasks(taskList);
+        setTasks(taskList);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -428,8 +435,8 @@ export const TaskManager: React.FC = () => {
         className="w-full"
       >
         <ThemeCard
-          variant="interactive"
-          className={`space-y-3 transition-[background-color,border-color] duration-300 ${
+          variant="3d"
+          className={`space-y-3 transition-[background-color,border-color,transform] duration-300 ${
             isCompleted ? 'bg-[var(--ff-success-soft)]/20 border-[var(--ff-success)]/30' : ''
           }`}
           draggable={allowDrag}
@@ -638,8 +645,8 @@ export const TaskManager: React.FC = () => {
             <Trash2 className="w-3.5 h-3.5" />
             <span>Trash</span>
           </ThemeButton>
-          <ThemeButton variant="primary" size="md" onClick={openCreateModal}>
-            <Plus className="w-4 h-4" />
+          <ThemeButton variant="secondary" size="sm" onClick={openCreateModal}>
+            <Plus className="w-3.5 h-3.5" />
             <span>Add Task</span>
           </ThemeButton>
         </div>
@@ -756,6 +763,7 @@ export const TaskManager: React.FC = () => {
             return (
               <ThemeCard
                 key={col.id}
+                variant="3d"
                 className="space-y-3 min-h-[320px]"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => {
@@ -782,7 +790,7 @@ export const TaskManager: React.FC = () => {
                       key={t.id}
                       draggable
                       onDragStart={() => setDraggedTaskId(t.id)}
-                      className="ff-surface-subtle p-3 space-y-2 cursor-grab"
+                      className="ff-card ff-card-interactive p-3 space-y-2 cursor-grab transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <span className="text-xs font-bold text-[var(--ff-text-primary)]">

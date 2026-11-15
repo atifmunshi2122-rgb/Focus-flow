@@ -400,10 +400,10 @@ export const ThemeStudio: React.FC = () => {
             <h2 className="text-lg font-bold text-[var(--ff-text-primary)]">
               Design System &amp; Theme Studio
             </h2>
-            <ThemeBadge tone="accent">19 Design Systems (Inc. Hybrids)</ThemeBadge>
+            <ThemeBadge tone="accent">20 Signature Themes & 19 Architectures</ThemeBadge>
           </div>
           <p className="text-xs text-[var(--ff-text-muted)] max-w-2xl">
-            Browse 19 distinct UI architectures including curated hybrids (Glazed Clay, Cyber Glass, Soft Glass) and custom Style Fusion mixing.
+            Browse 20 curated signature themes across 19 distinct UI design systems and custom Style Fusion hybrid mixing.
           </p>
         </div>
 
@@ -466,9 +466,9 @@ export const ThemeStudio: React.FC = () => {
       />
 
       {/* Studio Mode Selector */}
-      <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
+      <div id="studio-tabs-bar" className="sticky top-16 z-20 flex flex-wrap items-center gap-2 p-1.5 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]/95 backdrop-blur-md shadow-xs">
         {[
-          { id: 'themes', label: '20 Signature Themes', badge: '20 Themes', badgeTone: 'accent' as const, icon: Sparkles },
+          { id: 'themes', label: '20 Signature Themes', badge: '20 Presets', badgeTone: 'accent' as const, icon: Sparkles },
           { id: 'colors', label: 'Color Studio & Contrast', badge: '6 Channels', badgeTone: 'accent' as const, icon: Palette },
           { id: 'background', label: 'Backdrop & Lighting', badge: '3D Physics', badgeTone: 'accent' as const, icon: Sun },
           { id: 'surface', label: 'Surface & Geometry', badge: 'Glass & Depth', badgeTone: 'accent' as const, icon: Box },
@@ -485,7 +485,17 @@ export const ThemeStudio: React.FC = () => {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setStudioTab(tab.id as any)}
+              onClick={() => {
+                setStudioTab(tab.id as any);
+                // Ensure viewport scrolls to the active section smoothly
+                setTimeout(() => {
+                  const target = document.getElementById('studio-tab-content');
+                  if (target) {
+                    const top = target.getBoundingClientRect().top + window.scrollY - 130;
+                    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+                  }
+                }, 40);
+              }}
               className="relative flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors"
               style={{
                 color: isActive ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
@@ -512,6 +522,8 @@ export const ThemeStudio: React.FC = () => {
           );
         })}
       </div>
+
+      <div id="studio-tab-content" className="space-y-6">
 
       {/* TAB 0: 20 SIGNATURE THEMES COLLECTION */}
       {studioTab === 'themes' && (
@@ -1879,6 +1891,7 @@ export const ThemeStudio: React.FC = () => {
         </ThemeCard>
       </div>
       )}
+      </div>
 
       {/* Accessibility Readability Verification Strip */}
       <ThemeCard variant="inset" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">

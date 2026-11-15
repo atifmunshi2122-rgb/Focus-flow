@@ -262,7 +262,7 @@ export const DataRecoveryCenter: React.FC = () => {
             <p className="text-xs text-[var(--ff-text-muted)] mt-0.5">
               {offlineOutboxCount > 0
                 ? 'Signed-in writes captured offline are queued securely in your per-user outbox awaiting Firestore replay (never diverted to local JSON fallback).'
-                : `Primary Firestore source of truth is up to date (${isOnline ? 'Online' : 'Offline'}).`}
+                : `Primary persistence is Firestore; offline queue drains automatically (${isOnline ? 'Online' : 'Offline'}).`}
             </p>
           </div>
 
@@ -338,8 +338,13 @@ export const DataRecoveryCenter: React.FC = () => {
       {/* Historical Audit Trail */}
       <ThemeCard noPadding>
         <div className="p-4 border-b ff-divider flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <History className="w-4 h-4 text-[var(--ff-accent)]" />
+          <div className="flex items-center gap-2.5">
+            <span
+              className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 inline-block mr-0.5"
+              title="Verified audit logging active"
+              aria-hidden="true"
+            />
+            <History className="w-4 h-4 text-[var(--ff-accent)] shrink-0" />
             <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
               Verified Audit Log ({filteredLogs.length})
             </h3>

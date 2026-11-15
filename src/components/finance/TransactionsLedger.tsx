@@ -12,6 +12,7 @@ import {
   ThemeSelect,
 } from '../ui/ThemePrimitives.tsx';
 import { buildCsvContent, downloadCsvFile } from '../../lib/exportReports.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import {
   EmptyStateIllustration,
   SkeletonList,
@@ -51,8 +52,33 @@ export const TransactionsLedger: React.FC = () => {
   const { currency, refreshKey, showToast, triggerRefresh, confirmAction } = useApp();
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
-  const [transactions, setTransactions] = useState<UnifiedTransaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedTx = clientDataCache.getTransactions();
+  const initialTransactions = useMemo<UnifiedTransaction[]>(() => {
+    if (!cachedTx) return [];
+    const inc: UnifiedTransaction[] = cachedTx.incomes.map((i) => ({
+      id: i.id,
+      type: 'income',
+      name: i.source,
+      category: i.category,
+      amountPaise: i.amountPaise,
+      date: i.date,
+      notes: i.notes,
+    }));
+    const exp: UnifiedTransaction[] = cachedTx.expenses.map((e) => ({
+      id: e.id,
+      type: e.type,
+      name: e.description,
+      category: e.categoryName || 'General',
+      amountPaise: e.amountPaise,
+      date: e.date,
+      notes: e.notes,
+      paymentMethod: e.paymentMethod,
+    }));
+    return [...inc, ...exp].sort((a, b) => b.date.localeCompare(a.date));
+  }, []);
+
+  const [transactions, setTransactions] = useState<UnifiedTransaction[]>(initialTransactions);
+  const [loading, setLoading] = useState(initialTransactions.length === 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [incomeCursor, setIncomeCursor] = useState<string | null>(null);
   const [expenseCursor, setExpenseCursor] = useState<string | null>(null);
@@ -187,9 +213,12 @@ export const TransactionsLedger: React.FC = () => {
   };
 
   const loadTransactions = () => {
-    setLoading(true);
+    if (!clientDataCache.getTransactions()) {
+      setLoading(true);
+    }
     Promise.all([api.getIncomesPage(25, null), api.getExpensesPage(25, null)])
       .then(([incPage, expPage]) => {
+        clientDataCache.setTransactions(incPage.items, expPage.items);
         setIncomeCursor(incPage.nextCursor);
         setHasMoreIncomes(incPage.hasMore);
         setExpenseCursor(expPage.nextCursor);

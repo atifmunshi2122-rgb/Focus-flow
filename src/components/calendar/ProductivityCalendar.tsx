@@ -43,9 +43,16 @@ export const ProductivityCalendar: React.FC = () => {
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
 
-  // Current viewed month: year and 1-based month
-  const [currentYear, setCurrentYear] = useState(() => parseInt(todayStr.slice(0, 4), 10));
-  const [currentMonth, setCurrentMonth] = useState(() => parseInt(todayStr.slice(5, 7), 10));
+  // Current viewed month and week navigation state
+  const [viewYearMonth, setViewYearMonth] = useState(() => {
+    const y = parseInt(todayStr.slice(0, 4), 10);
+    const m = parseInt(todayStr.slice(5, 7), 10);
+    return { year: y, month: m };
+  });
+  const currentYear = viewYearMonth.year;
+  const currentMonth = viewYearMonth.month;
+
+  const [activeWeekStart, setActiveWeekStart] = useState(() => getStartOfWeek(todayStr));
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
   const [selectedDay, setSelectedDay] = useState<DaySummary | null>(null);
 
@@ -130,51 +137,95 @@ export const ProductivityCalendar: React.FC = () => {
     return days;
   }, [currentYear, currentMonth, todayStr, tasks, bills, sessions, incomes, expenses]);
 
-  // Week view slice
+  // Week view slice based on activeWeekStart
   const weekDays = useMemo(() => {
-    const startOfWeekStr = getStartOfWeek(todayStr);
     const days: DaySummary[] = [];
-    const baseDate = new Date(`${startOfWeekStr}T12:00:00Z`);
+    const baseDate = new Date(`${activeWeekStart}T12:00:00Z`);
 
     for (let i = 0; i < 7; i++) {
       const d = new Date(baseDate);
       d.setUTCDate(baseDate.getUTCDate() + i);
       const dateStr = d.toISOString().split('T')[0];
       const dayNum = d.getUTCDate();
-      days.push(buildDaySummary(dateStr, dayNum, true, todayStr, tasks, bills, sessions, incomes, expenses));
+      const isCurrentMonth = d.getUTCMonth() + 1 === currentMonth;
+      days.push(buildDaySummary(dateStr, dayNum, isCurrentMonth, todayStr, tasks, bills, sessions, incomes, expenses));
     }
     return days;
-  }, [todayStr, tasks, bills, sessions, incomes, expenses]);
+  }, [activeWeekStart, currentMonth, todayStr, tasks, bills, sessions, incomes, expenses]);
 
   const displayedDays = viewMode === 'month' ? monthDays : weekDays;
 
-  const handlePrevMonth = () => {
-    if (currentMonth === 1) {
-      setCurrentMonth(12);
-      setCurrentYear((y) => y - 1);
+  // Month & Week navigation handlers (atomic, prevents desync)
+  const handlePrev = () => {
+    if (viewMode === 'week') {
+      const d = new Date(`${activeWeekStart}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - 7);
+      const newWeekStart = d.toISOString().split('T')[0];
+      setActiveWeekStart(newWeekStart);
+
+      // Keep month in sync with the new week's midpoint
+      const mid = new Date(`${newWeekStart}T12:00:00Z`);
+      mid.setUTCDate(mid.getUTCDate() + 3);
+      setViewYearMonth({ year: mid.getUTCFullYear(), month: mid.getUTCMonth() + 1 });
     } else {
-      setCurrentMonth((m) => m - 1);
+      setViewYearMonth(({ year, month }) => {
+        const nextMonth = month === 1 ? 12 : month - 1;
+        const nextYear = month === 1 ? year - 1 : year;
+        const firstDayStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+        setActiveWeekStart(getStartOfWeek(firstDayStr));
+        return { year: nextYear, month: nextMonth };
+      });
     }
   };
 
-  const handleNextMonth = () => {
-    if (currentMonth === 12) {
-      setCurrentMonth(1);
-      setCurrentYear((y) => y + 1);
+  const handleNext = () => {
+    if (viewMode === 'week') {
+      const d = new Date(`${activeWeekStart}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 7);
+      const newWeekStart = d.toISOString().split('T')[0];
+      setActiveWeekStart(newWeekStart);
+
+      // Keep month in sync with the new week's midpoint
+      const mid = new Date(`${newWeekStart}T12:00:00Z`);
+      mid.setUTCDate(mid.getUTCDate() + 3);
+      setViewYearMonth({ year: mid.getUTCFullYear(), month: mid.getUTCMonth() + 1 });
     } else {
-      setCurrentMonth((m) => m + 1);
+      setViewYearMonth(({ year, month }) => {
+        const nextMonth = month === 12 ? 1 : month + 1;
+        const nextYear = month === 12 ? year + 1 : year;
+        const firstDayStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+        setActiveWeekStart(getStartOfWeek(firstDayStr));
+        return { year: nextYear, month: nextMonth };
+      });
     }
   };
 
   const handleToday = () => {
-    setCurrentYear(parseInt(todayStr.slice(0, 4), 10));
-    setCurrentMonth(parseInt(todayStr.slice(5, 7), 10));
+    const y = parseInt(todayStr.slice(0, 4), 10);
+    const m = parseInt(todayStr.slice(5, 7), 10);
+    setViewYearMonth({ year: y, month: m });
+    setActiveWeekStart(getStartOfWeek(todayStr));
   };
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
+
+  // Week range label (e.g. "Nov 9 – 15, 2026" or "Nov 30 – Dec 6, 2026")
+  const weekRangeLabel = useMemo(() => {
+    if (weekDays.length < 7) return '';
+    const first = weekDays[0];
+    const last = weekDays[6];
+    const d1 = new Date(`${first.date}T12:00:00Z`);
+    const d2 = new Date(`${last.date}T12:00:00Z`);
+    const m1 = monthNames[d1.getUTCMonth()].slice(0, 3);
+    const m2 = monthNames[d2.getUTCMonth()].slice(0, 3);
+    if (m1 === m2) {
+      return `${m1} ${d1.getUTCDate()} – ${d2.getUTCDate()}, ${d2.getUTCFullYear()}`;
+    }
+    return `${m1} ${d1.getUTCDate()} – ${m2} ${d2.getUTCDate()}, ${d2.getUTCFullYear()}`;
+  }, [weekDays]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -210,25 +261,48 @@ export const ProductivityCalendar: React.FC = () => {
               Month
             </button>
             <button
-              onClick={() => setViewMode('week')}
+              onClick={() => {
+                setViewMode('week');
+                const isViewingCurrentMonth =
+                  currentYear === parseInt(todayStr.slice(0, 4), 10) &&
+                  currentMonth === parseInt(todayStr.slice(5, 7), 10);
+                if (isViewingCurrentMonth) {
+                  setActiveWeekStart(getStartOfWeek(todayStr));
+                } else {
+                  const firstDayStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+                  setActiveWeekStart(getStartOfWeek(firstDayStr));
+                }
+              }}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                 viewMode === 'week'
                   ? 'bg-[var(--ff-accent)] text-white shadow-xs'
                   : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
               }`}
             >
-              This Week
+              Week
             </button>
           </div>
 
           <div className="flex items-center gap-1 bg-[var(--ff-card-bg)] border ff-divider rounded-lg p-1">
-            <ThemeButton variant="ghost" size="sm" onClick={handlePrevMonth} aria-label="Previous month" className="p-1.5">
+            <ThemeButton
+              variant="ghost"
+              size="sm"
+              onClick={handlePrev}
+              aria-label={viewMode === 'week' ? 'Previous week' : 'Previous month'}
+              className="p-1.5"
+            >
               <ChevronLeft className="w-4 h-4" />
             </ThemeButton>
-            <span className="text-xs font-bold font-mono px-2 min-w-[120px] text-center text-[var(--ff-text-primary)]">
-              {monthNames[currentMonth - 1]} {currentYear}
+            <span className="text-xs font-bold font-mono px-2 min-w-[140px] text-center text-[var(--ff-text-primary)] select-none">
+              {viewMode === 'week' ? weekRangeLabel : `${monthNames[currentMonth - 1]} ${currentYear}`}
             </span>
-            <ThemeButton variant="ghost" size="sm" onClick={handleNextMonth} aria-label="Next month" className="p-1.5">
+            <ThemeButton
+              variant="ghost"
+              size="sm"
+              onClick={handleNext}
+              aria-label={viewMode === 'week' ? 'Next week' : 'Next month'}
+              className="p-1.5"
+            >
               <ChevronRight className="w-4 h-4" />
             </ThemeButton>
           </div>
@@ -260,7 +334,9 @@ export const ProductivityCalendar: React.FC = () => {
             <button
               key={day.date}
               onClick={() => setSelectedDay(day)}
-              className={`flex flex-col text-left p-2.5 min-h-[108px] rounded-xl border transition-all duration-150 relative group ${
+              className={`flex flex-col text-left p-2.5 ${
+                viewMode === 'week' ? 'min-h-[220px]' : 'min-h-[108px]'
+              } rounded-xl border transition-all duration-150 relative group ${
                 day.isToday
                   ? 'border-[var(--ff-accent)] bg-[var(--ff-accent-soft)]/20 shadow-xs ring-1 ring-[var(--ff-accent)]'
                   : day.isCurrentMonth
@@ -291,7 +367,7 @@ export const ProductivityCalendar: React.FC = () => {
               {/* Event Indicators */}
               <div className="flex flex-col gap-1 w-full flex-1 overflow-hidden">
                 {/* Bills Due */}
-                {day.bills.slice(0, 2).map((b) => (
+                {day.bills.slice(0, viewMode === 'week' ? 4 : 2).map((b) => (
                   <div
                     key={b.id}
                     className="flex items-center justify-between text-[10px] px-1.5 py-0.5 rounded truncate font-medium"
@@ -306,14 +382,14 @@ export const ProductivityCalendar: React.FC = () => {
                     </span>
                   </div>
                 ))}
-                {day.bills.length > 2 && (
+                {day.bills.length > (viewMode === 'week' ? 4 : 2) && (
                   <span className="text-[9px] text-[var(--ff-text-muted)] font-mono pl-1">
-                    +{day.bills.length - 2} more bills
+                    +{day.bills.length - (viewMode === 'week' ? 4 : 2)} more bills
                   </span>
                 )}
 
                 {/* Tasks Due */}
-                {day.tasks.slice(0, 2).map((t) => (
+                {day.tasks.slice(0, viewMode === 'week' ? 4 : 2).map((t) => (
                   <div
                     key={t.id}
                     className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded truncate bg-[var(--ff-muted)]/60 text-[var(--ff-text-secondary)] font-medium"
@@ -328,9 +404,9 @@ export const ProductivityCalendar: React.FC = () => {
                     </span>
                   </div>
                 ))}
-                {day.tasks.length > 2 && (
+                {day.tasks.length > (viewMode === 'week' ? 4 : 2) && (
                   <span className="text-[9px] text-[var(--ff-text-muted)] font-mono pl-1">
-                    +{day.tasks.length - 2} more tasks
+                    +{day.tasks.length - (viewMode === 'week' ? 4 : 2)} more tasks
                   </span>
                 )}
               </div>

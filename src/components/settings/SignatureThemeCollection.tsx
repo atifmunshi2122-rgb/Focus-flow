@@ -7,7 +7,9 @@ import {
   Check,
   Eye,
   EyeOff,
+  RotateCcw,
   Search,
+  SearchX,
   Star,
 } from 'lucide-react';
 
@@ -22,13 +24,13 @@ interface SignatureThemeCollectionProps {
   onToggleFavorite: (themeId: string) => void;
 }
 
-const CATEGORY_TABS: Array<{ id: string; label: string }> = [
-  { id: 'all', label: 'All 20 Themes' },
-  { id: 'Modern & Glass', label: 'Modern & Glass' },
-  { id: '3D & Tactile', label: '3D & Tactile' },
-  { id: 'Dark & Neon', label: 'Dark & Neon' },
-  { id: 'Nature & Gradient', label: 'Nature & Gradient' },
-  { id: 'Clean & Minimal', label: 'Clean & Minimal' },
+const CATEGORY_TABS: Array<{ id: string; label: string; count: number }> = [
+  { id: 'all', label: 'All 20 Themes', count: COMPLETE_THEME_COLLECTION.length },
+  { id: 'Modern & Glass', label: 'Modern & Glass', count: COMPLETE_THEME_COLLECTION.filter((t) => t.category === 'Modern & Glass').length },
+  { id: '3D & Tactile', label: '3D & Tactile', count: COMPLETE_THEME_COLLECTION.filter((t) => t.category === '3D & Tactile').length },
+  { id: 'Dark & Neon', label: 'Dark & Neon', count: COMPLETE_THEME_COLLECTION.filter((t) => t.category === 'Dark & Neon').length },
+  { id: 'Nature & Gradient', label: 'Nature & Gradient', count: COMPLETE_THEME_COLLECTION.filter((t) => t.category === 'Nature & Gradient').length },
+  { id: 'Clean & Minimal', label: 'Clean & Minimal', count: COMPLETE_THEME_COLLECTION.filter((t) => t.category === 'Clean & Minimal').length },
 ];
 
 function matchesPresetTheme(config: ThemeConfig, preset: PresetTheme): boolean {
@@ -87,13 +89,24 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
                 key={cat.id}
                 type="button"
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition-all shrink-0 ${
+                className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition-all shrink-0 flex items-center gap-1.5 ${
                   isSelected
                     ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-xs'
                     : 'bg-[var(--ff-surface-subtle)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-color)]'
                 }`}
               >
-                {cat.label}
+                <span>{cat.label}</span>
+                {cat.id !== 'all' && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      isSelected
+                        ? 'bg-black/20 text-white'
+                        : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border border-[var(--ff-border-color)]'
+                    }`}
+                  >
+                    {cat.count}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -259,13 +272,13 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
                         className="text-[9px] font-medium"
                         style={{ color: 'var(--ff-text-muted)' }}
                       >
-                        Focus &amp; Net Balance
+                        Theme Vignette
                       </span>
                       <span
-                        className="text-[11px] font-extrabold font-mono tabular-nums"
-                        style={{ color: 'var(--ff-text-primary)' }}
+                        className="text-[10px] font-extrabold font-mono uppercase tracking-wider"
+                        style={{ color: 'var(--ff-accent-text)' }}
                       >
-                        ₹48,250
+                        {cleanPreviewCfg.styleId}
                       </span>
                     </div>
 
@@ -277,7 +290,7 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
                       <div
                         className="h-full rounded-full"
                         style={{
-                          width: '68%',
+                          width: '72%',
                           background: 'linear-gradient(90deg, var(--ff-accent), var(--ff-accent-secondary))',
                         }}
                       />
@@ -287,7 +300,7 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
                     <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5 min-w-0">
                       <div className="flex items-center gap-1 min-w-0">
                         <span
-                          className="px-2 py-0.5 text-[8px] font-bold"
+                          className="px-2 py-0.5 text-[8px] font-bold shrink-0 whitespace-nowrap"
                           style={{
                             background: 'var(--ff-btn-primary-bg)',
                             color: 'var(--ff-btn-primary-contrast)',
@@ -295,10 +308,10 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
                             boxShadow: 'var(--ff-shadow-button)',
                           }}
                         >
-                          Start Focus
+                          Focus
                         </span>
                         <span
-                          className="px-1.5 py-0.5 text-[8px] font-semibold"
+                          className="px-1.5 py-0.5 text-[8px] font-semibold shrink-0 whitespace-nowrap"
                           style={{
                             background: 'var(--ff-surface-subtle)',
                             color: 'var(--ff-text-secondary)',
@@ -306,7 +319,7 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
                             borderRadius: 'var(--ff-radius-button)',
                           }}
                         >
-                          Card
+                          Pill
                         </span>
                       </div>
 
@@ -324,7 +337,10 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
                   </div>
                 </div>
 
-                <p className="text-[11px] text-[var(--ff-text-muted)] line-clamp-2 leading-relaxed">
+                <p
+                  className="text-[11px] text-[var(--ff-text-muted)] line-clamp-2 leading-relaxed"
+                  title={theme.description}
+                >
                   {theme.description}
                 </p>
               </div>
@@ -361,8 +377,30 @@ export const SignatureThemeCollection: React.FC<SignatureThemeCollectionProps> =
       </div>
 
       {filteredThemes.length === 0 && (
-        <div className="p-8 text-center text-xs text-[var(--ff-text-muted)] bg-[var(--ff-surface-card)] rounded-2xl border border-[var(--ff-border-color)]">
-          No themes match your search query. Try adjusting filters or searching a different term.
+        <div className="p-10 text-center bg-[var(--ff-surface-card)] rounded-2xl border border-[var(--ff-border-color)] flex flex-col items-center justify-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] flex items-center justify-center text-[var(--ff-text-muted)]">
+            <SearchX className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-[var(--ff-text-primary)]">No signature themes found</h4>
+            <p className="text-xs text-[var(--ff-text-muted)] mt-1 max-w-sm">
+              {searchQuery
+                ? `No presets match "${searchQuery}" in ${selectedCategory === 'all' ? 'the catalog' : selectedCategory}.`
+                : 'No themes match the selected filter criteria.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery('');
+              setSelectedCategory('all');
+              setFavoritesOnly(false);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-[var(--ff-surface-subtle)] hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-primary)] border border-[var(--ff-border-color)] transition-colors mt-1"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Search &amp; Filters</span>
+          </button>
         </div>
       )}
     </div>

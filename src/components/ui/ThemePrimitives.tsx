@@ -30,7 +30,7 @@ function supportsTopLayerExit(): boolean {
 }
 
 interface ThemeCardProps extends React.HTMLAttributes<HTMLDivElement> {
-  variant?: 'default' | 'elevated' | 'inset' | 'hero' | 'interactive';
+  variant?: 'default' | 'elevated' | 'inset' | 'hero' | 'interactive' | '3d' | 'glass';
   noPadding?: boolean;
 }
 
@@ -44,6 +44,10 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
   const variantClass =
     variant === 'hero'
       ? 'ff-hero-banner'
+      : variant === '3d'
+      ? 'ff-card-3d ff-card-interactive'
+      : variant === 'glass'
+      ? 'ff-glass-panel'
       : variant === 'elevated'
       ? 'ff-card ff-card-elevated'
       : variant === 'inset'

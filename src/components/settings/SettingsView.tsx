@@ -536,14 +536,14 @@ export const SettingsView: React.FC = () => {
   return (
     <div className="space-y-6 w-full max-w-[1920px] mx-auto pb-12">
       {/* Settings Center Header & Universal Search */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--ff-border-color)]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--ff-border-color)]">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-[var(--ff-text-muted)] mb-1">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--ff-text-muted)] mb-0.5">
             <span>Settings</span>
             <ChevronRight className="w-3.5 h-3.5" />
             <span style={{ color: 'var(--ff-accent-text)' }}>{activeCategoryMeta.label}</span>
           </div>
-          <h1 className="ff-heading text-xl sm:text-2xl font-extrabold text-[var(--ff-text-primary)]">
+          <h1 className="ff-heading text-lg sm:text-xl font-extrabold text-[var(--ff-text-primary)]">
             Settings &amp; Preferences Center
           </h1>
           <p className="text-xs text-[var(--ff-text-muted)] mt-0.5">
@@ -693,10 +693,10 @@ export const SettingsView: React.FC = () => {
 
       {/* Main Settings Grid: Left Navigation (Desktop) + Right Content Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left-Side Settings Navigation Sidebar (Desktop) */}
+        {/* Left-Side Settings Navigation Sidebar (Desktop: wide column & no nested scrollbar trap) */}
         <nav
           aria-label="Settings Categories"
-          className="hidden lg:block lg:col-span-4 xl:col-span-3 sticky top-24 space-y-1 bg-[var(--ff-surface-subtle)] p-2 rounded-2xl border border-[var(--ff-border-color)] max-h-[calc(100dvh-7rem)] overflow-y-auto scrollbar-thin"
+          className="hidden lg:block lg:col-span-4 xl:col-span-4 sticky top-24 space-y-1 bg-[var(--ff-surface-subtle)] p-2.5 rounded-2xl border border-[var(--ff-border-color)]"
         >
           <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
             Settings Directory
@@ -722,7 +722,7 @@ export const SettingsView: React.FC = () => {
                     className="absolute inset-0 rounded-xl bg-[var(--ff-accent)] shadow-xs pointer-events-none"
                   />
                 )}
-                <div className="relative z-10 flex items-center gap-2.5 truncate">
+                <div className="relative z-10 flex items-center gap-2.5 min-w-0 pr-1">
                   <Icon className="w-4 h-4 shrink-0" />
                   <span className="truncate">{cat.label}</span>
                 </div>
@@ -743,7 +743,7 @@ export const SettingsView: React.FC = () => {
         </nav>
 
         {/* Main Content Area */}
-        <div className="lg:col-span-8 xl:col-span-9 min-w-0">
+        <div className="lg:col-span-8 xl:col-span-8 min-w-0">
           <AnimatePresence mode="popLayout" initial={false}>
             {/* CATEGORY A: ACCOUNT & PROFILE */}
             {activeCategory === 'account' && (

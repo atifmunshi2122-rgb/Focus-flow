@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useApp } from '../../context/AppContext.tsx';
+import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeConfig } from '../../types/theme.ts';
 import { buildThemeCssVariables } from '../../theme/themeEngine.ts';
 import { getStyleDefinition } from '../../theme/stylesRegistry.ts';
@@ -39,6 +41,7 @@ export const LiveThemePreviewPanel: React.FC<LiveThemePreviewPanelProps> = ({
   onDiscardDraft,
   hasUnappliedChanges,
 }) => {
+  const { currency } = useApp();
   const [activeNavTab, setActiveNavTab] = useState<'overview' | 'focus' | 'finance'>('overview');
   const [showSampleModal, setShowSampleModal] = useState(false);
   const [sampleInputValue, setSampleInputValue] = useState('Deep Work Sprint');
@@ -204,11 +207,11 @@ export const LiveThemePreviewPanel: React.FC<LiveThemePreviewPanelProps> = ({
               </span>
             </div>
             <div>
-              <div className="text-2xl font-bold tracking-tight" style={{ fontFamily: 'var(--ff-font-display)' }}>
-                $14,850.00
+              <div className="text-2xl font-bold tracking-tight text-[var(--ff-text-primary)]" style={{ fontFamily: 'var(--ff-font-display)' }}>
+                {formatCurrency(1485000, currency)}
               </div>
               <div className="text-[11px] text-[var(--ff-text-muted)] mt-1">
-                Income $18.2k · Expenses $3.35k
+                Income {formatCurrency(1820000, currency, { compact: true })} · Expenses {formatCurrency(335000, currency, { compact: true })}
               </div>
             </div>
           </div>

@@ -76,7 +76,7 @@
   --ff-font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --ff-font-scale: 1;
   --ff-heading-weight: 700;
-  --ff-heading-tracking: -0.02em;
+  --ff-heading-tracking: -0.01em;
   --ff-radius-card: 16px;
   --ff-radius-button: 10px;
   --ff-radius-input: 8px;
@@ -96,6 +96,32 @@
   &:has(> head > meta[name="color-scheme"][content="light"]) {
     color-scheme: light;
   }
+}
+
+:root[data-theme-mode="light"],
+html:not(.dark):not([data-theme-mode="dark"]) {
+  --ff-bg-canvas: #f8fafc;
+  --ff-bg-backdrop: #f1f5f9;
+  --ff-surface-card: #ffffff;
+  --ff-surface-elevated: #ffffff;
+  --ff-surface-muted: #f1f5f9;
+  --ff-surface-subtle: #f8fafc;
+  --ff-surface-inset: #e2e8f0;
+  --ff-surface-hover: #f1f5f9;
+  --ff-surface-sidebar: #ffffff;
+  --ff-surface-header: rgba(255, 255, 255, 0.92);
+  --ff-text-primary: #0f172a;
+  --ff-text-secondary: #334155;
+  --ff-text-muted: #64748b;
+  --ff-border-color: #e2e8f0;
+  --ff-border-strong: #cbd5e1;
+  --ff-border-highlight: #e2e8f0;
+  --ff-card-bg: #ffffff;
+  --ff-border: #e2e8f0;
+  --ff-border-hover: #cbd5e1;
+  --ff-muted: #f1f5f9;
+  --ff-bg-primary: #f8fafc;
+  --ff-bg-secondary: #ffffff;
 }
 
 @layer base {
@@ -765,7 +791,7 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
 [data-design-style="brutalism"] h3,
 [data-design-style="brutalism"] h4 {
   text-transform: uppercase;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.005em;
 }
 
 /* 7. CYBERPUNK: HUD scanlines, angular neon frames, telemetry glow */
@@ -807,13 +833,51 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
 }
 
 /* 8. 3D GRADIENT: multi-stop vibrant gradients + colored bloom + spatial hover */
+[data-design-style="gradient3d"] .ff-card,
+[data-design-style="gradient3d"] .ff-card-3d {
+  background: linear-gradient(145deg, #ffffff 0%, #eef4ff 100%);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  box-shadow: 0 10px 28px -6px rgba(99, 102, 241, 0.14), 0 4px 12px -2px rgba(236, 72, 153, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+[data-design-style="gradient3d"][data-theme-mode="dark"] .ff-card,
+[data-design-style="gradient3d"][data-theme-mode="dark"] .ff-card-3d {
+  background: linear-gradient(145deg, #181538 0%, #0d0b24 100%);
+  border: 1px solid rgba(139, 92, 246, 0.32);
+  box-shadow: 0 14px 32px -8px rgba(124, 58, 237, 0.38), 0 0 1px 1px rgba(236, 72, 153, 0.2);
+}
+[data-design-style="gradient3d"] .ff-sidebar {
+  background: linear-gradient(180deg, #f8faff 0%, #eef2ff 100%);
+  border-right: 1px solid rgba(99, 102, 241, 0.2);
+}
+[data-design-style="gradient3d"][data-theme-mode="dark"] .ff-sidebar {
+  background: linear-gradient(180deg, #13112a 0%, #0a0818 100%);
+  border-right: 1px solid rgba(139, 92, 246, 0.25);
+}
+[data-design-style="gradient3d"] .ff-header {
+  background: rgba(248, 250, 255, 0.88);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+}
+[data-design-style="gradient3d"][data-theme-mode="dark"] .ff-header {
+  background: rgba(19, 17, 42, 0.88);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.25);
+}
+[data-design-style="gradient3d"] .ff-sidebar-item[data-active="true"] {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16) 0%, rgba(236, 72, 153, 0.14) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 4px 14px -2px rgba(99, 102, 241, 0.25);
+  color: var(--ff-accent-text);
+}
 [data-design-style="gradient3d"] .ff-btn-primary {
-  background: linear-gradient(135deg, var(--ff-accent) 0%, var(--ff-accent-secondary) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: linear-gradient(135deg, var(--ff-accent, #6366f1) 0%, var(--ff-accent-secondary, #ec4899) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 24px -4px rgba(99, 102, 241, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 [data-design-style="gradient3d"]:not([data-animation="none"]) .ff-card-interactive:hover,
 [data-design-style="gradient3d"]:not([data-animation="none"]) .ff-btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
+  box-shadow: 0 14px 32px -4px rgba(99, 102, 241, 0.24), 0 6px 16px -2px rgba(236, 72, 153, 0.14);
 }
 
 /* 9. MATERIAL DESIGN: tonal elevation & Material 3 pills */
@@ -1197,6 +1261,66 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   filter: blur(50px);
   pointer-events: none;
   opacity: calc(var(--ff-depth-intensity, 100%) * 0.007);
+}
+
+.ff-glass-panel {
+  position: relative;
+  background: color-mix(in oklab, var(--ff-surface-card) 78%, transparent);
+  border: var(--ff-border-width) solid var(--ff-border-color);
+  border-radius: var(--ff-radius-card);
+  box-shadow:
+    0 12px 36px -8px var(--ff-shadow-tint, rgba(0, 0, 0, 0.45)),
+    0 0 0 1px var(--ff-border-color),
+    inset 0 1px 0 0 var(--ff-highlight-color, rgba(255, 255, 255, 0.14));
+  backdrop-filter: blur(calc(var(--ff-backdrop-blur, 16px) + 12px)) saturate(140%);
+  -webkit-backdrop-filter: blur(calc(var(--ff-backdrop-blur, 16px) + 12px)) saturate(140%);
+  transition:
+    transform var(--ff-duration-fast) var(--ff-ease),
+    box-shadow var(--ff-duration-normal) var(--ff-ease),
+    border-color var(--ff-duration-fast) var(--ff-ease),
+    background-color var(--ff-duration-fast) var(--ff-ease);
+}
+
+:not([data-animation="none"]) .ff-glass-panel:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 42px -6px var(--ff-shadow-tint, rgba(0, 0, 0, 0.55)),
+    0 0 24px -4px var(--ff-glow-color, rgba(99, 102, 241, 0.3)),
+    0 0 0 1px var(--ff-border-strong),
+    inset 0 1px 0 0 var(--ff-highlight-color, rgba(255, 255, 255, 0.25));
+}
+
+@keyframes ff-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 16px -2px var(--ff-glow-color, rgba(99, 102, 241, 0.35));
+  }
+  50% {
+    box-shadow: 0 0 28px 4px var(--ff-glow-color, rgba(99, 102, 241, 0.6));
+  }
+}
+
+@keyframes ff-amber-pulse {
+  0%, 100% {
+    box-shadow: 0 0 14px -2px rgba(245, 158, 11, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 24px 3px rgba(245, 158, 11, 0.55);
+  }
+}
+
+.ff-pulse-running {
+  animation: ff-glow-pulse 3s ease-in-out infinite;
+}
+
+.ff-pulse-paused {
+  animation: ff-amber-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ff-pulse-running,
+  .ff-pulse-paused {
+    animation: none;
+  }
 }
 
 /* ==========================================================================

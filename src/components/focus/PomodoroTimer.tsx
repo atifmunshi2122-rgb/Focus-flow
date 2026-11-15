@@ -140,6 +140,12 @@ export const PomodoroTimer: React.FC = () => {
   const prevCycleCountRef = useRef(completedCycleCount);
   const { isDisabled, profile } = useMotionPreferences();
 
+  const isPaused =
+    !isRunning &&
+    (timerEngine === 'stopwatch'
+      ? stopwatchElapsed > 0
+      : timeLeft < totalDuration && timeLeft > 0);
+
   // Sessions, goals, presets, and interruptions cache
   const [sessions, setSessions] = useState<FocusSession[]>([]);
   const [goals, setGoals] = useState<PomodoroGoal[]>([]);
@@ -862,17 +868,24 @@ export const PomodoroTimer: React.FC = () => {
             isRunning && !isDisabled
               ? {
                   scale: [0.94, 1.05, 0.94],
-                  opacity: [0.26, 0.52, 0.26],
+                  opacity: [0.28, 0.52, 0.28],
+                }
+              : isPaused && !isDisabled
+              ? {
+                  scale: [0.96, 1.03, 0.96],
+                  opacity: [0.22, 0.45, 0.22],
                 }
               : { scale: 1, opacity: 0.12 }
           }
           transition={
             isRunning && !isDisabled
               ? { duration: 3.2, repeat: Infinity, ease: 'easeInOut' }
+              : isPaused && !isDisabled
+              ? { duration: 2.2, repeat: Infinity, ease: 'easeInOut' }
               : { duration: 0.3 }
           }
           className="absolute inset-0 rounded-full pointer-events-none blur-2xl"
-          style={{ background: currentModeColors.aura }}
+          style={{ background: isPaused ? 'rgba(245, 158, 11, 0.35)' : currentModeColors.aura }}
         />
 
         {/* Celebratory Concentric Radial Ripples */}
@@ -913,6 +926,19 @@ export const PomodoroTimer: React.FC = () => {
           className="w-full h-full transform -rotate-90 origin-center drop-shadow-sm"
           viewBox={`0 0 ${baseSize} ${baseSize}`}
         >
+          {/* Subtle Dial Depth Ring */}
+          <circle
+            cx={baseSize / 2}
+            cy={baseSize / 2}
+            r={radius - strokeWidth * 0.8}
+            fill="none"
+            stroke="var(--ff-border-color)"
+            strokeWidth={1}
+            strokeDasharray="2 6"
+            className="opacity-25"
+          />
+
+          {/* Background Track */}
           <circle
             cx={baseSize / 2}
             cy={baseSize / 2}
@@ -920,47 +946,86 @@ export const PomodoroTimer: React.FC = () => {
             fill="none"
             stroke="var(--ff-border-color)"
             strokeWidth={strokeWidth}
-            className="opacity-40"
+            className="opacity-30"
           />
 
+          {/* 12 Watchmaker 5-min Dial Accent Ticks */}
+          {Array.from({ length: 12 }).map((_, i) => {
+            const angle = (i * 30 * Math.PI) / 180;
+            const isQuarter = i % 3 === 0;
+            const innerR = radius - strokeWidth * (isQuarter ? 0.65 : 0.45);
+            const outerR = radius - strokeWidth * 0.2;
+            const x1 = baseSize / 2 + Math.cos(angle) * innerR;
+            const y1 = baseSize / 2 + Math.sin(angle) * innerR;
+            const x2 = baseSize / 2 + Math.cos(angle) * outerR;
+            const y2 = baseSize / 2 + Math.sin(angle) * outerR;
+            return (
+              <line
+                key={`tick-${i}`}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke={isQuarter ? 'var(--ff-text-secondary)' : 'var(--ff-border-strong)'}
+                strokeWidth={isQuarter ? 2 : 1}
+                strokeLinecap="round"
+                className="opacity-45"
+              />
+            );
+          })}
+
+          {/* Animated Elapsed Progress Arc */}
           <motion.circle
             cx={baseSize / 2}
             cy={baseSize / 2}
             r={radius}
             fill="none"
-            stroke={currentModeColors.ring}
+            stroke={isPaused ? '#f59e0b' : currentModeColors.ring}
             strokeWidth={strokeWidth}
             strokeDasharray={circumference}
-            animate={{ strokeDashoffset }}
+            animate={{
+              strokeDashoffset,
+              opacity: progressRatio > 0 ? 1 : 0,
+            }}
             transition={{
               duration: isDisabled ? 0.01 : 0.45,
               ease: 'linear',
             }}
-            strokeLinecap="round"
+            strokeLinecap={progressRatio > 0 ? 'round' : 'butt'}
+            style={{
+              filter: isPaused
+                ? 'drop-shadow(0 0 4px rgba(245, 158, 11, 0.4))'
+                : `drop-shadow(0 0 6px ${currentModeColors.aura})`,
+            }}
           />
 
-          {(isRunning || progressRatio > 0) && (
-            <motion.circle
-              r={strokeWidth * 0.62}
-              fill="var(--ff-bg-canvas)"
-              stroke={currentModeColors.ring}
-              strokeWidth={3}
-              animate={{
-                cx: tipX,
-                cy: tipY,
-                opacity: isRunning ? 1 : 0.8,
-                scale: isRunning && !isDisabled ? [1, 1.16, 1] : 1,
-              }}
-              transition={{
-                cx: { duration: isDisabled ? 0.01 : 0.45, ease: 'linear' },
-                cy: { duration: isDisabled ? 0.01 : 0.45, ease: 'linear' },
-                scale:
-                  isRunning && !isDisabled
+          {/* Synchronized Tip Indicator Dot (Locked to Arc Perimeter) */}
+          {progressRatio > 0 && (
+            <g transform={`rotate(${progressRatio * 360} ${baseSize / 2} ${baseSize / 2})`}>
+              <motion.circle
+                cx={baseSize / 2 + radius}
+                cy={baseSize / 2}
+                fill="var(--ff-bg-canvas)"
+                stroke={isPaused ? '#f59e0b' : currentModeColors.ring}
+                strokeWidth={2.5}
+                animate={{
+                  r: isRunning && !isDisabled
+                    ? [strokeWidth * 0.52, strokeWidth * 0.65, strokeWidth * 0.52]
+                    : strokeWidth * 0.55,
+                  opacity: isRunning ? 1 : isPaused ? 0.95 : 0.85,
+                }}
+                transition={{
+                  r: isRunning && !isDisabled
                     ? { duration: 1.8, repeat: Infinity, ease: 'easeInOut' }
                     : { duration: 0.2 },
-              }}
-              style={{ filter: `drop-shadow(0 0 6px ${currentModeColors.ring})` }}
-            />
+                }}
+                style={{
+                  filter: isPaused
+                    ? 'drop-shadow(0 0 8px rgba(245, 158, 11, 0.8))'
+                    : `drop-shadow(0 0 8px ${currentModeColors.ring})`,
+                }}
+              />
+            </g>
           )}
         </svg>
 
@@ -1005,8 +1070,12 @@ export const PomodoroTimer: React.FC = () => {
             </AnimatePresence>
           </div>
 
-          <span className="text-[10px] sm:text-[11px] text-[var(--ff-text-muted)] mt-1">
-            {isRunning ? 'Session in progress' : 'Ready to start'}
+          <span className="text-[10px] sm:text-[11px] text-[var(--ff-text-muted)] mt-1 font-medium">
+            {isRunning
+              ? 'Session in progress'
+              : isPaused
+              ? 'Session paused'
+              : 'Ready to start'}
           </span>
         </div>
       </div>
@@ -1241,7 +1310,12 @@ export const PomodoroTimer: React.FC = () => {
   return (
     <>
       <InteractiveSurface3D maxTilt={3}>
-        <ThemeCard className="relative overflow-hidden flex flex-col items-center justify-center p-6 sm:p-7">
+        <ThemeCard
+          variant="3d"
+          className={`relative overflow-hidden flex flex-col items-center justify-center p-6 sm:p-7 ${
+            isRunning ? 'ff-pulse-running' : isPaused ? 'ff-pulse-paused' : ''
+          }`}
+        >
           {timerBody}
         </ThemeCard>
       </InteractiveSurface3D>

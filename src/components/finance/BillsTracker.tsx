@@ -5,6 +5,7 @@ import { api } from '../../lib/api.ts';
 import { formatPaymentMethodLabel } from '../../lib/googleSheetsService.ts';
 import { Bill, PaymentHistory, ExpenseCategory } from '../../types/index.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import { playCashSound } from '../../lib/sound.ts';
 import {
   ThemeBadge,
@@ -51,10 +52,11 @@ export const BillsTracker: React.FC = () => {
     googleSpreadsheetId,
     googleAccessToken,
   } = useApp();
-  const [bills, setBills] = useState<Bill[]>([]);
+  const cachedBills = clientDataCache.getBills();
+  const [bills, setBills] = useState<Bill[]>(() => cachedBills || []);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedBills);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'UNPAID' | 'OVERDUE' | 'PAID'>('ALL');
   const [showHistory, setShowHistory] = useState(false);
 
@@ -88,9 +90,12 @@ export const BillsTracker: React.FC = () => {
   const factor = getIntensityFactor(intensity);
 
   const loadData = () => {
-    setLoading(true);
+    if (!clientDataCache.getBills()) {
+      setLoading(true);
+    }
     Promise.all([api.getBills(statusFilter), api.getPaymentHistory(), api.getCategories()])
       .then(([billsData, historyData, catData]) => {
+        clientDataCache.setBills(billsData);
         setBills(billsData);
         setPaymentHistory(historyData);
         setCategories(catData);

@@ -464,7 +464,7 @@ export function buildThemeCssVariables(
     '--ff-font-mono': fontDef.monoFont,
     '--ff-font-scale': fontScaleVal,
     '--ff-heading-weight': styleDef.headingWeight,
-    '--ff-heading-tracking': styleDef.headingTracking,
+    '--ff-heading-tracking': styleDef.headingTracking || '-0.015em',
     '--ff-radius-card': `${effectiveRadius}px`,
     '--ff-radius-button': buttonRadius,
     '--ff-radius-input': inputRadius,

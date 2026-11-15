@@ -26,8 +26,12 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
 
-  const [currentYear, setCurrentYear] = useState(() => Number(todayStr.slice(0, 4)));
-  const [currentMonth, setCurrentMonth] = useState(() => Number(todayStr.slice(5, 7))); // 1-12
+  const [viewYearMonth, setViewYearMonth] = useState(() => ({
+    year: Number(todayStr.slice(0, 4)),
+    month: Number(todayStr.slice(5, 7)),
+  }));
+  const currentYear = viewYearMonth.year;
+  const currentMonth = viewYearMonth.month;
   const [selectedDate, setSelectedDate] = useState<string | null>(todayStr);
 
   const [expenses, setExpenses] = useState<ExpenseTransaction[]>([]);
@@ -53,28 +57,30 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
 
   const monthKey = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
 
-  // Month navigation
+  // Month navigation (atomic state update prevents desync)
   const handlePrevMonth = () => {
-    if (currentMonth === 1) {
-      setCurrentMonth(12);
-      setCurrentYear((y) => y - 1);
-    } else {
-      setCurrentMonth((m) => m - 1);
-    }
+    setViewYearMonth(({ year, month }) => {
+      if (month === 1) {
+        return { year: year - 1, month: 12 };
+      }
+      return { year, month: month - 1 };
+    });
   };
 
   const handleNextMonth = () => {
-    if (currentMonth === 12) {
-      setCurrentMonth(1);
-      setCurrentYear((y) => y + 1);
-    } else {
-      setCurrentMonth((m) => m + 1);
-    }
+    setViewYearMonth(({ year, month }) => {
+      if (month === 12) {
+        return { year: year + 1, month: 1 };
+      }
+      return { year, month: month + 1 };
+    });
   };
 
   const handleJumpToday = () => {
-    setCurrentYear(Number(todayStr.slice(0, 4)));
-    setCurrentMonth(Number(todayStr.slice(5, 7)));
+    setViewYearMonth({
+      year: Number(todayStr.slice(0, 4)),
+      month: Number(todayStr.slice(5, 7)),
+    });
     setSelectedDate(todayStr);
   };
 

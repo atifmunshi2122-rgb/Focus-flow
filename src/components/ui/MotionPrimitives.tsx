@@ -139,7 +139,10 @@ export const AnimatedNumber: React.FC<AnimatedNumberProps> = ({
       onComplete: () => setDisplayValue(value),
     });
 
-    return () => controls.stop();
+    return () => {
+      controls.stop();
+      setDisplayValue(value);
+    };
   }, [value, isDisabled, intensity]);
 
   return <span className={className}>{format(displayValue)}</span>;
@@ -149,6 +152,8 @@ interface InteractiveSurface3DProps {
   children: React.ReactNode;
   className?: string;
   maxTilt?: number;
+  depth?: 'subtle' | 'standard' | 'pronounced';
+  glareOpacity?: number;
 }
 
 /**
@@ -158,7 +163,9 @@ interface InteractiveSurface3DProps {
 export const InteractiveSurface3D: React.FC<InteractiveSurface3DProps> = ({
   children,
   className = '',
-  maxTilt = 2.2,
+  maxTilt = 2.4,
+  depth = 'standard',
+  glareOpacity = 0.16,
 }) => {
   const { intensity, isDisabled, styleId } = useMotionPreferences();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -170,13 +177,15 @@ export const InteractiveSurface3D: React.FC<InteractiveSurface3DProps> = ({
     intensity !== 'subtle' &&
     !['flat', 'brutalism', 'minimalism', 'editorial'].includes(styleId);
 
+  const depthMultiplier = depth === 'pronounced' ? 1.4 : depth === 'subtle' ? 0.7 : 1;
+
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!allow3D || e.pointerType !== 'mouse' || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     const px = (e.clientX - rect.left) / rect.width;
     const py = (e.clientY - rect.top) / rect.height;
-    const mult = intensity === 'expressive' ? 1.3 : 1;
+    const mult = (intensity === 'expressive' ? 1.25 : 1) * depthMultiplier;
     setTilt({
       rx: (0.5 - py) * maxTilt * 2 * mult,
       ry: (px - 0.5) * maxTilt * 2 * mult,
@@ -198,15 +207,15 @@ export const InteractiveSurface3D: React.FC<InteractiveSurface3DProps> = ({
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
       className={`relative ${className}`.trim()}
-      style={{ perspective: allow3D ? '1100px' : undefined }}
+      style={{ perspective: allow3D ? '1200px' : undefined }}
     >
       <div
-        className="relative transition-transform duration-200 ease-out"
+        className="relative transition-transform duration-200 ease-out will-change-transform"
         style={{
           transform:
             allow3D && tilt.active
-              ? `rotateX(${tilt.rx.toFixed(2)}deg) rotateY(${tilt.ry.toFixed(2)}deg)`
-              : 'rotateX(0deg) rotateY(0deg)',
+              ? `rotateX(${tilt.rx.toFixed(2)}deg) rotateY(${tilt.ry.toFixed(2)}deg) translateZ(4px)`
+              : 'rotateX(0deg) rotateY(0deg) translateZ(0px)',
           transformStyle: allow3D ? 'preserve-3d' : undefined,
         }}
       >
@@ -214,16 +223,59 @@ export const InteractiveSurface3D: React.FC<InteractiveSurface3DProps> = ({
         {allow3D && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 transition-opacity duration-200"
+            className="pointer-events-none absolute inset-0 transition-opacity duration-200 rounded-[inherit]"
             style={{
-              opacity: tilt.active ? 0.14 : 0,
-              borderRadius: 'calc(var(--ff-radius-card) * 1.15)',
-              background: `radial-gradient(circle 320px at ${tilt.gx}% ${tilt.gy}%, rgba(255,255,255,0.6), transparent 70%)`,
+              opacity: tilt.active ? glareOpacity : 0,
+              borderRadius: 'inherit',
+              background: `radial-gradient(circle 360px at ${tilt.gx}% ${tilt.gy}%, rgba(255,255,255,0.7), transparent 70%)`,
             }}
           />
         )}
       </div>
     </div>
+  );
+};
+
+interface Realistic3DCardProps {
+  children: React.ReactNode;
+  className?: string;
+  variant?: 'default' | 'elevated' | 'glass' | '3d';
+  maxTilt?: number;
+  glowOnHover?: boolean;
+  glowColor?: string;
+  onClick?: () => void;
+}
+
+export const Realistic3DCard: React.FC<Realistic3DCardProps> = ({
+  children,
+  className = '',
+  variant = '3d',
+  maxTilt = 2.4,
+  glowOnHover = true,
+  glowColor,
+  onClick,
+}) => {
+  const cardVariantClass =
+    variant === 'glass'
+      ? 'ff-glass-panel'
+      : variant === 'elevated'
+      ? 'ff-card ff-card-elevated'
+      : variant === '3d'
+      ? 'ff-card-3d'
+      : 'ff-card';
+
+  return (
+    <InteractiveSurface3D maxTilt={maxTilt} className="h-full">
+      <div
+        onClick={onClick}
+        className={`${cardVariantClass} ff-card-interactive h-full transition-all duration-200 ${
+          glowOnHover ? 'hover:border-[var(--ff-border-strong)]' : ''
+        } ${className}`.trim()}
+        style={glowColor ? ({ '--ff-glow-color': glowColor } as React.CSSProperties) : undefined}
+      >
+        {children}
+      </div>
+    </InteractiveSurface3D>
   );
 };
 

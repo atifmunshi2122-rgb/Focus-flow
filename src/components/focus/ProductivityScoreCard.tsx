@@ -39,15 +39,23 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
   const strokeDashoffset = circumference - (scoreData.totalScore / 100) * circumference;
 
   return (
-    <ThemeCard variant="interactive" className={`p-5 relative overflow-hidden ${className}`}>
+    <ThemeCard variant="3d" className={`p-5 relative overflow-hidden ${className}`}>
+      {/* Subtle ambient tier background bloom */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-12 -top-12 w-48 h-48 rounded-full blur-3xl opacity-15"
+        style={{ backgroundColor: scoreData.tierColor }}
+      />
+
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 mb-4">
+      <div className="flex items-center justify-between gap-3 mb-4 relative z-10">
         <div className="flex items-center gap-2">
           <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm"
             style={{
               backgroundColor: `color-mix(in oklab, ${scoreData.tierColor} 18%, transparent)`,
               color: scoreData.tierColor,
+              boxShadow: `0 0 12px color-mix(in oklab, ${scoreData.tierColor} 25%, transparent)`,
             }}
           >
             <Award className="w-5 h-5" />
@@ -76,10 +84,28 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
       </div>
 
       {/* Main Score & Tier Cluster */}
-      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 py-2">
+      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 py-2 relative z-10">
         {/* Circular Progress Gauge */}
         <div className="relative w-28 h-28 flex items-center justify-center shrink-0">
-          <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
+          {/* Subtle soft gauge bloom */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-2 rounded-full blur-xl pointer-events-none opacity-20"
+            style={{ backgroundColor: scoreData.tierColor }}
+          />
+
+          <svg className="w-full h-full -rotate-90 transform drop-shadow-sm" viewBox="0 0 100 100">
+            {/* Concentric Inner Depth Ring */}
+            <circle
+              cx="50"
+              cy="50"
+              r={radius - strokeWidth * 0.7}
+              stroke="var(--ff-border-color)"
+              strokeWidth={1}
+              strokeDasharray="2 3"
+              fill="transparent"
+              className="opacity-40"
+            />
             {/* Background Track */}
             <circle
               cx="50"
@@ -102,6 +128,9 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
               transition={{ duration: 1.2, ease: MOTION_EASING.decelerate }}
               strokeLinecap="round"
               fill="transparent"
+              style={{
+                filter: `drop-shadow(0 0 4px color-mix(in oklab, ${scoreData.tierColor} 60%, transparent))`,
+              }}
             />
           </svg>
 

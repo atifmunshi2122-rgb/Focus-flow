@@ -33,7 +33,7 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
 
   // Monthly budget input (display rupees/major unit)
-  const [monthlyBudgetInput, setMonthlyBudgetInput] = useState('50000');
+  const [monthlyBudgetInput, setMonthlyBudgetInput] = useState('');
   const [selectedCatId, setSelectedCatId] = useState('');
   const [catBudgetInput, setCatBudgetInput] = useState('');
   const [dailyLimitInput, setDailyLimitInput] = useState('');
@@ -46,15 +46,17 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
   const [contribAmounts, setContribAmounts] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (settings?.monthlyBudgetPaise !== undefined) {
+    if (settings?.monthlyBudgetPaise !== undefined && settings.monthlyBudgetPaise > 0) {
       setMonthlyBudgetInput(String(Math.round(settings.monthlyBudgetPaise / 100)));
+    } else {
+      setMonthlyBudgetInput('');
     }
-    if (settings?.dailySpendingLimitPaise !== undefined) {
+    if (settings?.dailySpendingLimitPaise !== undefined && settings.dailySpendingLimitPaise > 0) {
       setDailyLimitInput(String(Math.round(settings.dailySpendingLimitPaise / 100)));
     } else {
       setDailyLimitInput('');
     }
-    if (settings?.weeklySpendingLimitPaise !== undefined) {
+    if (settings?.weeklySpendingLimitPaise !== undefined && settings.weeklySpendingLimitPaise > 0) {
       setWeeklyLimitInput(String(Math.round(settings.weeklySpendingLimitPaise / 100)));
     } else {
       setWeeklyLimitInput('');
@@ -268,6 +270,22 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
               </ThemeBadge>
             )}
           </div>
+
+          {monthlyCapPaise === 0 && (
+            <div className="p-4 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="space-y-0.5">
+                <span className="font-bold text-[var(--ff-text-primary)] block">
+                  No Monthly Spending Cap Configured
+                </span>
+                <span className="text-[var(--ff-text-muted)] block">
+                  Set a monthly budget cap below to activate automated daily safe spending limits, pacing guardrails, and remaining runway tracking.
+                </span>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] font-mono shrink-0">
+                Budget Unset (₹0.00)
+              </span>
+            </div>
+          )}
 
           {monthlyCapPaise > 0 && (
             <div className="space-y-3">

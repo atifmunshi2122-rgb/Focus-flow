@@ -51,6 +51,27 @@ export const DailyTimeBlockPlanner: React.FC = () => {
   const [formTaskId, setFormTaskId] = useState('');
   const [formNotes, setFormNotes] = useState('');
 
+  const timelineScrollRef = React.useRef<HTMLDivElement>(null);
+  const currentHourRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selectedDate === todayStr && currentHourRef.current && timelineScrollRef.current) {
+      const parent = timelineScrollRef.current;
+      const child = currentHourRef.current;
+      const topOffset = child.offsetTop - 72;
+      parent.scrollTo({ top: Math.max(0, topOffset), behavior: 'smooth' });
+    }
+  }, [selectedDate, todayStr, loading]);
+
+  const scrollToCurrentHour = () => {
+    if (currentHourRef.current && timelineScrollRef.current) {
+      const parent = timelineScrollRef.current;
+      const child = currentHourRef.current;
+      const topOffset = child.offsetTop - 72;
+      parent.scrollTo({ top: Math.max(0, topOffset), behavior: 'smooth' });
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
@@ -257,6 +278,18 @@ export const DailyTimeBlockPlanner: React.FC = () => {
             Today
           </ThemeButton>
 
+          {selectedDate === todayStr && (
+            <ThemeButton
+              variant="ghost"
+              size="sm"
+              onClick={scrollToCurrentHour}
+              title="Scroll timeline to current hour"
+            >
+              <Clock className="w-3.5 h-3.5 mr-1 text-[var(--ff-accent-text)]" />
+              <span>Now</span>
+            </ThemeButton>
+          )}
+
           <ThemeButton variant="primary" size="sm" onClick={() => openCreateModal()}>
             <Plus className="w-4 h-4 mr-1.5" />
             Add Block
@@ -301,7 +334,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
 
       {/* Visual Hourly Timeline */}
       <ThemeCard noPadding className="overflow-hidden">
-        <div className="divide-y ff-divider">
+        <div ref={timelineScrollRef} className="divide-y ff-divider max-h-[640px] overflow-y-auto scrollbar-thin focus:outline-none" tabIndex={0}>
           {timelineHours.map((hour) => {
             const hourStartMin = hour * 60;
             const hourEndMin = (hour + 1) * 60;
@@ -318,6 +351,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
             return (
               <div
                 key={hour}
+                ref={isCurrentHour ? currentHourRef : undefined}
                 className="relative flex items-start min-h-[72px] transition-colors hover:bg-[var(--ff-muted)]/10"
               >
                 {/* Real-time Current Hour Indicator Line */}

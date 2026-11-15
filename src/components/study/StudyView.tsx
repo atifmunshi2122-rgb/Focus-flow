@@ -1228,7 +1228,7 @@ export const StudyView: React.FC = () => {
       {/* Top Academic Pulse KPI Cards */}
       <MotionStaggerGrid className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="p-4 flex flex-col justify-between h-full">
+          <ThemeCard variant="3d" className="p-4 flex flex-col justify-between h-full">
             <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
               <span className="font-medium">Syllabus Completion</span>
               <BookOpen className="w-4 h-4 text-indigo-400" />
@@ -1254,7 +1254,7 @@ export const StudyView: React.FC = () => {
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="p-4 flex flex-col justify-between h-full">
+          <ThemeCard variant="3d" className="p-4 flex flex-col justify-between h-full">
             <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
               <span className="font-medium">Due & Overdue Revisions</span>
               <RotateCcw className="w-4 h-4 text-amber-400" />
@@ -1270,13 +1270,17 @@ export const StudyView: React.FC = () => {
               )}
             </div>
             <p className="text-[11px] text-[var(--ff-text-muted)] mt-2">
-              {progressSummary.masteredRevisionsCount} topics mastered in long-term memory
+              {progressSummary.overdueRevisionsCount > 0
+                ? `${progressSummary.overdueRevisionsCount} review${progressSummary.overdueRevisionsCount === 1 ? '' : 's'} past scheduled retention window`
+                : progressSummary.dueRevisionsCount > 0
+                ? `${progressSummary.dueRevisionsCount} review${progressSummary.dueRevisionsCount === 1 ? '' : 's'} due for optimal retention today`
+                : 'All scheduled spaced-repetition reviews up to date'}
             </p>
           </ThemeCard>
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="p-4 flex flex-col justify-between h-full">
+          <ThemeCard variant="3d" className="p-4 flex flex-col justify-between h-full">
             <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
               <span className="font-medium">High Severity Traps</span>
               <AlertTriangle className="w-4 h-4 text-rose-400" />
@@ -1296,7 +1300,7 @@ export const StudyView: React.FC = () => {
         </MotionStaggerItem>
 
         <MotionStaggerItem>
-          <ThemeCard variant="interactive" className="p-4 flex flex-col justify-between h-full">
+          <ThemeCard variant="3d" className="p-4 flex flex-col justify-between h-full">
             <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-2">
               <span className="font-medium">Deep Study Time</span>
               <Clock className="w-4 h-4 text-emerald-400" />
@@ -1428,18 +1432,11 @@ export const StudyView: React.FC = () => {
                 }}
                 className={`relative px-3 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap border ${
                   selectedTier === 'all'
-                    ? 'text-white border-transparent'
-                    : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border-[var(--ff-border-color)] hover:text-[var(--ff-text-primary)]'
+                    ? 'bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)] border-[var(--ff-accent-border)] font-semibold shadow-xs'
+                    : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-secondary)] border-[var(--ff-border-color)] hover:bg-[var(--ff-surface-hover)] hover:text-[var(--ff-text-primary)]'
                 }`}
               >
-                {selectedTier === 'all' && (
-                  <motion.span
-                    layoutId="study-tier-pill"
-                    transition={profile.spring}
-                    className="absolute inset-0 rounded-xl bg-[var(--ff-accent)] shadow-sm pointer-events-none"
-                  />
-                )}
-                <span className="relative z-10">All Tiers</span>
+                <span>All Tiers</span>
               </button>
               {allTiers.map((tier) => {
                 const active = selectedTier === tier.id;
@@ -1454,25 +1451,18 @@ export const StudyView: React.FC = () => {
                     }}
                     className={`group relative px-3 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap border flex items-center gap-1.5 ${
                       active
-                        ? 'text-white border-transparent'
-                        : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border-[var(--ff-border-color)] hover:text-[var(--ff-text-primary)]'
+                        ? 'bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)] border-[var(--ff-accent-border)] font-semibold shadow-xs'
+                        : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-secondary)] border-[var(--ff-border-color)] hover:bg-[var(--ff-surface-hover)] hover:text-[var(--ff-text-primary)]'
                     }`}
                   >
-                    {active && (
-                      <motion.span
-                        layoutId="study-tier-pill"
-                        transition={profile.spring}
-                        className="absolute inset-0 rounded-xl bg-[var(--ff-accent)] shadow-sm pointer-events-none"
-                      />
-                    )}
-                    <span className="relative z-10">{tier.shortTitle || tier.name}</span>
+                    <span>{tier.shortTitle || tier.name}</span>
                     {isCustom && (
                       <span
                         role="button"
                         onClick={(e) => void handleDeleteTier(tier, e)}
                         title={`Delete tier "${tier.name}"`}
                         aria-label={`Delete tier ${tier.name}`}
-                        className="relative z-10 p-0.5 rounded-full hover:bg-rose-500/20 text-rose-300 opacity-60 hover:opacity-100 transition-opacity"
+                        className="p-0.5 rounded-full hover:bg-rose-500/20 text-rose-400 opacity-70 hover:opacity-100 transition-opacity"
                       >
                         <X className="w-3 h-3" />
                       </span>
@@ -1483,7 +1473,7 @@ export const StudyView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsAddTierOpen(true)}
-                className="px-2.5 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap border border-dashed border-[var(--ff-accent)]/50 text-[var(--ff-accent-text)] hover:bg-[var(--ff-accent)]/10 flex items-center gap-1 shrink-0"
+                className="px-2.5 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] hover:border-[var(--ff-accent-border)] hover:text-[var(--ff-accent-text)] flex items-center gap-1 shrink-0"
                 title="Create a new academic tier"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1629,29 +1619,34 @@ export const StudyView: React.FC = () => {
 
           {/* Topic Checklist Table */}
           <ThemeCard className="overflow-hidden">
-            <div className="p-4 border-b border-[var(--ff-border-color)] flex items-center justify-between">
+            <div className="p-4 border-b border-[var(--ff-border-color)] flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-[var(--ff-accent-text)]" />
                 <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                  Syllabus Checklist ({visibleTopics.length} items)
+                  Syllabus Checklist ({visibleTopics.length} {visibleTopics.length === 1 ? 'topic' : 'topics'})
                 </h2>
               </div>
-              <div className="flex items-center gap-2 text-xs text-[var(--ff-text-muted)]">
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded bg-blue-500"></span> [T] Theory
+              <div className="flex items-center gap-2.5 text-xs text-[var(--ff-text-muted)]">
+                <span className="text-[11px] font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider hidden sm:inline">
+                  Legend:
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded bg-emerald-500"></span> [P] Practice
+                  <span className="w-2 h-2 rounded bg-blue-500"></span> Theory (T)
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded bg-purple-500"></span> [Q] PYQ
+                  <span className="w-2 h-2 rounded bg-emerald-500"></span> Practice (P)
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded bg-purple-500"></span> PYQ (Q)
                 </span>
               </div>
             </div>
 
             {visibleTopics.length === 0 ? (
               <div className="p-12 text-center text-xs text-[var(--ff-text-muted)]">
-                No syllabus topics matching current filters.
+                {topics.length > 0
+                  ? `No syllabus topics matching current filter (${topics.length} total across all subjects). Select a different subject or "All Tiers" above.`
+                  : 'No syllabus topics added yet. Click "+ Add Topic" above to get started.'}
               </div>
             ) : (
               <div className="divide-y divide-[var(--ff-border-color)]">
