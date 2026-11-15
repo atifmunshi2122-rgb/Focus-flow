@@ -16,6 +16,10 @@ import {
   loadInitialTimerState,
   saveTimerState,
   getTimerStorageKey,
+  TIMER_CLIENT_ID,
+  TIMER_BROADCAST_CHANNEL,
+  broadcastTimerEvent,
+  TimerBroadcastMessage,
 } from '../src/lib/timerEngine.ts';
 import { getTodayDateString } from '../src/lib/dateTime.ts';
 import type { FocusSession } from '../src/types/index.ts';
@@ -1195,4 +1199,47 @@ test('Phase 17.2 Fix 5 — Timezone-aware date string calculation', () => {
 
   const todayUTC = getTodayDateString('UTC');
   assert.match(todayUTC, /^\d{4}-\d{2}-\d{2}$/, 'getTodayDateString(UTC) must return YYYY-MM-DD');
+});
+
+test('Pomodoro Countdown — Broadcast echo prevention & countdown backward progression', async () => {
+  // 1. Verify TIMER_CLIENT_ID exists and is unique non-empty string
+  assert.ok(typeof TIMER_CLIENT_ID === 'string' && TIMER_CLIENT_ID.length > 0, 'TIMER_CLIENT_ID must be non-empty');
+
+  // 2. Broadcast channel echo isolation: receiver listening on channel receives senderId
+  const receiverChannel = new BroadcastChannel(TIMER_BROADCAST_CHANNEL);
+  const messagePromise = new Promise<TimerBroadcastMessage>((resolve) => {
+    receiverChannel.onmessage = (evt) => resolve(evt.data);
+  });
+
+  broadcastTimerEvent({
+    type: 'TIMER_SYNC_START',
+    payload: {
+      targetEndTimeMs: Date.now() + 1500 * 1000,
+      stopwatchStartMs: null,
+      totalDuration: 1500,
+      timerMode: 'work',
+      timerEngine: 'pomodoro',
+      sessionStartTime: new Date().toISOString(),
+      activeTaskId: null,
+    },
+  });
+
+  const msg = await Promise.race([
+    messagePromise,
+    new Promise<null>((res) => setTimeout(() => res(null), 1500)),
+  ]);
+  receiverChannel.close();
+
+  assert.ok(msg !== null, 'Receiver must receive broadcast event within 1500ms');
+  assert.equal(msg.senderId, TIMER_CLIENT_ID, 'Broadcast event must include local senderId');
+
+  // 3. Mathematical proof of backward countdown decrement
+  const targetEndTime = Date.now() + 1500 * 1000;
+  const rem0 = computeRemainingSeconds(targetEndTime, Date.now());
+  const rem1 = computeRemainingSeconds(targetEndTime, Date.now() + 1000);
+  const rem2 = computeRemainingSeconds(targetEndTime, Date.now() + 2000);
+
+  assert.equal(rem0, 1500, 'T=0s remaining should be 1500 (25:00)');
+  assert.equal(rem1, 1499, 'T=1s remaining should be 1499 (24:59)');
+  assert.equal(rem2, 1498, 'T=2s remaining should be 1498 (24:58)');
 });

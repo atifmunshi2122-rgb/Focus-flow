@@ -39,7 +39,14 @@ export interface StoredTimerState {
   lastUpdatedMs: number;
 }
 
-export type TimerBroadcastMessage =
+export const TIMER_CLIENT_ID =
+  typeof window !== 'undefined'
+    ? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`
+    : 'server';
+
+export type TimerBroadcastMessage = {
+  senderId?: string;
+} & (
   | {
       type: 'TIMER_SYNC_START';
       payload: {
@@ -92,7 +99,8 @@ export type TimerBroadcastMessage =
         completionKey: string;
         completedAt: string;
       };
-    };
+    }
+);
 
 export interface InitialTimerStateResult {
   timerEngine: TimerEngineMode;
@@ -436,10 +444,13 @@ export function releaseCompletionLock(
 }
 
 export function broadcastTimerEvent(msg: TimerBroadcastMessage): void {
-  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return;
+  if (typeof BroadcastChannel === 'undefined') return;
   try {
     const ch = new BroadcastChannel(TIMER_BROADCAST_CHANNEL);
-    ch.postMessage(msg);
+    ch.postMessage({
+      ...msg,
+      senderId: msg.senderId || TIMER_CLIENT_ID,
+    });
     ch.close();
   } catch {
     // Unsupported or blocked

@@ -169,11 +169,10 @@ export const ProductivityCalendar: React.FC = () => {
       setViewYearMonth({ year: mid.getUTCFullYear(), month: mid.getUTCMonth() + 1 });
     } else {
       setViewYearMonth(({ year, month }) => {
-        const nextMonth = month === 1 ? 12 : month - 1;
-        const nextYear = month === 1 ? year - 1 : year;
-        const firstDayStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-        setActiveWeekStart(getStartOfWeek(firstDayStr));
-        return { year: nextYear, month: nextMonth };
+        if (month === 1) {
+          return { year: year - 1, month: 12 };
+        }
+        return { year, month: month - 1 };
       });
     }
   };
@@ -191,11 +190,10 @@ export const ProductivityCalendar: React.FC = () => {
       setViewYearMonth({ year: mid.getUTCFullYear(), month: mid.getUTCMonth() + 1 });
     } else {
       setViewYearMonth(({ year, month }) => {
-        const nextMonth = month === 12 ? 1 : month + 1;
-        const nextYear = month === 12 ? year + 1 : year;
-        const firstDayStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-        setActiveWeekStart(getStartOfWeek(firstDayStr));
-        return { year: nextYear, month: nextMonth };
+        if (month === 12) {
+          return { year: year + 1, month: 1 };
+        }
+        return { year, month: month + 1 };
       });
     }
   };
@@ -252,32 +250,25 @@ export const ProductivityCalendar: React.FC = () => {
           <div className="flex items-center bg-[var(--ff-card-bg)] border ff-divider rounded-lg p-0.5">
             <button
               onClick={() => setViewMode('month')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                viewMode === 'month'
-                  ? 'bg-[var(--ff-accent)] text-white shadow-xs'
-                  : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-              }`}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${viewMode === 'month'
+                ? 'bg-[var(--ff-accent)] text-white shadow-xs'
+                : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+                }`}
             >
               Month
             </button>
             <button
               onClick={() => {
                 setViewMode('week');
-                const isViewingCurrentMonth =
-                  currentYear === parseInt(todayStr.slice(0, 4), 10) &&
-                  currentMonth === parseInt(todayStr.slice(5, 7), 10);
-                if (isViewingCurrentMonth) {
+                // Anchor week to current view if needed
+                if (!activeWeekStart) {
                   setActiveWeekStart(getStartOfWeek(todayStr));
-                } else {
-                  const firstDayStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
-                  setActiveWeekStart(getStartOfWeek(firstDayStr));
                 }
               }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                viewMode === 'week'
-                  ? 'bg-[var(--ff-accent)] text-white shadow-xs'
-                  : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-              }`}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${viewMode === 'week'
+                ? 'bg-[var(--ff-accent)] text-white shadow-xs'
+                : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+                }`}
             >
               Week
             </button>
@@ -334,24 +325,21 @@ export const ProductivityCalendar: React.FC = () => {
             <button
               key={day.date}
               onClick={() => setSelectedDay(day)}
-              className={`flex flex-col text-left p-2.5 ${
-                viewMode === 'week' ? 'min-h-[220px]' : 'min-h-[108px]'
-              } rounded-xl border transition-all duration-150 relative group ${
-                day.isToday
+              className={`flex flex-col text-left p-2.5 ${viewMode === 'week' ? 'min-h-[220px]' : 'min-h-[108px]'
+                } rounded-xl border transition-all duration-150 relative group ${day.isToday
                   ? 'border-[var(--ff-accent)] bg-[var(--ff-accent-soft)]/20 shadow-xs ring-1 ring-[var(--ff-accent)]'
                   : day.isCurrentMonth
-                  ? 'bg-[var(--ff-card-bg)] border-[var(--ff-border)] hover:border-[var(--ff-border-hover)] hover:shadow-xs'
-                  : 'bg-[var(--ff-card-bg)]/40 border-[var(--ff-border)]/50 opacity-40 hover:opacity-75'
-              }`}
+                    ? 'bg-[var(--ff-card-bg)] border-[var(--ff-border)] hover:border-[var(--ff-border-hover)] hover:shadow-xs'
+                    : 'bg-[var(--ff-card-bg)]/40 border-[var(--ff-border)]/50 opacity-40 hover:opacity-75'
+                }`}
             >
               {/* Day Header */}
               <div className="flex items-center justify-between w-full mb-1.5">
                 <span
-                  className={`text-xs font-bold font-mono rounded-md px-1.5 py-0.5 ${
-                    day.isToday
-                      ? 'bg-[var(--ff-accent)] text-white'
-                      : 'text-[var(--ff-text-primary)]'
-                  }`}
+                  className={`text-xs font-bold font-mono rounded-md px-1.5 py-0.5 ${day.isToday
+                    ? 'bg-[var(--ff-accent)] text-white'
+                    : 'text-[var(--ff-text-primary)]'
+                    }`}
                 >
                   {day.dayNumber}
                 </span>
@@ -395,9 +383,8 @@ export const ProductivityCalendar: React.FC = () => {
                     className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded truncate bg-[var(--ff-muted)]/60 text-[var(--ff-text-secondary)] font-medium"
                   >
                     <CheckCircle2
-                      className={`w-2.5 h-2.5 shrink-0 ${
-                        t.status === 'completed' ? 'text-[var(--ff-success)]' : 'text-[var(--ff-text-muted)]'
-                      }`}
+                      className={`w-2.5 h-2.5 shrink-0 ${t.status === 'completed' ? 'text-[var(--ff-success)]' : 'text-[var(--ff-text-muted)]'
+                        }`}
                     />
                     <span className={`truncate ${t.status === 'completed' ? 'line-through opacity-70' : ''}`}>
                       {t.title}
@@ -414,9 +401,8 @@ export const ProductivityCalendar: React.FC = () => {
               {/* Net Cashflow indicator */}
               {(day.incomePaise > 0 || day.expensePaise > 0) && (
                 <div
-                  className={`mt-1 text-[9px] font-mono font-bold text-right w-full ${
-                    netPaise >= 0 ? 'text-[var(--ff-success)]' : 'text-[var(--ff-danger)]'
-                  }`}
+                  className={`mt-1 text-[9px] font-mono font-bold text-right w-full ${netPaise >= 0 ? 'text-[var(--ff-success)]' : 'text-[var(--ff-danger)]'
+                    }`}
                 >
                   {netPaise >= 0 ? '+' : '-'}
                   {formatCurrency(Math.abs(netPaise), currency)}
@@ -450,133 +436,132 @@ export const ProductivityCalendar: React.FC = () => {
               exit={isDisabled ? undefined : { opacity: 0, scale: 0.95, y: 12 }}
               transition={getSpringTransition(intensity, isDisabled)}
             >
-            <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
-              <div>
-                <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
-                  {new Date(`${selectedDay.date}T12:00:00Z`).toLocaleDateString('en-US', {
-                    timeZone: tz,
-                    weekday: 'long',
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })}
-                </h3>
-                <p className="text-xs text-[var(--ff-text-muted)] font-mono">
-                  {selectedDay.date}
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedDay(null)}
-                className="p-1 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
-                aria-label="Close dialog"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto flex flex-col gap-6">
-              {/* Daily Stats Summary Banner */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
-                  <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
-                    Focus Time
-                  </span>
-                  <span className="text-sm font-bold font-mono text-[var(--ff-accent-text)]">
-                    {selectedDay.focusMinutes} mins
-                  </span>
+              <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
+                <div>
+                  <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
+                    {new Date(`${selectedDay.date}T12:00:00Z`).toLocaleDateString('en-US', {
+                      timeZone: tz,
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </h3>
+                  <p className="text-xs text-[var(--ff-text-muted)] font-mono">
+                    {selectedDay.date}
+                  </p>
                 </div>
-                <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
-                  <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
-                    Income
-                  </span>
-                  <span className="text-sm font-bold font-mono text-[var(--ff-success)]">
-                    {formatCurrency(selectedDay.incomePaise, currency)}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
-                  <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
-                    Expenses
-                  </span>
-                  <span className="text-sm font-bold font-mono text-[var(--ff-danger)]">
-                    {formatCurrency(selectedDay.expensePaise, currency)}
-                  </span>
-                </div>
+                <button
+                  onClick={() => setSelectedDay(null)}
+                  className="p-1 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                  aria-label="Close dialog"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* Bills Section */}
-              <div>
-                <div className="flex items-center gap-2 mb-2 text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
-                  <CreditCard className="w-4 h-4 text-[var(--ff-accent)]" />
-                  <span>Bills Due ({selectedDay.bills.length})</span>
+              <div className="p-6 overflow-y-auto flex flex-col gap-6">
+                {/* Daily Stats Summary Banner */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
+                    <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
+                      Focus Time
+                    </span>
+                    <span className="text-sm font-bold font-mono text-[var(--ff-accent-text)]">
+                      {selectedDay.focusMinutes} mins
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
+                    <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
+                      Income
+                    </span>
+                    <span className="text-sm font-bold font-mono text-[var(--ff-success)]">
+                      {formatCurrency(selectedDay.incomePaise, currency)}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
+                    <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
+                      Expenses
+                    </span>
+                    <span className="text-sm font-bold font-mono text-[var(--ff-danger)]">
+                      {formatCurrency(selectedDay.expensePaise, currency)}
+                    </span>
+                  </div>
                 </div>
-                {selectedDay.bills.length === 0 ? (
-                  <p className="text-xs text-[var(--ff-text-muted)] italic">No bills scheduled on this day.</p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {selectedDay.bills.map((b) => (
-                      <div
-                        key={b.id}
-                        className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-muted)]/20"
-                      >
-                        <div>
-                          <p className="text-sm font-bold text-[var(--ff-text-primary)]">{b.name}</p>
-                          <span className="text-[10px] text-[var(--ff-text-muted)]">
-                            Status: <strong className="uppercase">{b.status}</strong>
+
+                {/* Bills Section */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
+                    <CreditCard className="w-4 h-4 text-[var(--ff-accent)]" />
+                    <span>Bills Due ({selectedDay.bills.length})</span>
+                  </div>
+                  {selectedDay.bills.length === 0 ? (
+                    <p className="text-xs text-[var(--ff-text-muted)] italic">No bills scheduled on this day.</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {selectedDay.bills.map((b) => (
+                        <div
+                          key={b.id}
+                          className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-muted)]/20"
+                        >
+                          <div>
+                            <p className="text-sm font-bold text-[var(--ff-text-primary)]">{b.name}</p>
+                            <span className="text-[10px] text-[var(--ff-text-muted)]">
+                              Status: <strong className="uppercase">{b.status}</strong>
+                            </span>
+                          </div>
+                          <span className="font-mono font-bold text-sm text-[var(--ff-text-primary)]">
+                            {formatCurrency(b.amountPaise, currency)}
                           </span>
                         </div>
-                        <span className="font-mono font-bold text-sm text-[var(--ff-text-primary)]">
-                          {formatCurrency(b.amountPaise, currency)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Tasks Section */}
-              <div>
-                <div className="flex items-center gap-2 mb-2 text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
-                  <CheckSquare className="w-4 h-4 text-[var(--ff-accent)]" />
-                  <span>Tasks Due ({selectedDay.tasks.length})</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {selectedDay.tasks.length === 0 ? (
-                  <p className="text-xs text-[var(--ff-text-muted)] italic">No tasks due on this day.</p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {selectedDay.tasks.map((t) => (
-                      <div
-                        key={t.id}
-                        className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-muted)]/20"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <CheckCircle2
-                            className={`w-4 h-4 shrink-0 ${
-                              t.status === 'completed' ? 'text-[var(--ff-success)]' : 'text-[var(--ff-text-muted)]'
-                            }`}
-                          />
-                          <p className={`text-sm font-medium truncate ${t.status === 'completed' ? 'line-through opacity-70' : ''}`}>
-                            {t.title}
-                          </p>
-                        </div>
-                        <ThemeBadge tone="neutral">
-                          {t.priority}
-                        </ThemeBadge>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
 
-            <div className="p-4 border-t ff-divider flex justify-end">
-              <ThemeButton variant="secondary" size="sm" onClick={() => setSelectedDay(null)}>
-                Close
-              </ThemeButton>
-            </div>
+                {/* Tasks Section */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
+                    <CheckSquare className="w-4 h-4 text-[var(--ff-accent)]" />
+                    <span>Tasks Due ({selectedDay.tasks.length})</span>
+                  </div>
+                  {selectedDay.tasks.length === 0 ? (
+                    <p className="text-xs text-[var(--ff-text-muted)] italic">No tasks due on this day.</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {selectedDay.tasks.map((t) => (
+                        <div
+                          key={t.id}
+                          className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-muted)]/20"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <CheckCircle2
+                              className={`w-4 h-4 shrink-0 ${t.status === 'completed' ? 'text-[var(--ff-success)]' : 'text-[var(--ff-text-muted)]'
+                                }`}
+                            />
+                            <p className={`text-sm font-medium truncate ${t.status === 'completed' ? 'line-through opacity-70' : ''}`}>
+                              {t.title}
+                            </p>
+                          </div>
+                          <ThemeBadge tone="neutral">
+                            {t.priority}
+                          </ThemeBadge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 border-t ff-divider flex justify-end">
+                <ThemeButton variant="secondary" size="sm" onClick={() => setSelectedDay(null)}>
+                  Close
+                </ThemeButton>
+              </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -121,6 +121,7 @@ import {
   acquireCompletionLock,
   TimerBroadcastMessage,
   TIMER_BROADCAST_CHANNEL,
+  TIMER_CLIENT_ID,
 } from '../lib/timerEngine.ts';
 export type { TimerEngineMode, TimerMode };
 
@@ -530,6 +531,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   timeLeftRef.current = timeLeft;
   totalDurationRef.current = totalDuration;
   stopwatchElapsedRef.current = stopwatchElapsed;
+  const [timerSyncVersion, setTimerSyncVersion] = useState<number>(0);
 
   const [activePresetId, setActivePresetId] = useState<string | null>(initialTimer.activePresetId);
   const activePresetIdRef = useRef<string | null>(initialTimer.activePresetId);
@@ -1875,6 +1877,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setIsRunning(true);
+    setTimerSyncVersion((v) => v + 1);
     playTimerStartSound(settings?.soundEnabled ?? true, settings?.soundVolume);
 
     saveTimerState(
@@ -2499,7 +2502,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isRunning, timerEngine, clearTimerHandles]);
+  }, [isRunning, timerEngine, timerSyncVersion, clearTimerHandles]);
 
   // Cross-tab timer event synchronization
   useEffect(() => {
@@ -2511,9 +2514,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const msg = event.data;
         if (!msg || !msg.type) return;
 
+        // Strict same-tab echo suppression: ignore broadcasts dispatched by this tab
+        if (msg.senderId && msg.senderId === TIMER_CLIENT_ID) {
+          return;
+        }
+
         switch (msg.type) {
           case 'TIMER_SYNC_START': {
-            clearTimerHandles();
             targetEndTimeMsRef.current = msg.payload.targetEndTimeMs;
             stopwatchStartMsRef.current = msg.payload.stopwatchStartMs;
             sessionStartTimeRef.current = msg.payload.sessionStartTime;
@@ -2535,6 +2542,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setActiveStudyActivityType(msg.payload.activeStudyActivityType);
             }
             setIsRunning(true);
+            setTimerSyncVersion((v) => v + 1);
             break;
           }
           case 'TIMER_SYNC_PAUSE': {
