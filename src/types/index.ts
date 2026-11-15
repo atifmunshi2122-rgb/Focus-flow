@@ -484,6 +484,8 @@ export interface OfflineOutboxOperation {
     | 'toggle_habit'
     | 'delete_habit'
     | 'update_settings'
+    | 'save_study_tier'
+    | 'delete_study_tier'
     | 'save_study_subject'
     | 'delete_study_subject'
     | 'save_study_topic'

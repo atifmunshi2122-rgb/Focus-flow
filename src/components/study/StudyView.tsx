@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import {
+  AcademicTier,
   StudySubject,
   StudyTopic,
   StudyRevision,
@@ -39,6 +40,7 @@ import {
 } from '../ui/MotionPrimitives.tsx';
 import { playStudyMilestoneSound } from '../../lib/sound.ts';
 import { AnimatePresence, motion } from 'motion/react';
+import { AddStudyTierModal } from './AddStudyTierModal.tsx';
 import { AddStudySubjectModal } from './AddStudySubjectModal.tsx';
 import { AddStudyTopicModal } from './AddStudyTopicModal.tsx';
 import { ScheduleRevisionModal } from './ScheduleRevisionModal.tsx';
@@ -91,6 +93,8 @@ import {
   ExternalLink,
   Award,
   Pin,
+  X,
+  Loader2,
 } from 'lucide-react';
 
 type StudySubTab =
@@ -147,8 +151,10 @@ export const StudyView: React.FC = () => {
   const [activityLogs, setActivityLogs] = useState<StudyActivityLog[]>([]);
   const [flashcards, setFlashcards] = useState<StudyFlashcard[]>([]);
   const [quizzes, setQuizzes] = useState<StudyQuiz[]>([]);
+  const [customTiers, setCustomTiers] = useState<AcademicTier[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [deletingSubjectId, setDeletingSubjectId] = useState<string | null>(null);
 
   // Global search & filters state
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
@@ -160,6 +166,7 @@ export const StudyView: React.FC = () => {
   const [flashcardFlipped, setFlashcardFlipped] = useState(false);
 
   // Modals state
+  const [isAddTierOpen, setIsAddTierOpen] = useState(false);
   const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false);
   const [isAddTopicOpen, setIsAddTopicOpen] = useState(false);
   const [isScheduleRevisionOpen, setIsScheduleRevisionOpen] = useState(false);
@@ -226,6 +233,7 @@ export const StudyView: React.FC = () => {
         logsData,
         flashcardsData,
         quizzesData,
+        tiersData,
       ] = await Promise.all([
         api.getStudySubjects(),
         api.getStudyTopics(),
@@ -241,6 +249,7 @@ export const StudyView: React.FC = () => {
         api.getStudyActivityLogs(50),
         api.getStudyFlashcards(),
         api.getStudyQuizzes(),
+        api.getStudyTiers().catch(() => []),
       ]);
 
       // FIX 1: If user switched or another load triggered while waiting, ignore stale response
@@ -262,6 +271,7 @@ export const StudyView: React.FC = () => {
       setActivityLogs(logsData);
       setFlashcards(flashcardsData);
       setQuizzes(quizzesData);
+      setCustomTiers(tiersData || []);
       setLoadError(null);
     } catch (err: unknown) {
       if (generation !== loadGenerationRef.current || activeUserIdRef.current !== currentUid) {
@@ -302,6 +312,15 @@ export const StudyView: React.FC = () => {
   const categorizedRevs = useMemo(() => {
     return categorizeRevisions(revisions);
   }, [revisions]);
+
+  // Combined Academic Tiers (default + user-created)
+  const allTiers = useMemo<AcademicTier[]>(() => {
+    const defaults = DEFAULT_ACADEMIC_TIERS;
+    const customFiltered = (customTiers || []).filter(
+      (ct) => !defaults.some((dt) => dt.id === ct.id) && !ct.deletedAt
+    );
+    return [...defaults, ...customFiltered];
+  }, [customTiers]);
 
   // Filtered subjects by tier
   const visibleSubjects = useMemo(() => {
@@ -440,7 +459,99 @@ export const StudyView: React.FC = () => {
     }
   };
 
+  // Academic Tier Handlers
+  const handleAddTier = async (newTier: Partial<AcademicTier>) => {
+    try {
+      const created = await api.saveStudyTier(newTier);
+      setCustomTiers((prev) => [...prev.filter((t) => t.id !== created.id), created]);
+      setSelectedTier(created.id);
+      showToast(`Academic tier "${created.name}" created`, 'success');
+    } catch (err) {
+      console.error('Failed to create academic tier:', err);
+      showToast('Failed to create academic tier', 'error');
+    }
+  };
+
+  const handleDeleteTier = async (tier: AcademicTier, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete academic tier "${tier.name}"? Subjects assigned to it will remain intact.`)) return;
+    setCustomTiers((prev) => prev.filter((t) => t.id !== tier.id));
+    if (selectedTier === tier.id) {
+      setSelectedTier('all');
+    }
+    try {
+      await api.deleteStudyTier(tier.id);
+      showToast(`Tier "${tier.name}" removed`, 'info');
+    } catch (err) {
+      console.error('Failed to delete tier:', err);
+      showToast('Failed to delete tier', 'error');
+      void loadData();
+    }
+  };
+
+  const handleClearAllStudyData = async () => {
+    if (
+      !window.confirm(
+        'Are you sure you want to delete ALL study subjects and topics? This will clear all subjects, topics, revisions, and mistakes.'
+      )
+    ) {
+      return;
+    }
+
+    setSubjects([]);
+    setTopics([]);
+    setRevisions([]);
+    setMistakes([]);
+    setSelectedSubjectCode('all');
+
+    try {
+      await api.clearStudyData();
+      showToast('All study subjects and topics removed', 'info');
+    } catch (err) {
+      console.error('Failed to clear study data:', err);
+      showToast('Failed to clear study data', 'error');
+      void loadData();
+    }
+  };
+
   // Delete handlers
+  const handleDeleteSubject = async (subject: StudySubject) => {
+    const targetKey = subject.id || subject.code;
+    if (deletingSubjectId) return;
+
+    const subTopics = topics.filter((t) => t.subjectCode === subject.code && !t.deletedAt);
+    const confirmMsg =
+      subTopics.length > 0
+        ? `Are you sure you want to delete "${subject.name}" (${subject.code}) and its ${subTopics.length} topic${
+            subTopics.length > 1 ? 's' : ''
+          }?`
+        : `Are you sure you want to delete "${subject.name}" (${subject.code})?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingSubjectId(targetKey);
+
+    try {
+      await api.deleteStudySubject(targetKey);
+
+      setSubjects((prev) => prev.filter((s) => s.id !== subject.id && s.code !== subject.code));
+      if (subTopics.length > 0) {
+        setTopics((prev) => prev.filter((t) => t.subjectCode !== subject.code));
+      }
+      if (selectedSubjectCode === subject.code) {
+        setSelectedSubjectCode('all');
+      }
+
+      showToast(`Subject "${subject.name}" and associated topics deleted`, 'info');
+    } catch (err: unknown) {
+      console.error('Failed to delete subject:', err);
+      const errMsg = err instanceof Error && err.message ? err.message : 'Failed to delete subject';
+      showToast(errMsg, 'error');
+      await loadData();
+    } finally {
+      setDeletingSubjectId(null);
+    }
+  };
+
   const handleDeleteTopic = async (topicId: string) => {
     if (!window.confirm('Delete this topic from syllabus?')) return;
     setTopics((prev) => prev.filter((t) => t.id !== topicId));
@@ -1048,6 +1159,19 @@ export const StudyView: React.FC = () => {
             Portability
           </ThemeButton>
 
+          {subjects.length > 0 && (
+            <ThemeButton
+              variant="ghost"
+              size="sm"
+              onClick={handleClearAllStudyData}
+              className="text-rose-400 hover:bg-rose-500/10 text-xs"
+              title="Remove all subjects and demo syllabus data"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1" />
+              Clear Subjects
+            </ThemeButton>
+          )}
+
           <ThemeButton
             variant="ghost"
             size="sm"
@@ -1069,6 +1193,16 @@ export const StudyView: React.FC = () => {
           >
             <RotateCcw className="w-4 h-4 mr-1.5" />
             Schedule Revision
+          </ThemeButton>
+
+          <ThemeButton
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsAddTierOpen(true)}
+            className="text-[var(--ff-accent-text)] hover:bg-[var(--ff-accent)]/10"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            New Tier
           </ThemeButton>
 
           <ThemeButton
@@ -1307,8 +1441,9 @@ export const StudyView: React.FC = () => {
                 )}
                 <span className="relative z-10">All Tiers</span>
               </button>
-              {DEFAULT_ACADEMIC_TIERS.map((tier) => {
+              {allTiers.map((tier) => {
                 const active = selectedTier === tier.id;
+                const isCustom = !DEFAULT_ACADEMIC_TIERS.some((d) => d.id === tier.id);
                 return (
                   <button
                     key={tier.id}
@@ -1317,7 +1452,7 @@ export const StudyView: React.FC = () => {
                       setSelectedTier(tier.id);
                       setSelectedSubjectCode('all');
                     }}
-                    className={`relative px-3 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap border ${
+                    className={`group relative px-3 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap border flex items-center gap-1.5 ${
                       active
                         ? 'text-white border-transparent'
                         : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-muted)] border-[var(--ff-border-color)] hover:text-[var(--ff-text-primary)]'
@@ -1331,25 +1466,68 @@ export const StudyView: React.FC = () => {
                       />
                     )}
                     <span className="relative z-10">{tier.shortTitle || tier.name}</span>
+                    {isCustom && (
+                      <span
+                        role="button"
+                        onClick={(e) => void handleDeleteTier(tier, e)}
+                        title={`Delete tier "${tier.name}"`}
+                        aria-label={`Delete tier ${tier.name}`}
+                        className="relative z-10 p-0.5 rounded-full hover:bg-rose-500/20 text-rose-300 opacity-60 hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </span>
+                    )}
                   </button>
                 );
               })}
+              <button
+                type="button"
+                onClick={() => setIsAddTierOpen(true)}
+                className="px-2.5 py-1.5 text-xs rounded-xl font-medium transition-colors whitespace-nowrap border border-dashed border-[var(--ff-accent)]/50 text-[var(--ff-accent-text)] hover:bg-[var(--ff-accent)]/10 flex items-center gap-1 shrink-0"
+                title="Create a new academic tier"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Tier</span>
+              </button>
             </div>
 
             {/* Subject Dropdown & Search */}
             <div className="flex items-center gap-2">
-              <select
-                value={selectedSubjectCode}
-                onChange={(e) => setSelectedSubjectCode(e.target.value)}
-                className="px-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none"
-              >
-                <option value="all">All Subjects ({visibleSubjects.length})</option>
-                {visibleSubjects.map((sub) => (
-                  <option key={sub.code} value={sub.code}>
-                    {sub.name} ({sub.code})
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center gap-1">
+                <select
+                  value={selectedSubjectCode}
+                  onChange={(e) => setSelectedSubjectCode(e.target.value)}
+                  className="px-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none"
+                >
+                  <option value="all">All Subjects ({visibleSubjects.length})</option>
+                  {visibleSubjects.map((sub) => (
+                    <option key={sub.code} value={sub.code}>
+                      {sub.name} ({sub.code})
+                    </option>
+                  ))}
+                </select>
+                {selectedSubjectCode !== 'all' && (() => {
+                  const currentSub = subjects.find((s) => s.code === selectedSubjectCode && !s.deletedAt);
+                  if (!currentSub) return null;
+                  const isDeleting = deletingSubjectId === (currentSub.id || currentSub.code);
+                  return (
+                    <button
+                      type="button"
+                      disabled={Boolean(deletingSubjectId)}
+                      onClick={() => void handleDeleteSubject(currentSub)}
+                      title={`Delete subject "${currentSub.name}" (${currentSub.code})`}
+                      aria-label={`Delete selected subject ${currentSub.name}`}
+                      className="p-1.5 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors disabled:opacity-50"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  );
+                })()}
+              </div>
 
               <div className="relative flex-1 md:w-56">
                 <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ff-text-muted)]" />
@@ -1381,20 +1559,45 @@ export const StudyView: React.FC = () => {
                 <div
                   key={sub.code}
                   onClick={() => setSelectedSubjectCode(isSelected ? 'all' : sub.code)}
-                  className={`cursor-pointer p-3.5 rounded-2xl border transition-all ${
+                  className={`group relative cursor-pointer p-3.5 rounded-2xl border transition-all ${
                     isSelected
                       ? 'bg-[var(--ff-surface-muted)] border-[var(--ff-accent)] ring-1 ring-[var(--ff-accent)]'
                       : 'bg-[var(--ff-surface-card)] border-[var(--ff-border-color)] hover:border-[var(--ff-accent)]/50'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: sub.color || '#6366f1' }}
-                    />
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)]">
-                      {sub.code}
-                    </span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: sub.color || '#6366f1' }}
+                      />
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] truncate">
+                        {sub.code}
+                      </span>
+                    </div>
+
+                    {(() => {
+                      const isDeleting = deletingSubjectId === (sub.id || sub.code);
+                      return (
+                        <button
+                          type="button"
+                          disabled={Boolean(deletingSubjectId)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeleteSubject(sub);
+                          }}
+                          title={`Delete subject "${sub.name}" (${sub.code})`}
+                          aria-label={`Delete subject ${sub.name}`}
+                          className="p-1 -mr-1 rounded-lg text-[var(--ff-text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-colors opacity-60 hover:opacity-100 disabled:opacity-40"
+                        >
+                          {isDeleting ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      );
+                    })()}
                   </div>
 
                   <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] truncate" title={sub.name}>
@@ -2314,9 +2517,20 @@ export const StudyView: React.FC = () => {
       )}
 
       {/* MODALS */}
+      <AddStudyTierModal
+        isOpen={isAddTierOpen}
+        onClose={() => setIsAddTierOpen(false)}
+        onAdd={handleAddTier}
+      />
+
       <AddStudySubjectModal
         isOpen={isAddSubjectOpen}
         onClose={() => setIsAddSubjectOpen(false)}
+        tiers={allTiers}
+        onOpenAddTier={() => {
+          setIsAddSubjectOpen(false);
+          setIsAddTierOpen(true);
+        }}
         onAdd={async (subjectData) => {
           const newSub: StudySubject = {
             id: `sub_${Date.now()}`,

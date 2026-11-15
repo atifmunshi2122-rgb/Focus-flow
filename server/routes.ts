@@ -2353,15 +2353,50 @@ apiRouter.post('/workspace/clear', (req: Request, res: Response) => {
 // ----------------------------------------------------
 // STUDY MANAGEMENT (NEXTSTUDY INTEGRATION)
 // ----------------------------------------------------
+apiRouter.get('/study/tiers', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const tiers = dbService.getStudyTiers(userId);
+  res.json(tiers);
+});
+
+apiRouter.post('/study/tiers', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const name = parseNonEmptyString(body.name, 128);
+  if (!name) {
+    res.status(400).json({ error: 'Tier name is required (max 128 chars)' });
+    return;
+  }
+  const shortTitle = parseNonEmptyString(body.shortTitle, 64) || name.slice(0, 24);
+  const description = parseOptionalString(body.description, 256) || '';
+  const tier = dbService.saveStudyTier(userId, {
+    id: parseOptionalString(body.id, 128) || undefined,
+    name,
+    shortTitle,
+    description,
+  });
+  res.json(tier);
+});
+
+apiRouter.delete('/study/tiers/:id', (req: Request, res: Response) => {
+  const { userId, isGuest } = getAuth(req);
+  const success = dbService.deleteStudyTier(userId, req.params.id, isGuest);
+  if (!success) {
+    res.status(404).json({ error: 'Tier not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Tier deleted' });
+});
+
+apiRouter.delete('/study/all', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  dbService.clearStudyData(userId);
+  res.json({ success: true, message: 'All study subjects and topics cleared' });
+});
+
 apiRouter.get('/study/subjects', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
-  let subjects = dbService.getStudySubjects(userId);
-  if (subjects.length === 0) {
-    const { subjects: seededSubs, topics: seededTopics } = buildDefaultStudyWorkspace(userId);
-    for (const s of seededSubs) dbService.saveStudySubject(userId, s);
-    for (const t of seededTopics) dbService.saveStudyTopic(userId, t);
-    subjects = dbService.getStudySubjects(userId);
-  }
+  const subjects = dbService.getStudySubjects(userId);
   res.json(subjects);
 });
 
@@ -2399,27 +2434,27 @@ apiRouter.post('/study/subjects', (req: Request, res: Response) => {
 
 apiRouter.delete('/study/subjects/:code', (req: Request, res: Response) => {
   const { userId, isGuest } = getAuth(req);
-  const success = dbService.deleteStudySubject(userId, req.params.code, isGuest);
-  if (!success) {
-    res.status(404).json({ error: 'Subject not found' });
-    return;
+  try {
+    const result = dbService.deleteStudySubject(userId, req.params.code, isGuest);
+    if (!result.success) {
+      res.status(404).json({ error: 'Subject not found' });
+      return;
+    }
+    res.json({
+      success: true,
+      deletedCount: result.deletedCount,
+      subjectCode: result.subjectCode,
+      message: 'Subject and associated topics deleted',
+    });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete subject and associated topics' });
   }
-  res.json({ success: true, message: 'Subject deleted' });
 });
 
 apiRouter.get('/study/topics', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const subjectCode = typeof req.query.subjectCode === 'string' ? req.query.subjectCode : undefined;
-  let topics = dbService.getStudyTopics(userId, subjectCode);
-  if (topics.length === 0 && !subjectCode) {
-    const existingSubs = dbService.getStudySubjects(userId);
-    const { subjects: seededSubs, topics: seededTopics } = buildDefaultStudyWorkspace(userId);
-    if (existingSubs.length === 0) {
-      for (const s of seededSubs) dbService.saveStudySubject(userId, s);
-    }
-    for (const t of seededTopics) dbService.saveStudyTopic(userId, t);
-    topics = dbService.getStudyTopics(userId);
-  }
+  const topics = dbService.getStudyTopics(userId, subjectCode);
   res.json(topics);
 });
 

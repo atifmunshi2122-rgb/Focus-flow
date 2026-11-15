@@ -13,6 +13,7 @@ import {
   startAfter,
   onSnapshot,
   Unsubscribe,
+  DocumentReference,
 } from 'firebase/firestore';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType } from './firebase.ts';
@@ -51,6 +52,7 @@ import {
   AuditLogEntry,
   DurableSyncOperation,
   CursorPage,
+  AcademicTier,
   StudySubject,
   StudyTopic,
   StudyRevision,
@@ -2660,7 +2662,72 @@ export const firestoreService = {
     await this.getCategories(userId);
   },
 
+  async clearStudyData(userId: string): Promise<void> {
+    const subcollections = ['study_subjects', 'study_topics', 'study_revisions', 'study_mistakes'];
+    for (const sub of subcollections) {
+      try {
+        const snap = await getDocs(collection(db, `users/${userId}/${sub}`));
+        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      } catch {
+        // proceed gracefully
+      }
+    }
+    await setDoc(
+      doc(db, `users/${userId}/settings/study_meta`),
+      { initialized: true, clearedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
   // --- STUDY MANAGEMENT (NEXTSTUDY INTEGRATION) ---
+  async getStudyTiers(userId: string): Promise<AcademicTier[]> {
+    const list = await listSubcollection<AcademicTier>(`users/${userId}/study_tiers`);
+    return list.filter((t) => !t.deletedAt);
+  },
+
+  async saveStudyTier(userId: string, input: Partial<AcademicTier>): Promise<AcademicTier> {
+    const id = input.id || `tier_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const path = `users/${userId}/study_tiers/${id}`;
+    let existing: Partial<AcademicTier> = {};
+    if (input.id) {
+      try {
+        const snap = await getDoc(doc(db, path));
+        if (snap.exists()) {
+          existing = snap.data() as AcademicTier;
+        }
+      } catch {
+        // proceed
+      }
+    }
+    const item: AcademicTier = {
+      id,
+      userId,
+      name: (input.name ?? existing.name ?? 'Academic Tier').trim(),
+      shortTitle: (input.shortTitle ?? existing.shortTitle ?? input.name ?? 'Tier').trim(),
+      description: (input.description ?? existing.description ?? '').trim(),
+      subjectCodes: input.subjectCodes ?? existing.subjectCodes ?? [],
+      createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+    };
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...item }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+    return item;
+  },
+
+  async deleteStudyTier(userId: string, id: string): Promise<void> {
+    const directDocRef = doc(db, `users/${userId}/study_tiers/${id}`);
+    await setDoc(
+      directDocRef,
+      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+
   async getStudySubjects(userId: string): Promise<StudySubject[]> {
     const list = await listSubcollection<StudySubject>(`users/${userId}/study_subjects`);
     const active = list.filter((s) => !s.deletedAt);
@@ -2756,11 +2823,107 @@ export const firestoreService = {
   },
 
   async deleteStudySubject(userId: string, id: string): Promise<void> {
-    await setDoc(
-      doc(db, `users/${userId}/study_subjects/${id}`),
-      { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { merge: true }
-    );
+    const directPath = `users/${userId}/study_subjects/${id}`;
+    const directDocRef = doc(db, directPath);
+    let targetDoc: { ref: DocumentReference; id: string; code: string } | null = null;
+
+    // 1. Direct lookup by ID
+    try {
+      const snap = await getDoc(directDocRef);
+      if (snap.exists()) {
+        const data = snap.data() as StudySubject;
+        targetDoc = { ref: directDocRef, id: snap.id, code: data.code || id };
+      }
+    } catch (err: unknown) {
+      // Permission and network errors must be surfaced, not swallowed
+      handleFirestoreError(err, OperationType.GET, directPath);
+    }
+
+    // 2. Fallback search by subject code or id across user's subcollection
+    if (!targetDoc) {
+      const collectionPath = `users/${userId}/study_subjects`;
+      try {
+        const snap = await getDocs(collection(db, collectionPath));
+        const match = snap.docs.find((d) => {
+          const data = d.data() as StudySubject;
+          return (
+            (d.id === id || data.id === id || data.code === id || data.code?.toLowerCase() === id.toLowerCase()) &&
+            !data.deletedAt
+          );
+        });
+        if (match) {
+          const data = match.data() as StudySubject;
+          targetDoc = { ref: match.ref, id: match.id, code: data.code || id };
+        }
+      } catch (err: unknown) {
+        handleFirestoreError(err, OperationType.LIST, collectionPath);
+      }
+    }
+
+    // If subject genuinely does not exist or was already deleted, exit gracefully without creating a ghost document
+    if (!targetDoc) {
+      return;
+    }
+
+    // 3. Find active topics belonging to this subject code
+    const targetCode = targetDoc.code;
+    const topicsCollectionPath = `users/${userId}/study_topics`;
+    let activeTopicRefs: DocumentReference[] = [];
+    try {
+      const topicsSnap = await getDocs(collection(db, topicsCollectionPath));
+      activeTopicRefs = topicsSnap.docs
+        .filter((d) => {
+          const t = d.data() as StudyTopic;
+          return t.subjectCode === targetCode && !t.deletedAt;
+        })
+        .map((d) => d.ref);
+    } catch (err: unknown) {
+      handleFirestoreError(err, OperationType.LIST, topicsCollectionPath);
+    }
+
+    // 4. Soft delete subject and associated topics
+    const nowIso = new Date().toISOString();
+    const updatePayload = { deletedAt: nowIso, updatedAt: nowIso };
+    const allRefs: DocumentReference[] = [targetDoc.ref, ...activeTopicRefs];
+
+    // Firestore batch limit is 500 operations
+    const BATCH_LIMIT = 450;
+    if (allRefs.length <= 500) {
+      const batch = writeBatch(db);
+      for (const ref of allRefs) {
+        batch.set(ref, updatePayload, { merge: true });
+      }
+      try {
+        await batch.commit();
+      } catch (err: unknown) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${userId}/study_subjects/${targetDoc.id}`);
+      }
+    } else {
+      // Safe chunking for operations exceeding batch limit with explicit partial-failure handling
+      let committedBatches = 0;
+      for (let i = 0; i < allRefs.length; i += BATCH_LIMIT) {
+        const chunk = allRefs.slice(i, i + BATCH_LIMIT);
+        const batch = writeBatch(db);
+        for (const ref of chunk) {
+          batch.set(ref, updatePayload, { merge: true });
+        }
+        try {
+          await batch.commit();
+          committedBatches++;
+        } catch (err: unknown) {
+          console.error(`Multi-batch subject deletion error on chunk ${committedBatches + 1}:`, err);
+          const partialNotice =
+            committedBatches > 0
+              ? `Partial deletion: ${committedBatches} batches committed before error.`
+              : `Initial batch commit failed.`;
+          throw new Error(
+            `Failed to complete multi-batch subject deletion: ${partialNotice} ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        }
+      }
+    }
   },
 
   async getStudyTopics(userId: string, subjectCode?: string): Promise<StudyTopic[]> {

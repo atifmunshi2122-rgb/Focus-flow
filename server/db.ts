@@ -268,6 +268,18 @@ export interface DurableSyncOperation {
   createdAt: string;
 }
 
+export interface AcademicTier {
+  id: string;
+  userId?: string;
+  name: string;
+  shortTitle: string;
+  description: string;
+  subjectCodes?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
+}
+
 export interface StudySubject {
   id: string;
   userId: string;
@@ -357,6 +369,7 @@ export interface DatabaseSchema {
   subscriptions: SubscriptionPlan[];
   auditLogs: AuditLogEntry[];
   syncQueue: DurableSyncOperation[];
+  studyTiers?: AcademicTier[];
   studySubjects?: StudySubject[];
   studyTopics?: StudyTopic[];
   studyRevisions?: StudyRevision[];
@@ -378,7 +391,7 @@ const DEFAULT_CATEGORIES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
   { name: 'Emergency & Miscellaneous', type: 'variable', icon: 'AlertCircle', color: '#64748b' },
 ];
 
-class DatabaseService {
+export class DatabaseService {
   private db: DatabaseSchema = {
     users: [],
     userSettings: [],
@@ -1859,6 +1872,57 @@ class DatabaseService {
   }
 
   // --- STUDY MANAGEMENT CRUD METHODS ---
+  public clearStudyData(userId: string): void {
+    this.db.studySubjects = (this.db.studySubjects || []).filter((s) => s.userId !== userId);
+    this.db.studyTopics = (this.db.studyTopics || []).filter((t) => t.userId !== userId);
+    this.db.studyRevisions = (this.db.studyRevisions || []).filter((r) => r.userId !== userId);
+    this.db.studyMistakes = (this.db.studyMistakes || []).filter((m) => m.userId !== userId);
+    this.save();
+  }
+
+  public getStudyTiers(userId: string): AcademicTier[] {
+    const list = this.db.studyTiers || [];
+    return list.filter((t) => (!t.userId || t.userId === userId) && !t.deletedAt);
+  }
+
+  public saveStudyTier(userId: string, input: Partial<AcademicTier>): AcademicTier {
+    this.db.studyTiers = this.db.studyTiers || [];
+    const nowIso = new Date().toISOString();
+    const id = input.id || `tier_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const existingIdx = this.db.studyTiers.findIndex((t) => t.id === id);
+    const tier: AcademicTier = {
+      id: existingIdx >= 0 ? this.db.studyTiers[existingIdx].id : id,
+      userId,
+      name: (input.name || 'Academic Tier').trim(),
+      shortTitle: (input.shortTitle || input.name || 'Tier').trim(),
+      description: (input.description || '').trim(),
+      subjectCodes: input.subjectCodes || [],
+      createdAt: existingIdx >= 0 ? this.db.studyTiers[existingIdx].createdAt : nowIso,
+      updatedAt: nowIso,
+      deletedAt: input.deletedAt || null,
+    };
+    if (existingIdx >= 0) {
+      this.db.studyTiers[existingIdx] = tier;
+    } else {
+      this.db.studyTiers.push(tier);
+    }
+    this.save();
+    return tier;
+  }
+
+  public deleteStudyTier(userId: string, id: string, isGuest = false): boolean {
+    this.db.studyTiers = this.db.studyTiers || [];
+    const idx = this.db.studyTiers.findIndex((t) => t.id === id && (!t.userId || t.userId === userId));
+    if (idx === -1) return false;
+    if (isGuest) {
+      this.db.studyTiers.splice(idx, 1);
+    } else {
+      this.db.studyTiers[idx].deletedAt = new Date().toISOString();
+    }
+    this.save();
+    return true;
+  }
+
   public getStudySubjects(userId: string): StudySubject[] {
     const list = this.db.studySubjects || [];
     return list.filter((s) => s.userId === userId && !s.deletedAt);
@@ -1896,18 +1960,52 @@ class DatabaseService {
     return subject;
   }
 
-  public deleteStudySubject(userId: string, code: string, isGuest = false): boolean {
+  public deleteStudySubject(
+    userId: string,
+    codeOrId: string,
+    isGuest = false
+  ): { success: boolean; deletedCount: number; subjectCode?: string } {
     this.db.studySubjects = this.db.studySubjects || [];
-    const idx = this.db.studySubjects.findIndex((s) => s.userId === userId && (s.code === code || s.id === code));
-    if (idx === -1) return false;
+    this.db.studyTopics = this.db.studyTopics || [];
 
-    if (isGuest) {
-      this.db.studySubjects.splice(idx, 1);
-    } else {
-      this.db.studySubjects[idx].deletedAt = new Date().toISOString();
+    const targetSub = this.db.studySubjects.find(
+      (s) =>
+        s.userId === userId &&
+        !s.deletedAt &&
+        (s.id === codeOrId || s.code === codeOrId || s.code.toLowerCase() === codeOrId.toLowerCase())
+    );
+    if (!targetSub) {
+      return { success: false, deletedCount: 0 };
     }
-    this.save();
-    return true;
+
+    const previousSubjects = JSON.parse(JSON.stringify(this.db.studySubjects)) as StudySubject[];
+    const previousTopics = JSON.parse(JSON.stringify(this.db.studyTopics)) as StudyTopic[];
+
+    try {
+      const nowIso = new Date().toISOString();
+      targetSub.deletedAt = nowIso;
+      targetSub.updatedAt = nowIso;
+
+      const matchingTopics = this.db.studyTopics.filter(
+        (t) => t.userId === userId && !t.deletedAt && t.subjectCode === targetSub.code
+      );
+      for (const t of matchingTopics) {
+        t.deletedAt = nowIso;
+        t.updatedAt = nowIso;
+      }
+
+      this.save();
+      return {
+        success: true,
+        deletedCount: 1 + matchingTopics.length,
+        subjectCode: targetSub.code,
+      };
+    } catch (err) {
+      // Transaction rollback in case save fails
+      this.db.studySubjects = previousSubjects;
+      this.db.studyTopics = previousTopics;
+      throw err;
+    }
   }
 
   public getStudyTopics(userId: string, subjectCode?: string): StudyTopic[] {

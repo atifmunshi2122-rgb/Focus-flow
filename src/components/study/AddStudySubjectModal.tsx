@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
-import { StudySubject } from '../../types/study.ts';
+import { StudySubject, AcademicTier } from '../../types/study.ts';
 import { DEFAULT_ACADEMIC_TIERS } from '../../data/studySeedData.ts';
+import { Plus } from 'lucide-react';
 
 interface AddStudySubjectModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (subject: Partial<StudySubject>) => Promise<void>;
+  tiers?: AcademicTier[];
+  onOpenAddTier?: () => void;
 }
 
 const COLOR_PRESETS = [
@@ -24,10 +27,12 @@ export const AddStudySubjectModal: React.FC<AddStudySubjectModalProps> = ({
   isOpen,
   onClose,
   onAdd,
+  tiers = DEFAULT_ACADEMIC_TIERS,
+  onOpenAddTier,
 }) => {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
-  const [tierId, setTierId] = useState<string>('tier1_sem3');
+  const [tierId, setTierId] = useState<string>(tiers[0]?.id || 'tier1_sem3');
   const [semesterOrDomain, setSemesterOrDomain] = useState('');
   const [targetExam, setTargetExam] = useState('');
   const [color, setColor] = useState(COLOR_PRESETS[0]);
@@ -111,15 +116,26 @@ export const AddStudySubjectModal: React.FC<AddStudySubjectModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[var(--ff-text-muted)] mb-1">
-              Academic Tier / Goal
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-[var(--ff-text-muted)]">
+                Academic Tier / Goal
+              </label>
+              {onOpenAddTier && (
+                <button
+                  type="button"
+                  onClick={onOpenAddTier}
+                  className="text-[11px] text-[var(--ff-accent-text)] hover:underline flex items-center gap-0.5"
+                >
+                  <Plus className="w-3 h-3" /> New Tier
+                </button>
+              )}
+            </div>
             <select
               value={tierId}
               onChange={(e) => setTierId(e.target.value)}
               className="w-full px-3 py-2.5 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
             >
-              {DEFAULT_ACADEMIC_TIERS.map((tier) => (
+              {tiers.map((tier) => (
                 <option key={tier.id} value={tier.id}>
                   {tier.name}
                 </option>

@@ -49,6 +49,12 @@ service cloud.firestore {
       return resourceData != null && (
         request.resource.data.diff(resourceData).affectedKeys().hasOnly(['deletedAt', 'updatedAt']) ||
         request.resource.data.diff(resourceData).affectedKeys().hasOnly(['deletedAt'])
+      ) && (
+        request.resource.data.deletedAt == null ||
+        (request.resource.data.deletedAt is string && request.resource.data.deletedAt.size() <= 64)
+      ) && (
+        !('updatedAt' in request.resource.data) ||
+        (request.resource.data.updatedAt is string && request.resource.data.updatedAt.size() <= 64)
       );
     }
 
@@ -381,6 +387,25 @@ service cloud.firestore {
               && request.resource.data.frequency in ['daily', 'weekly', 'custom']
               && isBoundedInt(request.resource.data.targetDaysPerWeek, 1, 7)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'category', 'color', 'frequency', 'targetDaysPerWeek', 'customDays', 'completedDates', 'bestStreakDays', 'reminderTime', 'archived', 'updatedAt', 'deletedAt'])
+            )
+          );
+        allow delete: if isOwner(userId);
+      }
+
+      // Study academic tiers subcollection (Custom User Academic Tiers)
+      match /study_tiers/{tierId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(tierId)
+          && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.name, 128)
+          && isNonEmptyString(request.resource.data.shortTitle, 64);
+        allow update: if isOwner(userId)
+          && (
+            isSoftDelete(resource.data) || (
+              request.resource.data.userId == resource.data.userId
+              && isNonEmptyString(request.resource.data.name, 128)
+              && isNonEmptyString(request.resource.data.shortTitle, 64)
             )
           );
         allow delete: if isOwner(userId);

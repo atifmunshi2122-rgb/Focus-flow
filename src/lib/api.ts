@@ -22,6 +22,7 @@ import {
   DurableSyncOperation,
   CursorPage,
   OfflineOutboxOperation,
+  AcademicTier,
   StudySubject,
   StudyTopic,
   StudyRevision,
@@ -309,6 +310,12 @@ async function applyOfflineOutboxOp(userId: string, op: OfflineOutboxOperation):
       return;
     case 'delete_habit':
       await firestoreService.deleteHabit(userId, String(p.id));
+      return;
+    case 'save_study_tier':
+      await firestoreService.saveStudyTier(userId, p as Partial<AcademicTier>);
+      return;
+    case 'delete_study_tier':
+      await firestoreService.deleteStudyTier(userId, String(p.id));
       return;
     case 'save_study_subject':
       await firestoreService.saveStudySubject(userId, p as Partial<StudySubject>);
@@ -1730,6 +1737,72 @@ export const api = {
     ),
 
   // --- STUDY MANAGEMENT (NEXTSTUDY INTEGRATION) ---
+  clearStudyData: () =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.clearStudyData(uid);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>('/study/all', {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      }
+    ),
+
+  getStudyTiers: () =>
+    withPrimaryRead(
+      (uid) => firestoreService.getStudyTiers(uid),
+      () => request<AcademicTier[]>('/study/tiers')
+    ),
+
+  saveStudyTier: (tier: Partial<AcademicTier>) =>
+    withPrimaryWrite(
+      (uid) => firestoreService.saveStudyTier(uid, tier),
+      () =>
+        request<AcademicTier>('/study/tiers', {
+          method: 'POST',
+          body: JSON.stringify(tier),
+        }),
+      {
+        operationType: 'save_study_tier',
+        payload: tier as Record<string, unknown>,
+        dedupeKey: `save_tier_${tier.id || tier.name}`,
+        optimisticResult: (uid) => ({
+          id: tier.id || `tier_${Date.now()}`,
+          userId: uid,
+          name: tier.name || 'Academic Tier',
+          shortTitle: tier.shortTitle || tier.name || 'Tier',
+          description: tier.description || '',
+          subjectCodes: tier.subjectCodes || [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        }),
+      }
+    ),
+
+  deleteStudyTier: (tierId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteStudyTier(uid, tierId);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/study/tiers/${encodeURIComponent(tierId)}`, {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_tier',
+        payload: { id: tierId },
+        dedupeKey: `del_tier_${tierId}`,
+        optimisticResult: () => true,
+      }
+    ),
+
   getStudySubjects: () =>
     withPrimaryRead(
       (uid) => firestoreService.getStudySubjects(uid),

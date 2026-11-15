@@ -3,14 +3,18 @@
  * Selectively integrated from NextStudy OS into FocusFlow & Finance.
  */
 
-export type AcademicTierId = 'tier1_sem3' | 'tier2_placements' | 'tier3_gate' | 'custom';
+export type AcademicTierId = 'tier1_sem3' | 'tier2_placements' | 'tier3_gate' | 'custom' | string;
 
 export interface AcademicTier {
   id: string;
   name: string;
   shortTitle: string;
   description: string;
-  subjectCodes: string[];
+  subjectCodes?: string[];
+  userId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
 }
 
 export interface StudySubject {
