@@ -263,10 +263,10 @@ const MainContent: React.FC = () => {
           className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1920px] mx-auto min-w-0 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-8"
           style={{ paddingBottom: isFullAppPreview ? '8rem' : undefined }}
         >
-          <LazyChunkErrorBoundary onReset={() => setCurrentTab('dashboard')}>
+          <LazyChunkErrorBoundary key={currentTab} onReset={() => setCurrentTab('dashboard')}>
             <Suspense fallback={<TabLoadingFallback />}>
               <AnimatePresence mode="wait" initial={false}>
-                <MotionPage routeKey={currentTab}>
+                <MotionPage key={currentTab} routeKey={currentTab}>
                   {currentTab === 'dashboard' && (
                     <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
                   )}

@@ -117,10 +117,6 @@ export const FocusAnalytics: React.FC = () => {
 
   const subjectBreakdown = useMemo(() => computeSubjectFocusBreakdown(sessions), [sessions]);
 
-  if (loading && !stats) {
-    return <SkeletonDashboard />;
-  }
-
   const derivedFocusTotals = useMemo(() => {
     const tz = settings?.timezone || DEFAULT_TIMEZONE;
     const currentMonthPrefix = todayStr.slice(0, 7);
@@ -163,6 +159,10 @@ export const FocusAnalytics: React.FC = () => {
       monthMinutes: Math.max(monthMinutes, stats?.monthMinutes || 0),
     };
   }, [sessions, stats, settings?.timezone, todayStr]);
+
+  if (loading && !stats) {
+    return <SkeletonDashboard />;
+  }
 
   const maxMinutesInWeek = stats?.last7Days.reduce((max, d) => Math.max(max, d.minutes), 0) || 60;
   const chartHeight = 130;
