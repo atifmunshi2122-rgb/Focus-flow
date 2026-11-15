@@ -47,7 +47,7 @@ import { firestoreService } from './firestoreService.ts';
 import { offlineOutbox } from './offlineOutbox.ts';
 import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
 
-const BASE_URL = '/api';
+const BASE_URL = import.meta.env?.VITE_API_URL || '/api';
 const GUEST_SESSION_KEY = 'ff_guest_session_id';
 
 function readGuestStore<T>(bucket: string, fallback: T): T {

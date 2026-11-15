@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default Deny All: Prevent any unauthenticated or unauthorized access across the storage bucket
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // User Private Storage Partition: Enforces strict user isolation by authenticated UID
+    match /users/{userId}/{allPaths=**} {
+      // READ: Only the authenticated owner can access and download their own files
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // WRITE (CREATE/UPDATE): Only the authenticated owner can upload/update files
+      // Enforces maximum file size limit (10MB) and safe MIME content types
+      allow write: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 10 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType.matches('application/pdf') ||
+          request.resource.contentType.matches('application/json') ||
+          request.resource.contentType.matches('text/plain')
+        );
+
+      // DELETE: Only the authenticated owner can delete their own files
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+
