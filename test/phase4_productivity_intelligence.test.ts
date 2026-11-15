@@ -184,18 +184,15 @@ test('Phase 4 — Deterministic Productivity Score (0 - 100)', () => {
     referenceDateStr: referenceDate,
   });
 
-  // 100% tasks done (2/2) -> 35 pts
-  assert.equal(scoreResult.taskCompletionPoints, 35);
-  // 100 mins logged of 100 mins target -> 35 pts
-  assert.equal(scoreResult.focusTimePoints, 35);
-  // 1/1 habits done -> 20 pts
-  assert.equal(scoreResult.habitConsistencyPoints, 20);
-  // Targets hit -> 10 pts momentum bonus
-  assert.equal(scoreResult.targetBonusPoints, 10);
+  // Normalized without Study OS: 35/90 -> 39 pts task, 35/90 -> 39 pts focus, 20/90 -> 22 pts habit
+  assert.equal(scoreResult.taskCompletionPoints, 39);
+  assert.equal(scoreResult.focusTimePoints, 39);
+  assert.equal(scoreResult.habitConsistencyPoints, 22);
+  assert.equal(scoreResult.targetBonusPoints, 0);
   // Total = 100
   assert.equal(scoreResult.totalScore, 100);
   assert.equal(scoreResult.tier, 'Mastery');
-  assert.ok(scoreResult.explanation.includes('35/35'));
+  assert.ok(scoreResult.explanation.includes('Task Execution'));
 
   // Test zero activity boundary
   const zeroScore = computeProductivityScore({

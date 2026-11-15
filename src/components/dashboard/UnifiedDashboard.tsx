@@ -16,6 +16,8 @@ import {
   StudyTopic,
   StudyRevision,
   StudyMistake,
+  StudySubject,
+  StudyPlanTask,
 } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
@@ -183,9 +185,14 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const [studyTopics, setStudyTopics] = useState<StudyTopic[]>([]);
   const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>([]);
   const [studyMistakes, setStudyMistakes] = useState<StudyMistake[]>([]);
+  const [studySubjects, setStudySubjects] = useState<StudySubject[]>([]);
+  const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const todayStr = useMemo(() => getTodayDateString(DEFAULT_TIMEZONE), []);
+  const todayStr = useMemo(
+    () => getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE),
+    [settings?.timezone]
+  );
 
   const [nowClock, setNowClock] = useState<Date>(() => new Date());
   const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly'>('daily');
@@ -222,8 +229,10 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       api.getStudyTopics().catch(() => [] as StudyTopic[]),
       api.getStudyRevisions().catch(() => [] as StudyRevision[]),
       api.getStudyMistakes().catch(() => [] as StudyMistake[]),
+      api.getStudySubjects().catch(() => [] as StudySubject[]),
+      api.getStudyPlanTasks().catch(() => [] as StudyPlanTask[]),
     ])
-      .then(([dash, sess, tsk, b, sg, hab, st, sr, sm]) => {
+      .then(([dash, sess, tsk, b, sg, hab, st, sr, sm, ssub, spt]) => {
         setData(dash);
         setSessions(sess);
         setTasks(tsk);
@@ -233,6 +242,8 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
         setStudyTopics(st);
         setStudyRevisions(sr);
         setStudyMistakes(sm);
+        setStudySubjects(ssub);
+        setStudyPlanTasks(spt);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -244,9 +255,13 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       sessions,
       habits,
       settings,
+      studySubjects,
+      studyRevisions,
+      studyPlanTasks,
       referenceDateStr: todayStr,
+      timezone: settings?.timezone || DEFAULT_TIMEZONE,
     });
-  }, [tasks, sessions, habits, settings, todayStr]);
+  }, [tasks, sessions, habits, settings, studySubjects, studyRevisions, studyPlanTasks, todayStr]);
 
   const studyStats = useMemo(() => {
     const activeTopics = studyTopics.filter((t) => !t.deletedAt);

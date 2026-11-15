@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { FocusSession, FocusStatsData, Habit, Task, TimeBlock } from '../../types/index.ts';
 import type { PomodoroGoal } from '../../types/pomodoro.ts';
+import type { StudySubject, StudyRevision, StudyPlanTask } from '../../types/study.ts';
 import {
   computeProductivityAnalytics,
   computeProductivityScore,
@@ -51,6 +52,9 @@ export const FocusAnalytics: React.FC = () => {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
   const [goals, setGoals] = useState<PomodoroGoal[]>([]);
+  const [studySubjects, setStudySubjects] = useState<StudySubject[]>([]);
+  const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>([]);
+  const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>([]);
   const [loading, setLoading] = useState(true);
 
   const todayStr = useMemo(
@@ -67,14 +71,20 @@ export const FocusAnalytics: React.FC = () => {
       api.getHabits().catch(() => [] as Habit[]),
       api.getTimeBlocks(todayStr).catch(() => [] as TimeBlock[]),
       api.getPomodoroGoals().catch(() => [] as PomodoroGoal[]),
+      api.getStudySubjects().catch(() => [] as StudySubject[]),
+      api.getStudyRevisions().catch(() => [] as StudyRevision[]),
+      api.getStudyPlanTasks().catch(() => [] as StudyPlanTask[]),
     ])
-      .then(([statsData, sessionsData, taskList, habitList, blockList, goalList]) => {
+      .then(([statsData, sessionsData, taskList, habitList, blockList, goalList, ssub, srev, spt]) => {
         setStats(statsData);
         setSessions(sessionsData);
         setTasks(taskList);
         setHabits(habitList);
         setTimeBlocks(blockList);
         setGoals(goalList);
+        setStudySubjects(ssub);
+        setStudyRevisions(srev);
+        setStudyPlanTasks(spt);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -86,9 +96,13 @@ export const FocusAnalytics: React.FC = () => {
       sessions,
       habits,
       settings,
+      studySubjects,
+      studyRevisions,
+      studyPlanTasks,
       referenceDateStr: todayStr,
+      timezone: settings?.timezone || DEFAULT_TIMEZONE,
     });
-  }, [tasks, sessions, habits, settings, todayStr]);
+  }, [tasks, sessions, habits, settings, studySubjects, studyRevisions, studyPlanTasks, todayStr]);
 
   const productivityAnalytics = useMemo(() => {
     return computeProductivityAnalytics({

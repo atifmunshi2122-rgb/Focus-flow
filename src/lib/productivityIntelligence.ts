@@ -5,12 +5,19 @@ import type {
   TimeBlock,
   UserSettings,
 } from '../types/index.ts';
+import type {
+  StudyPlanTask,
+  StudyRevision,
+  StudySubject,
+} from '../types/study.ts';
 import {
   addDays,
   DEFAULT_TIMEZONE,
+  formatDateInTimezone,
   getTodayDateString,
   parseDateString,
 } from './dateTime.ts';
+import { getSessionFocusSeconds } from './pomodoroAnalytics.ts';
 
 export interface HabitStreakResult {
   currentStreak: number;
@@ -32,10 +39,11 @@ export interface AllHabitsStats {
 }
 
 export interface ProductivityScoreBreakdown {
-  taskCompletionPoints: number; // max 35
-  focusTimePoints: number; // max 35
-  habitConsistencyPoints: number; // max 20
-  targetBonusPoints: number; // max 10
+  taskCompletionPoints: number; // dynamically normalized task points
+  focusTimePoints: number; // dynamically normalized focus points
+  habitConsistencyPoints: number; // dynamically normalized habit points
+  targetBonusPoints: number; // preserved backward-compatible (0)
+  studyActivityPoints?: number; // dynamically normalized study points when active
   totalScore: number; // 0 - 100
   tier: 'Mastery' | 'Flow State' | 'Steady Progress' | 'Building Momentum';
   tierColor: string;
@@ -47,7 +55,24 @@ export interface ProductivityScoreBreakdown {
     focusTargetMinutes: number;
     habitsCompletedToday: number;
     habitsScheduledToday: number;
+    studyTasksCompletedToday?: number;
+    studyTasksDueToday?: number;
+    studyRevisionsCompletedToday?: number;
+    studyRevisionsDueToday?: number;
+    studyActivityPoints?: number;
   };
+}
+
+export interface ProductivityScoreInput {
+  tasks: Task[];
+  sessions: FocusSession[];
+  habits: Habit[];
+  settings: UserSettings | null;
+  studySubjects?: StudySubject[];
+  studyRevisions?: StudyRevision[];
+  studyPlanTasks?: StudyPlanTask[];
+  referenceDateStr?: string;
+  timezone?: string;
 }
 
 export interface ProductivityAnalyticsResult {
@@ -260,93 +285,230 @@ export function computeAllHabitsStats(
 // DETERMINISTIC PRODUCTIVITY SCORE (0 - 100)
 // -------------------------------------------------------------
 
-export function computeProductivityScore(input: {
-  tasks: Task[];
-  sessions: FocusSession[];
-  habits: Habit[];
-  settings: UserSettings | null;
-  referenceDateStr?: string;
-}): ProductivityScoreBreakdown {
-  const todayStr = input.referenceDateStr || getTodayDateString(DEFAULT_TIMEZONE);
-  const activeTasks = input.tasks.filter((t) => !t.deletedAt);
+export function computeProductivityScore(input: ProductivityScoreInput): ProductivityScoreBreakdown {
+  const tz = input.timezone || input.settings?.timezone || DEFAULT_TIMEZONE;
+  const targetDateStr = input.referenceDateStr || getTodayDateString(tz);
+  const todayStr = getTodayDateString(tz);
+  const isEvaluatingToday = targetDateStr === todayStr;
+
+  // -----------------------------------------------------------
+  // 1. FOCUS ATTAINMENT (Always Active)
+  // -----------------------------------------------------------
   const focusGoal = Math.max(15, input.settings?.dailyFocusGoalMinutes || 100);
+  const validSessions = (input.sessions || []).filter((s) => {
+    if (s.mode !== 'work') return false;
+    if (!s.completed) return false;
+    if (s.status === 'interrupted' || s.interrupted === true) return false;
+    if (!s.startedAt) return false;
+    return formatDateInTimezone(s.startedAt, tz) === targetDateStr;
+  });
 
-  // 1. Task Completion (0 - 35 points)
-  // Identify tasks due today or completed today
-  const tasksDueOrCompletedToday = activeTasks.filter(
-    (t) =>
-      t.dueDate === todayStr ||
-      (t.completedAt && t.completedAt.slice(0, 10) === todayStr)
-  );
-
-  let taskCompletionPoints = 35;
-  let tasksCompletedToday = 0;
-  const tasksDueToday = tasksDueOrCompletedToday.length;
-
-  if (tasksDueToday > 0) {
-    tasksCompletedToday = tasksDueOrCompletedToday.filter(
-      (t) => t.status === 'completed'
-    ).length;
-    taskCompletionPoints = Math.round((tasksCompletedToday / tasksDueToday) * 35);
-  } else {
-    // If no specific tasks were scheduled for today, check tasks completed today across all
-    const anyDoneToday = activeTasks.filter(
-      (t) => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) === todayStr
-    ).length;
-    tasksCompletedToday = anyDoneToday;
-    const pendingTotal = activeTasks.filter((t) => t.status !== 'completed').length;
-    if (pendingTotal === 0) {
-      taskCompletionPoints = 35; // clean slate
-    } else {
-      taskCompletionPoints = Math.min(35, Math.round(anyDoneToday * 12));
-    }
-  }
-
-  // 2. Focus Time Attainment (0 - 35 points)
-  const todaySessions = input.sessions.filter(
-    (s) =>
-      s.completed &&
-      (s.mode === 'work' || !s.mode) &&
-      s.startedAt &&
-      s.startedAt.slice(0, 10) === todayStr
-  );
-  const focusMinutesLogged = todaySessions.reduce(
-    (acc, s) => acc + (s.durationMinutes || Math.round((s.durationSeconds || 0) / 60)),
+  const totalValidFocusSeconds = validSessions.reduce(
+    (acc, s) => acc + getSessionFocusSeconds(s),
     0
   );
-  const focusRatio = Math.min(1.0, focusMinutesLogged / focusGoal);
-  const focusTimePoints = Math.round(focusRatio * 35);
+  const focusMinutesLogged = Math.round(totalValidFocusSeconds / 60);
+  const R_focus = Math.min(1.0, totalValidFocusSeconds / (focusGoal * 60));
+  const focusNumerator = totalValidFocusSeconds;
 
-  // 3. Habit Consistency (0 - 20 points)
-  const activeHabits = input.habits.filter((h) => !h.deletedAt && !h.archived);
-  let habitConsistencyPoints = 20;
-  let habitsScheduledToday = 0;
-  let habitsCompletedToday = 0;
+  // -----------------------------------------------------------
+  // 2. TASK EXECUTION
+  // -----------------------------------------------------------
+  const activeTasks = (input.tasks || []).filter((t) => !t.deletedAt);
+  const dueTasksToday = activeTasks.filter((t) => t.dueDate === targetDateStr);
+  const N_due = dueTasksToday.length;
 
-  if (activeHabits.length > 0) {
-    const scheduled = activeHabits.filter((h) => isHabitScheduledOnDate(h, todayStr));
-    habitsScheduledToday = scheduled.length;
-    if (habitsScheduledToday > 0) {
-      habitsCompletedToday = scheduled.filter((h) =>
-        (h.completedDates || []).includes(todayStr)
-      ).length;
-      habitConsistencyPoints = Math.round((habitsCompletedToday / habitsScheduledToday) * 20);
+  const completedTodayTasks = activeTasks.filter((t) => {
+    if (t.status !== 'completed' || !t.completedAt) return false;
+    return formatDateInTimezone(t.completedAt, tz) === targetDateStr;
+  });
+  const C_completed_today = completedTodayTasks.length;
+
+  // Task category activation: N_due > 0 OR C_completed_today > 0
+  const isTaskActive = N_due > 0 || C_completed_today > 0;
+
+  // Mutually exclusive classification of completed tasks
+  let C_due = 0;
+  let C_no_due = 0;
+  let C_overdue = 0;
+  let C_future = 0;
+
+  for (const t of completedTodayTasks) {
+    if (t.dueDate === targetDateStr) {
+      C_due++;
+    } else if (!t.dueDate) {
+      C_no_due++;
+    } else if (t.dueDate < targetDateStr) {
+      C_overdue++;
     } else {
-      habitConsistencyPoints = 20;
+      C_future++;
     }
   }
 
-  // 4. Target Bonus & Momentum (0 - 10 points)
-  let targetBonusPoints = 0;
-  if (focusMinutesLogged >= focusGoal) targetBonusPoints += 4;
-  if (tasksDueToday > 0 && tasksCompletedToday >= tasksDueToday) targetBonusPoints += 3;
-  if (habitsScheduledToday > 0 && habitsCompletedToday >= habitsScheduledToday) targetBonusPoints += 3;
-  if (targetBonusPoints > 10) targetBonusPoints = 10;
+  const C_adhoc = C_no_due + C_overdue + C_future;
 
-  const totalScore = Math.min(
-    100,
-    Math.max(0, taskCompletionPoints + focusTimePoints + habitConsistencyPoints + targetBonusPoints)
+  let R_task = 0;
+  if (isTaskActive) {
+    if (N_due > 0) {
+      R_task = Math.min(1.0, C_due / N_due + 0.2 * C_adhoc);
+    } else {
+      R_task = Math.min(1.0, 0.2 * C_adhoc);
+    }
+  }
+  const taskNumerator = C_completed_today;
+
+  // -----------------------------------------------------------
+  // 3. HABIT CONSISTENCY
+  // -----------------------------------------------------------
+  const activeHabits = (input.habits || []).filter((h) => !h.deletedAt && !h.archived);
+
+  // Daily and custom scheduled habits (weekly habits excluded from daily denominator)
+  const scheduledHabits = activeHabits.filter((h) => {
+    if (h.frequency === 'daily') return true;
+    if (h.frequency === 'custom' && Array.isArray(h.customDays) && h.customDays.length > 0) {
+      const parsed = parseDateString(targetDateStr);
+      if (!parsed) return false;
+      const d = new Date(parsed.year, parsed.month - 1, parsed.day);
+      return h.customDays.includes(d.getDay());
+    }
+    return false;
+  });
+
+  const N_habit = scheduledHabits.length;
+  const completedHabits = scheduledHabits.filter((h) =>
+    (h.completedDates || []).includes(targetDateStr)
   );
+  const C_habit = completedHabits.length;
+
+  const isHabitActive = N_habit > 0;
+  const R_habit = isHabitActive ? Math.min(1.0, C_habit / N_habit) : 0;
+  const habitNumerator = C_habit;
+
+  // -----------------------------------------------------------
+  // 4. STUDY OS ACTIVITY
+  // -----------------------------------------------------------
+  const activeSubjects = (input.studySubjects || []).filter((s) => !s.deletedAt);
+  const hasActiveSubject = activeSubjects.length > 0;
+
+  // A. Revision Component (Only for targetDate === todayStr)
+  let RevActive = false;
+  let R_rev = 0;
+  let C_rev = 0;
+  let N_rev = 0;
+
+  if (hasActiveSubject && isEvaluatingToday) {
+    const activeRevisions = (input.studyRevisions || []).filter((r) => !r.deletedAt);
+    const completedRevs = activeRevisions.filter((r) => r.lastStudiedAt === todayStr);
+    const pendingRevs = activeRevisions.filter(
+      (r) =>
+        r.status !== 'mastered' &&
+        r.lastStudiedAt !== todayStr &&
+        Boolean(r.nextRevisionAt) &&
+        r.nextRevisionAt <= todayStr
+    );
+    C_rev = completedRevs.length;
+    N_rev = C_rev + pendingRevs.length;
+    RevActive = N_rev > 0;
+    R_rev = RevActive ? Math.min(1.0, C_rev / N_rev) : 0;
+  }
+
+  // B. Plan Task Component
+  let PlanActive = false;
+  let R_plan = 0;
+  let C_plan_due = 0;
+  let C_plan_adhoc = 0;
+  let N_plan_due = 0;
+
+  if (hasActiveSubject) {
+    const activePlanTasks = (input.studyPlanTasks || []).filter((p) => !p.deletedAt);
+    const scheduledPlanTasks = activePlanTasks.filter(
+      (p) => p.scheduledDate === targetDateStr && p.status !== 'skipped'
+    );
+    N_plan_due = scheduledPlanTasks.length;
+
+    const completedPlanTasks = activePlanTasks.filter((p) => {
+      if (p.status !== 'completed' || !p.completedAt) return false;
+      return formatDateInTimezone(p.completedAt, tz) === targetDateStr;
+    });
+
+    for (const p of completedPlanTasks) {
+      if (p.scheduledDate === targetDateStr) {
+        C_plan_due++;
+      } else {
+        C_plan_adhoc++;
+      }
+    }
+
+    PlanActive = N_plan_due > 0 || C_plan_adhoc > 0;
+    if (PlanActive) {
+      if (N_plan_due > 0) {
+        R_plan = Math.min(1.0, C_plan_due / N_plan_due + 0.25 * C_plan_adhoc);
+      } else {
+        R_plan = Math.min(1.0, 0.25 * C_plan_adhoc);
+      }
+    }
+  }
+
+  // C. Overall Study Blend
+  let isStudyActive = false;
+  let R_study = 0;
+
+  if (hasActiveSubject) {
+    if (isEvaluatingToday) {
+      if (RevActive && PlanActive) {
+        isStudyActive = true;
+        R_study = 0.5 * R_rev + 0.5 * R_plan;
+      } else if (RevActive) {
+        isStudyActive = true;
+        R_study = R_rev;
+      } else if (PlanActive) {
+        isStudyActive = true;
+        R_study = R_plan;
+      }
+    } else {
+      // Historical: Revisions strictly excluded
+      if (PlanActive) {
+        isStudyActive = true;
+        R_study = R_plan;
+      }
+    }
+  }
+  const studyNumerator = (isEvaluatingToday ? C_rev : 0) + C_plan_due + C_plan_adhoc;
+
+  // -----------------------------------------------------------
+  // 5. NORMALIZED COMPOSITE SCORING
+  // -----------------------------------------------------------
+  const w_focus = 35; // Focus is always active
+  const w_task = isTaskActive ? (isStudyActive ? 30 : 35) : 0;
+  const w_habit = isHabitActive ? 20 : 0;
+  const w_study = isStudyActive ? 15 : 0;
+
+  const W_active = w_focus + w_task + w_habit + w_study;
+
+  const hasAnyCompletedActivity =
+    focusNumerator > 0 ||
+    taskNumerator > 0 ||
+    habitNumerator > 0 ||
+    (isStudyActive && studyNumerator > 0);
+
+  let focusTimePoints = 0;
+  let taskCompletionPoints = 0;
+  let habitConsistencyPoints = 0;
+  let studyActivityPoints = 0;
+  const targetBonusPoints = 0; // Preserved finite and non-negative
+  let totalScore = 0;
+
+  if (hasAnyCompletedActivity && W_active > 0) {
+    focusTimePoints = Math.round((w_focus * R_focus / W_active) * 100);
+    taskCompletionPoints = w_task > 0 ? Math.round((w_task * R_task / W_active) * 100) : 0;
+    habitConsistencyPoints = w_habit > 0 ? Math.round((w_habit * R_habit / W_active) * 100) : 0;
+    studyActivityPoints = w_study > 0 ? Math.round((w_study * R_study / W_active) * 100) : 0;
+
+    const rawTotal = Math.round(
+      ((w_focus * R_focus + w_task * R_task + w_habit * R_habit + w_study * R_study) / W_active) * 100
+    );
+    totalScore = Math.min(100, Math.max(0, rawTotal));
+  }
 
   let tier: ProductivityScoreBreakdown['tier'] = 'Building Momentum';
   let tierColor = '#f59e0b'; // Amber
@@ -362,28 +524,38 @@ export function computeProductivityScore(input: {
     tierColor = '#3b82f6'; // Blue
   }
 
+  const studySummary = isStudyActive
+    ? `, Study OS (${studyActivityPoints}/${Math.round((w_study / W_active) * 100)} pts: ${Math.round(R_study * 100)}% execution)`
+    : '';
+
   const explanation =
-    `Score is calculated deterministically: Task Completion (${taskCompletionPoints}/35 pts: ${tasksCompletedToday}/${tasksDueToday || 'all'} done), ` +
-    `Focus Goal (${focusTimePoints}/35 pts: ${focusMinutesLogged}/${focusGoal} min), ` +
-    `Habits (${habitConsistencyPoints}/20 pts: ${habitsCompletedToday}/${habitsScheduledToday || 'all'} done), ` +
-    `plus Momentum Bonus (${targetBonusPoints}/10 pts).`;
+    `Score is calculated deterministically: Focus Goal (${focusTimePoints}/${Math.round((w_focus / W_active) * 100)} pts: ${focusMinutesLogged}/${focusGoal} min), ` +
+    `Task Execution (${taskCompletionPoints}/${Math.round((w_task / W_active) * 100)} pts: ${C_completed_today}/${N_due || 'ad-hoc'} done), ` +
+    `Habits (${habitConsistencyPoints}/${Math.round((w_habit / W_active) * 100)} pts: ${C_habit}/${N_habit || 'none'} done)` +
+    `${studySummary}.`;
 
   return {
     taskCompletionPoints,
     focusTimePoints,
     habitConsistencyPoints,
     targetBonusPoints,
+    studyActivityPoints,
     totalScore,
     tier,
     tierColor,
     explanation,
     details: {
-      tasksCompletedToday,
-      tasksDueToday,
+      tasksCompletedToday: C_completed_today,
+      tasksDueToday: N_due,
       focusMinutesLogged,
       focusTargetMinutes: focusGoal,
-      habitsCompletedToday,
-      habitsScheduledToday,
+      habitsCompletedToday: C_habit,
+      habitsScheduledToday: N_habit,
+      studyTasksCompletedToday: C_plan_due + C_plan_adhoc,
+      studyTasksDueToday: N_plan_due,
+      studyRevisionsCompletedToday: isEvaluatingToday ? C_rev : 0,
+      studyRevisionsDueToday: isEvaluatingToday ? N_rev : 0,
+      studyActivityPoints,
     },
   };
 }
