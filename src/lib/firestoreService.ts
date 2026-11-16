@@ -1040,7 +1040,18 @@ export const firestoreService = {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Valid amount is required');
 
     const cats = await this.getCategories(userId);
-    const categoryId = input.categoryId || cats[0]?.id || 'cat_1';
+    let categoryId = input.categoryId;
+    if (!categoryId && (input as any).categoryName) {
+      const rawName = String((input as any).categoryName).trim().toLowerCase();
+      const match = cats.find((c) => c.name.toLowerCase() === rawName) ||
+                    cats.find((c) => c.name.toLowerCase().includes(rawName) || rawName.includes(c.name.toLowerCase()));
+      if (match) {
+        categoryId = match.id;
+      }
+    }
+    if (!categoryId) {
+      categoryId = cats[0]?.id || 'cat_1';
+    }
     const dueDayNum = Number(input.dueDay);
     const now = new Date().toISOString();
 
@@ -1158,7 +1169,18 @@ export const firestoreService = {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Valid amount is required');
 
     const cats = await this.getCategories(userId);
-    const categoryId = input.categoryId || cats[0]?.id || 'cat_1';
+    let categoryId = input.categoryId;
+    if (!categoryId && (input as any).categoryName) {
+      const rawName = String((input as any).categoryName).trim().toLowerCase();
+      const match = cats.find((c) => c.name.toLowerCase() === rawName) ||
+                    cats.find((c) => c.name.toLowerCase().includes(rawName) || rawName.includes(c.name.toLowerCase()));
+      if (match) {
+        categoryId = match.id;
+      }
+    }
+    if (!categoryId) {
+      categoryId = cats[0]?.id || 'cat_1';
+    }
     const created: ExpenseTransaction = {
       id:
         typeof input.id === 'string' && /^[a-zA-Z0-9_-]{3,128}$/.test(input.id)
@@ -1347,7 +1369,22 @@ export const firestoreService = {
     if (!dueDate || !isIsoDate(dueDate)) throw new Error('Valid dueDate (YYYY-MM-DD) is required');
 
     const [cats, settings] = await Promise.all([this.getCategories(userId), this.getSettings(userId)]);
-    const categoryId = input.categoryId || cats[0]?.id || 'cat_1';
+    let resolvedCat = cats.find((c) => c.id === input.categoryId);
+    if (!resolvedCat && input.categoryId) {
+      resolvedCat = cats.find((c) => c.name.toLowerCase() === input.categoryId!.trim().toLowerCase());
+    }
+    const rawCatName = (input as Record<string, unknown>).categoryName;
+    if (!resolvedCat && typeof rawCatName === 'string') {
+      resolvedCat = cats.find((c) => c.name.toLowerCase() === rawCatName.trim().toLowerCase());
+    }
+    const categoryId =
+      resolvedCat?.id ||
+      (input.categoryId && cats.some((c) => c.id === input.categoryId)
+        ? input.categoryId
+        : cats.find((c) => c.name.toLowerCase().includes('bill') || c.name.toLowerCase().includes('util'))?.id ||
+          cats.find((c) => c.type === 'fixed')?.id ||
+          cats[0]?.id ||
+          'cat_util');
     const tz = settings?.timezone || DEFAULT_TIMEZONE;
     const todayStr = getTodayDateString(tz);
     const now = new Date().toISOString();

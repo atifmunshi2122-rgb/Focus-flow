@@ -22,7 +22,7 @@ import { ThemeButton, ThemeCard, ThemeSegmentedControl } from '../ui/ThemePrimit
 import { EmptyStateIllustration } from '../ui/MotionPrimitives.tsx';
 
 export const FinancialReportsView: React.FC = () => {
-  const { user, currency, settings, refreshKey, showToast } = useApp();
+  const { user, currency, settings, refreshKey, showToast, setCurrentTab } = useApp();
   const [reportType, setReportType] = useState<FinancialReportType>('monthly');
 
   const [incomes, setIncomes] = useState<IncomeTransaction[]>([]);
@@ -104,6 +104,9 @@ export const FinancialReportsView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <ThemeButton variant="secondary" size="sm" onClick={() => setCurrentTab('exports')}>
+            <Download className="w-3.5 h-3.5" /> Export Center
+          </ThemeButton>
           <ThemeButton variant="secondary" size="sm" onClick={handleExportCsv}>
             <Download className="w-3.5 h-3.5" /> Export CSV
           </ThemeButton>

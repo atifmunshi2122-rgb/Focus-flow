@@ -78,6 +78,7 @@ export type NavTab =
   | 'envelopes'
   | 'subscriptions'
   | 'analytics'
+  | 'exports'
   | 'recovery'
   | 'settings';
 
@@ -96,6 +97,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'envelopes',
   'subscriptions',
   'analytics',
+  'exports',
   'recovery',
   'settings',
 ] as const;
@@ -2646,6 +2648,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       envelopes: 'Cash Envelope Allocator',
       subscriptions: 'Subscription Manager',
       analytics: 'Analytics & Reports',
+      exports: 'Export Center',
       recovery: 'Data Recovery Center',
       settings: 'Settings & Preferences',
     };

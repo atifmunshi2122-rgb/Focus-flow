@@ -49,7 +49,7 @@ interface UnifiedTransaction {
 }
 
 export const TransactionsLedger: React.FC = () => {
-  const { currency, refreshKey, showToast, triggerRefresh, confirmAction } = useApp();
+  const { currency, refreshKey, showToast, triggerRefresh, confirmAction, setCurrentTab } = useApp();
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
   const cachedTx = clientDataCache.getTransactions();
@@ -454,6 +454,9 @@ export const TransactionsLedger: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <ThemeButton variant="secondary" size="xs" onClick={() => setCurrentTab('exports')}>
+            <Download className="w-3.5 h-3.5" /> Export Center
+          </ThemeButton>
           <ThemeButton variant="secondary" size="xs" onClick={handleExportFilteredCsv}>
             <Download className="w-3.5 h-3.5" /> Export CSV ({filtered.length})
           </ThemeButton>

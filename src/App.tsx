@@ -36,6 +36,7 @@ const EnvelopeBudgetManager = lazy(() => import('./components/finance/EnvelopeBu
 const SubscriptionManager = lazy(() => import('./components/finance/SubscriptionManager.tsx').then((m) => ({ default: m.SubscriptionManager })));
 const StudyView = lazy(() => import('./components/study/StudyView.tsx').then((m) => ({ default: m.StudyView })));
 const AnalyticsReportsView = lazy(() => import('./components/analytics/AnalyticsReportsView.tsx').then((m) => ({ default: m.AnalyticsReportsView })));
+const ExportCenterView = lazy(() => import('./components/export/ExportCenterView.tsx').then((m) => ({ default: m.ExportCenterView })));
 const ProductivityCalendar = lazy(() => import('./components/calendar/ProductivityCalendar.tsx').then((m) => ({ default: m.ProductivityCalendar })));
 const DailyTimeBlockPlanner = lazy(() => import('./components/focus/DailyTimeBlockPlanner.tsx').then((m) => ({ default: m.DailyTimeBlockPlanner })));
 const SettingsView = lazy(() => import('./components/settings/SettingsView.tsx').then((m) => ({ default: m.SettingsView })));
@@ -59,6 +60,7 @@ import {
   Layers,
   Repeat,
   BarChart3,
+  Download,
 } from 'lucide-react';
 
 const PRIMARY_MOBILE_TABS: NavTab[] = ['dashboard', 'focus', 'tasks', 'finance'];
@@ -78,6 +80,7 @@ const MORE_GRID_ITEMS: MobileMoreItem[] = [
   { id: 'envelopes', label: 'Envelopes', icon: Layers },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'exports', label: 'Export Center', icon: Download },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -337,6 +340,8 @@ const MainContent: React.FC = () => {
                   {currentTab === 'study' && <StudyView />}
 
                   {currentTab === 'analytics' && <AnalyticsReportsView />}
+
+                  {currentTab === 'exports' && <ExportCenterView />}
 
                   {currentTab === 'recovery' && <DataRecoveryCenter />}
 

@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { ExpenseTransaction, RecurringExpense, ExpenseCategory } from '../../types/index.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
+import { resolveDefaultCategoryForReason } from '../../lib/expenseReasons.ts';
 import {
   ThemeBadge,
   ThemeButton,
@@ -670,8 +671,22 @@ export const ExpenseManager: React.FC = () => {
               autoFocus
               value={varDesc}
               onChange={(e) => {
-                setVarDesc(e.target.value);
+                const nextDesc = e.target.value;
+                setVarDesc(nextDesc);
                 if (formError) setFormError(null);
+                if (!editingVar && nextDesc.trim().length >= 3) {
+                  const suggested = resolveDefaultCategoryForReason(nextDesc);
+                  if (suggested && suggested !== 'General') {
+                    const matched = categories.find(
+                      (c) =>
+                        c.name.toLowerCase().includes(suggested.toLowerCase()) ||
+                        suggested.toLowerCase().includes(c.name.toLowerCase())
+                    );
+                    if (matched) {
+                      setVarCategory(matched.id);
+                    }
+                  }
+                }
               }}
               placeholder="e.g., Weekly Groceries, Fuel, Cafe"
             />

@@ -30,6 +30,7 @@ import {
   ShieldAlert,
   Star,
   GraduationCap,
+  Download,
   X,
 } from 'lucide-react';
 
@@ -104,6 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'envelopes', label: 'Envelope Budgets', icon: Layers, section: 'Wealth & Finance' },
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, section: 'Wealth & Finance' },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, section: 'System & Intelligence' },
+    { id: 'exports', label: 'Export Center', icon: Download, section: 'System & Intelligence' },
     { id: 'recovery', label: 'Data Recovery', icon: ShieldAlert, section: 'System & Intelligence' },
     { id: 'settings', label: 'Settings', icon: Settings, section: 'System & Intelligence' },
   ];

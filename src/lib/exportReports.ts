@@ -185,57 +185,126 @@ export function openPrintableReport(input: {
   savingsGoals: SavingsGoal[];
   topCategories: Array<{ name: string; amountPaise: number }>;
 }): boolean {
-
   const netPaise = input.totalIncomePaise - input.totalExpensePaise;
+  const totalExp = input.totalExpensePaise;
+
   const catRows = input.topCategories
-    .map(
-      (c) =>
-        `<tr><td>${escapeHtml(c.name)}</td><td style="text-align:right;font-weight:600;">${escapeHtml(formatCurrency(c.amountPaise))}</td></tr>`
-    )
+    .map((c) => {
+      const pct = totalExp > 0 ? Math.round((c.amountPaise / totalExp) * 100) : 0;
+      return `
+        <tr>
+          <td style="padding: 7px 10px; font-weight: 600; color: #0f172a; font-size: 11px;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#7c3aed;margin-right:6px;"></span>
+            ${escapeHtml(c.name)}
+          </td>
+          <td style="padding: 7px 10px; text-align: right; font-family: monospace; font-weight: 700; color: #e11d48; font-size: 11px;">
+            ${escapeHtml(formatCurrency(c.amountPaise))}
+          </td>
+          <td style="padding: 7px 10px; text-align: right; font-weight: 600; color: #64748b; font-size: 11px;">${pct}%</td>
+          <td style="padding: 7px 10px; width: 140px;">
+            <div style="background: #f1f5f9; border-radius: 9999px; height: 6px; overflow: hidden;">
+              <div style="background: linear-gradient(90deg, #7c3aed, #6366f1); height: 100%; width: ${Math.min(100, pct)}%;"></div>
+            </div>
+          </td>
+        </tr>`;
+    })
     .join('');
 
   const goalRows = input.savingsGoals
     .map((g) => {
       const pct = g.targetPaise > 0 ? Math.min(100, Math.round((g.savedPaise / g.targetPaise) * 100)) : 0;
-      return `<tr><td>${escapeHtml(g.title)}</td><td>${pct}%</td><td style="text-align:right;">${escapeHtml(formatCurrency(g.savedPaise))} / ${escapeHtml(formatCurrency(g.targetPaise))}</td></tr>`;
+      return `
+        <tr>
+          <td style="padding: 7px 10px; font-weight: 600; color: #0f172a; font-size: 11px;">${escapeHtml(g.title)}</td>
+          <td style="padding: 7px 10px; text-align: right; font-family: monospace; font-size: 11px; color: #0f172a;">${escapeHtml(formatCurrency(g.targetPaise))}</td>
+          <td style="padding: 7px 10px; text-align: right; font-family: monospace; font-size: 11px; color: #059669; font-weight: 700;">${escapeHtml(formatCurrency(g.savedPaise))}</td>
+          <td style="padding: 7px 10px; width: 120px;">
+            <div style="background: #f1f5f9; border-radius: 9999px; height: 6px; overflow: hidden;">
+              <div style="background: #10b981; height: 100%; width: ${pct}%;"></div>
+            </div>
+          </td>
+          <td style="padding: 7px 10px; text-align: right; font-weight: 700; font-size: 11px; color: #64748b;">${pct}%</td>
+        </tr>`;
     })
     .join('');
+
+  const dateStr = new Date().toLocaleDateString('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
   const html = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8" />
-<title>FocusFlow & Finance Report — ${escapeHtml(input.rangeLabel)}</title>
+<title>FocusFlow &amp; Finance — Executive Intelligence Report</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0f172a; margin: 36px; line-height: 1.5; }
-  h1 { margin: 0 0 4px; font-size: 24px; }
-  .sub { color: #475569; font-size: 13px; margin-bottom: 24px; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
-  .card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; background: #f8fafc; }
-  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; font-weight: 700; }
-  .val { font-size: 20px; font-weight: 800; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 24px; font-size: 13px; }
-  th, td { border-bottom: 1px solid #e2e8f0; padding: 9px 6px; text-align: left; }
-  th { font-size: 11px; text-transform: uppercase; color: #475569; }
-  @media print { body { margin: 16px; } }
+  @page { size: A4 portrait; margin: 14mm 16mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; background: #ffffff; margin: 0; padding: 0; line-height: 1.45; font-size: 11px; }
+  .header-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px 20px; background: radial-gradient(circle at 90% 10%, #faf5ff 0%, #ffffff 60%); margin-bottom: 20px; }
+  .brand-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 14px; }
+  .brand-logo { font-size: 13px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; color: #0f172a; }
+  .badge { background: #0f172a; color: #ffffff; font-size: 9px; font-weight: 800; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .title { font-size: 24px; font-weight: 900; letter-spacing: -0.02em; margin: 0 0 6px 0; color: #0f172a; }
+  .meta-sub { font-size: 11px; color: #64748b; margin-bottom: 0; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
+  .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; }
+  .kpi-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 3px; }
+  .kpi-val { font-size: 16px; font-weight: 900; font-family: monospace; color: #0f172a; }
+  .section-title { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; color: #0f172a; border-left: 3px solid #7c3aed; padding-left: 8px; margin: 20px 0 10px 0; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 10.5px; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; break-inside: avoid; }
+  th { background: #0f172a; color: #ffffff; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 7px 10px; text-align: left; }
+  td { padding: 6.5px 10px; border-bottom: 1px solid #f1f5f9; color: #1e293b; }
+  tbody tr:nth-child(even) { background: #fafafd; }
+  .footer { border-top: 1px solid #e2e8f0; padding-top: 8px; margin-top: 24px; display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8; }
+  @media print { body { margin: 0; } }
 </style>
 </head>
 <body>
-  <h1>FocusFlow & Finance Executive Report</h1>
-  <div class="sub">Prepared for ${escapeHtml(input.userName)} • Window: ${escapeHtml(input.rangeLabel)} • Generated ${new Date().toLocaleDateString()}</div>
-  <div class="grid">
-    <div class="card"><div class="label">Focus Logged</div><div class="val">${input.totalFocusMinutes} min</div></div>
-    <div class="card"><div class="label">Tasks Completed</div><div class="val">${input.completedTasks} done / ${input.pendingTasks} open</div></div>
-    <div class="card"><div class="label">Net Cashflow</div><div class="val">${escapeHtml(formatCurrency(netPaise))}</div></div>
-    <div class="card"><div class="label">Total Income</div><div class="val">${escapeHtml(formatCurrency(input.totalIncomePaise))}</div></div>
-    <div class="card"><div class="label">Total Expenses</div><div class="val">${escapeHtml(formatCurrency(input.totalExpensePaise))}</div></div>
-    <div class="card"><div class="label">Savings Targets</div><div class="val">${input.savingsGoals.length} active</div></div>
+  <div class="header-card">
+    <div class="brand-bar">
+      <div class="brand-logo">FocusFlow &amp; Finance</div>
+      <div class="badge">Certified Audit Report</div>
+    </div>
+    <h1 class="title">Executive Performance &amp; Financial Dossier</h1>
+    <div class="meta-sub">Prepared for: <strong>${escapeHtml(input.userName)}</strong> • Reporting Window: <strong>${escapeHtml(input.rangeLabel)}</strong> • Generated: <strong>${escapeHtml(dateStr)} IST</strong></div>
   </div>
-  <h3>Expense Category Breakdown</h3>
-  <table><thead><tr><th>Category</th><th style="text-align:right;">Spent</th></tr></thead><tbody>${catRows || '<tr><td colspan="2">No expenses in period</td></tr>'}</tbody></table>
-  <h3>Savings Goals</h3>
-  <table><thead><tr><th>Goal</th><th>Progress</th><th style="text-align:right;">Balance</th></tr></thead><tbody>${goalRows || '<tr><td colspan="3">No savings goals configured</td></tr>'}</tbody></table>
-  <script>window.addEventListener('load', () => { setTimeout(() => window.print(), 250); });</script>
+
+  <div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">Total Inflows</div><div class="kpi-val" style="color: #059669;">+${escapeHtml(formatCurrency(input.totalIncomePaise))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Outflows</div><div class="kpi-val" style="color: #e11d48;">-${escapeHtml(formatCurrency(input.totalExpensePaise))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Net Financial Flow</div><div class="kpi-val" style="color: ${netPaise >= 0 ? '#059669' : '#e11d48'};">${netPaise >= 0 ? '+' : '-'}${escapeHtml(formatCurrency(Math.abs(netPaise)))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Focus Time Logged</div><div class="kpi-val" style="color: #7c3aed;">${input.totalFocusMinutes} mins</div></div>
+    <div class="kpi-card"><div class="kpi-label">Tasks Velocity</div><div class="kpi-val">${input.completedTasks} done / ${input.pendingTasks} open</div></div>
+    <div class="kpi-card"><div class="kpi-label">Active Wealth Targets</div><div class="kpi-val">${input.savingsGoals.length} goals</div></div>
+  </div>
+
+  <div class="section-title">Expense Category Distribution</div>
+  <table>
+    <thead><tr><th>Category</th><th style="text-align:right;">Total Spent</th><th style="text-align:right;">Share</th><th>Distribution</th></tr></thead>
+    <tbody>${catRows || '<tr><td colspan="4" style="text-align:center;padding:12px;color:#94a3b8;">No expenses recorded in this period</td></tr>'}</tbody>
+  </table>
+
+  ${input.savingsGoals.length > 0 ? `
+  <div class="section-title">Savings Goals Progression</div>
+  <table>
+    <thead><tr><th>Goal Name</th><th style="text-align:right;">Target</th><th style="text-align:right;">Saved</th><th>Progress</th><th style="text-align:right;">Completion</th></tr></thead>
+    <tbody>${goalRows}</tbody>
+  </table>` : ''}
+
+  <div class="footer">
+    <div>FocusFlow &amp; Finance OS • Verified Local Ledger Audit Statement</div>
+    <div>Confidential Executive Statement • Generated ${escapeHtml(dateStr)} IST</div>
+  </div>
+
+  <script>window.addEventListener('load', () => { setTimeout(() => window.print(), 300); });</script>
 </body>
 </html>`;
 
@@ -382,10 +451,17 @@ export function exportSpecificFinancialReportCsv(input: SpecificReportInput): vo
 }
 
 export function openPrintableSpecificFinancialReport(input: SpecificReportInput): boolean {
-  const { reportType, incomes, expenses, monthlyBudgetPaise, userName } = input;
+  const { reportType, incomes, expenses, userName } = input;
   const activeIncomes = incomes.filter((i) => !i.deletedAt);
   const activeExpenses = expenses.filter((e) => !e.deletedAt);
-  const nowStr = new Date().toLocaleDateString();
+  const dateStr = new Date().toLocaleDateString('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
   const totalInflow = activeIncomes.reduce((s, i) => s + i.amountPaise, 0);
   const totalOutflow = activeExpenses.reduce((s, e) => s + e.amountPaise, 0);
@@ -395,36 +471,61 @@ export function openPrintableSpecificFinancialReport(input: SpecificReportInput)
 <html>
 <head>
 <meta charset="utf-8" />
-<title>FocusFlow & Finance — ${escapeHtml(reportType.toUpperCase())} Report</title>
+<title>FocusFlow &amp; Finance — ${escapeHtml(reportType.toUpperCase())} Statement</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0f172a; margin: 36px; line-height: 1.5; }
-  h1 { margin: 0 0 4px; font-size: 24px; text-transform: capitalize; }
-  .sub { color: #475569; font-size: 13px; margin-bottom: 24px; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
-  .card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; background: #f8fafc; }
-  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; font-weight: 700; }
-  .val { font-size: 20px; font-weight: 800; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 24px; font-size: 13px; }
-  th, td { border-bottom: 1px solid #e2e8f0; padding: 9px 6px; text-align: left; }
-  th { font-size: 11px; text-transform: uppercase; color: #475569; }
-  @media print { body { margin: 16px; } }
+  @page { size: A4 portrait; margin: 14mm 16mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; background: #ffffff; margin: 0; padding: 0; line-height: 1.45; font-size: 11px; }
+  .header-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px 20px; background: radial-gradient(circle at 90% 10%, #faf5ff 0%, #ffffff 60%); margin-bottom: 20px; }
+  .brand-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 14px; }
+  .brand-logo { font-size: 13px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; color: #0f172a; }
+  .badge { background: #0f172a; color: #ffffff; font-size: 9px; font-weight: 800; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .title { font-size: 24px; font-weight: 900; letter-spacing: -0.02em; margin: 0 0 6px 0; color: #0f172a; text-transform: capitalize; }
+  .meta-sub { font-size: 11px; color: #64748b; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
+  .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; }
+  .kpi-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 3px; }
+  .kpi-val { font-size: 16px; font-weight: 900; font-family: monospace; color: #0f172a; }
+  .section-title { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; color: #0f172a; border-left: 3px solid #7c3aed; padding-left: 8px; margin: 20px 0 10px 0; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 10.5px; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; break-inside: avoid; }
+  th { background: #0f172a; color: #ffffff; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 7px 10px; text-align: left; }
+  td { padding: 6.5px 10px; border-bottom: 1px solid #f1f5f9; color: #1e293b; }
+  tbody tr:nth-child(even) { background: #fafafd; }
+  .footer { border-top: 1px solid #e2e8f0; padding-top: 8px; margin-top: 24px; display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8; }
+  @media print { body { margin: 0; } }
 </style>
 </head>
 <body>
-  <h1>FocusFlow & Finance — ${escapeHtml(reportType)} Executive Report</h1>
-  <div class="sub">Account: ${escapeHtml(userName || 'Verified User')} • Generated on ${nowStr}</div>
-  <div class="grid">
-    <div class="card"><div class="label">Total Inflow</div><div class="val">${escapeHtml(formatCurrency(totalInflow))}</div></div>
-    <div class="card"><div class="label">Total Outflow</div><div class="val">${escapeHtml(formatCurrency(totalOutflow))}</div></div>
-    <div class="card"><div class="label">Net Position</div><div class="val" style="color: ${net >= 0 ? '#10b981' : '#ef4444'}">${escapeHtml(formatCurrency(net))}</div></div>
+  <div class="header-card">
+    <div class="brand-bar">
+      <div class="brand-logo">FocusFlow &amp; Finance</div>
+      <div class="badge">${escapeHtml(reportType)} Audit</div>
+    </div>
+    <h1 class="title">${escapeHtml(reportType)} Financial Statement</h1>
+    <div class="meta-sub">Account: <strong>${escapeHtml(userName || 'Verified User')}</strong> • Certified Accounting Ledger • Generated: <strong>${escapeHtml(dateStr)} IST</strong></div>
   </div>
-  <h3>Recent Verified Records</h3>
+
+  <div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">Total Credits</div><div class="kpi-val" style="color: #059669;">+${escapeHtml(formatCurrency(totalInflow))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Debits</div><div class="kpi-val" style="color: #e11d48;">-${escapeHtml(formatCurrency(totalOutflow))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Net Operating Flow</div><div class="kpi-val" style="color: ${net >= 0 ? '#059669' : '#e11d48'};">${net >= 0 ? '+' : '-'}${escapeHtml(formatCurrency(Math.abs(net)))}</div></div>
+  </div>
+
+  <div class="section-title">Itemized Transactions Register</div>
   <table>
-    <thead><tr><th>Date</th><th>Description / Source</th><th>Category</th><th style="text-align:right;">Amount</th></tr></thead>
+    <thead><tr><th>Date</th><th>Description / Payee</th><th>Category</th><th style="text-align:right;">Amount (INR)</th></tr></thead>
     <tbody>
-      ${activeExpenses.slice(0, 25).map((e) => `<tr><td>${escapeHtml(e.date)}</td><td>${escapeHtml(e.description)}</td><td>${escapeHtml(e.categoryName || e.categoryId)}</td><td style="text-align:right;color:#ef4444;font-family:monospace;">-${escapeHtml(formatCurrency(e.amountPaise))}</td></tr>`).join('')}
+      ${activeExpenses.slice(0, 30).map((e) => `<tr><td style="font-family:monospace;font-size:10.5px;color:#64748b;">${escapeHtml(e.date)}</td><td style="font-weight:600;">${escapeHtml(e.description)}</td><td style="color:#64748b;">${escapeHtml(e.categoryName || e.categoryId)}</td><td style="text-align:right;color:#e11d48;font-family:monospace;font-weight:700;">-${escapeHtml(formatCurrency(e.amountPaise))}</td></tr>`).join('')}
     </tbody>
   </table>
+
+  <div class="footer">
+    <div>FocusFlow &amp; Finance OS • Verified Local Ledger Audit Statement</div>
+    <div>Confidential Financial Statement • Generated ${escapeHtml(dateStr)} IST</div>
+  </div>
+
   <script>window.addEventListener('load', () => { setTimeout(() => window.print(), 250); });</script>
 </body>
 </html>`;

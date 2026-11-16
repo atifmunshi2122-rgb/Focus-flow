@@ -120,6 +120,14 @@ export const AnalyticsReportsView: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2">
           <ThemeButton
+            variant="primary"
+            size="sm"
+            onClick={() => setCurrentTab('exports')}
+            className="flex items-center gap-1.5 shadow-sm"
+          >
+            <Download className="w-3.5 h-3.5" /> Unified Export Center
+          </ThemeButton>
+          <ThemeButton
             variant="secondary"
             size="sm"
             onClick={() => exportFinanceCsv({ incomes, expenses, bills })}
@@ -131,10 +139,10 @@ export const AnalyticsReportsView: React.FC = () => {
             size="sm"
             onClick={() => exportProductivityCsv({ tasks, sessions })}
           >
-            <Download className="w-3.5 h-3.5" /> Focus &amp; Tasks CSV
+            <Download className="w-3.5 h-3.5" /> Tasks CSV
           </ThemeButton>
-          <ThemeButton variant="primary" size="sm" onClick={handlePrintPdf}>
-            <Printer className="w-3.5 h-3.5" /> Export PDF Report
+          <ThemeButton variant="secondary" size="sm" onClick={handlePrintPdf}>
+            <Printer className="w-3.5 h-3.5" /> Quick Print PDF
           </ThemeButton>
         </div>
       </ThemeCard>

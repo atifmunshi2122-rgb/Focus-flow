@@ -33,6 +33,7 @@ import {
   removeCustomExpenseReason,
   resolveDefaultCategoryForReason,
 } from '../../lib/expenseReasons.ts';
+import type { ExpenseCategory, Bill } from '../../types/index.ts';
 
 export type QuickActionType =
   | 'task'
@@ -143,6 +144,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   const [customReasonInput, setCustomReasonInput] = useState('');
   const [saveCustomForFuture, setSaveCustomForFuture] = useState(true);
   const [savedCustomReasons, setSavedCustomReasons] = useState<string[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<ExpenseCategory[]>([]);
   const [currentAmount, setCurrentAmount] = useState('');
   const [currentCategory, setCurrentCategory] = useState('Food & Dining');
   const [currentNotes, setCurrentNotes] = useState('');
@@ -192,6 +194,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       setActiveType(safeInitialType);
       resetFields();
       refreshCustomReasons();
+      api.getCategories().then(setAvailableCategories).catch(console.error);
       if (initialDate) {
         setDate(initialDate);
         setBillDueDate(initialDate);
@@ -481,12 +484,25 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           const itemAmountPaise = toPaise(item.amount);
           totalSavedPaise += itemAmountPaise;
 
+          const rawCategory = item.category || resolveDefaultCategoryForReason(item.reason);
+          const matchedCategory =
+            availableCategories.find((c) => c.name.toLowerCase() === rawCategory.trim().toLowerCase()) ||
+            availableCategories.find(
+              (c) =>
+                c.name.toLowerCase().includes(rawCategory.trim().toLowerCase()) ||
+                rawCategory.trim().toLowerCase().includes(c.name.toLowerCase())
+            );
+
+          const resolvedCategoryId = matchedCategory ? matchedCategory.id : undefined;
+          const resolvedCategoryName = matchedCategory ? matchedCategory.name : rawCategory;
+
           const createdExp = await api.createExpense({
             description: item.reason.trim(),
             amountPaise: itemAmountPaise,
             date: date || new Date().toISOString().split('T')[0],
             paymentMethod,
-            categoryName: item.category || resolveDefaultCategoryForReason(item.reason),
+            categoryId: resolvedCategoryId,
+            categoryName: resolvedCategoryName,
             type: 'variable',
             notes: item.notes?.trim() || undefined,
           });
@@ -497,7 +513,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
               createdExp.id,
               createdExp.date,
               createdExp.description,
-              createdExp.categoryName || 'General',
+              createdExp.categoryName || resolvedCategoryName || 'General',
               createdExp.amountPaise / 100,
               paymentMethod.replace('_', ' ').toUpperCase(),
               createdExp.notes || '',
@@ -543,13 +559,37 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
         showToast(`Income recorded & synchronized (${formatCurrency(itemAmountPaise, currency)})`, 'success');
       } else if (activeType === 'bill') {
         const itemAmountPaise = toPaise(billAmount);
+        const rawBillCategory = billCategory.trim();
+        const matchedCategory =
+          availableCategories.find((c) => c.id === rawBillCategory) ||
+          availableCategories.find((c) => c.name.toLowerCase() === rawBillCategory.toLowerCase()) ||
+          availableCategories.find(
+            (c) =>
+              c.name.toLowerCase().includes(rawBillCategory.toLowerCase()) ||
+              rawBillCategory.toLowerCase().includes(c.name.toLowerCase())
+          );
+
+        const resolvedCategoryId =
+          matchedCategory?.id ||
+          availableCategories.find(
+            (c) => c.name.toLowerCase().includes('bill') || c.name.toLowerCase().includes('util')
+          )?.id ||
+          availableCategories.find((c) => c.type === 'fixed')?.id ||
+          availableCategories[0]?.id ||
+          'cat_util';
+
+        const resolvedCategoryName = matchedCategory
+          ? matchedCategory.name
+          : rawBillCategory || 'Bills & Utilities';
+
         const createdBill = await api.createBill({
           name: billName.trim(),
           amountPaise: itemAmountPaise,
           dueDate: billDueDate || date,
-          categoryId: billCategory.trim() || 'Bills & Utilities',
+          categoryId: resolvedCategoryId,
           status: 'UNPAID',
-        });
+          categoryName: resolvedCategoryName,
+        } as unknown as Partial<Bill>);
 
         void googleSheetsService.enqueueMutation(
           'Bills_Payments',
@@ -1216,14 +1256,29 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                   >
                     Category
                   </label>
-                  <input
-                    id="bill-category-input"
-                    type="text"
-                    value={billCategory}
-                    onChange={(e) => setBillCategory(e.target.value)}
-                    placeholder="e.g., Bills & Utilities, Housing, Subscriptions"
-                    className="ff-input w-full px-3 py-2 text-xs"
-                  />
+                  {availableCategories.length > 0 ? (
+                    <select
+                      id="bill-category-input"
+                      value={billCategory}
+                      onChange={(e) => setBillCategory(e.target.value)}
+                      className="ff-input w-full px-3 py-2 text-xs"
+                    >
+                      {availableCategories.map((cat) => (
+                        <option key={cat.id} value={cat.name}>
+                          {cat.name} ({cat.type})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="bill-category-input"
+                      type="text"
+                      value={billCategory}
+                      onChange={(e) => setBillCategory(e.target.value)}
+                      placeholder="e.g., Bills & Utilities, Housing, Subscriptions"
+                      className="ff-input w-full px-3 py-2 text-xs"
+                    />
+                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--ff-border-color)]">

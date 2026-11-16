@@ -1577,10 +1577,43 @@ apiRouter.post('/finance/expenses', async (req: Request, res: Response, next: Ne
     return;
   }
 
-  const resolvedCategoryId =
-    typeof categoryId === 'string' && categoryId.trim()
-      ? categoryId.trim()
-      : dbService.getFallbackCategoryId(userId);
+  const rawCatName = typeof body.categoryName === 'string' && body.categoryName.trim() ? body.categoryName.trim() : null;
+  let resolvedCategoryId: string | null = null;
+
+  if (typeof categoryId === 'string' && categoryId.trim()) {
+    const directMatch = db.categories.find((c) => c.id === categoryId.trim() && (c.userId === userId || c.userId === 'usr_atif_default'));
+    if (directMatch) {
+      resolvedCategoryId = directMatch.id;
+    } else {
+      const nameMatch = db.categories.find(
+        (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+               c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
+      ) || db.categories.find(
+        (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+               (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
+      );
+      if (nameMatch) {
+        resolvedCategoryId = nameMatch.id;
+      }
+    }
+  }
+
+  if (!resolvedCategoryId && rawCatName) {
+    const nameMatch = db.categories.find(
+      (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+             c.name.trim().toLowerCase() === rawCatName.toLowerCase()
+    ) || db.categories.find(
+      (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+             (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
+    );
+    if (nameMatch) {
+      resolvedCategoryId = nameMatch.id;
+    }
+  }
+
+  if (!resolvedCategoryId) {
+    resolvedCategoryId = dbService.getFallbackCategoryId(userId);
+  }
 
   const newExpense: ExpenseTransaction = {
     id: `exp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1770,10 +1803,43 @@ apiRouter.post('/finance/recurring', async (req: Request, res: Response, next: N
     return;
   }
 
-  const resolvedCategoryId =
-    typeof categoryId === 'string' && categoryId.trim()
-      ? categoryId.trim()
-      : dbService.getFallbackCategoryId(userId);
+  const rawCatName = typeof body.categoryName === 'string' && body.categoryName.trim() ? body.categoryName.trim() : null;
+  let resolvedCategoryId: string | null = null;
+
+  if (typeof categoryId === 'string' && categoryId.trim()) {
+    const directMatch = db.categories.find((c) => c.id === categoryId.trim() && (c.userId === userId || c.userId === 'usr_atif_default'));
+    if (directMatch) {
+      resolvedCategoryId = directMatch.id;
+    } else {
+      const nameMatch = db.categories.find(
+        (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+               c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
+      ) || db.categories.find(
+        (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+               (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
+      );
+      if (nameMatch) {
+        resolvedCategoryId = nameMatch.id;
+      }
+    }
+  }
+
+  if (!resolvedCategoryId && rawCatName) {
+    const nameMatch = db.categories.find(
+      (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+             c.name.trim().toLowerCase() === rawCatName.toLowerCase()
+    ) || db.categories.find(
+      (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+             (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
+    );
+    if (nameMatch) {
+      resolvedCategoryId = nameMatch.id;
+    }
+  }
+
+  if (!resolvedCategoryId) {
+    resolvedCategoryId = dbService.getFallbackCategoryId(userId);
+  }
 
   const newRec: RecurringExpense = {
     id: `rec_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1974,10 +2040,43 @@ apiRouter.post('/finance/bills', async (req: Request, res: Response, next: NextF
   const todayStr = getTodayDateString(DEFAULT_TIMEZONE);
   const isPastDue = parsedDueDate < todayStr;
   const periodKey = parsedDueDate.substring(0, 7);
-  const resolvedCategoryId =
-    typeof categoryId === 'string' && categoryId.trim()
-      ? categoryId.trim()
-      : dbService.getFallbackCategoryId(userId);
+  const rawCatName = typeof body.categoryName === 'string' && body.categoryName.trim() ? body.categoryName.trim() : null;
+  let resolvedCategoryId: string | null = null;
+
+  if (typeof categoryId === 'string' && categoryId.trim()) {
+    const directMatch = db.categories.find((c) => c.id === categoryId.trim() && (c.userId === userId || c.userId === 'usr_atif_default'));
+    if (directMatch) {
+      resolvedCategoryId = directMatch.id;
+    } else {
+      const nameMatch = db.categories.find(
+        (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+               c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
+      ) || db.categories.find(
+        (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+               (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
+      );
+      if (nameMatch) {
+        resolvedCategoryId = nameMatch.id;
+      }
+    }
+  }
+
+  if (!resolvedCategoryId && rawCatName) {
+    const nameMatch = db.categories.find(
+      (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+             c.name.trim().toLowerCase() === rawCatName.toLowerCase()
+    ) || db.categories.find(
+      (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
+             (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
+    );
+    if (nameMatch) {
+      resolvedCategoryId = nameMatch.id;
+    }
+  }
+
+  if (!resolvedCategoryId) {
+    resolvedCategoryId = dbService.getFallbackCategoryId(userId);
+  }
 
   const newBill: Bill = {
     id: `bill_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
