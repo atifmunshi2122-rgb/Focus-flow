@@ -291,14 +291,15 @@ export const LiveThemePreviewPanel: React.FC<LiveThemePreviewPanelProps> = ({
           </div>
 
           {/* Action Buttons Showcase */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Theme button styles preview">
             <button
               type="button"
               onClick={() => void onApplyDraft()}
               className="ff-btn ff-btn-primary px-3 py-2 text-xs"
+              title="Preview primary button styling"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Primary CTA</span>
+              <span>Primary Action</span>
             </button>
             <button
               type="button"
@@ -308,16 +309,18 @@ export const LiveThemePreviewPanel: React.FC<LiveThemePreviewPanelProps> = ({
                 )
               }
               className="ff-btn ff-btn-secondary px-3 py-2 text-xs"
+              title="Preview secondary button styling"
             >
-              <span>Secondary</span>
+              <span>Secondary Button</span>
             </button>
             <button
               type="button"
               onClick={() => setShowSampleModal(true)}
               className="ff-btn ff-btn-secondary px-3 py-2 text-xs border border-dashed"
+              title="Preview theme dialog & modal styling"
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>Test Modal</span>
+              <span>Preview Modal</span>
             </button>
           </div>
         </div>

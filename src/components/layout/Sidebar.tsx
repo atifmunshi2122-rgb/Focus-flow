@@ -135,13 +135,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`ff-sidebar fixed lg:sticky top-0 left-0 z-50 h-[100dvh] flex flex-col justify-between select-none transition-[transform,width] duration-300 ease-out w-64 ${
+        className={`ff-sidebar fixed lg:sticky top-0 left-0 z-50 h-[100dvh] flex flex-col select-none transition-[transform,width] duration-300 ease-out w-64 ${
           collapsed ? 'lg:w-20' : 'lg:w-64'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Top Header / Brand */}
         <div
-          className="flex items-center justify-between h-16 px-4 border-b"
+          className="flex items-center justify-between min-h-[4rem] px-4 border-b shrink-0 pt-[env(safe-area-inset-top)] lg:pt-0"
           style={{ borderColor: 'var(--ff-border-color)' }}
         >
           <div className="flex items-center gap-3 overflow-hidden">
@@ -210,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               animate={{ opacity: 1, height: 'auto', y: 0 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, height: 0, y: -6 }}
               transition={{ duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01), ease: MOTION_EASING.decelerate }}
-              className="px-3 pt-3 overflow-hidden"
+              className="px-3 pt-3 overflow-hidden shrink-0"
             >
               <button
                 type="button"
@@ -433,7 +433,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Footer / User Profile */}
         <div
-          className="p-3 border-t pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+          className="p-3 border-t shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
           style={{ borderColor: 'var(--ff-border-color)' }}
         >
           {/* User mini badge */}

@@ -124,14 +124,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
   return (
     <header
       data-scrolled={isScrolled ? 'true' : 'false'}
-      className="ff-header sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-3 lg:gap-4 h-16 px-3 sm:px-4 md:px-6 lg:px-6 2xl:px-8 max-w-full"
+      className="ff-header sticky top-0 z-30 flex items-center justify-between gap-1.5 sm:gap-3 lg:gap-4 h-16 px-2.5 sm:px-4 md:px-6 lg:px-6 2xl:px-8 max-w-full"
     >
       {/* Zone 1: Mobile Menu Trigger + Section Heading */}
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
+      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 shrink">
         <button
           type="button"
           onClick={onOpenMobileMenu}
-          className="lg:hidden min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
+          className="lg:hidden min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
           aria-label="Open navigation menu"
         >
           <Menu className="w-5 h-5" />
@@ -145,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               animate={{ opacity: 1, y: 0 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -5 }}
               transition={{ duration: MOTION_DURATION.dropdown * 0.8, ease: MOTION_EASING.decelerate }}
-              className="ff-heading text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap inline-block truncate max-w-[150px] sm:max-w-[200px] xl:max-w-none"
+              className="ff-heading text-sm sm:text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap inline-block truncate max-w-[120px] xs:max-w-[170px] sm:max-w-[220px] xl:max-w-none"
             >
               {tabLabels[currentTab] || 'Dashboard'}
             </motion.span>
@@ -201,7 +201,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           whileTap={isDisabled ? undefined : { scale: profile.tapScale }}
           transition={profile.microSpring}
           onClick={() => setCommandCenterOpen(true)}
-          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-medium border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
+          className="flex items-center justify-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 min-w-[38px] min-h-[38px] text-xs font-medium border border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
           style={{ borderRadius: 'var(--ff-radius-button)' }}
           title="Open Command Center (Cmd/Ctrl + K)"
           aria-label="Open Command Center"
@@ -431,7 +431,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         <button
           type="button"
           onClick={toggleTheme}
-          className="lg:hidden p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors"
+          className="lg:hidden min-w-[38px] min-h-[38px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
           aria-label="Toggle light or dark mode"
         >
           <AnimatePresence mode="popLayout" initial={false}>
@@ -461,7 +461,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         >
           <Plus className="w-4 h-4" />
           <span className="hidden sm:inline">Quick Action</span>
-          <span className="sm:hidden">Action</span>
+          <span className="hidden xs:inline sm:hidden">Action</span>
         </ThemeButton>
       </div>
     </header>

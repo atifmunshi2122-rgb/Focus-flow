@@ -1237,13 +1237,13 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                   description="Log an expense or income entry to see your live financial flow here."
                 />
               ) : (
-                <div className="divide-y ff-divider">
+                <div className="divide-y divide-[var(--ff-border-color)] overflow-hidden">
                   {data.recentTransactions.map((tx) => {
                     const isIncome = tx.type === 'income';
                     return (
                       <div
                         key={tx.id}
-                        className="py-3 flex items-center justify-between gap-3 text-xs"
+                        className="py-3 flex items-center justify-between gap-3 text-xs last:border-b-0"
                       >
                         <div className="min-w-0">
                           <p className="font-semibold text-[var(--ff-text-primary)] truncate">

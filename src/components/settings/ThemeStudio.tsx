@@ -233,9 +233,8 @@ export const ThemeStudio: React.FC = () => {
     });
     void targetStyle;
     setDraftConfig(next);
-    if (isFullAppPreview) {
-      startFullAppPreview(next);
-    }
+    // Consistently start full-app preview so the card, floating banner, and application CSS variables update live
+    startFullAppPreview(next);
   };
 
   const handleInstantApplyStyle = async (styleId: DesignStyleId) => {
@@ -704,14 +703,15 @@ export const ThemeStudio: React.FC = () => {
                   Focus Deeply &amp; Track Wealth
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0" role="group" aria-label="Theme button styles preview">
                 <button
                   type="button"
                   onClick={() => void handleApplyDraft()}
                   className="ff-btn ff-btn-primary px-3 py-1.5 text-xs"
+                  title="Preview primary button styling"
                 >
                   <Zap className="w-3.5 h-3.5" />
-                  <span>Primary CTA</span>
+                  <span>Primary Action</span>
                 </button>
                 <button
                   type="button"
@@ -721,8 +721,9 @@ export const ThemeStudio: React.FC = () => {
                     )
                   }
                   className="ff-btn ff-btn-secondary px-3 py-1.5 text-xs"
+                  title="Preview secondary button styling"
                 >
-                  <span>Secondary</span>
+                  <span>Secondary Button</span>
                 </button>
               </div>
             </div>

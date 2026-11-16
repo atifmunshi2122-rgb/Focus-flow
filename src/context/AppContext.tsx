@@ -389,6 +389,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Track hydration so refreshes don't clobber active theme changes
   const initialThemeLoadedRef = useRef(false);
   const restoredFirebaseUidRef = useRef<string | null>(null);
+  const themePersistSeqRef = useRef(0);
 
   // Firebase Auth state
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -656,6 +657,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       nextActiveSavedId: string | null,
       targetFbUser: FirebaseUser | null
     ) => {
+      const seq = ++themePersistSeqRef.current;
       const payload: Partial<UserSettings> = {
         theme: nextConfig.colorMode,
         themeConfig: nextConfig,
@@ -665,22 +667,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       try {
         const res = await api.updateSettings(payload);
-        setSettings(res.settings);
+        if (seq === themePersistSeqRef.current) {
+          setSettings(res.settings);
+        }
       } catch (err) {
         console.error('Failed to persist theme to local API:', err);
       }
 
       if (targetFbUser && auth.currentUser?.uid === targetFbUser.uid) {
-        setThemeSyncState('syncing');
+        if (seq === themePersistSeqRef.current) setThemeSyncState('syncing');
         try {
           await firestoreService.saveSettings(targetFbUser.uid, payload);
-          setThemeSyncState('cloud-synced');
+          if (seq === themePersistSeqRef.current) setThemeSyncState('cloud-synced');
         } catch (err) {
           console.warn('Firestore theme sync deferred/offline:', err);
-          setThemeSyncState('offline');
+          if (seq === themePersistSeqRef.current) setThemeSyncState('offline');
         }
       } else {
-        setThemeSyncState('local');
+        if (seq === themePersistSeqRef.current) setThemeSyncState('local');
       }
     },
     []

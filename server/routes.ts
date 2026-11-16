@@ -414,8 +414,10 @@ apiRouter.get('/dashboard', (req: Request, res: Response) => {
     type: exp.type as 'fixed' | 'variable',
     name: exp.description,
     category:
-      db.categories.find((c) => c.id === exp.categoryId)?.name ||
-      (exp.type === 'fixed' ? 'Fixed Expense' : 'Variable Expense'),
+      db.categories.find(
+        (c) => c.id === exp.categoryId && (c.userId === userId || c.userId === 'usr_atif_default')
+      )?.name ||
+      (exp.type === 'fixed' ? 'Fixed Expense' : 'Uncategorized'),
     amountPaise: exp.amountPaise,
     date: exp.date,
     notes: exp.notes,
@@ -1289,9 +1291,11 @@ apiRouter.get('/finance/summary', (req: Request, res: Response) => {
     [catId: string]: { categoryId: string; name: string; color: string; amountPaise: number };
   } = {};
   for (const exp of expenses) {
-    const cat = db.categories.find((c) => c.id === exp.categoryId);
+    const cat = db.categories.find(
+      (c) => c.id === exp.categoryId && (c.userId === userId || c.userId === 'usr_atif_default')
+    );
     const catId = exp.categoryId || 'other';
-    const catName = cat?.name || (exp.type === 'fixed' ? 'Fixed Expense' : 'Variable Expense');
+    const catName = cat?.name || (exp.type === 'fixed' ? 'Fixed Expense' : 'Uncategorized');
     const catColor = cat?.color || '#94a3b8';
 
     if (!categoryMap[catId]) {
@@ -1524,8 +1528,14 @@ apiRouter.get('/finance/expenses', (req: Request, res: Response) => {
   const mapped = expenses
     .map((e) => ({
       ...e,
-      categoryName: db.categories.find((c) => c.id === e.categoryId)?.name || 'Expense',
-      categoryColor: db.categories.find((c) => c.id === e.categoryId)?.color || '#6366f1',
+      categoryName:
+        db.categories.find(
+          (c) => c.id === e.categoryId && (c.userId === userId || c.userId === 'usr_atif_default')
+        )?.name || 'Uncategorized',
+      categoryColor:
+        db.categories.find(
+          (c) => c.id === e.categoryId && (c.userId === userId || c.userId === 'usr_atif_default')
+        )?.color || '#6366f1',
     }))
     .sort((a, b) => b.date.localeCompare(a.date));
 

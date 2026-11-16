@@ -169,7 +169,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
       {/* Finance Workspace Sub-Navigation */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
         <ThemeSegmentedControl<FinanceSubTab>
           ariaLabel="Finance sections"
           value={subTab}
@@ -209,8 +209,8 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
       ) : (
         <>
           {/* Top Filter Bar */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <ThemeSegmentedControl<string>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+            <ThemeSegmentedControl<string>
           ariaLabel="Financial date range filter"
           value={filter}
           onChange={handleFilterChange}

@@ -1080,7 +1080,7 @@ export const StudyView: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Global Search Bar */}
-          <div className="relative">
+          <div className="relative min-w-0">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ff-text-muted)]" />
             <input
               type="text"
@@ -1090,7 +1090,7 @@ export const StudyView: React.FC = () => {
               className="w-36 sm:w-48 pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
             />
             {searchResults.length > 0 && (
-              <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 max-h-72 overflow-y-auto rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-xl z-50 p-2 space-y-1">
+              <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1.5 w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] max-h-72 overflow-y-auto rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-xl z-50 p-2 space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] px-2 py-1 block">
                   Search Results ({searchResults.length})
                 </span>
@@ -1327,8 +1327,8 @@ export const StudyView: React.FC = () => {
       </MotionStaggerGrid>
 
       {/* Sub-tab Navigation Bar */}
-      <div className="flex items-center justify-between border-b border-[var(--ff-border-color)] pb-2 overflow-x-auto">
-        <div className="flex items-center gap-1 sm:gap-2">
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--ff-border-color)] pb-2 min-w-0 max-w-full">
+        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none flex-1 min-w-0 py-1" style={{ WebkitOverflowScrolling: 'touch' }}>
           {(
             [
               { id: 'syllabus', label: 'Syllabus & Topics', icon: BookOpen },
@@ -1372,7 +1372,7 @@ export const StudyView: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveSubTab(tab.id)}
-                className={`relative px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
+                className={`relative px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-2 shrink-0 whitespace-nowrap ${
                   isActive
                     ? 'text-[var(--ff-text-primary)] bg-[var(--ff-surface-muted)] shadow-sm'
                     : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
@@ -1397,7 +1397,7 @@ export const StudyView: React.FC = () => {
           })}
         </div>
 
-        <div className="flex items-center gap-2 pl-4">
+        <div className="flex items-center gap-2 pl-2 shrink-0">
           <ThemeButton variant="ghost" size="sm" onClick={() => void loadData()} title="Refresh data">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </ThemeButton>

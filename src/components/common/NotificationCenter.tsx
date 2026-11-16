@@ -48,16 +48,26 @@ export const NotificationCenter: React.FC = () => {
     prevUnreadRef.current = unreadNotificationCount;
   }, [unreadNotificationCount, isDisabled]);
 
-  // Close on click outside
+  // Close on click outside or Escape
   useEffect(() => {
-    const onOutsideClick = (e: MouseEvent) => {
+    if (!open) return;
+    const onOutsideClick = (e: MouseEvent | TouchEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
     document.addEventListener('mousedown', onOutsideClick);
-    return () => document.removeEventListener('mousedown', onOutsideClick);
-  }, []);
+    document.addEventListener('touchstart', onOutsideClick, { passive: true });
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onOutsideClick);
+      document.removeEventListener('touchstart', onOutsideClick);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
 
   // Filtered notifications
   const displayedNotifications = useMemo(() => {
@@ -135,19 +145,32 @@ export const NotificationCenter: React.FC = () => {
         </AnimatePresence>
       </motion.button>
 
-      {/* Dropdown Panel */}
+      {/* Dropdown Panel & Mobile Backdrop */}
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={isDisabled ? false : { opacity: 0, y: 8, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
-            transition={profile.modal}
-            className="ff-card-elevated absolute right-0 mt-2 w-80 sm:w-96 z-50 overflow-hidden shadow-2xl border border-[var(--ff-border-color)]"
-            style={{
-              boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--ff-border-color)',
-            }}
-          >
+          <>
+            {/* Mobile Backdrop for clean tap-outside dismissal */}
+            <motion.div
+              key="notif-mobile-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-40 sm:hidden"
+              onClick={() => setOpen(false)}
+              aria-hidden="true"
+            />
+
+            <motion.div
+              initial={isDisabled ? false : { opacity: 0, y: 8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
+              transition={profile.modal}
+              className="ff-card-elevated fixed sm:absolute inset-x-2 sm:inset-x-auto sm:right-0 top-[4.25rem] sm:top-auto sm:mt-2 w-auto sm:w-96 max-w-[calc(100vw-1rem)] sm:max-w-none z-50 overflow-hidden shadow-2xl border border-[var(--ff-border-color)]"
+              style={{
+                boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--ff-border-color)',
+              }}
+            >
             {/* Panel Header */}
             <div className="p-3.5 border-b border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
               <div className="flex items-center justify-between mb-2">
@@ -320,6 +343,7 @@ export const NotificationCenter: React.FC = () => {
               </button>
             </div>
           </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

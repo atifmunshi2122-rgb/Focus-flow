@@ -56,39 +56,85 @@ export const FocusAnalytics: React.FC = () => {
   const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>([]);
   const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [statsFailed, setStatsFailed] = useState<boolean>(false);
+  const activeRequestSeqRef = useRef<number>(0);
 
   const todayStr = useMemo(
     () => getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE),
     [settings?.timezone]
   );
 
-  useEffect(() => {
+  const loadFocusData = useCallback(() => {
+    const seq = ++activeRequestSeqRef.current;
     setLoading(true);
-    Promise.all([
+    setFetchError(null);
+
+    Promise.allSettled([
       api.getFocusStats(),
       api.getFocusSessions(),
-      api.getTasks().catch(() => [] as Task[]),
-      api.getHabits().catch(() => [] as Habit[]),
-      api.getTimeBlocks(todayStr).catch(() => [] as TimeBlock[]),
-      api.getPomodoroGoals().catch(() => [] as PomodoroGoal[]),
-      api.getStudySubjects().catch(() => [] as StudySubject[]),
-      api.getStudyRevisions().catch(() => [] as StudyRevision[]),
-      api.getStudyPlanTasks().catch(() => [] as StudyPlanTask[]),
-    ])
-      .then(([statsData, sessionsData, taskList, habitList, blockList, goalList, ssub, srev, spt]) => {
-        setStats(statsData);
-        setSessions(sessionsData);
-        setTasks(taskList);
-        setHabits(habitList);
-        setTimeBlocks(blockList);
-        setGoals(goalList);
-        setStudySubjects(ssub);
-        setStudyRevisions(srev);
-        setStudyPlanTasks(spt);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [refreshKey, todayStr]);
+      api.getTasks(),
+      api.getHabits(),
+      api.getTimeBlocks(todayStr),
+      api.getPomodoroGoals(),
+      api.getStudySubjects(),
+      api.getStudyRevisions(),
+      api.getStudyPlanTasks(),
+    ]).then((results) => {
+      // Discard stale responses from superseded requests
+      if (seq !== activeRequestSeqRef.current) return;
+
+      const [
+        statsRes,
+        sessionsRes,
+        tasksRes,
+        habitsRes,
+        blocksRes,
+        goalsRes,
+        subsRes,
+        revsRes,
+        plansRes,
+      ] = results;
+
+      let primaryFailed = false;
+
+      if (statsRes.status === 'fulfilled' && statsRes.value) {
+        setStats(statsRes.value);
+        setStatsFailed(false);
+      } else {
+        setStatsFailed(true);
+        primaryFailed = true;
+      }
+
+      if (sessionsRes.status === 'fulfilled') {
+        setSessions(sessionsRes.value || []);
+      } else {
+        primaryFailed = true;
+      }
+
+      if (tasksRes.status === 'fulfilled') setTasks(tasksRes.value || []);
+      if (habitsRes.status === 'fulfilled') setHabits(habitsRes.value || []);
+      if (blocksRes.status === 'fulfilled') setTimeBlocks(blocksRes.value || []);
+      if (goalsRes.status === 'fulfilled') setGoals(goalsRes.value || []);
+      if (subsRes.status === 'fulfilled') setStudySubjects(subsRes.value || []);
+      if (revsRes.status === 'fulfilled') setStudyRevisions(revsRes.value || []);
+      if (plansRes.status === 'fulfilled') setStudyPlanTasks(plansRes.value || []);
+
+      if (primaryFailed && (!statsRes || statsRes.status === 'rejected') && (!sessionsRes || sessionsRes.status === 'rejected')) {
+        setFetchError('Failed to load focus analytics. Please check connection and retry.');
+      }
+
+      setLoading(false);
+    });
+  }, [todayStr]);
+
+  useEffect(() => {
+    loadFocusData();
+    return () => {
+      // Cancel active request sequence on unmount
+      activeRequestSeqRef.current++;
+    };
+  }, [loadFocusData, refreshKey]);
 
   const productivityScore = useMemo(() => {
     return computeProductivityScore({
@@ -160,23 +206,49 @@ export const FocusAnalytics: React.FC = () => {
     };
   }, [sessions, stats, settings?.timezone, todayStr]);
 
-  if (loading && !stats) {
+  if (loading && !stats && sessions.length === 0) {
     return <SkeletonDashboard />;
   }
 
-  const maxMinutesInWeek = stats?.last7Days.reduce((max, d) => Math.max(max, d.minutes), 0) || 60;
+  if (fetchError && !stats && sessions.length === 0) {
+    return (
+      <div className="p-8 text-center rounded-2xl border border-red-500/30 bg-red-500/10 space-y-3 max-w-md mx-auto my-8">
+        <AlertTriangle className="w-8 h-8 mx-auto text-rose-400" />
+        <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">Analytics Unavailable</h3>
+        <p className="text-xs text-[var(--ff-text-muted)]">{fetchError}</p>
+        <ThemeButton variant="primary" size="sm" onClick={loadFocusData}>
+          <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+          Retry Connection
+        </ThemeButton>
+      </div>
+    );
+  }
+
+  // If live stats endpoint was unavailable, synthesize fallback metrics directly from verified session history
+  const activeStats: FocusStatsData = stats || {
+    last7Days: [],
+    dailyHeatmap: [],
+    weeklyMinutes: Math.round(derivedFocusTotals.monthMinutes / 4.33),
+    monthMinutes: derivedFocusTotals.monthMinutes,
+    monthSessionsCount: derivedFocusTotals.monthSessionsCount,
+    totalMinutes: derivedFocusTotals.totalMinutes,
+    totalCompletedSessions: derivedFocusTotals.totalCompletedSessions,
+  };
+
+  const safeLast7Days = activeStats.last7Days || [];
+  const maxMinutesInWeek = safeLast7Days.reduce((max, d) => Math.max(max, d.minutes), 0) || 60;
   const chartHeight = 130;
 
   const weeklyGoalMin = Math.max(30, settings?.weeklyFocusGoalMinutes || 500);
   const weeklyMinutes =
-    stats?.weeklyMinutes ?? (stats?.last7Days.reduce((acc, d) => acc + d.minutes, 0) || 0);
+    activeStats.weeklyMinutes ?? (safeLast7Days.reduce((acc, d) => acc + d.minutes, 0) || 0);
   const weeklyPct = Math.min(100, Math.round((weeklyMinutes / weeklyGoalMin) * 100));
 
   const dailyGoalMin = Math.max(15, settings?.dailyFocusGoalMinutes || 100);
-  const todayMinutes = stats?.last7Days[stats.last7Days.length - 1]?.minutes || 0;
+  const todayMinutes = safeLast7Days[safeLast7Days.length - 1]?.minutes || 0;
   const dailyPct = Math.min(100, Math.round((todayMinutes / dailyGoalMin) * 100));
 
-  const heatmapDays = stats?.dailyHeatmap || [];
+  const heatmapDays = activeStats.dailyHeatmap || [];
   const heatColor = (mins: number) => {
     if (mins <= 0) return 'var(--ff-surface-subtle)';
     if (mins < 30) return 'color-mix(in oklab, var(--ff-accent) 28%, transparent)';
@@ -187,8 +259,24 @@ export const FocusAnalytics: React.FC = () => {
 
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-grid-gap)' }}>
+      {statsFailed && (
+        <div className="flex items-center justify-between p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Remote stats deferred. Derived focus totals rendered from local session records.</span>
+          </div>
+          <button
+            type="button"
+            onClick={loadFocusData}
+            className="text-xs font-semibold underline hover:text-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Productivity Suite Sub-Navigation */}
-      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] rounded-xl w-fit">
+      <div className="flex items-center gap-1.5 p-1 bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] rounded-xl max-w-full overflow-x-auto scrollbar-none shrink-0 w-fit">
         <button
           type="button"
           onClick={() => setSubTab('analytics')}

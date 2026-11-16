@@ -2,12 +2,24 @@
 @custom-variant dark (&:where(.dark, .dark *));
 @import "./styles/themes.css";
 
-/* Mobile & PWA Safe-Area Ergonomics */
+/* Mobile & PWA Safe-Area Ergonomics & Global Canvas Background */
 * {
   -webkit-tap-highlight-color: transparent;
 }
 
+html,
 body {
-  padding-bottom: env(safe-area-inset-bottom);
+  background-color: var(--ff-bg-canvas, #090d16);
+  min-height: 100dvh;
 }
+
+html.dark,
+body.dark {
+  background-color: #090d16;
+  color-scheme: dark;
+}
+
+/* NOTE: safe-area-inset-bottom is handled per-component (main content area
+   and bottom navigation) to avoid triple-stacking padding. Do NOT add
+   body-level padding-bottom here. */
 

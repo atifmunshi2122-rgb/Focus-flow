@@ -607,10 +607,20 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   border: var(--ff-border-width) solid var(--ff-border-color);
   border-radius: calc(var(--ff-radius-button) + 3px);
   box-shadow: var(--ff-shadow-inset);
+  /* Mobile horizontal scroll for many-tab controls */
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;          /* Firefox */
+}
+.ff-segmented::-webkit-scrollbar {
+  display: none;                  /* Chrome / Safari */
 }
 
 .ff-segmented-item {
   position: relative;
+  flex-shrink: 0;
+  white-space: nowrap;
   border-radius: var(--ff-radius-button);
   color: var(--ff-text-muted);
   font-weight: 600;

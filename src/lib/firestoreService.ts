@@ -1153,7 +1153,7 @@ export const firestoreService = {
     return filtered
       .map((e) => ({
         ...e,
-        categoryName: cats.find((c) => c.id === e.categoryId)?.name || 'Expense',
+        categoryName: cats.find((c) => c.id === e.categoryId)?.name || 'Uncategorized',
         categoryColor: cats.find((c) => c.id === e.categoryId)?.color || '#6366f1',
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -2482,7 +2482,7 @@ export const firestoreService = {
       const hasMore = activeFiltered.length > pageSize || docs.length >= pageSize + 15;
       const items = activeFiltered.slice(0, pageSize).map((e) => ({
         ...e,
-        categoryName: cats.find((c) => c.id === e.categoryId)?.name || 'Expense',
+        categoryName: cats.find((c) => c.id === e.categoryId)?.name || 'Uncategorized',
         categoryColor: cats.find((c) => c.id === e.categoryId)?.color || '#6366f1',
       }));
 
