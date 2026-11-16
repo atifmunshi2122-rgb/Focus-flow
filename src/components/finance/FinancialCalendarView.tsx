@@ -17,7 +17,7 @@ import { ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import { EmptyStateIllustration, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 
 interface FinancialCalendarViewProps {
-  onOpenQuickAction: () => void;
+  onOpenQuickAction: (initialType?: 'expense' | 'income' | 'bill', initialDate?: string) => void;
 }
 
 export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ onOpenQuickAction }) => {
@@ -253,7 +253,7 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
             </span>
           </div>
 
-          <ThemeButton variant="primary" size="sm" onClick={onOpenQuickAction}>
+          <ThemeButton variant="primary" size="sm" onClick={() => onOpenQuickAction('expense')}>
             <Plus className="w-3.5 h-3.5" />
             <span>Add Record</span>
           </ThemeButton>
@@ -354,7 +354,11 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
               </h3>
             </div>
             {selectedDate && (
-              <ThemeButton variant="secondary" size="xs" onClick={onOpenQuickAction}>
+              <ThemeButton
+                variant="secondary"
+                size="xs"
+                onClick={() => onOpenQuickAction('expense', selectedDate)}
+              >
                 <Plus className="w-3 h-3" /> Add
               </ThemeButton>
             )}

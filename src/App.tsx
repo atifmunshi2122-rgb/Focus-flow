@@ -8,7 +8,7 @@ import { AppProvider, NavTab, useApp } from './context/AppContext.tsx';
 import { Sidebar } from './components/layout/Sidebar.tsx';
 import { Header } from './components/layout/Header.tsx';
 import { ToastContainer } from './components/layout/ToastContainer.tsx';
-import { QuickActionModal } from './components/common/QuickActionModal.tsx';
+import { QuickActionModal, type QuickActionType } from './components/common/QuickActionModal.tsx';
 import { CommandCenter } from './components/common/CommandCenter.tsx';
 import { TrashRestoreModal } from './components/common/TrashRestoreModal.tsx';
 import { ConfirmDialogModal } from './components/common/ConfirmDialogModal.tsx';
@@ -112,7 +112,32 @@ const MainContent: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [quickActionOpen, setQuickActionOpen] = useState(false);
+  const [quickActionInitialDate, setQuickActionInitialDate] = useState<string | undefined>(undefined);
+  const [quickActionContext, setQuickActionContext] = useState<'global' | 'finance' | 'calendar'>('global');
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+
+  const handleOpenQuickAction = (
+    initialType?: QuickActionType | string,
+    initialDate?: string,
+    context: 'global' | 'finance' | 'calendar' = 'global'
+  ) => {
+    setQuickActionContext(context);
+    if (
+      initialType === 'expense' ||
+      initialType === 'income' ||
+      initialType === 'task' ||
+      initialType === 'bill' ||
+      initialType === 'habit' ||
+      initialType === 'envelope' ||
+      initialType === 'goal'
+    ) {
+      setQuickActionInitialType(initialType);
+    } else {
+      setQuickActionInitialType(context === 'finance' ? 'expense' : 'task');
+    }
+    setQuickActionInitialDate(initialDate);
+    setQuickActionOpen(true);
+  };
 
   // Global keyboard shortcuts (Cmd/Ctrl + K, Alt + 1..8, Quick Actions N, E, I, F, ?)
   useEffect(() => {
@@ -252,10 +277,7 @@ const MainContent: React.FC = () => {
         {/* Top Header */}
         <Header
           onOpenMobileMenu={() => setMobileOpen(true)}
-          onOpenQuickAction={(initialType) => {
-            if (typeof initialType === 'string') setQuickActionInitialType(initialType);
-            setQuickActionOpen(true);
-          }}
+          onOpenQuickAction={(type) => handleOpenQuickAction(type, undefined, 'global')}
         />
 
         {/* Viewport Content Area */}
@@ -268,10 +290,16 @@ const MainContent: React.FC = () => {
               <AnimatePresence mode="wait" initial={false}>
                 <MotionPage key={currentTab} routeKey={currentTab}>
                   {currentTab === 'dashboard' && (
-                    <UnifiedDashboard onOpenQuickAction={() => setQuickActionOpen(true)} />
+                    <UnifiedDashboard onOpenQuickAction={() => handleOpenQuickAction('expense', undefined, 'finance')} />
                   )}
 
-                  {currentTab === 'calendar' && <ProductivityCalendar />}
+                  {currentTab === 'calendar' && (
+                    <ProductivityCalendar
+                      onOpenQuickAction={(initialType, initialDate) =>
+                        handleOpenQuickAction(initialType, initialDate, 'calendar')
+                      }
+                    />
+                  )}
 
                   {currentTab === 'focus' && (
                     <div className="space-y-8">
@@ -295,7 +323,7 @@ const MainContent: React.FC = () => {
                   {currentTab === 'habits' && <HabitTrackerView />}
 
                   {currentTab === 'finance' && (
-                    <FinanceOverview onOpenQuickAction={() => setQuickActionOpen(true)} />
+                    <FinanceOverview onOpenQuickAction={(type, date) => handleOpenQuickAction(type, date, 'finance')} />
                   )}
 
                   {currentTab === 'transactions' && <TransactionsLedger />}
@@ -635,6 +663,8 @@ const MainContent: React.FC = () => {
         isOpen={quickActionOpen}
         onClose={() => setQuickActionOpen(false)}
         initialType={quickActionInitialType}
+        initialDate={quickActionInitialDate}
+        context={quickActionContext}
       />
 
       {/* Keyboard Shortcuts Cheat-Sheet Modal */}
@@ -645,10 +675,7 @@ const MainContent: React.FC = () => {
 
       {/* Global Command Center, Trash Restore & In-App Confirmation Modal */}
       <CommandCenter
-        onOpenQuickAction={(initialType) => {
-          if (typeof initialType === 'string') setQuickActionInitialType(initialType);
-          setQuickActionOpen(true);
-        }}
+        onOpenQuickAction={(type) => handleOpenQuickAction(type, undefined, 'global')}
       />
       <TrashRestoreModal />
       {confirmDialogState && (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -17,6 +17,7 @@ import {
   ThemeButton,
   ThemeCard,
   ThemeInput,
+  ThemeModal,
   ThemeSegmentedControl,
 } from '../ui/ThemePrimitives.tsx';
 import {
@@ -36,10 +37,15 @@ import {
   Plus,
   Trash2,
   Calendar,
+  Receipt,
+  CreditCard,
+  PieChart,
+  ArrowRight,
+  ChevronRight,
 } from 'lucide-react';
 
 interface FinanceOverviewProps {
-  onOpenQuickAction: () => void;
+  onOpenQuickAction: (initialType?: 'expense' | 'income', initialDate?: string) => void;
 }
 
 type FinanceSubTab =
@@ -65,6 +71,55 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
   const [customEnd, setCustomEnd] = useState('');
   const [showCustomRange, setShowCustomRange] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
+  const [breakdownModal, setBreakdownModal] = useState<'expense' | 'income' | null>(null);
+
+  // Filtered transactions for the active period
+  const filteredExpenses = useMemo(() => {
+    if (!summary?.startDate || !summary?.endDate) return allExpenses.filter((e) => !e.deletedAt);
+    return allExpenses
+      .filter((e) => !e.deletedAt && e.date >= summary.startDate && e.date <= summary.endDate)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  }, [allExpenses, summary]);
+
+  const filteredIncomes = useMemo(() => {
+    if (!summary?.startDate || !summary?.endDate) return allIncomes.filter((i) => !i.deletedAt);
+    return allIncomes
+      .filter((i) => !i.deletedAt && i.date >= summary.startDate && i.date <= summary.endDate)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  }, [allIncomes, summary]);
+
+  // Breakdown by category / source
+  const expenseCategoryBreakdown = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const exp of filteredExpenses) {
+      const cat = exp.categoryName || exp.categoryId || 'General';
+      map.set(cat, (map.get(cat) || 0) + exp.amountPaise);
+    }
+    const total = summary?.totalExpensePaise || 1;
+    return Array.from(map.entries())
+      .map(([name, amountPaise]) => ({
+        name,
+        amountPaise,
+        percentage: Math.round((amountPaise / total) * 100),
+      }))
+      .sort((a, b) => b.amountPaise - a.amountPaise);
+  }, [filteredExpenses, summary]);
+
+  const incomeCategoryBreakdown = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const inc of filteredIncomes) {
+      const cat = inc.category || 'Salary';
+      map.set(cat, (map.get(cat) || 0) + inc.amountPaise);
+    }
+    const total = summary?.totalIncomePaise || 1;
+    return Array.from(map.entries())
+      .map(([name, amountPaise]) => ({
+        name,
+        amountPaise,
+        percentage: Math.round((amountPaise / total) * 100),
+      }))
+      .sort((a, b) => b.amountPaise - a.amountPaise);
+  }, [filteredIncomes, summary]);
 
   const fetchSummary = (f = filter, start?: string, end?: string) => {
     setLoading(true);
@@ -140,9 +195,9 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
       </div>
 
       {subTab === 'daily' ? (
-        <DailyExpenseTracker onOpenQuickAction={onOpenQuickAction} />
+        <DailyExpenseTracker onOpenQuickAction={(type, date) => onOpenQuickAction(type || 'expense', date)} />
       ) : subTab === 'calendar' ? (
-        <FinancialCalendarView onOpenQuickAction={onOpenQuickAction} />
+        <FinancialCalendarView onOpenQuickAction={() => onOpenQuickAction('expense')} />
       ) : subTab === 'income' ? (
         <IncomeManager />
       ) : subTab === 'expenses' ? (
@@ -168,7 +223,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
           ]}
         />
 
-        <ThemeButton variant="secondary" size="sm" onClick={onOpenQuickAction} className="shrink-0">
+        <ThemeButton variant="secondary" size="sm" onClick={() => onOpenQuickAction('expense')} className="shrink-0">
           <Plus className="w-3.5 h-3.5" />
           <span>Add Transaction</span>
         </ThemeButton>
@@ -242,11 +297,31 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
         >
           {/* Total Income */}
           <MotionStaggerItem>
-            <ThemeCard variant="3d" className="h-full">
+            <ThemeCard
+              variant="3d"
+              className="h-full cursor-pointer hover:border-[var(--ff-success)]/60 hover:shadow-md transition-all group"
+              onClick={() => setBreakdownModal('income')}
+              role="button"
+              tabIndex={0}
+              aria-label="View Total Income breakdown"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setBreakdownModal('income');
+                }
+              }}
+            >
               <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                <span className="text-xs font-medium">Total Income</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium group-hover:text-[var(--ff-text-primary)] transition-colors">
+                    Total Income
+                  </span>
+                  <span className="text-[10px] text-[var(--ff-success)] font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
+                    Breakdown <ChevronRight className="w-3 h-3" />
+                  </span>
+                </div>
                 <div
-                  className="w-7 h-7 flex items-center justify-center"
+                  className="w-7 h-7 flex items-center justify-center shrink-0"
                   style={{
                     borderRadius: 'var(--ff-radius-badge)',
                     background: 'var(--ff-success-soft)',
@@ -262,19 +337,40 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
                   format={(paise) => formatCurrency(Math.round(paise), currency)}
                 />
               </div>
-              <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-                Salary, freelance &amp; investments
-              </span>
+              <div className="flex items-center justify-between text-[11px] text-[var(--ff-text-muted)] mt-1">
+                <span>Salary, freelance &amp; investments</span>
+                <span className="text-[10px] font-semibold text-[var(--ff-accent-text)]">Click to inspect</span>
+              </div>
             </ThemeCard>
           </MotionStaggerItem>
 
           {/* Total Expenses */}
           <MotionStaggerItem>
-            <ThemeCard variant="3d" className="h-full">
+            <ThemeCard
+              variant="3d"
+              className="h-full cursor-pointer hover:border-[var(--ff-danger)]/60 hover:shadow-md transition-all group"
+              onClick={() => setBreakdownModal('expense')}
+              role="button"
+              tabIndex={0}
+              aria-label="View Total Expenses breakdown"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setBreakdownModal('expense');
+                }
+              }}
+            >
               <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                <span className="text-xs font-medium">Total Expenses</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium group-hover:text-[var(--ff-text-primary)] transition-colors">
+                    Total Expenses
+                  </span>
+                  <span className="text-[10px] text-[var(--ff-danger)] font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
+                    Breakdown <ChevronRight className="w-3 h-3" />
+                  </span>
+                </div>
                 <div
-                  className="w-7 h-7 flex items-center justify-center"
+                  className="w-7 h-7 flex items-center justify-center shrink-0"
                   style={{
                     borderRadius: 'var(--ff-radius-badge)',
                     background: 'var(--ff-danger-soft)',
@@ -290,15 +386,17 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
                   format={(paise) => formatCurrency(Math.round(paise), currency)}
                 />
               </div>
-              <div className="flex items-center gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
-                <span>
-                  Fixed: {formatCurrency(summary.fixedExpensesPaise, currency, { compact: true })}
-                </span>
-                <span aria-hidden="true">·</span>
-                <span>
-                  Variable:{' '}
-                  {formatCurrency(summary.variableExpensesPaise, currency, { compact: true })}
-                </span>
+              <div className="flex items-center justify-between gap-2 mt-1 text-[11px] text-[var(--ff-text-muted)]">
+                <div className="flex items-center gap-1.5">
+                  <span>
+                    Fixed: {formatCurrency(summary.fixedExpensesPaise, currency, { compact: true })}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    Var: {formatCurrency(summary.variableExpensesPaise, currency, { compact: true })}
+                  </span>
+                </div>
+                <span className="text-[10px] font-semibold text-[var(--ff-accent-text)]">Click to inspect</span>
               </div>
             </ThemeCard>
           </MotionStaggerItem>
@@ -396,6 +494,282 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
       ) : null}
         </>
       )}
+
+      {/* Modal: Interactive Breakdown for Total Expenses & Total Income */}
+      <ThemeModal
+        isOpen={breakdownModal !== null}
+        onClose={() => setBreakdownModal(null)}
+        title={
+          breakdownModal === 'expense'
+            ? 'Total Expenses Breakdown & Where Spent'
+            : 'Total Income Breakdown & Sources'
+        }
+        maxWidthClass="max-w-2xl"
+      >
+        <div className="space-y-4">
+          {breakdownModal === 'expense' && (
+            <>
+              {/* Header card with summary & Add Expense button */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-[var(--ff-danger-soft)] border border-[var(--ff-danger)]/20">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--ff-danger)] uppercase tracking-wide">
+                    <Receipt className="w-4 h-4" />
+                    <span>Total Expenses ({filter.replace('_', ' ')})</span>
+                  </div>
+                  <div className="text-2xl font-mono font-bold text-[var(--ff-danger)] mt-0.5">
+                    {formatCurrency(summary?.totalExpensePaise || 0, currency)}
+                  </div>
+                  <div className="text-[11px] text-[var(--ff-text-muted)] mt-0.5">
+                    {filteredExpenses.length} expense item{filteredExpenses.length === 1 ? '' : 's'} recorded between {summary?.startDate || 'start'} and {summary?.endDate || 'end'}
+                  </div>
+                </div>
+
+                <ThemeButton
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    setBreakdownModal(null);
+                    onOpenQuickAction('expense');
+                  }}
+                  className="shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Expense</span>
+                </ThemeButton>
+              </div>
+
+              {/* Where money was spent: Category Breakdown */}
+              {expenseCategoryBreakdown.length > 0 && (
+                <div className="space-y-2 p-3 rounded-xl bg-[var(--ff-surface-muted)]/50 border border-[var(--ff-border-color)]">
+                  <span className="text-xs font-bold text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                    <PieChart className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                    <span>Where Money Was Spent (By Category)</span>
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {expenseCategoryBreakdown.map((item) => (
+                      <div
+                        key={item.name}
+                        className="flex items-center justify-between p-2 rounded-lg bg-[var(--ff-surface-card)] text-xs border border-[var(--ff-border-color)]/60"
+                      >
+                        <div className="truncate pr-2">
+                          <span className="font-semibold text-[var(--ff-text-primary)] block truncate">{item.name}</span>
+                          <span className="text-[10px] text-[var(--ff-text-muted)] font-mono">{item.percentage}% of total</span>
+                        </div>
+                        <span className="font-mono font-bold text-[var(--ff-danger)] shrink-0">
+                          {formatCurrency(item.amountPaise, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Itemized Activity List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[var(--ff-text-primary)]">
+                    Itemized Expenses ({filteredExpenses.length})
+                  </span>
+                  <span className="text-[11px] text-[var(--ff-text-muted)]">
+                    Chronological order
+                  </span>
+                </div>
+
+                {filteredExpenses.length === 0 ? (
+                  <div className="p-8 text-center rounded-xl border border-dashed border-[var(--ff-border-color)] space-y-2">
+                    <Receipt className="w-8 h-8 mx-auto text-[var(--ff-text-muted)] opacity-60" />
+                    <p className="text-xs font-medium text-[var(--ff-text-muted)]">No expenses recorded for this timeframe.</p>
+                    <ThemeButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        setBreakdownModal(null);
+                        onOpenQuickAction('expense');
+                      }}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Log First Expense</span>
+                    </ThemeButton>
+                  </div>
+                ) : (
+                  <div className="max-h-60 overflow-y-auto scrollbar-thin divide-y divide-[var(--ff-border-color)]/50 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
+                    {filteredExpenses.map((exp) => (
+                      <div
+                        key={exp.id}
+                        className="p-2.5 flex items-center justify-between gap-3 text-xs hover:bg-[var(--ff-surface-muted)]/40 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-[var(--ff-text-primary)] truncate">
+                              {exp.description}
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] uppercase shrink-0">
+                              {exp.paymentMethod.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[var(--ff-text-muted)] flex items-center gap-2 mt-0.5 font-mono">
+                            <span>{exp.date}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="text-[var(--ff-text-secondary)]">
+                              {exp.categoryName || exp.categoryId || 'General'}
+                            </span>
+                            {exp.notes && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="truncate italic max-w-[140px]">{exp.notes}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <span className="font-mono font-bold text-[var(--ff-danger)] shrink-0">
+                          -{formatCurrency(exp.amountPaise, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {breakdownModal === 'income' && (
+            <>
+              {/* Header card with summary & Add Income button */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-[var(--ff-success-soft)] border border-[var(--ff-success)]/20">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--ff-success)] uppercase tracking-wide">
+                    <CreditCard className="w-4 h-4" />
+                    <span>Total Income ({filter.replace('_', ' ')})</span>
+                  </div>
+                  <div className="text-2xl font-mono font-bold text-[var(--ff-success)] mt-0.5">
+                    +{formatCurrency(summary?.totalIncomePaise || 0, currency)}
+                  </div>
+                  <div className="text-[11px] text-[var(--ff-text-muted)] mt-0.5">
+                    {filteredIncomes.length} income credit{filteredIncomes.length === 1 ? '' : 's'} recorded between {summary?.startDate || 'start'} and {summary?.endDate || 'end'}
+                  </div>
+                </div>
+
+                <ThemeButton
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    setBreakdownModal(null);
+                    onOpenQuickAction('income');
+                  }}
+                  className="shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Income</span>
+                </ThemeButton>
+              </div>
+
+              {/* Where income came from: Category Breakdown */}
+              {incomeCategoryBreakdown.length > 0 && (
+                <div className="space-y-2 p-3 rounded-xl bg-[var(--ff-surface-muted)]/50 border border-[var(--ff-border-color)]">
+                  <span className="text-xs font-bold text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                    <PieChart className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                    <span>Income Sources / Categories</span>
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {incomeCategoryBreakdown.map((item) => (
+                      <div
+                        key={item.name}
+                        className="flex items-center justify-between p-2 rounded-lg bg-[var(--ff-surface-card)] text-xs border border-[var(--ff-border-color)]/60"
+                      >
+                        <div className="truncate pr-2">
+                          <span className="font-semibold text-[var(--ff-text-primary)] block truncate">{item.name}</span>
+                          <span className="text-[10px] text-[var(--ff-text-muted)] font-mono">{item.percentage}% of total</span>
+                        </div>
+                        <span className="font-mono font-bold text-[var(--ff-success)] shrink-0">
+                          +{formatCurrency(item.amountPaise, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Itemized Activity List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[var(--ff-text-primary)]">
+                    Itemized Income Records ({filteredIncomes.length})
+                  </span>
+                  <span className="text-[11px] text-[var(--ff-text-muted)]">
+                    Chronological order
+                  </span>
+                </div>
+
+                {filteredIncomes.length === 0 ? (
+                  <div className="p-8 text-center rounded-xl border border-dashed border-[var(--ff-border-color)] space-y-2">
+                    <CreditCard className="w-8 h-8 mx-auto text-[var(--ff-text-muted)] opacity-60" />
+                    <p className="text-xs font-medium text-[var(--ff-text-muted)]">No income recorded for this timeframe.</p>
+                    <ThemeButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        setBreakdownModal(null);
+                        onOpenQuickAction('income');
+                      }}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Record First Income</span>
+                    </ThemeButton>
+                  </div>
+                ) : (
+                  <div className="max-h-60 overflow-y-auto scrollbar-thin divide-y divide-[var(--ff-border-color)]/50 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
+                    {filteredIncomes.map((inc) => (
+                      <div
+                        key={inc.id}
+                        className="p-2.5 flex items-center justify-between gap-3 text-xs hover:bg-[var(--ff-surface-muted)]/40 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-semibold text-[var(--ff-text-primary)] truncate block">
+                            {inc.source}
+                          </span>
+                          <div className="text-[11px] text-[var(--ff-text-muted)] flex items-center gap-2 mt-0.5 font-mono">
+                            <span>{inc.date}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="text-[var(--ff-text-secondary)]">{inc.category}</span>
+                            {inc.notes && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="truncate italic max-w-[140px]">{inc.notes}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <span className="font-mono font-bold text-[var(--ff-success)] shrink-0">
+                          +{formatCurrency(inc.amountPaise, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Modal Footer */}
+          <div className="flex items-center justify-between pt-2 border-t border-[var(--ff-border-color)]">
+            <ThemeButton variant="secondary" size="sm" onClick={() => setBreakdownModal(null)}>
+              Close
+            </ThemeButton>
+            <ThemeButton
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                const target = breakdownModal || 'expense';
+                setBreakdownModal(null);
+                onOpenQuickAction(target);
+              }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{breakdownModal === 'expense' ? '+ Add Another Expense' : '+ Record Another Income'}</span>
+            </ThemeButton>
+          </div>
+        </div>
+      </ThemeModal>
     </div>
   );
 };

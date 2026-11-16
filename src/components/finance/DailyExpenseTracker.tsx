@@ -23,7 +23,7 @@ import { ThemeBadge, ThemeButton, ThemeCard, ThemeInput } from '../ui/ThemePrimi
 import { AnimatedNumber, AnimatedProgressBar, EmptyStateIllustration, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 
 interface DailyExpenseTrackerProps {
-  onOpenQuickAction: () => void;
+  onOpenQuickAction: (initialType?: 'expense' | 'income', initialDate?: string) => void;
 }
 
 export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpenQuickAction }) => {
@@ -188,7 +188,7 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
             <span>{limitPaise > 0 ? `Limit: ${formatCurrency(limitPaise, currency)}` : 'Set Daily Limit'}</span>
           </ThemeButton>
 
-          <ThemeButton variant="primary" size="sm" onClick={onOpenQuickAction}>
+          <ThemeButton variant="primary" size="sm" onClick={() => onOpenQuickAction('expense', selectedDate)}>
             <Plus className="w-3.5 h-3.5" />
             <span>Add Expense</span>
           </ThemeButton>
@@ -383,7 +383,7 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
             title={`No spending recorded on ${selectedDate}`}
             description="Tap 'Add Expense' above to log any purchases, bills, or cash spent on this day."
             action={
-              <ThemeButton variant="primary" size="sm" onClick={onOpenQuickAction}>
+              <ThemeButton variant="primary" size="sm" onClick={() => onOpenQuickAction('expense', selectedDate)}>
                 <Plus className="w-3.5 h-3.5" /> Log First Expense
               </ThemeButton>
             }

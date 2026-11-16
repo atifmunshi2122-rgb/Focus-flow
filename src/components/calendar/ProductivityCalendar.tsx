@@ -2,12 +2,20 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { Task, Bill, FocusSession, IncomeTransaction, ExpenseTransaction } from '../../types/index.ts';
+import {
+  Task,
+  Bill,
+  FocusSession,
+  IncomeTransaction,
+  ExpenseTransaction,
+  Habit,
+} from '../../types/index.ts';
 import {
   DEFAULT_TIMEZONE,
   getTodayDateString,
   getDaysInMonth,
   getStartOfWeek,
+  formatDateInTimezone,
 } from '../../lib/dateTime.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
@@ -19,10 +27,29 @@ import {
   ChevronRight,
   Clock,
   CheckCircle2,
+  Circle,
   X,
   CreditCard,
   CheckSquare,
+  Plus,
+  Receipt,
+  Flame,
+  Layers,
+  Target,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
+  Check,
 } from 'lucide-react';
+import { type QuickActionType } from '../common/QuickActionModal.tsx';
+
+export interface ProductivityCalendarProps {
+  onOpenQuickAction?: (
+    initialType?: QuickActionType | string,
+    initialDate?: string,
+    context?: 'global' | 'finance' | 'calendar'
+  ) => void;
+}
 
 interface DaySummary {
   date: string; // YYYY-MM-DD
@@ -32,12 +59,15 @@ interface DaySummary {
   tasks: Task[];
   bills: Bill[];
   sessions: FocusSession[];
+  incomes: IncomeTransaction[];
+  expenses: ExpenseTransaction[];
+  habits: Habit[];
   focusMinutes: number;
   incomePaise: number;
   expensePaise: number;
 }
 
-export const ProductivityCalendar: React.FC = () => {
+export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOpenQuickAction }) => {
   const { currency, settings, refreshKey, triggerRefresh, showToast } = useApp();
   const { intensity, isDisabled } = useMotionPreferences();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
@@ -52,9 +82,9 @@ export const ProductivityCalendar: React.FC = () => {
   const currentYear = viewYearMonth.year;
   const currentMonth = viewYearMonth.month;
 
-  const [activeWeekStart, setActiveWeekStart] = useState(() => getStartOfWeek(todayStr));
+  const [activeWeekStart, setActiveWeekStart] = useState(() => getStartOfWeek(todayStr, tz));
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
-  const [selectedDay, setSelectedDay] = useState<DaySummary | null>(null);
+  const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
 
   // Data state
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -62,6 +92,7 @@ export const ProductivityCalendar: React.FC = () => {
   const [sessions, setSessions] = useState<FocusSession[]>([]);
   const [incomes, setIncomes] = useState<IncomeTransaction[]>([]);
   const [expenses, setExpenses] = useState<ExpenseTransaction[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -74,14 +105,16 @@ export const ProductivityCalendar: React.FC = () => {
       api.getFocusSessions(),
       api.getIncomes(),
       api.getExpenses(),
+      api.getHabits().catch(() => []),
     ])
-      .then(([t, b, s, inc, exp]) => {
+      .then(([t, b, s, inc, exp, h]) => {
         if (!isMounted) return;
         setTasks(t.filter((item) => !item.deletedAt));
         setBills(b.filter((item) => !item.deletedAt));
         setSessions(s);
         setIncomes(inc.filter((item) => !item.deletedAt));
         setExpenses(exp.filter((item) => !item.deletedAt));
+        setHabits(h.filter((item) => !item.deletedAt));
       })
       .catch((err) => {
         if (isMounted) showToast('Failed to load calendar events', 'error');
@@ -113,13 +146,13 @@ export const ProductivityCalendar: React.FC = () => {
     for (let i = firstDayOfWeek - 1; i >= 0; i--) {
       const dayNum = prevMonthDays - i;
       const dateStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-      days.push(buildDaySummary(dateStr, dayNum, false, todayStr, tasks, bills, sessions, incomes, expenses));
+      days.push(buildDaySummary(dateStr, dayNum, false, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits));
     }
 
     // Current month days
     for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
       const dateStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-      days.push(buildDaySummary(dateStr, dayNum, true, todayStr, tasks, bills, sessions, incomes, expenses));
+      days.push(buildDaySummary(dateStr, dayNum, true, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits));
     }
 
     // Next month padding to fill out 35 or 42 cells (exact grid)
@@ -130,12 +163,12 @@ export const ProductivityCalendar: React.FC = () => {
 
     while (days.length < totalSlots) {
       const dateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(nextDayNum).padStart(2, '0')}`;
-      days.push(buildDaySummary(dateStr, nextDayNum, false, todayStr, tasks, bills, sessions, incomes, expenses));
+      days.push(buildDaySummary(dateStr, nextDayNum, false, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits));
       nextDayNum++;
     }
 
     return days;
-  }, [currentYear, currentMonth, todayStr, tasks, bills, sessions, incomes, expenses]);
+  }, [currentYear, currentMonth, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits]);
 
   // Week view slice based on activeWeekStart
   const weekDays = useMemo(() => {
@@ -148,12 +181,35 @@ export const ProductivityCalendar: React.FC = () => {
       const dateStr = d.toISOString().split('T')[0];
       const dayNum = d.getUTCDate();
       const isCurrentMonth = d.getUTCMonth() + 1 === currentMonth;
-      days.push(buildDaySummary(dateStr, dayNum, isCurrentMonth, todayStr, tasks, bills, sessions, incomes, expenses));
+      days.push(buildDaySummary(dateStr, dayNum, isCurrentMonth, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits));
     }
     return days;
-  }, [activeWeekStart, currentMonth, todayStr, tasks, bills, sessions, incomes, expenses]);
+  }, [activeWeekStart, currentMonth, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits]);
 
   const displayedDays = viewMode === 'month' ? monthDays : weekDays;
+
+  // Selected day derived dynamically from live state so additions and edits update immediately
+  const selectedDay = useMemo(() => {
+    if (!selectedDateStr) return null;
+    const inMonth = monthDays.find((d) => d.date === selectedDateStr);
+    if (inMonth) return inMonth;
+    const inWeek = weekDays.find((d) => d.date === selectedDateStr);
+    if (inWeek) return inWeek;
+    const dayNum = parseInt(selectedDateStr.slice(8, 10), 10) || 1;
+    return buildDaySummary(
+      selectedDateStr,
+      dayNum,
+      true,
+      todayStr,
+      tz,
+      tasks,
+      bills,
+      sessions,
+      incomes,
+      expenses,
+      habits
+    );
+  }, [selectedDateStr, monthDays, weekDays, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits]);
 
   // Month & Week navigation handlers (atomic, prevents desync)
   const handlePrev = () => {
@@ -202,7 +258,34 @@ export const ProductivityCalendar: React.FC = () => {
     const y = parseInt(todayStr.slice(0, 4), 10);
     const m = parseInt(todayStr.slice(5, 7), 10);
     setViewYearMonth({ year: y, month: m });
-    setActiveWeekStart(getStartOfWeek(todayStr));
+    setActiveWeekStart(getStartOfWeek(todayStr, tz));
+  };
+
+  const handleToggleTaskStatus = async (task: Task) => {
+    const nextStatus: 'todo' | 'completed' = task.status === 'completed' ? 'todo' : 'completed';
+    // Optimistic local state update
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id
+          ? {
+              ...t,
+              status: nextStatus,
+              completedAt: nextStatus === 'completed' ? new Date().toISOString() : null,
+            }
+          : t
+      )
+    );
+    try {
+      await api.updateTask(task.id, {
+        status: nextStatus,
+        completedAt: nextStatus === 'completed' ? new Date().toISOString() : null,
+      });
+      triggerRefresh();
+    } catch {
+      showToast('Failed to update task', 'error');
+      // Revert if error
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
+    }
   };
 
   const monthNames = [
@@ -241,7 +324,7 @@ export const ProductivityCalendar: React.FC = () => {
               Productivity Calendar
             </h1>
             <p className="text-xs text-[var(--ff-text-muted)]">
-              Unified schedule of tasks, bill maturities, focus cycles and cashflows
+              Unified schedule of tasks, bills, focus cycles, cashflows, and daily entries
             </p>
           </div>
         </div>
@@ -250,25 +333,26 @@ export const ProductivityCalendar: React.FC = () => {
           <div className="flex items-center bg-[var(--ff-card-bg)] border ff-divider rounded-lg p-0.5">
             <button
               onClick={() => setViewMode('month')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${viewMode === 'month'
-                ? 'bg-[var(--ff-accent)] text-white shadow-xs'
-                : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-                }`}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                viewMode === 'month'
+                  ? 'bg-[var(--ff-accent)] text-white shadow-xs'
+                  : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+              }`}
             >
               Month
             </button>
             <button
               onClick={() => {
                 setViewMode('week');
-                // Anchor week to current view if needed
                 if (!activeWeekStart) {
-                  setActiveWeekStart(getStartOfWeek(todayStr));
+                  setActiveWeekStart(getStartOfWeek(todayStr, tz));
                 }
               }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${viewMode === 'week'
-                ? 'bg-[var(--ff-accent)] text-white shadow-xs'
-                : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-                }`}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                viewMode === 'week'
+                  ? 'bg-[var(--ff-accent)] text-white shadow-xs'
+                  : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+              }`}
             >
               Week
             </button>
@@ -318,44 +402,55 @@ export const ProductivityCalendar: React.FC = () => {
       {/* Calendar Grid */}
       <div className="grid grid-cols-7 gap-2">
         {displayedDays.map((day) => {
-          const hasEvents = day.tasks.length > 0 || day.bills.length > 0 || day.focusMinutes > 0;
           const netPaise = day.incomePaise - day.expensePaise;
 
           return (
             <button
               key={day.date}
-              onClick={() => setSelectedDay(day)}
-              className={`flex flex-col text-left p-2.5 ${viewMode === 'week' ? 'min-h-[220px]' : 'min-h-[108px]'
-                } rounded-xl border transition-all duration-150 relative group ${day.isToday
+              onClick={() => setSelectedDateStr(day.date)}
+              className={`flex flex-col text-left p-2.5 ${
+                viewMode === 'week' ? 'min-h-[220px]' : 'min-h-[112px]'
+              } rounded-xl border transition-all duration-150 relative group ${
+                day.isToday
                   ? 'border-[var(--ff-accent)] bg-[var(--ff-accent-soft)]/20 shadow-xs ring-1 ring-[var(--ff-accent)]'
                   : day.isCurrentMonth
-                    ? 'bg-[var(--ff-card-bg)] border-[var(--ff-border)] hover:border-[var(--ff-border-hover)] hover:shadow-xs'
-                    : 'bg-[var(--ff-card-bg)]/40 border-[var(--ff-border)]/50 opacity-40 hover:opacity-75'
-                }`}
+                  ? 'bg-[var(--ff-card-bg)] border-[var(--ff-border)] hover:border-[var(--ff-accent)] hover:shadow-xs'
+                  : 'bg-[var(--ff-card-bg)]/40 border-[var(--ff-border)]/50 opacity-40 hover:opacity-75'
+              }`}
             >
               {/* Day Header */}
               <div className="flex items-center justify-between w-full mb-1.5">
                 <span
-                  className={`text-xs font-bold font-mono rounded-md px-1.5 py-0.5 ${day.isToday
-                    ? 'bg-[var(--ff-accent)] text-white'
-                    : 'text-[var(--ff-text-primary)]'
-                    }`}
+                  className={`text-xs font-bold font-mono rounded-md px-1.5 py-0.5 ${
+                    day.isToday
+                      ? 'bg-[var(--ff-accent)] text-white'
+                      : 'text-[var(--ff-text-primary)]'
+                  }`}
                 >
                   {day.dayNumber}
                 </span>
 
-                {day.focusMinutes > 0 && (
-                  <span className="flex items-center gap-0.5 text-[10px] font-mono text-[var(--ff-accent-text)] font-semibold">
-                    <Clock className="w-2.5 h-2.5" />
-                    {day.focusMinutes}m
+                <div className="flex items-center gap-1">
+                  {day.focusMinutes > 0 && (
+                    <span className="flex items-center gap-0.5 text-[10px] font-mono text-[var(--ff-accent-text)] font-semibold">
+                      <Clock className="w-2.5 h-2.5" />
+                      {day.focusMinutes}m
+                    </span>
+                  )}
+                  {/* Subtle hover plus badge */}
+                  <span
+                    title={`Click to open ${day.date}`}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-[var(--ff-text-muted)] group-hover:text-[var(--ff-accent-text)] transition-opacity"
+                  >
+                    <Plus className="w-3 h-3" />
                   </span>
-                )}
+                </div>
               </div>
 
               {/* Event Indicators */}
               <div className="flex flex-col gap-1 w-full flex-1 overflow-hidden">
                 {/* Bills Due */}
-                {day.bills.slice(0, viewMode === 'week' ? 4 : 2).map((b) => (
+                {day.bills.slice(0, viewMode === 'week' ? 3 : 2).map((b) => (
                   <div
                     key={b.id}
                     className="flex items-center justify-between text-[10px] px-1.5 py-0.5 rounded truncate font-medium"
@@ -370,30 +465,31 @@ export const ProductivityCalendar: React.FC = () => {
                     </span>
                   </div>
                 ))}
-                {day.bills.length > (viewMode === 'week' ? 4 : 2) && (
+                {day.bills.length > (viewMode === 'week' ? 3 : 2) && (
                   <span className="text-[9px] text-[var(--ff-text-muted)] font-mono pl-1">
-                    +{day.bills.length - (viewMode === 'week' ? 4 : 2)} more bills
+                    +{day.bills.length - (viewMode === 'week' ? 3 : 2)} more bills
                   </span>
                 )}
 
                 {/* Tasks Due */}
-                {day.tasks.slice(0, viewMode === 'week' ? 4 : 2).map((t) => (
+                {day.tasks.slice(0, viewMode === 'week' ? 3 : 2).map((t) => (
                   <div
                     key={t.id}
                     className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded truncate bg-[var(--ff-muted)]/60 text-[var(--ff-text-secondary)] font-medium"
                   >
                     <CheckCircle2
-                      className={`w-2.5 h-2.5 shrink-0 ${t.status === 'completed' ? 'text-[var(--ff-success)]' : 'text-[var(--ff-text-muted)]'
-                        }`}
+                      className={`w-2.5 h-2.5 shrink-0 ${
+                        t.status === 'completed' ? 'text-[var(--ff-success)]' : 'text-[var(--ff-text-muted)]'
+                      }`}
                     />
                     <span className={`truncate ${t.status === 'completed' ? 'line-through opacity-70' : ''}`}>
                       {t.title}
                     </span>
                   </div>
                 ))}
-                {day.tasks.length > (viewMode === 'week' ? 4 : 2) && (
+                {day.tasks.length > (viewMode === 'week' ? 3 : 2) && (
                   <span className="text-[9px] text-[var(--ff-text-muted)] font-mono pl-1">
-                    +{day.tasks.length - (viewMode === 'week' ? 4 : 2)} more tasks
+                    +{day.tasks.length - (viewMode === 'week' ? 3 : 2)} more tasks
                   </span>
                 )}
               </div>
@@ -401,8 +497,9 @@ export const ProductivityCalendar: React.FC = () => {
               {/* Net Cashflow indicator */}
               {(day.incomePaise > 0 || day.expensePaise > 0) && (
                 <div
-                  className={`mt-1 text-[9px] font-mono font-bold text-right w-full ${netPaise >= 0 ? 'text-[var(--ff-success)]' : 'text-[var(--ff-danger)]'
-                    }`}
+                  className={`mt-1 text-[9px] font-mono font-bold text-right w-full ${
+                    netPaise >= 0 ? 'text-[var(--ff-success)]' : 'text-[var(--ff-danger)]'
+                  }`}
                 >
                   {netPaise >= 0 ? '+' : '-'}
                   {formatCurrency(Math.abs(netPaise), currency)}
@@ -413,7 +510,7 @@ export const ProductivityCalendar: React.FC = () => {
         })}
       </div>
 
-      {/* Day Details Modal */}
+      {/* Day Details Central Hub Modal */}
       <AnimatePresence>
         {selectedDay && (
           <motion.div
@@ -424,11 +521,11 @@ export const ProductivityCalendar: React.FC = () => {
             exit={isDisabled ? undefined : { opacity: 0 }}
             transition={{ duration: MOTION_DURATION.overlay }}
             onClick={(e) => {
-              if (e.target === e.currentTarget) setSelectedDay(null);
+              if (e.target === e.currentTarget) setSelectedDateStr(null);
             }}
           >
             <motion.div
-              className="w-full max-w-lg bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-xl flex flex-col max-h-[85vh] overflow-hidden"
+              className="w-full max-w-xl bg-[var(--ff-card-bg)] border ff-divider rounded-2xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden"
               role="dialog"
               aria-modal="true"
               initial={isDisabled ? false : { opacity: 0, scale: 0.95, y: 12 }}
@@ -436,7 +533,8 @@ export const ProductivityCalendar: React.FC = () => {
               exit={isDisabled ? undefined : { opacity: 0, scale: 0.95, y: 12 }}
               transition={getSpringTransition(intensity, isDisabled)}
             >
-              <div className="flex items-center justify-between px-6 py-4 border-b ff-divider">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b ff-divider bg-[var(--ff-surface-card)]">
                 <div>
                   <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
                     {new Date(`${selectedDay.date}T12:00:00Z`).toLocaleDateString('en-US', {
@@ -448,22 +546,103 @@ export const ProductivityCalendar: React.FC = () => {
                     })}
                   </h3>
                   <p className="text-xs text-[var(--ff-text-muted)] font-mono">
-                    {selectedDay.date}
+                    {selectedDay.date} {selectedDay.isToday && '• Today'}
                   </p>
                 </div>
                 <button
-                  onClick={() => setSelectedDay(null)}
-                  className="p-1 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                  onClick={() => setSelectedDateStr(null)}
+                  className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors"
                   aria-label="Close dialog"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="p-6 overflow-y-auto flex flex-col gap-6">
-                {/* Daily Stats Summary Banner */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
+              {/* Scrollable Content */}
+              <div className="p-6 overflow-y-auto flex flex-col gap-5">
+                {/* === CONTEXTUAL QUICK ADD BAR === */}
+                <div className="p-3.5 rounded-xl bg-[var(--ff-surface-muted)]/70 border border-[var(--ff-border-color)] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+                      <Plus className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                      <span>Add to this Day</span>
+                    </span>
+                    <span className="text-[10px] text-[var(--ff-text-muted)] font-mono">
+                      Prefills {selectedDay.date}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('expense', selectedDay.date, 'calendar')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--ff-surface-card)] hover:bg-[var(--ff-danger-soft)] text-[var(--ff-text-primary)] hover:text-[var(--ff-danger)] border border-[var(--ff-border-color)] transition-all text-xs font-bold shadow-xs active:scale-95"
+                    >
+                      <Receipt className="w-3.5 h-3.5 text-[var(--ff-danger)]" />
+                      <span>+ Expense</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('income', selectedDay.date, 'calendar')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--ff-surface-card)] hover:bg-[var(--ff-success-soft)] text-[var(--ff-text-primary)] hover:text-[var(--ff-success)] border border-[var(--ff-border-color)] transition-all text-xs font-bold shadow-xs active:scale-95"
+                    >
+                      <CreditCard className="w-3.5 h-3.5 text-[var(--ff-success)]" />
+                      <span>+ Income</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('task', selectedDay.date, 'calendar')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--ff-surface-card)] hover:bg-[var(--ff-accent-soft)] text-[var(--ff-text-primary)] hover:text-[var(--ff-accent-text)] border border-[var(--ff-border-color)] transition-all text-xs font-bold shadow-xs active:scale-95"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                      <span>+ Task</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('bill', selectedDay.date, 'calendar')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--ff-surface-card)] hover:bg-[var(--ff-warning-soft)] text-[var(--ff-text-primary)] hover:text-[var(--ff-warning)] border border-[var(--ff-border-color)] transition-all text-xs font-bold shadow-xs active:scale-95"
+                    >
+                      <CalendarIcon className="w-3.5 h-3.5 text-[var(--ff-warning)]" />
+                      <span>+ Bill</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-1 border-t border-[var(--ff-border-color)]/60">
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('habit', selectedDay.date, 'calendar')}
+                      className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--ff-surface-card)] hover:bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-color)] transition-all text-[11px] font-medium"
+                    >
+                      <Flame className="w-3 h-3 text-orange-500" />
+                      <span>+ Habit</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('envelope', selectedDay.date, 'calendar')}
+                      className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--ff-surface-card)] hover:bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-color)] transition-all text-[11px] font-medium"
+                    >
+                      <Layers className="w-3 h-3 text-indigo-400" />
+                      <span>+ Budget</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('goal', selectedDay.date, 'calendar')}
+                      className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--ff-surface-card)] hover:bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-color)] transition-all text-[11px] font-medium"
+                    >
+                      <Target className="w-3 h-3 text-emerald-400" />
+                      <span>+ Savings</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Daily KPI Stats Summary Banner */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-3 rounded-xl bg-[var(--ff-surface-card)] border ff-divider text-center">
                     <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
                       Focus Time
                     </span>
@@ -471,7 +650,7 @@ export const ProductivityCalendar: React.FC = () => {
                       {selectedDay.focusMinutes} mins
                     </span>
                   </div>
-                  <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
+                  <div className="p-3 rounded-xl bg-[var(--ff-surface-card)] border ff-divider text-center">
                     <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
                       Income
                     </span>
@@ -479,7 +658,7 @@ export const ProductivityCalendar: React.FC = () => {
                       {formatCurrency(selectedDay.incomePaise, currency)}
                     </span>
                   </div>
-                  <div className="p-3 rounded-xl bg-[var(--ff-card-bg)] border ff-divider text-center">
+                  <div className="p-3 rounded-xl bg-[var(--ff-surface-card)] border ff-divider text-center">
                     <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
                       Expenses
                     </span>
@@ -487,30 +666,231 @@ export const ProductivityCalendar: React.FC = () => {
                       {formatCurrency(selectedDay.expensePaise, currency)}
                     </span>
                   </div>
+                  <div className="p-3 rounded-xl bg-[var(--ff-surface-card)] border ff-divider text-center">
+                    <span className="text-[10px] uppercase font-bold text-[var(--ff-text-muted)] block">
+                      Net Flow
+                    </span>
+                    <span
+                      className={`text-sm font-bold font-mono ${
+                        selectedDay.incomePaise - selectedDay.expensePaise >= 0
+                          ? 'text-[var(--ff-success)]'
+                          : 'text-[var(--ff-danger)]'
+                      }`}
+                    >
+                      {selectedDay.incomePaise - selectedDay.expensePaise >= 0 ? '+' : '-'}
+                      {formatCurrency(Math.abs(selectedDay.incomePaise - selectedDay.expensePaise), currency)}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Bills Section */}
-                <div>
-                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
-                    <CreditCard className="w-4 h-4 text-[var(--ff-accent)]" />
-                    <span>Bills Due ({selectedDay.bills.length})</span>
+                {/* === EXPENSES SECTION === */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
+                    <span className="flex items-center gap-1.5 text-[var(--ff-danger)]">
+                      <Receipt className="w-3.5 h-3.5" />
+                      <span>Expenses Incurred ({selectedDay.expenses.length})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('expense', selectedDay.date, 'calendar')}
+                      className="text-[11px] font-semibold text-[var(--ff-accent-text)] hover:underline flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" /> Add
+                    </button>
+                  </div>
+                  {selectedDay.expenses.length === 0 ? (
+                    <div className="p-3.5 rounded-xl border ff-divider bg-[var(--ff-muted)]/15 text-center">
+                      <p className="text-xs text-[var(--ff-text-muted)]">No expenses recorded on this day.</p>
+                      <button
+                        type="button"
+                        onClick={() => onOpenQuickAction?.('expense', selectedDay.date, 'calendar')}
+                        className="mt-1.5 text-xs text-[var(--ff-accent-text)] font-semibold hover:underline"
+                      >
+                        + Add Expense
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {selectedDay.expenses.map((e) => (
+                        <div
+                          key={e.id}
+                          className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-surface-subtle)]"
+                        >
+                          <div className="min-w-0 pr-2">
+                            <p className="text-xs font-bold text-[var(--ff-text-primary)] truncate">
+                              {e.description || e.categoryName || 'Expense'}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[var(--ff-text-muted)]">
+                              <span>{e.categoryName || e.categoryId}</span>
+                              {e.paymentMethod && (
+                                <>
+                                  <span>•</span>
+                                  <span className="uppercase font-mono">{e.paymentMethod.replace('_', ' ')}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <span className="font-mono font-bold text-xs text-[var(--ff-danger)] shrink-0">
+                            -{formatCurrency(e.amountPaise, currency)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* === INCOME SECTION === */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
+                    <span className="flex items-center gap-1.5 text-[var(--ff-success)]">
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>Income Credited ({selectedDay.incomes.length})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('income', selectedDay.date, 'calendar')}
+                      className="text-[11px] font-semibold text-[var(--ff-accent-text)] hover:underline flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" /> Add
+                    </button>
+                  </div>
+                  {selectedDay.incomes.length === 0 ? (
+                    <div className="p-3.5 rounded-xl border ff-divider bg-[var(--ff-muted)]/15 text-center">
+                      <p className="text-xs text-[var(--ff-text-muted)]">No income credited on this day.</p>
+                      <button
+                        type="button"
+                        onClick={() => onOpenQuickAction?.('income', selectedDay.date, 'calendar')}
+                        className="mt-1.5 text-xs text-[var(--ff-accent-text)] font-semibold hover:underline"
+                      >
+                        + Add Income
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {selectedDay.incomes.map((inc) => (
+                        <div
+                          key={inc.id}
+                          className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-surface-subtle)]"
+                        >
+                          <div>
+                            <p className="text-xs font-bold text-[var(--ff-text-primary)]">
+                              {inc.source}
+                            </p>
+                            <span className="text-[10px] text-[var(--ff-text-muted)]">
+                              {inc.category}
+                            </span>
+                          </div>
+                          <span className="font-mono font-bold text-xs text-[var(--ff-success)]">
+                            +{formatCurrency(inc.amountPaise, currency)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* === TASKS SECTION === */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
+                    <span className="flex items-center gap-1.5 text-[var(--ff-accent-text)]">
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      <span>Tasks Due ({selectedDay.tasks.length})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('task', selectedDay.date, 'calendar')}
+                      className="text-[11px] font-semibold text-[var(--ff-accent-text)] hover:underline flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" /> Add
+                    </button>
+                  </div>
+                  {selectedDay.tasks.length === 0 ? (
+                    <div className="p-3.5 rounded-xl border ff-divider bg-[var(--ff-muted)]/15 text-center">
+                      <p className="text-xs text-[var(--ff-text-muted)]">No tasks scheduled for this day.</p>
+                      <button
+                        type="button"
+                        onClick={() => onOpenQuickAction?.('task', selectedDay.date, 'calendar')}
+                        className="mt-1.5 text-xs text-[var(--ff-accent-text)] font-semibold hover:underline"
+                      >
+                        + Add Task
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {selectedDay.tasks.map((t) => {
+                        const isDone = t.status === 'completed';
+                        return (
+                          <div
+                            key={t.id}
+                            className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-surface-subtle)] gap-2"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleTaskStatus(t)}
+                                title={isDone ? 'Mark as incomplete' : 'Mark as complete'}
+                                className="p-0.5 rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] transition-colors"
+                              >
+                                {isDone ? (
+                                  <CheckCircle2 className="w-4 h-4 text-[var(--ff-success)]" />
+                                ) : (
+                                  <Circle className="w-4 h-4 text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)]" />
+                                )}
+                              </button>
+                              <p className={`text-xs font-medium truncate ${isDone ? 'line-through opacity-70' : ''}`}>
+                                {t.title}
+                              </p>
+                            </div>
+                            <ThemeBadge tone={t.priority === 'high' ? 'danger' : t.priority === 'medium' ? 'warning' : 'neutral'}>
+                              {t.priority}
+                            </ThemeBadge>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* === BILLS SECTION === */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
+                    <span className="flex items-center gap-1.5 text-[var(--ff-warning)]">
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>Bills Scheduled ({selectedDay.bills.length})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction?.('bill', selectedDay.date, 'calendar')}
+                      className="text-[11px] font-semibold text-[var(--ff-accent-text)] hover:underline flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" /> Add
+                    </button>
                   </div>
                   {selectedDay.bills.length === 0 ? (
-                    <p className="text-xs text-[var(--ff-text-muted)] italic">No bills scheduled on this day.</p>
+                    <div className="p-3.5 rounded-xl border ff-divider bg-[var(--ff-muted)]/15 text-center">
+                      <p className="text-xs text-[var(--ff-text-muted)]">No bills scheduled for this day.</p>
+                      <button
+                        type="button"
+                        onClick={() => onOpenQuickAction?.('bill', selectedDay.date, 'calendar')}
+                        className="mt-1.5 text-xs text-[var(--ff-accent-text)] font-semibold hover:underline"
+                      >
+                        + Add Bill
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex flex-col gap-2">
                       {selectedDay.bills.map((b) => (
                         <div
                           key={b.id}
-                          className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-muted)]/20"
+                          className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-surface-subtle)]"
                         >
                           <div>
-                            <p className="text-sm font-bold text-[var(--ff-text-primary)]">{b.name}</p>
-                            <span className="text-[10px] text-[var(--ff-text-muted)]">
-                              Status: <strong className="uppercase">{b.status}</strong>
+                            <p className="text-xs font-bold text-[var(--ff-text-primary)]">{b.name}</p>
+                            <span className="text-[10px] text-[var(--ff-text-muted)] uppercase">
+                              Status: <strong>{b.status}</strong>
                             </span>
                           </div>
-                          <span className="font-mono font-bold text-sm text-[var(--ff-text-primary)]">
+                          <span className="font-mono font-bold text-xs text-[var(--ff-text-primary)]">
                             {formatCurrency(b.amountPaise, currency)}
                           </span>
                         </div>
@@ -519,42 +899,58 @@ export const ProductivityCalendar: React.FC = () => {
                   )}
                 </div>
 
-                {/* Tasks Section */}
-                <div>
-                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider">
-                    <CheckSquare className="w-4 h-4 text-[var(--ff-accent)]" />
-                    <span>Tasks Due ({selectedDay.tasks.length})</span>
-                  </div>
-                  {selectedDay.tasks.length === 0 ? (
-                    <p className="text-xs text-[var(--ff-text-muted)] italic">No tasks due on this day.</p>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {selectedDay.tasks.map((t) => (
+                {/* === HABITS COMPLETED === */}
+                {selectedDay.habits.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+                      <Flame className="w-3.5 h-3.5 text-orange-500" />
+                      <span>Habits Completed ({selectedDay.habits.length})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedDay.habits.map((h) => (
                         <div
-                          key={t.id}
-                          className="flex items-center justify-between p-3 rounded-xl border ff-divider bg-[var(--ff-muted)]/20"
+                          key={h.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border ff-divider bg-[var(--ff-surface-subtle)] text-xs font-medium"
                         >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CheckCircle2
-                              className={`w-4 h-4 shrink-0 ${t.status === 'completed' ? 'text-[var(--ff-success)]' : 'text-[var(--ff-text-muted)]'
-                                }`}
-                            />
-                            <p className={`text-sm font-medium truncate ${t.status === 'completed' ? 'line-through opacity-70' : ''}`}>
-                              {t.title}
-                            </p>
-                          </div>
-                          <ThemeBadge tone="neutral">
-                            {t.priority}
-                          </ThemeBadge>
+                          <Check className="w-3.5 h-3.5 text-[var(--ff-success)]" />
+                          <span>{h.title}</span>
+                          <span className="text-[10px] text-[var(--ff-text-muted)]">({h.category})</span>
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+
+                {/* === FOCUS SESSIONS === */}
+                {selectedDay.sessions.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                      <span>Focus Sessions ({selectedDay.sessions.length})</span>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {selectedDay.sessions.map((s) => (
+                        <div
+                          key={s.id}
+                          className="flex items-center justify-between p-2.5 rounded-xl border ff-divider bg-[var(--ff-surface-subtle)] text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                            <span className="font-medium capitalize">{s.mode} Session</span>
+                          </div>
+                          <span className="font-mono font-bold text-[var(--ff-accent-text)]">
+                            {Math.round(s.durationSeconds / 60)} mins
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="p-4 border-t ff-divider flex justify-end">
-                <ThemeButton variant="secondary" size="sm" onClick={() => setSelectedDay(null)}>
+              {/* Footer */}
+              <div className="p-4 border-t ff-divider flex justify-end bg-[var(--ff-surface-card)]">
+                <ThemeButton variant="secondary" size="sm" onClick={() => setSelectedDateStr(null)}>
                   Close
                 </ThemeButton>
               </div>
@@ -571,24 +967,30 @@ function buildDaySummary(
   dayNumber: number,
   isCurrentMonth: boolean,
   todayStr: string,
+  tz: string,
   tasks: Task[],
   bills: Bill[],
   sessions: FocusSession[],
   incomes: IncomeTransaction[],
-  expenses: ExpenseTransaction[]
+  expenses: ExpenseTransaction[],
+  habits: Habit[]
 ): DaySummary {
-  const dayTasks = tasks.filter((t) => t.dueDate === dateStr);
-  const dayBills = bills.filter((b) => b.dueDate === dateStr);
-  const daySessions = sessions.filter((s) => s.startedAt.slice(0, 10) === dateStr && s.completed);
+  const dayTasks = tasks.filter((t) => t.dueDate === dateStr || t.dueDate?.slice(0, 10) === dateStr);
+  const dayBills = bills.filter((b) => b.dueDate === dateStr || b.dueDate?.slice(0, 10) === dateStr);
+  const daySessions = sessions.filter((s) => {
+    if (!s.completed) return false;
+    const sessionDate = formatDateInTimezone(s.startedAt, tz);
+    return sessionDate === dateStr;
+  });
   const focusMinutes = Math.round(
-    daySessions.reduce((acc, s) => acc + s.durationSeconds, 0) / 60
+    daySessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0) / 60
   );
-  const incomePaise = incomes
-    .filter((i) => i.date === dateStr)
-    .reduce((acc, i) => acc + i.amountPaise, 0);
-  const expensePaise = expenses
-    .filter((e) => e.date === dateStr)
-    .reduce((acc, e) => acc + e.amountPaise, 0);
+  const dayIncomes = incomes.filter((i) => i.date === dateStr || i.date?.slice(0, 10) === dateStr);
+  const dayExpenses = expenses.filter((e) => e.date === dateStr || e.date?.slice(0, 10) === dateStr);
+  const dayHabits = habits.filter((h) => h.completedDates?.includes(dateStr));
+
+  const incomePaise = dayIncomes.reduce((acc, i) => acc + i.amountPaise, 0);
+  const expensePaise = dayExpenses.reduce((acc, e) => acc + e.amountPaise, 0);
 
   return {
     date: dateStr,
@@ -598,6 +1000,9 @@ function buildDaySummary(
     tasks: dayTasks,
     bills: dayBills,
     sessions: daySessions,
+    incomes: dayIncomes,
+    expenses: dayExpenses,
+    habits: dayHabits,
     focusMinutes,
     incomePaise,
     expensePaise,
