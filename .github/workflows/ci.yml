@@ -40,4 +40,4 @@ jobs:
         run: npx --yes firebase-tools@15 emulators:exec --project test-rules-project --only firestore "npm test"
 
       - name: Build
-        run: npm run build
+        run: npm run build:prod

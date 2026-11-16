@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -14,7 +14,7 @@ import {
   computePomodoroGoalProgress,
 } from '../../lib/pomodoroAnalytics.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString, formatDateInTimezone } from '../../lib/dateTime.ts';
-import { ThemeCard, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard, ThemeBadge, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
   AnimatedProgressBar,
@@ -26,11 +26,13 @@ import {
 } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import {
+  AlertTriangle,
   Clock,
   CheckCircle2,
   Flame,
   Calendar,
   History,
+  RotateCcw,
   Sparkles,
   Grid3X3,
   BarChart3,

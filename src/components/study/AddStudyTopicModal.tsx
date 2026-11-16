@@ -30,10 +30,15 @@ export const AddStudyTopicModal: React.FC<AddStudyTopicModalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (defaultSubjectCode) {
-      setSubjectCode(defaultSubjectCode);
+    if (isOpen) {
+      if (defaultSubjectCode) {
+        setSubjectCode(defaultSubjectCode);
+      } else if (subjects.length > 0) {
+        setSubjectCode((prev) => (subjects.some((s) => s.code === prev) ? prev : subjects[0].code));
+      }
+      setError(null);
     }
-  }, [defaultSubjectCode]);
+  }, [isOpen, defaultSubjectCode, subjects]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

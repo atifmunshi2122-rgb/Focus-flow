@@ -169,6 +169,7 @@ export const StudyView: React.FC = () => {
   const [isAddTierOpen, setIsAddTierOpen] = useState(false);
   const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false);
   const [isAddTopicOpen, setIsAddTopicOpen] = useState(false);
+  const [targetSubjectCodeForTopic, setTargetSubjectCodeForTopic] = useState<string | undefined>(undefined);
   const [isScheduleRevisionOpen, setIsScheduleRevisionOpen] = useState(false);
   const [isLogMistakeOpen, setIsLogMistakeOpen] = useState(false);
   const [activeTopicForRevision, setActiveTopicForRevision] = useState<StudyTopic | null>(null);
@@ -515,6 +516,12 @@ export const StudyView: React.FC = () => {
   };
 
   // Delete handlers
+  const handleOpenAddTopic = (subCode?: string) => {
+    const code = subCode || (selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined);
+    setTargetSubjectCodeForTopic(code);
+    setIsAddTopicOpen(true);
+  };
+
   const handleDeleteSubject = async (subject: StudySubject) => {
     const targetKey = subject.id || subject.code;
     if (deletingSubjectId) return;
@@ -1208,7 +1215,7 @@ export const StudyView: React.FC = () => {
           <ThemeButton
             variant="ghost"
             size="sm"
-            onClick={() => setIsAddTopicOpen(true)}
+            onClick={() => handleOpenAddTopic()}
           >
             <Plus className="w-4 h-4 mr-1.5" />
             Add Topic
@@ -1496,6 +1503,17 @@ export const StudyView: React.FC = () => {
                     </option>
                   ))}
                 </select>
+                {selectedSubjectCode !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAddTopic(selectedSubjectCode)}
+                    className="px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-[var(--ff-accent)] text-white hover:opacity-90 transition-opacity flex items-center gap-1 shrink-0 shadow-xs"
+                    title={`Add topic to ${subjects.find((s) => s.code === selectedSubjectCode)?.name || selectedSubjectCode}`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Topic</span>
+                  </button>
+                )}
                 {selectedSubjectCode !== 'all' && (() => {
                   const currentSub = subjects.find((s) => s.code === selectedSubjectCode && !s.deletedAt);
                   if (!currentSub) return null;
@@ -1566,28 +1584,43 @@ export const StudyView: React.FC = () => {
                       </span>
                     </div>
 
-                    {(() => {
-                      const isDeleting = deletingSubjectId === (sub.id || sub.code);
-                      return (
-                        <button
-                          type="button"
-                          disabled={Boolean(deletingSubjectId)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleDeleteSubject(sub);
-                          }}
-                          title={`Delete subject "${sub.name}" (${sub.code})`}
-                          aria-label={`Delete subject ${sub.name}`}
-                          className="p-1 -mr-1 rounded-lg text-[var(--ff-text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-colors opacity-60 hover:opacity-100 disabled:opacity-40"
-                        >
-                          {isDeleting ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
-                          ) : (
-                            <Trash2 className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      );
-                    })()}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenAddTopic(sub.code);
+                        }}
+                        title={`Add topic to "${sub.name}"`}
+                        aria-label={`Add topic to ${sub.name}`}
+                        className="p-1 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] hover:bg-[var(--ff-accent)]/10 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+
+                      {(() => {
+                        const isDeleting = deletingSubjectId === (sub.id || sub.code);
+                        return (
+                          <button
+                            type="button"
+                            disabled={Boolean(deletingSubjectId)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDeleteSubject(sub);
+                            }}
+                            title={`Delete subject "${sub.name}" (${sub.code})`}
+                            aria-label={`Delete subject ${sub.name}`}
+                            className="p-1 -mr-1 rounded-lg text-[var(--ff-text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-colors opacity-60 hover:opacity-100 disabled:opacity-40"
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        );
+                      })()}
+                    </div>
                   </div>
 
                   <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] truncate" title={sub.name}>
@@ -1612,6 +1645,18 @@ export const StudyView: React.FC = () => {
                       }}
                     />
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenAddTopic(sub.code);
+                    }}
+                    className="w-full mt-2.5 py-1 px-2.5 rounded-xl border border-dashed border-[var(--ff-border-color)] hover:border-[var(--ff-accent)] bg-[var(--ff-surface-subtle)] hover:bg-[var(--ff-accent)]/10 text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] text-[11px] font-medium flex items-center justify-center gap-1 transition-all"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>{subTopics.length === 0 ? 'Add First Topic' : 'Add Topic'}</span>
+                  </button>
                 </div>
               );
             })}
@@ -1626,27 +1671,59 @@ export const StudyView: React.FC = () => {
                   Syllabus Checklist ({visibleTopics.length} {visibleTopics.length === 1 ? 'topic' : 'topics'})
                 </h2>
               </div>
-              <div className="flex items-center gap-2.5 text-xs text-[var(--ff-text-muted)]">
-                <span className="text-[11px] font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider hidden sm:inline">
-                  Legend:
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded bg-blue-500"></span> Theory (T)
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded bg-emerald-500"></span> Practice (P)
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded bg-purple-500"></span> PYQ (Q)
-                </span>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex items-center gap-2 text-xs text-[var(--ff-text-muted)]">
+                  <span className="text-[11px] font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider hidden sm:inline">
+                    Legend:
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded bg-blue-500"></span> Theory (T)
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded bg-emerald-500"></span> Practice (P)
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded bg-purple-500"></span> PYQ (Q)
+                  </span>
+                </div>
+
+                <ThemeButton
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleOpenAddTopic(selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined)}
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  Add Topic
+                </ThemeButton>
               </div>
             </div>
 
             {visibleTopics.length === 0 ? (
-              <div className="p-12 text-center text-xs text-[var(--ff-text-muted)]">
-                {topics.length > 0
-                  ? `No syllabus topics matching current filter (${topics.length} total across all subjects). Select a different subject or "All Tiers" above.`
-                  : 'No syllabus topics added yet. Click "+ Add Topic" above to get started.'}
+              <div className="p-8 sm:p-12 text-center text-xs text-[var(--ff-text-muted)] flex flex-col items-center justify-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-[var(--ff-surface-muted)] flex items-center justify-center text-[var(--ff-accent-text)]">
+                  <BookOpen className="w-6 h-6" />
+                </div>
+                <p className="max-w-md text-sm text-[var(--ff-text-primary)] font-medium">
+                  {selectedSubjectCode !== 'all' && subjects.find((s) => s.code === selectedSubjectCode)
+                    ? `No topics in "${subjects.find((s) => s.code === selectedSubjectCode)?.name}" yet.`
+                    : topics.length > 0
+                    ? `No syllabus topics matching current filter (${topics.length} total across all subjects).`
+                    : 'No syllabus topics added yet.'}
+                </p>
+                <p className="max-w-sm text-xs text-[var(--ff-text-muted)]">
+                  Create topics with Theory, Practice, and PYQ goals to track your syllabus completion and schedule spaced repetition.
+                </p>
+                <ThemeButton
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleOpenAddTopic(selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined)}
+                  className="mt-1"
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  {selectedSubjectCode !== 'all' && subjects.find((s) => s.code === selectedSubjectCode)
+                    ? `Add Topic to ${subjects.find((s) => s.code === selectedSubjectCode)?.name}`
+                    : 'Add New Topic'}
+                </ThemeButton>
               </div>
             ) : (
               <div className="divide-y divide-[var(--ff-border-color)]">
@@ -2549,9 +2626,12 @@ export const StudyView: React.FC = () => {
 
       <AddStudyTopicModal
         isOpen={isAddTopicOpen}
-        onClose={() => setIsAddTopicOpen(false)}
+        onClose={() => {
+          setIsAddTopicOpen(false);
+          setTargetSubjectCodeForTopic(undefined);
+        }}
         subjects={subjects}
-        defaultSubjectCode={selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined}
+        defaultSubjectCode={targetSubjectCodeForTopic || (selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined)}
         onAdd={async (topicData) => {
           const newTopic: StudyTopic = {
             id: `topic_${Date.now()}`,
@@ -2571,6 +2651,7 @@ export const StudyView: React.FC = () => {
           };
           await api.saveStudyTopic(newTopic);
           setTopics((prev) => [...prev, newTopic]);
+          setSelectedSubjectCode(newTopic.subjectCode);
           showToast(`Topic "${newTopic.subtopic}" added to syllabus!`, 'success');
         }}
       />
