@@ -197,12 +197,12 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const [tasks, setTasks] = useState<Task[]>(() => clientDataCache.getTasks() || []);
   const [habits, setHabits] = useState<Habit[]>(() => clientDataCache.getHabits() || []);
   const [bills, setBills] = useState<Bill[]>(() => clientDataCache.getBills() || []);
-  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
-  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>([]);
-  const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>([]);
-  const [studyMistakes, setStudyMistakes] = useState<StudyMistake[]>([]);
-  const [studySubjects, setStudySubjects] = useState<StudySubject[]>([]);
-  const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>([]);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(() => clientDataCache.getSavingsGoals() || []);
+  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>(() => clientDataCache.getStudyTopics() || []);
+  const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>(() => clientDataCache.getStudyRevisions() || []);
+  const [studyMistakes, setStudyMistakes] = useState<StudyMistake[]>(() => clientDataCache.getStudyMistakes() || []);
+  const [studySubjects, setStudySubjects] = useState<StudySubject[]>(() => clientDataCache.getStudySubjects() || []);
+  const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>(() => clientDataCache.getStudyPlanTasks() || []);
   const [loading, setLoading] = useState(!cachedDash);
 
   const todayStr = useMemo(
@@ -237,6 +237,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     if (!clientDataCache.getDashboardData()) {
       setLoading(true);
     }
+    const skipStudy = layoutConfig.hiddenWidgets.includes('study_pulse');
     Promise.all([
       api.getDashboard(),
       api.getFocusSessions().catch(() => [] as FocusSession[]),
@@ -244,11 +245,11 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       api.getBills().catch(() => [] as Bill[]),
       api.getSavingsGoals().catch(() => [] as SavingsGoal[]),
       api.getHabits().catch(() => [] as Habit[]),
-      api.getStudyTopics().catch(() => [] as StudyTopic[]),
-      api.getStudyRevisions().catch(() => [] as StudyRevision[]),
-      api.getStudyMistakes().catch(() => [] as StudyMistake[]),
-      api.getStudySubjects().catch(() => [] as StudySubject[]),
-      api.getStudyPlanTasks().catch(() => [] as StudyPlanTask[]),
+      skipStudy ? Promise.resolve(clientDataCache.getStudyTopics() || []) : api.getStudyTopics().catch(() => [] as StudyTopic[]),
+      skipStudy ? Promise.resolve(clientDataCache.getStudyRevisions() || []) : api.getStudyRevisions().catch(() => [] as StudyRevision[]),
+      skipStudy ? Promise.resolve(clientDataCache.getStudyMistakes() || []) : api.getStudyMistakes().catch(() => [] as StudyMistake[]),
+      skipStudy ? Promise.resolve(clientDataCache.getStudySubjects() || []) : api.getStudySubjects().catch(() => [] as StudySubject[]),
+      skipStudy ? Promise.resolve(clientDataCache.getStudyPlanTasks() || []) : api.getStudyPlanTasks().catch(() => [] as StudyPlanTask[]),
     ])
       .then(([dash, sess, tsk, b, sg, hab, st, sr, sm, ssub, spt]) => {
         clientDataCache.setDashboardData(dash);
@@ -256,6 +257,14 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
         clientDataCache.setTasks(tsk);
         clientDataCache.setBills(b);
         clientDataCache.setHabits(hab);
+        clientDataCache.setSavingsGoals(sg);
+        if (!skipStudy) {
+          clientDataCache.setStudyTopics(st);
+          clientDataCache.setStudyRevisions(sr);
+          clientDataCache.setStudyMistakes(sm);
+          clientDataCache.setStudySubjects(ssub);
+          clientDataCache.setStudyPlanTasks(spt);
+        }
         setData(dash);
         setSessions(sess);
         setTasks(tsk);

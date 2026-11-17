@@ -494,10 +494,27 @@ export interface OfflineOutboxOperation {
     | 'record_study_recall'
     | 'delete_study_revision'
     | 'save_study_mistake'
-    | 'delete_study_mistake';
+    | 'delete_study_mistake'
+    | 'save_study_goal'
+    | 'delete_study_goal'
+    | 'save_study_flashcard'
+    | 'delete_study_flashcard'
+    | 'save_study_quiz'
+    | 'delete_study_quiz'
+    | 'save_study_plan'
+    | 'delete_study_plan'
+    | 'save_study_plan_task'
+    | 'delete_study_plan_task'
+    | 'save_study_note'
+    | 'delete_study_note'
+    | 'save_study_exam'
+    | 'delete_study_exam'
+    | 'save_study_resource'
+    | 'delete_study_resource';
   payload: Record<string, unknown>;
   createdAt: string;
   attempts: number;
+  lastAttemptAt?: string;
   lastError?: string;
 }
 

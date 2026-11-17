@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import {
@@ -134,28 +135,34 @@ export const ExportCenterView: React.FC = () => {
     }
   };
 
-  const [loading, setLoading] = useState(true);
+  const cachedTasks = clientDataCache.getTasks();
+  const cachedIncomes = clientDataCache.getIncomes();
+  const hasCachedData = Boolean(cachedTasks || cachedIncomes);
+
+  const [loading, setLoading] = useState(!hasCachedData);
   const [exporting, setExporting] = useState(false);
   const [previewSearch, setPreviewSearch] = useState('');
   const [showAccuracyModal, setShowAccuracyModal] = useState(false);
 
-  // Raw Database Data
-  const [rawData, setRawData] = useState<UnifiedExportDataPayload>({
-    incomes: [],
-    expenses: [],
-    bills: [],
-    envelopes: [],
-    savingsGoals: [],
-    subscriptions: [],
-    categories: [],
-    tasks: [],
-    sessions: [],
-    habits: [],
+  // Raw Database Data with fast initial cache hydration
+  const [rawData, setRawData] = useState<UnifiedExportDataPayload>(() => ({
+    userName: user?.name || 'Verified User',
+    userSettings: settings,
+    incomes: (clientDataCache.getIncomes() || []).filter((item: IncomeTransaction) => !item.deletedAt),
+    expenses: (clientDataCache.getExpenses() || []).filter((item: ExpenseTransaction) => !item.deletedAt),
+    bills: (clientDataCache.getBills() || []).filter((item: Bill) => !item.deletedAt),
+    envelopes: (clientDataCache.getEnvelopes() || []).filter((item: BudgetEnvelope) => !item.deletedAt),
+    savingsGoals: clientDataCache.getSavingsGoals() || [],
+    subscriptions: (clientDataCache.getSubscriptions() || []).filter((item: SubscriptionPlan) => !item.deletedAt),
+    categories: clientDataCache.getCategories() || [],
+    tasks: (clientDataCache.getTasks() || []).filter((item: Task) => !item.deletedAt),
+    sessions: clientDataCache.getFocusSessions() || [],
+    habits: (clientDataCache.getHabits() || []).filter((item: Habit) => !item.deletedAt),
     timeBlocks: [],
-    studySubjects: [],
-    studyTopics: [],
-    studyRevisions: [],
-  });
+    studySubjects: (clientDataCache.getStudySubjects() || []).filter((item: StudySubject) => !item.deletedAt),
+    studyTopics: (clientDataCache.getStudyTopics() || []).filter((item: StudyTopic) => !item.deletedAt),
+    studyRevisions: (clientDataCache.getStudyRevisions() || []).filter((item: StudyRevision) => !item.deletedAt),
+  }));
 
   const loadAllData = () => {
     setLoading(true);

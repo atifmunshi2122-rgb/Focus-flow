@@ -43,6 +43,7 @@ import { AuthDiagnostic, classifyFirebaseAuthError } from '../lib/authDiagnostic
 import { googleSheetsService } from '../lib/googleSheetsService.ts';
 import { firestoreService } from '../lib/firestoreService.ts';
 import { offlineOutbox } from '../lib/offlineOutbox.ts';
+import { clientDataCache } from '../lib/dataCache.ts';
 import type { ConfirmDialogOptions } from '../components/common/ConfirmDialogModal.tsx';
 import {
   AmbientPreset,
@@ -206,6 +207,7 @@ interface AppContextType {
   setAmbientSound: (preset: AmbientPreset, volume?: number) => Promise<void>;
   isOnline: boolean;
   offlineOutboxCount: number;
+  isSyncingOutbox: boolean;
   reconcileOutboxNow: () => Promise<{ reconciled: number; failed: number }>;
   syncLastError: string | null;
   notifications: AppNotificationItem[];
@@ -428,6 +430,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
   const [offlineOutboxCount, setOfflineOutboxCount] = useState<number>(0);
+  const [isSyncingOutbox, setIsSyncingOutbox] = useState<boolean>(false);
   const [confirmDialogState, setConfirmDialogState] = useState<
     (ConfirmDialogOptions & { isOpen: boolean }) | null
   >(null);
@@ -598,20 +601,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const reconcileOutboxNow = useCallback(async () => {
     const uid = firebaseUser?.uid;
     if (!uid) return { reconciled: 0, failed: 0 };
-    const result = await api.reconcileOfflineOutbox(uid);
-    if (result.reconciled > 0) {
-      showToast(
-        `Reconciled ${result.reconciled} queued offline operation${result.reconciled > 1 ? 's' : ''} to Firestore.`,
-        'success'
-      );
-      triggerRefresh();
-    } else if (result.failed > 0) {
-      showToast(
-        `${result.failed} queued offline write${result.failed > 1 ? 's' : ''} still awaiting Firestore connectivity.`,
-        'info'
-      );
+    setIsSyncingOutbox(true);
+    try {
+      const result = await api.reconcileOfflineOutbox(uid);
+      if (result.reconciled > 0) {
+        showToast(
+          `Reconciled ${result.reconciled} queued offline operation${result.reconciled > 1 ? 's' : ''} to Firestore.`,
+          'success'
+        );
+        triggerRefresh();
+      } else if (result.failed > 0) {
+        showToast(
+          `${result.failed} queued offline write${result.failed > 1 ? 's' : ''} still awaiting Firestore connectivity.`,
+          'info'
+        );
+      }
+      return result;
+    } finally {
+      setIsSyncingOutbox(false);
     }
-    return result;
   }, [firebaseUser?.uid, showToast, triggerRefresh]);
 
   // Listen to OS prefers-color-scheme changes
@@ -949,6 +957,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubscribe = initAuthListener(
       async (fbUser, token) => {
         setFirebaseUser(fbUser);
+        clientDataCache.setActiveUser(fbUser.uid);
         if (token) setGoogleAccessToken(token);
 
         setUser({
@@ -1081,6 +1090,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const hadFbUser = restoredFirebaseUidRef.current !== null;
         setFirebaseUser(null);
         setGoogleAccessToken(null);
+        clientDataCache.setActiveUser(null);
+        clientDataCache.clear();
         restoredFirebaseUidRef.current = null;
         setThemeSyncState('local');
         setActiveTaskId(null);
@@ -1351,6 +1362,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await fbSignOut();
       setFirebaseUser(null);
       setGoogleAccessToken(null);
+      clientDataCache.setActiveUser(null);
+      clientDataCache.clear();
       setAuthError(null);
       restoredFirebaseUidRef.current = null;
       setThemeSyncState('local');
@@ -2735,6 +2748,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAmbientSound,
         isOnline,
         offlineOutboxCount,
+        isSyncingOutbox,
         reconcileOutboxNow,
         syncLastError,
         notifications,

@@ -45,6 +45,7 @@ import {
 import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
 import { offlineOutbox } from './offlineOutbox.ts';
+import { clientDataCache } from './dataCache.ts';
 import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
 
 const BASE_URL = import.meta.env?.VITE_API_URL || '/api';
@@ -142,24 +143,52 @@ export function isTransientFirestoreError(err: unknown): boolean {
 /**
  * Reads: When signed in with Firebase, Firestore is the sole source of truth.
  * Signed-in users NEVER fall back to Express JSON reads so source of truth never diverges.
+ * Supports caching & in-flight request deduplication via clientDataCache.
  */
 async function withPrimaryRead<T>(
   cloudFn: (userId: string) => Promise<T>,
-  guestApiFn: () => Promise<T>
+  guestApiFn: () => Promise<T>,
+  cacheKey?: string,
+  ttlMs?: number
 ): Promise<T> {
-  const fbUser = await waitForInitialAuth();
-  if (fbUser && auth.currentUser?.uid === fbUser.uid) {
+  const execute = async () => {
+    const fbUser = await waitForInitialAuth();
+    if (fbUser && auth.currentUser?.uid === fbUser.uid) {
+      try {
+        return await cloudFn(fbUser.uid);
+      } catch (err) {
+        // Only route to guest mode if the user genuinely signed out while this read was in flight.
+        if (!auth.currentUser) {
+          return guestApiFn();
+        }
+        throw err;
+      }
+    }
+    return guestApiFn();
+  };
+
+  if (!cacheKey) {
+    return execute();
+  }
+
+  const cached = clientDataCache.get<T>(cacheKey, ttlMs);
+  if (cached !== null) {
+    return cached;
+  }
+
+  return clientDataCache.dedupe(cacheKey, async () => {
     try {
-      return await cloudFn(fbUser.uid);
+      const result = await execute();
+      clientDataCache.set(cacheKey, result);
+      return result;
     } catch (err) {
-      // Only route to guest mode if the user genuinely signed out while this read was in flight.
-      if (!auth.currentUser) {
-        return guestApiFn();
+      const stale = clientDataCache.getWithStale<T>(cacheKey, ttlMs);
+      if (stale.data !== null) {
+        return stale.data;
       }
       throw err;
     }
-  }
-  return guestApiFn();
+  });
 }
 
 /**
@@ -175,12 +204,34 @@ async function withPrimaryWrite<T>(
     dedupeKey: string;
     payload: Record<string, unknown>;
     optimisticResult: (userId: string) => T;
-  }
+  },
+  invalidateDomain?: string
 ): Promise<T> {
+  const triggerInvalidation = () => {
+    if (invalidateDomain) {
+      clientDataCache.invalidate(invalidateDomain);
+    } else if (offlineHandler) {
+      const op = offlineHandler.operationType;
+      if (op.includes('task')) clientDataCache.invalidate('tasks');
+      if (op.includes('focus') || op.includes('pomodoro') || op.includes('interruption')) clientDataCache.invalidate('focus_sessions');
+      if (op.includes('income')) { clientDataCache.invalidate('incomes'); clientDataCache.invalidate('transactions'); }
+      if (op.includes('expense')) { clientDataCache.invalidate('expenses'); clientDataCache.invalidate('transactions'); }
+      if (op.includes('bill')) clientDataCache.invalidate('bills');
+      if (op.includes('habit')) clientDataCache.invalidate('habits');
+      if (op.includes('study')) clientDataCache.invalidate('study');
+      if (op.includes('envelope')) clientDataCache.invalidate('envelopes');
+      if (op.includes('savings_goal')) clientDataCache.invalidate('savings_goals');
+      if (op.includes('subscription')) clientDataCache.invalidate('subscriptions');
+      clientDataCache.invalidate('dashboard');
+    }
+  };
+
   const fbUser = await waitForInitialAuth();
   if (fbUser && auth.currentUser?.uid === fbUser.uid) {
     try {
-      return await cloudFn(fbUser.uid);
+      const res = await cloudFn(fbUser.uid);
+      triggerInvalidation();
+      return res;
     } catch (err) {
       if (offlineHandler && isTransientFirestoreError(err)) {
         offlineOutbox.enqueue(
@@ -189,12 +240,15 @@ async function withPrimaryWrite<T>(
           offlineHandler.payload,
           offlineHandler.dedupeKey
         );
+        triggerInvalidation();
         return offlineHandler.optimisticResult(fbUser.uid);
       }
       throw err;
     }
   }
-  return guestApiFn();
+  const guestRes = await guestApiFn();
+  triggerInvalidation();
+  return guestRes;
 }
 
 async function applyOfflineOutboxOp(userId: string, op: OfflineOutboxOperation): Promise<void> {
@@ -363,6 +417,54 @@ async function applyOfflineOutboxOp(userId: string, op: OfflineOutboxOperation):
     case 'delete_study_mistake':
       await firestoreService.deleteStudyMistake(userId, String(p.id));
       return;
+    case 'save_study_goal':
+      await firestoreService.saveStudyGoal(userId, p as Partial<StudyGoal>);
+      return;
+    case 'delete_study_goal':
+      await firestoreService.deleteStudyGoal(userId, String(p.id));
+      return;
+    case 'save_study_flashcard':
+      await firestoreService.saveStudyFlashcard(userId, p as Partial<StudyFlashcard>);
+      return;
+    case 'delete_study_flashcard':
+      await firestoreService.deleteStudyFlashcard(userId, String(p.id));
+      return;
+    case 'save_study_quiz':
+      await firestoreService.saveStudyQuiz(userId, p as Partial<StudyQuiz>);
+      return;
+    case 'delete_study_quiz':
+      await firestoreService.deleteStudyQuiz(userId, String(p.id));
+      return;
+    case 'save_study_plan':
+      await firestoreService.saveStudyPlan(userId, p as Partial<StudyPlan>);
+      return;
+    case 'delete_study_plan':
+      await firestoreService.deleteStudyPlan(userId, String(p.id));
+      return;
+    case 'save_study_plan_task':
+      await firestoreService.saveStudyPlanTask(userId, p as Partial<StudyPlanTask>);
+      return;
+    case 'delete_study_plan_task':
+      await firestoreService.deleteStudyPlanTask(userId, String(p.id));
+      return;
+    case 'save_study_note':
+      await firestoreService.saveStudyNote(userId, p as Partial<StudyNote>);
+      return;
+    case 'delete_study_note':
+      await firestoreService.deleteStudyNote(userId, String(p.id));
+      return;
+    case 'save_study_exam':
+      await firestoreService.saveStudyExam(userId, p as Partial<StudyExam>);
+      return;
+    case 'delete_study_exam':
+      await firestoreService.deleteStudyExam(userId, String(p.id));
+      return;
+    case 'save_study_resource':
+      await firestoreService.saveStudyResource(userId, p as Partial<StudyResource>);
+      return;
+    case 'delete_study_resource':
+      await firestoreService.deleteStudyResource(userId, String(p.id));
+      return;
   }
 }
 
@@ -388,6 +490,10 @@ export const api = {
     let failed = 0;
 
     for (const op of ops) {
+      if (!offlineOutbox.isEligibleForRetry(op)) {
+        continue;
+      }
+
       try {
         await applyOfflineOutboxOp(uid, op);
         offlineOutbox.remove(uid, op.id);
@@ -466,14 +572,18 @@ export const api = {
   getDashboard: () =>
     withPrimaryRead(
       (uid) => firestoreService.getDashboard(uid),
-      () => request<DashboardData>('/dashboard')
+      () => request<DashboardData>('/dashboard'),
+      'dashboard',
+      90 * 1000
     ),
 
   // Focus & Pomodoro
   getFocusSessions: () =>
     withPrimaryRead(
       (uid) => firestoreService.getFocusSessions(uid),
-      () => request<FocusSession[]>('/focus/sessions')
+      () => request<FocusSession[]>('/focus/sessions'),
+      'focus_sessions',
+      120 * 1000
     ),
 
   getFocusSessionsPage: (pageSize = 50, cursor?: string | null) =>
@@ -608,7 +718,9 @@ export const api = {
   getTasks: () =>
     withPrimaryRead(
       (uid) => firestoreService.getTasks(uid),
-      () => request<Task[]>('/tasks')
+      () => request<Task[]>('/tasks'),
+      'tasks',
+      120 * 1000
     ),
 
   createTask: (task: Partial<Task>) => {
@@ -689,7 +801,9 @@ export const api = {
   getCategories: () =>
     withPrimaryRead(
       (uid) => firestoreService.getCategories(uid),
-      () => request<ExpenseCategory[]>('/finance/categories')
+      () => request<ExpenseCategory[]>('/finance/categories'),
+      'categories',
+      600 * 1000
     ),
 
   createCategory: (cat: Partial<ExpenseCategory>) =>
@@ -718,7 +832,9 @@ export const api = {
   getIncomes: () =>
     withPrimaryRead(
       (uid) => firestoreService.getIncomes(uid),
-      () => request<IncomeTransaction[]>('/finance/income')
+      () => request<IncomeTransaction[]>('/finance/income'),
+      'incomes',
+      120 * 1000
     ),
 
   getIncomesPage: (pageSize = 25, cursor?: string | null) =>
@@ -805,7 +921,9 @@ export const api = {
       () => {
         const q = type ? `?type=${encodeURIComponent(type)}` : '';
         return request<ExpenseTransaction[]>(`/finance/expenses${q}`);
-      }
+      },
+      type ? `expenses_${type}` : 'expenses',
+      120 * 1000
     ),
 
   getExpensesPage: (pageSize = 25, cursor?: string | null, type?: 'fixed' | 'variable') =>
@@ -973,7 +1091,9 @@ export const api = {
       () => {
         const q = status ? `?status=${encodeURIComponent(status)}` : '';
         return request<Bill[]>(`/finance/bills${q}`);
-      }
+      },
+      status ? `bills_${status}` : 'bills',
+      120 * 1000
     ),
 
   createBill: (data: Partial<Bill>) => {
@@ -1097,7 +1217,9 @@ export const api = {
   getSavingsGoals: () =>
     withPrimaryRead(
       (uid) => firestoreService.getSavingsGoals(uid),
-      () => request<SavingsGoal[]>('/finance/savings-goals')
+      () => request<SavingsGoal[]>('/finance/savings-goals'),
+      'savings_goals',
+      120 * 1000
     ),
 
   createSavingsGoal: (data: Partial<SavingsGoal>) =>
@@ -1276,7 +1398,9 @@ export const api = {
   getHabits: () =>
     withPrimaryRead(
       (uid) => firestoreService.getHabits(uid),
-      () => request<Habit[]>('/habits')
+      () => request<Habit[]>('/habits'),
+      'habits',
+      120 * 1000
     ),
 
   createHabit: (habit: Partial<Habit>) => {
@@ -1374,7 +1498,9 @@ export const api = {
       () =>
         request<BudgetEnvelope[]>(
           `/envelopes${monthKey ? `?monthKey=${encodeURIComponent(monthKey)}` : ''}`
-        )
+        ),
+      monthKey ? `envelopes_${monthKey}` : 'envelopes',
+      120 * 1000
     ),
 
   createEnvelope: (env: Partial<BudgetEnvelope>) => {
@@ -1444,7 +1570,9 @@ export const api = {
   getSubscriptions: () =>
     withPrimaryRead(
       (uid) => firestoreService.getSubscriptions(uid),
-      () => request<SubscriptionPlan[]>('/subscriptions')
+      () => request<SubscriptionPlan[]>('/subscriptions'),
+      'subscriptions',
+      120 * 1000
     ),
 
   createSubscription: (sub: Partial<SubscriptionPlan>) => {
@@ -1843,7 +1971,9 @@ export const api = {
   getStudySubjects: () =>
     withPrimaryRead(
       (uid) => firestoreService.getStudySubjects(uid),
-      () => request<StudySubject[]>('/study/subjects')
+      () => request<StudySubject[]>('/study/subjects'),
+      'study_subjects',
+      180 * 1000
     ),
 
   saveStudySubject: (subject: Partial<StudySubject>) =>
@@ -1897,7 +2027,9 @@ export const api = {
   getStudyTopics: (subjectCode?: string) =>
     withPrimaryRead(
       (uid) => firestoreService.getStudyTopics(uid, subjectCode),
-      () => request<StudyTopic[]>(`/study/topics${subjectCode ? `?subjectCode=${encodeURIComponent(subjectCode)}` : ''}`)
+      () => request<StudyTopic[]>(`/study/topics${subjectCode ? `?subjectCode=${encodeURIComponent(subjectCode)}` : ''}`),
+      subjectCode ? `study_topics_${subjectCode}` : 'study_topics_all',
+      180 * 1000
     ),
 
   saveStudyTopic: (topic: Partial<StudyTopic>) =>
@@ -1954,7 +2086,9 @@ export const api = {
   getStudyRevisions: () =>
     withPrimaryRead(
       (uid) => firestoreService.getStudyRevisions(uid),
-      () => request<StudyRevision[]>('/study/revisions')
+      () => request<StudyRevision[]>('/study/revisions'),
+      'study_revisions',
+      180 * 1000
     ),
 
   saveStudyRevision: (revision: Partial<StudyRevision>) =>
@@ -2027,7 +2161,9 @@ export const api = {
   getStudyMistakes: () =>
     withPrimaryRead(
       (uid) => firestoreService.getStudyMistakes(uid),
-      () => request<StudyMistake[]>('/study/mistakes')
+      () => request<StudyMistake[]>('/study/mistakes'),
+      'study_mistakes',
+      180 * 1000
     ),
 
   saveStudyMistake: (mistake: Partial<StudyMistake>) =>
@@ -2085,7 +2221,9 @@ export const api = {
   getStudyGoals: () =>
     withPrimaryRead(
       (uid) => firestoreService.getStudyGoals(uid),
-      () => request<StudyGoal[]>('/study/goals').catch(() => [])
+      () => request<StudyGoal[]>('/study/goals').catch(() => []),
+      'study_goals',
+      180 * 1000
     ),
 
   saveStudyGoal: (goal: Partial<StudyGoal>) =>
@@ -2095,7 +2233,32 @@ export const api = {
         request<StudyGoal>('/study/goals', {
           method: 'POST',
           body: JSON.stringify(goal),
-        }).catch(() => goal as StudyGoal)
+        }).catch(() => goal as StudyGoal),
+      {
+        operationType: 'save_study_goal',
+        payload: goal as Record<string, unknown>,
+        dedupeKey: `save_goal_${goal.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: goal.id || `goal_${Date.now()}`,
+          userId: uid,
+          title: goal.title || 'Study Goal',
+          description: goal.description || '',
+          goalType: goal.goalType || 'weekly',
+          subjectId: goal.subjectId || null,
+          subjectCode: goal.subjectCode || null,
+          targetValue: goal.targetValue || 0,
+          currentValue: goal.currentValue || 0,
+          unit: goal.unit || 'hours',
+          startDate: goal.startDate || new Date().toISOString(),
+          endDate: goal.endDate || new Date().toISOString(),
+          status: goal.status || 'active',
+          priority: goal.priority || 'medium',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+          ...goal,
+        } as StudyGoal),
+      }
     ),
 
   deleteStudyGoal: (goalId: string) =>
@@ -2109,6 +2272,12 @@ export const api = {
           method: 'DELETE',
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_goal',
+        payload: { id: goalId },
+        dedupeKey: `del_goal_${goalId}`,
+        optimisticResult: () => true,
       }
     ),
 
@@ -2116,7 +2285,9 @@ export const api = {
   getStudyPlans: () =>
     withPrimaryRead(
       (uid) => firestoreService.getStudyPlans(uid),
-      () => request<StudyPlan[]>('/study/plans').catch(() => [])
+      () => request<StudyPlan[]>('/study/plans').catch(() => []),
+      'study_plans',
+      180 * 1000
     ),
 
   saveStudyPlan: (plan: Partial<StudyPlan>) =>
@@ -2126,7 +2297,29 @@ export const api = {
         request<StudyPlan>('/study/plans', {
           method: 'POST',
           body: JSON.stringify(plan),
-        }).catch(() => plan as StudyPlan)
+        }).catch(() => plan as StudyPlan),
+      {
+        operationType: 'save_study_plan',
+        payload: plan as Record<string, unknown>,
+        dedupeKey: `save_plan_${plan.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: plan.id || `plan_${Date.now()}`,
+          userId: uid,
+          title: plan.title || 'Study Plan',
+          description: plan.description || '',
+          planType: plan.planType || 'weekly',
+          subjectIds: plan.subjectIds || [],
+          startDate: plan.startDate || new Date().toISOString(),
+          endDate: plan.endDate || new Date().toISOString(),
+          dailyTargetMinutes: plan.dailyTargetMinutes || 120,
+          weeklyTargetMinutes: plan.weeklyTargetMinutes || 600,
+          status: plan.status || 'active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+          ...plan,
+        } as StudyPlan),
+      }
     ),
 
   deleteStudyPlan: (planId: string) =>
@@ -2140,6 +2333,12 @@ export const api = {
           method: 'DELETE',
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_plan',
+        payload: { id: planId },
+        dedupeKey: `del_plan_${planId}`,
+        optimisticResult: () => true,
       }
     ),
 
@@ -2157,7 +2356,33 @@ export const api = {
         request<StudyPlanTask>('/study/plan-tasks', {
           method: 'POST',
           body: JSON.stringify(task),
-        }).catch(() => task as StudyPlanTask)
+        }).catch(() => task as StudyPlanTask),
+      {
+        operationType: 'save_study_plan_task',
+        payload: task as Record<string, unknown>,
+        dedupeKey: `save_plantask_${task.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: task.id || `plantask_${Date.now()}`,
+          userId: uid,
+          planId: task.planId || '',
+          subjectId: task.subjectId || null,
+          topicId: task.topicId || null,
+          title: task.title || 'Task',
+          description: task.description || '',
+          scheduledDate: task.scheduledDate || new Date().toISOString().slice(0, 10),
+          startTime: task.startTime || null,
+          endTime: task.endTime || null,
+          estimatedMinutes: task.estimatedMinutes || 30,
+          actualMinutes: task.actualMinutes || 0,
+          priority: task.priority || 'medium',
+          status: task.status || 'pending',
+          completedAt: task.completedAt || null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+          ...task,
+        } as StudyPlanTask),
+      }
     ),
 
   deleteStudyPlanTask: (taskId: string) =>
@@ -2171,6 +2396,12 @@ export const api = {
           method: 'DELETE',
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_plan_task',
+        payload: { id: taskId },
+        dedupeKey: `del_plantask_${taskId}`,
+        optimisticResult: () => true,
       }
     ),
 
@@ -2188,7 +2419,28 @@ export const api = {
         request<StudyResource>('/study/resources', {
           method: 'POST',
           body: JSON.stringify(resource),
-        }).catch(() => resource as StudyResource)
+        }).catch(() => resource as StudyResource),
+      {
+        operationType: 'save_study_resource',
+        payload: resource as Record<string, unknown>,
+        dedupeKey: `save_resource_${resource.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: resource.id || `res_${Date.now()}`,
+          userId: uid,
+          title: resource.title || 'Resource',
+          description: resource.description || '',
+          resourceType: resource.resourceType || 'link',
+          subjectId: resource.subjectId || null,
+          topicId: resource.topicId || null,
+          url: resource.url || null,
+          storagePath: resource.storagePath || null,
+          tags: resource.tags || [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+          ...resource,
+        } as StudyResource),
+      }
     ),
 
   deleteStudyResource: (resourceId: string) =>
@@ -2202,6 +2454,12 @@ export const api = {
           method: 'DELETE',
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_resource',
+        payload: { id: resourceId },
+        dedupeKey: `del_resource_${resourceId}`,
+        optimisticResult: () => true,
       }
     ),
 
@@ -2219,7 +2477,32 @@ export const api = {
         request<StudyExam>('/study/exams', {
           method: 'POST',
           body: JSON.stringify(exam),
-        }).catch(() => exam as StudyExam)
+        }).catch(() => exam as StudyExam),
+      {
+        operationType: 'save_study_exam',
+        payload: exam as Record<string, unknown>,
+        dedupeKey: `save_exam_${exam.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: exam.id || `exam_${Date.now()}`,
+          userId: uid,
+          title: exam.title || 'Exam',
+          examType: exam.examType || 'midterm',
+          subjectIds: exam.subjectIds || [],
+          examDate: exam.examDate || new Date().toISOString().slice(0, 10),
+          startTime: exam.startTime || null,
+          durationMinutes: exam.durationMinutes || 60,
+          totalMarks: exam.totalMarks || 100,
+          obtainedMarks: exam.obtainedMarks || null,
+          syllabusTopicIds: exam.syllabusTopicIds || [],
+          preparationStatus: exam.preparationStatus || 'preparing',
+          resultStatus: exam.resultStatus || 'pending',
+          notes: exam.notes || '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+          ...exam,
+        } as StudyExam),
+      }
     ),
 
   deleteStudyExam: (examId: string) =>
@@ -2233,6 +2516,12 @@ export const api = {
           method: 'DELETE',
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_exam',
+        payload: { id: examId },
+        dedupeKey: `del_exam_${examId}`,
+        optimisticResult: () => true,
       }
     ),
 
@@ -2250,7 +2539,26 @@ export const api = {
         request<StudyNote>('/study/notes', {
           method: 'POST',
           body: JSON.stringify(note),
-        }).catch(() => note as StudyNote)
+        }).catch(() => note as StudyNote),
+      {
+        operationType: 'save_study_note',
+        payload: note as Record<string, unknown>,
+        dedupeKey: `save_note_${note.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: note.id || `note_${Date.now()}`,
+          userId: uid,
+          title: note.title || 'Note',
+          content: note.content || '',
+          subjectId: note.subjectId || null,
+          topicId: note.topicId || null,
+          tags: note.tags || [],
+          isPinned: Boolean(note.isPinned),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+          ...note,
+        } as StudyNote),
+      }
     ),
 
   deleteStudyNote: (noteId: string) =>
@@ -2264,6 +2572,12 @@ export const api = {
           method: 'DELETE',
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_note',
+        payload: { id: noteId },
+        dedupeKey: `del_note_${noteId}`,
+        optimisticResult: () => true,
       }
     ),
 
@@ -2293,7 +2607,9 @@ export const api = {
   getStudyFlashcards: (topicId?: string) =>
     withPrimaryRead(
       (uid) => firestoreService.getStudyFlashcards(uid, topicId),
-      () => request<StudyFlashcard[]>(`/study/flashcards${topicId ? `?topicId=${encodeURIComponent(topicId)}` : ''}`).catch(() => [])
+      () => request<StudyFlashcard[]>(`/study/flashcards${topicId ? `?topicId=${encodeURIComponent(topicId)}` : ''}`).catch(() => []),
+      topicId ? `study_flashcards_${topicId}` : 'study_flashcards_all',
+      180 * 1000
     ),
 
   saveStudyFlashcard: (card: Partial<StudyFlashcard>) =>
@@ -2303,7 +2619,28 @@ export const api = {
         request<StudyFlashcard>('/study/flashcards', {
           method: 'POST',
           body: JSON.stringify(card),
-        }).catch(() => card as StudyFlashcard)
+        }).catch(() => card as StudyFlashcard),
+      {
+        operationType: 'save_study_flashcard',
+        payload: card as Record<string, unknown>,
+        dedupeKey: `save_flashcard_${card.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: card.id || `card_${Date.now()}`,
+          userId: uid,
+          subjectId: card.subjectId || null,
+          topicId: card.topicId || null,
+          question: card.question || '',
+          answer: card.answer || '',
+          difficulty: card.difficulty || 'medium',
+          reviewCount: card.reviewCount || 0,
+          lastReviewedAt: card.lastReviewedAt || null,
+          nextReviewAt: card.nextReviewAt || null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+          ...card,
+        } as StudyFlashcard),
+      }
     ),
 
   reviewStudyFlashcard: (id: string, difficulty: 'easy' | 'medium' | 'hard') =>
@@ -2327,6 +2664,12 @@ export const api = {
           method: 'DELETE',
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_flashcard',
+        payload: { id: cardId },
+        dedupeKey: `del_flashcard_${cardId}`,
+        optimisticResult: () => true,
       }
     ),
 
@@ -2334,7 +2677,9 @@ export const api = {
   getStudyQuizzes: () =>
     withPrimaryRead(
       (uid) => firestoreService.getStudyQuizzes(uid),
-      () => request<StudyQuiz[]>('/study/quizzes').catch(() => [])
+      () => request<StudyQuiz[]>('/study/quizzes').catch(() => []),
+      'study_quizzes',
+      180 * 1000
     ),
 
   saveStudyQuiz: (quiz: Partial<StudyQuiz>) =>
@@ -2344,7 +2689,26 @@ export const api = {
         request<StudyQuiz>('/study/quizzes', {
           method: 'POST',
           body: JSON.stringify(quiz),
-        }).catch(() => quiz as StudyQuiz)
+        }).catch(() => quiz as StudyQuiz),
+      {
+        operationType: 'save_study_quiz',
+        payload: quiz as Record<string, unknown>,
+        dedupeKey: `save_quiz_${quiz.id || Date.now()}`,
+        optimisticResult: (uid) => ({
+          id: quiz.id || `quiz_${Date.now()}`,
+          userId: uid,
+          title: quiz.title || 'Quiz',
+          subjectId: quiz.subjectId || null,
+          topicId: quiz.topicId || null,
+          questions: quiz.questions || [],
+          attempts: quiz.attempts || [],
+          highestScore: quiz.highestScore || 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+          ...quiz,
+        } as StudyQuiz),
+      }
     ),
 
   recordStudyQuizAttempt: (
@@ -2371,6 +2735,12 @@ export const api = {
           method: 'DELETE',
         }).catch(() => ({ success: true }));
         return Boolean(res?.success);
+      },
+      {
+        operationType: 'delete_study_quiz',
+        payload: { id: quizId },
+        dedupeKey: `del_quiz_${quizId}`,
+        optimisticResult: () => true,
       }
     ),
 

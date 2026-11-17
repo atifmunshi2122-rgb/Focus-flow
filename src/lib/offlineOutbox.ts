@@ -115,11 +115,23 @@ export const offlineOutbox = {
         ? {
             ...op,
             attempts: (op.attempts || 0) + 1,
+            lastAttemptAt: new Date().toISOString(),
             lastError: errorMessage,
           }
         : op
     );
     writeOps(userId, ops);
+  },
+
+  isEligibleForRetry(op: OfflineOutboxOperation): boolean {
+    if (!op.attempts || op.attempts <= 0) return true;
+    if (!op.lastAttemptAt) return true;
+    // Bounded exponential backoff with jitter: min(30s, 1000ms * 2^(attempts-1)) + jitter
+    const exponent = Math.min(op.attempts - 1, 5);
+    const baseDelay = Math.min(30000, 1000 * Math.pow(2, exponent));
+    const jitter = op.id.charCodeAt(op.id.length - 1) % 500;
+    const requiredDelay = baseDelay + jitter;
+    return Date.now() - new Date(op.lastAttemptAt).getTime() >= requiredDelay;
   },
 
   clear(userId: string): void {

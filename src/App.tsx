@@ -322,7 +322,16 @@ const MainContent: React.FC = () => {
                           <PomodoroTimer />
                         </div>
                         <div className="lg:col-span-7">
-                          <FocusAnalytics />
+                          <Suspense
+                            fallback={
+                              <div className="p-6 rounded-2xl border border-slate-200/70 dark:border-slate-800/70 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm animate-pulse space-y-4">
+                                <div className="h-6 w-48 bg-slate-200 dark:bg-slate-800 rounded-lg" />
+                                <div className="h-64 bg-slate-100 dark:bg-slate-800/50 rounded-xl" />
+                              </div>
+                            }
+                          >
+                            <FocusAnalytics />
+                          </Suspense>
                         </div>
                       </div>
                     </div>

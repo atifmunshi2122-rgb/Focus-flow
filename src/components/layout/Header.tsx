@@ -53,6 +53,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     effectiveThemeConfig,
     setCommandCenterOpen,
     isOnline,
+    offlineOutboxCount,
+    isSyncingOutbox,
+    reconcileOutboxNow,
     setKeyboardShortcutsGuideOpen,
   } = useApp();
 
@@ -186,12 +189,27 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {!isOnline && (
           <span
-            className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold border border-[var(--ff-warning)]/40 bg-[var(--ff-warning-soft)] text-[var(--ff-warning)]"
+            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold border border-[var(--ff-warning)]/40 bg-[var(--ff-warning-soft)] text-[var(--ff-warning)]"
             style={{ borderRadius: 'var(--ff-radius-button)' }}
             title="Offline mode: changes queue locally until back online"
           >
-            <WifiOff className="w-3 h-3" /> Offline
+            <WifiOff className="w-3 h-3" />
+            <span className="hidden xs:inline sm:inline">Offline</span>
           </span>
+        )}
+
+        {isOnline && offlineOutboxCount > 0 && (
+          <button
+            type="button"
+            onClick={() => void reconcileOutboxNow()}
+            disabled={isSyncingOutbox}
+            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium border border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50"
+            style={{ borderRadius: 'var(--ff-radius-button)' }}
+            title="Pending changes queued offline. Click to sync now."
+          >
+            <RefreshCw className={`w-3 h-3 ${isSyncingOutbox ? 'animate-spin' : ''}`} />
+            <span>{offlineOutboxCount} pending</span>
+          </button>
         )}
 
         {/* Universal Command Center Trigger */}
