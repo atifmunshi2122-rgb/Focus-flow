@@ -203,7 +203,7 @@ export async function requireUserContext(
                 email: typeof payload.email === 'string' ? payload.email : undefined,
                 name: typeof payload.name === 'string' ? payload.name : undefined,
                 avatarUrl: typeof payload.picture === 'string' ? payload.picture : undefined,
-                isGuest: false,
+                isGuest: payload.sub.startsWith('gst_') || Boolean((payload as any).isGuest),
               };
               next();
               return;

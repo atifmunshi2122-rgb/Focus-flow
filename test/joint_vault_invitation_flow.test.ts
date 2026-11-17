@@ -100,13 +100,13 @@ test('Joint Vault Vercel Serverless API — End-to-End Invitation & Verification
   // SUITE 2: TWO-ACCOUNT INVITATION & JOIN FLOW (E2E)
   // ========================================================
 
-  const creatorUid = 'usr_alice_creator_' + Date.now();
+  const creatorUid = 'gst_alice_creator_' + Date.now();
   const creatorToken = createMockFirebaseIdToken(creatorUid, 'alice@focusflow.test', 'Alice');
 
-  const partnerUid = 'usr_bob_partner_' + Date.now();
+  const partnerUid = 'gst_bob_partner_' + Date.now();
   const partnerToken = createMockFirebaseIdToken(partnerUid, 'bob@focusflow.test', 'Bob');
 
-  const thirdPartyUid = 'usr_eve_stranger_' + Date.now();
+  const thirdPartyUid = 'gst_eve_stranger_' + Date.now();
   const thirdPartyToken = createMockFirebaseIdToken(thirdPartyUid, 'eve@focusflow.test', 'Eve');
 
   let vaultId = '';

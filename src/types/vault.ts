@@ -46,6 +46,8 @@ export interface VaultInvitation {
   expiresAt: string;
   acceptedByUid?: string;
   acceptedAt?: string;
+  revokedAt?: string;
+  updatedAt?: string;
 }
 
 export interface VaultContribution {
@@ -77,6 +79,7 @@ export interface VaultExpense {
   status: ExpenseStatus;
   reversedAt?: string;
   reversedByUid?: string;
+  reversalReason?: string;
 }
 
 export interface VaultSettlement {

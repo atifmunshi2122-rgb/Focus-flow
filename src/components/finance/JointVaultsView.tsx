@@ -199,10 +199,14 @@ export const JointVaultsView: React.FC = () => {
       const code = String(err?.code || '');
 
       let friendlyMsg = 'Failed to join vault. Please verify the code and retry.';
-      if (status === 404 || code === 'NOT_FOUND' || msg.includes('404')) {
+      if (status === 503 || code === 'FIREBASE_ADMIN_NOT_CONFIGURED') {
+        friendlyMsg = 'Joint Vault server is not configured with Firebase Admin credentials (FIREBASE_SERVICE_ACCOUNT). Please configure FIREBASE_SERVICE_ACCOUNT in your server environment.';
+      } else if (status === 404 || code === 'NOT_FOUND' || msg.includes('404')) {
         friendlyMsg = 'Joint Vault invitation API is temporarily unreachable (404). Please ensure the backend is deployed and retry.';
       } else if (status === 401 || code === 'UNAUTHORIZED' || msg.includes('Unauthorized') || msg.includes('Authentication failed')) {
         friendlyMsg = 'Your authentication session has expired. Please sign in again to join this vault.';
+      } else if (msg.toLowerCase().includes('different email')) {
+        friendlyMsg = 'This invitation was sent to a different email address than your current signed-in account.';
       } else if (msg.toLowerCase().includes('already processed') || msg.toLowerCase().includes('already accepted') || msg.toLowerCase().includes('already used')) {
         friendlyMsg = 'This invitation code has already been used and is no longer valid.';
       } else if (msg.toLowerCase().includes('expired')) {
@@ -376,16 +380,28 @@ export const JointVaultsView: React.FC = () => {
 
   const handleLeaveVault = async () => {
     if (!currentSummary) return;
+    if (currentSummary.vault.memberUids.length <= 1) {
+      showToast('As the only remaining member, you cannot leave the vault. Please archive the vault instead.', 'info');
+      return;
+    }
     if (!window.confirm('Are you sure you want to leave this vault? Your historical contributions will remain recorded in the vault ledger.')) {
       return;
     }
     try {
-      await api.leaveVault(currentSummary.vault.id);
-      showToast('You have left the vault', 'info');
-      setSelectedVaultId(null);
-      loadVaults();
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to leave vault', 'error');
+      const res = await api.leaveVault(currentSummary.vault.id);
+      if (res) {
+        showToast('You have left the vault', 'info');
+        setSelectedVaultId(null);
+        loadVaults();
+      } else {
+        showToast('Failed to leave vault: server rejected the request', 'error');
+      }
+    } catch (err: any) {
+      if (err?.code === 'LAST_MEMBER_MUST_ARCHIVE' || String(err?.message || '').includes('archive')) {
+        showToast('As the only remaining member, you must archive the vault instead of leaving.', 'info');
+      } else {
+        showToast(err instanceof Error ? err.message : 'Failed to leave vault', 'error');
+      }
     }
   };
 
@@ -896,12 +912,18 @@ export const JointVaultsView: React.FC = () => {
               ))}
             </div>
 
-            <div className="pt-2 flex items-center justify-between text-xs">
-              <ThemeButton variant="ghost" size="xs" onClick={handleLeaveVault} className="text-rose-400">
-                <LogOut className="w-3.5 h-3.5 mr-1" />
-                <span>Leave Vault</span>
-              </ThemeButton>
-              {isCreator && (
+            <div className="pt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+              {vault.memberUids.length > 1 ? (
+                <ThemeButton variant="ghost" size="xs" onClick={handleLeaveVault} className="text-rose-400">
+                  <LogOut className="w-3.5 h-3.5 mr-1" />
+                  <span>Leave Vault</span>
+                </ThemeButton>
+              ) : (
+                <span className="text-[11px] text-[var(--ff-text-muted)] italic">
+                  Sole member: archive vault to close
+                </span>
+              )}
+              {(isCreator || vault.memberUids.length <= 1) && (
                 <ThemeButton variant="ghost" size="xs" onClick={handleArchiveVault}>
                   <Archive className="w-3.5 h-3.5 mr-1" />
                   <span>Archive Vault</span>

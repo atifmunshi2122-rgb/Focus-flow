@@ -15,7 +15,7 @@ app.use((req, _res, next) => {
       userId: mockUid,
       email: mockUid === 'usr_bob_couple_02' ? 'bob@example.com' : `${mockUid}@test.com`,
       name: mockUid.toUpperCase(),
-      isGuest: false,
+      isGuest: true,
     };
   }
   next();

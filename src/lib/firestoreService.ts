@@ -4396,6 +4396,119 @@ export const firestoreService = {
     }
   },
 
+  async reverseVaultExpense(
+    user: FirebaseUser,
+    vaultId: string,
+    expenseId: string,
+    reason?: string
+  ): Promise<VaultExpense> {
+    const expRef = doc(db, `sharedVaults/${vaultId}/expenses`, expenseId);
+    const snap = await getDoc(expRef);
+    if (!snap.exists()) throw new Error('Expense not found');
+    const expense = snap.data() as VaultExpense;
+    if (expense.status !== 'active') throw new Error('Already reversed');
+
+    const nowIso = new Date().toISOString();
+    const reversalReason = (reason || 'Reversed by member').trim();
+    expense.status = 'reversed';
+    expense.reversedAt = nowIso;
+    expense.reversedByUid = user.uid;
+    expense.reversalReason = reversalReason;
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.uid,
+      actorName: user.displayName || 'Member',
+      type: 'expense_reversed',
+      title: 'Expense Reversed',
+      description: `Expense was reversed: ${reversalReason}`,
+      amountPaise: expense.amountPaise,
+      timestamp: nowIso,
+    };
+
+    try {
+      const batch = writeBatch(db);
+      batch.update(expRef, {
+        status: 'reversed',
+        reversedAt: nowIso,
+        reversedByUid: user.uid,
+        reversalReason,
+        updatedAt: nowIso,
+      });
+      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      await batch.commit();
+      return expense;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/expenses`);
+      throw err;
+    }
+  },
+
+  async revokeVaultInvitation(
+    _user: FirebaseUser,
+    vaultId: string,
+    inviteId: string
+  ): Promise<{ success: boolean }> {
+    const inviteRef = doc(db, `sharedVaults/${vaultId}/invitations`, inviteId);
+    const nowIso = new Date().toISOString();
+    try {
+      await setDoc(
+        inviteRef,
+        {
+          status: 'revoked',
+          revokedAt: nowIso,
+          updatedAt: nowIso,
+        },
+        { merge: true }
+      );
+      return { success: true };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/invitations`);
+      throw err;
+    }
+  },
+
+  async archiveVault(
+    user: FirebaseUser,
+    vaultId: string
+  ): Promise<JointVault> {
+    const vaultRef = doc(db, 'sharedVaults', vaultId);
+    const snap = await getDoc(vaultRef);
+    if (!snap.exists()) throw new Error('Vault not found');
+    const vault = snap.data() as JointVault;
+    if (!vault.memberUids.includes(user.uid)) throw new Error('Unauthorized');
+
+    const nowIso = new Date().toISOString();
+    vault.status = 'archived';
+    vault.updatedAt = nowIso;
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.uid,
+      actorName: user.displayName || 'Member',
+      type: 'vault_archived',
+      title: 'Joint Vault Archived',
+      description: `${user.displayName || 'Member'} archived the vault`,
+      timestamp: nowIso,
+    };
+
+    try {
+      const batch = writeBatch(db);
+      batch.update(vaultRef, {
+        status: 'archived',
+        updatedAt: nowIso,
+      });
+      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      await batch.commit();
+      return vault;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}`);
+      throw err;
+    }
+  },
+
   subscribeToVault(vaultId: string, onUpdate: (summary: VaultSummary | null) => void): Unsubscribe {
     const vaultRef = doc(db, 'sharedVaults', vaultId);
     return onSnapshot(vaultRef, async (snap) => {

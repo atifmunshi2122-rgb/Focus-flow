@@ -3135,6 +3135,10 @@ export const api = {
   revokeVaultInvitation: (vaultId: string, inviteId: string): Promise<boolean> =>
     withPrimaryWrite(
       async () => {
+        if (auth.currentUser) {
+          const res = await firestoreService.revokeVaultInvitation(auth.currentUser, vaultId, inviteId);
+          return res.success;
+        }
         const res = await request<{ success: boolean }>(`/joint-vaults/${vaultId}/invitations/${inviteId}/revoke`, {
           method: 'POST',
         });
@@ -3236,6 +3240,9 @@ export const api = {
   reverseVaultExpense: (vaultId: string, expenseId: string): Promise<VaultExpense> =>
     withPrimaryWrite(
       async () => {
+        if (auth.currentUser) {
+          return await firestoreService.reverseVaultExpense(auth.currentUser, vaultId, expenseId);
+        }
         const res = await request<{ expense: VaultExpense }>(`/joint-vaults/${vaultId}/expenses/${expenseId}/reverse`, {
           method: 'POST',
         });
@@ -3310,6 +3317,9 @@ export const api = {
   archiveVault: (vaultId: string): Promise<JointVault> =>
     withPrimaryWrite(
       async () => {
+        if (auth.currentUser) {
+          return await firestoreService.archiveVault(auth.currentUser, vaultId);
+        }
         return request<JointVault>(`/joint-vaults/${vaultId}/archive`, {
           method: 'POST',
         });

@@ -3541,15 +3541,18 @@ apiRouter.post('/joint-vaults/invitations/accept', async (req: Request, res: Res
       id: auth.userId,
       email: auth.email,
       name: auth.name,
+      isGuest: auth.isGuest,
     });
-    if (!vaultBackendService.isFirestoreConfigured()) {
+    if (auth.isGuest) {
       await dbService.flush();
     }
     const summary = await vaultBackendService.getVaultSummary(result.vault.id, auth.userId);
     res.json(summary || result);
-  } catch (err) {
+  } catch (err: any) {
+    const status = err?.status || 400;
+    const code = err?.code || (status === 503 ? 'FIREBASE_ADMIN_NOT_CONFIGURED' : 'VAULT_ERROR');
     const msg = err instanceof Error ? err.message : 'Failed to accept invitation';
-    res.status(400).json({ error: msg });
+    res.status(status).json({ error: msg, code });
   }
 });
 
@@ -3562,26 +3565,42 @@ apiRouter.post('/joint-vaults/invitations/reject', async (req: Request, res: Res
   }
 
   try {
-    const invitation = dbService.rejectVaultInvitation(inviteCode, auth.userId);
-    await dbService.flush();
+    const invitation = await vaultBackendService.rejectVaultInvitation(inviteCode, {
+      id: auth.userId,
+      email: auth.email,
+      isGuest: auth.isGuest,
+    });
+    if (auth.isGuest) {
+      await dbService.flush();
+    }
     res.json(invitation);
-  } catch (err) {
+  } catch (err: any) {
+    const status = err?.status || 400;
+    const code = err?.code || 'VAULT_ERROR';
     const msg = err instanceof Error ? err.message : 'Failed to reject invitation';
-    res.status(400).json({ error: msg });
+    res.status(status).json({ error: msg, code });
   }
 });
 
 apiRouter.post('/joint-vaults/:vaultId/invitations/:inviteId/revoke', async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const auth = getAuth(req);
   const { vaultId, inviteId } = req.params;
 
-  const success = dbService.revokeVaultInvitation(vaultId, inviteId, userId);
-  if (!success) {
-    res.status(400).json({ error: 'Failed to revoke invitation or unauthorized' });
-    return;
+  try {
+    const result = await vaultBackendService.revokeVaultInvitation(vaultId, inviteId, {
+      id: auth.userId,
+      isGuest: auth.isGuest,
+    });
+    if (auth.isGuest) {
+      await dbService.flush();
+    }
+    res.json(result);
+  } catch (err: any) {
+    const status = err?.status || 400;
+    const code = err?.code || 'VAULT_ERROR';
+    const msg = err instanceof Error ? err.message : 'Failed to revoke invitation';
+    res.status(status).json({ error: msg, code });
   }
-  await dbService.flush();
-  res.json({ success: true });
 });
 
 apiRouter.post('/joint-vaults/:vaultId/contributions', async (req: Request, res: Response) => {
@@ -3651,17 +3670,27 @@ apiRouter.post('/joint-vaults/:vaultId/expenses', async (req: Request, res: Resp
 });
 
 apiRouter.post('/joint-vaults/:vaultId/expenses/:id/reverse', async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const auth = getAuth(req);
   const { vaultId, id } = req.params;
+  const { reason } = req.body || {};
 
   try {
-    const expense = dbService.reverseVaultExpense(vaultId, id, userId);
-    await dbService.flush();
-    const summary = dbService.getVaultSummary(vaultId, userId);
-    res.json({ expense, summary });
-  } catch (err) {
+    const result = await vaultBackendService.reverseVaultExpense(
+      vaultId,
+      id,
+      { id: auth.userId, isGuest: auth.isGuest },
+      reason
+    );
+    if (auth.isGuest) {
+      await dbService.flush();
+    }
+    const summary = await vaultBackendService.getVaultSummary(vaultId, auth.userId);
+    res.json({ success: true, ...result, summary });
+  } catch (err: any) {
+    const status = err?.status || 400;
+    const code = err?.code || 'VAULT_ERROR';
     const msg = err instanceof Error ? err.message : 'Failed to reverse expense';
-    res.status(400).json({ error: msg });
+    res.status(status).json({ error: msg, code });
   }
 });
 
@@ -3708,30 +3737,48 @@ apiRouter.patch('/joint-vaults/:vaultId/ratio', async (req: Request, res: Respon
 });
 
 apiRouter.post('/joint-vaults/:vaultId/leave', async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const auth = getAuth(req);
   const { vaultId } = req.params;
 
   try {
-    const success = dbService.leaveVault(vaultId, userId);
-    await dbService.flush();
-    res.json({ success });
-  } catch (err) {
+    const result = await vaultBackendService.leaveVault(vaultId, {
+      id: auth.userId,
+      email: auth.email,
+      name: auth.name,
+      isGuest: auth.isGuest,
+    });
+    if (auth.isGuest) {
+      await dbService.flush();
+    }
+    res.json(result);
+  } catch (err: any) {
+    const status = err?.status || (err?.code === 'LAST_MEMBER_MUST_ARCHIVE' ? 409 : 400);
+    const code = err?.code || (status === 409 ? 'LAST_MEMBER_MUST_ARCHIVE' : 'VAULT_ERROR');
     const msg = err instanceof Error ? err.message : 'Failed to leave vault';
-    res.status(400).json({ error: msg });
+    res.status(status).json({ error: msg, code });
   }
 });
 
 apiRouter.post('/joint-vaults/:vaultId/archive', async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
+  const auth = getAuth(req);
   const { vaultId } = req.params;
 
   try {
-    const vault = dbService.archiveVault(vaultId, userId);
-    await dbService.flush();
-    res.json(vault);
-  } catch (err) {
+    const vault = await vaultBackendService.archiveVault(vaultId, {
+      id: auth.userId,
+      email: auth.email,
+      name: auth.name,
+      isGuest: auth.isGuest,
+    });
+    if (auth.isGuest) {
+      await dbService.flush();
+    }
+    res.json({ success: true, vault });
+  } catch (err: any) {
+    const status = err?.status || 400;
+    const code = err?.code || 'VAULT_ERROR';
     const msg = err instanceof Error ? err.message : 'Failed to archive vault';
-    res.status(400).json({ error: msg });
+    res.status(status).json({ error: msg, code });
   }
 });
 

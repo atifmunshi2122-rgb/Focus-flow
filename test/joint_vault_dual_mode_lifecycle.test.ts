@@ -70,9 +70,9 @@ test('Joint Vault Dual-Mode Lifecycle & Invitation Flow Suite', async (t) => {
     server.close();
   });
 
-  const creatorUid = `usr_creator_${Date.now()}`;
-  const partnerUid = `usr_partner_${Date.now()}`;
-  const thirdUid = `usr_third_${Date.now()}`;
+  const creatorUid = `gst_creator_${Date.now()}`;
+  const partnerUid = `gst_partner_${Date.now()}`;
+  const thirdUid = `gst_third_${Date.now()}`;
 
   const creatorToken = makeMockToken(creatorUid, 'atif@focusflow.test', 'Atif Munshi');
   const partnerToken = makeMockToken(partnerUid, 'puja@focusflow.test', 'Puja Mozumdar');
