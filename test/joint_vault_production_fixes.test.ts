@@ -7,6 +7,8 @@ import {
   vaultBackendService,
   __setServiceAccountForTesting,
   VaultServiceError,
+  parseServiceAccountString,
+  resolveServiceAccount,
 } from '../server/vaultBackendService.ts';
 
 let server: http.Server;
@@ -375,4 +377,124 @@ test('Joint Vault Production Fixes — End-to-End Suite', async (t) => {
       assert.equal(accept3.status, 400, 'Reused invitation by different user is rejected');
     }
   );
+
+  await t.test('7. Service Account Parser — Raw pretty JSON', () => {
+    const rawPretty = JSON.stringify(
+      {
+        type: 'service_account',
+        project_id: 'seismic-codex-m01dl',
+        private_key_id: 'key123',
+        private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBg\n-----END PRIVATE KEY-----',
+        client_email: 'service-acct@seismic-codex-m01dl.iam.gserviceaccount.com',
+      },
+      null,
+      2
+    );
+
+    const parsed = parseServiceAccountString(rawPretty);
+    assert.ok(parsed, 'Successfully parsed raw pretty JSON');
+    assert.equal(parsed?.client_email, 'service-acct@seismic-codex-m01dl.iam.gserviceaccount.com');
+    assert.equal(parsed?.project_id, 'seismic-codex-m01dl');
+    assert.ok(parsed?.private_key.includes('BEGIN PRIVATE KEY'));
+  });
+
+  await t.test('8. Service Account Parser — Base64 pretty JSON (starting with ewog)', () => {
+    const rawPretty = JSON.stringify(
+      {
+        project_id: 'seismic-codex-m01dl',
+        private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBg\n-----END PRIVATE KEY-----',
+        client_email: 'service-acct@seismic-codex-m01dl.iam.gserviceaccount.com',
+      },
+      null,
+      2
+    );
+
+    const b64 = Buffer.from(rawPretty).toString('base64');
+    assert.ok(b64.startsWith('ewog'), 'Base64 pretty JSON starts with ewog');
+
+    const parsed = parseServiceAccountString(b64);
+    assert.ok(parsed, 'Successfully parsed Base64 pretty JSON');
+    assert.equal(parsed?.client_email, 'service-acct@seismic-codex-m01dl.iam.gserviceaccount.com');
+    assert.equal(parsed?.project_id, 'seismic-codex-m01dl');
+  });
+
+  await t.test('9. Service Account Parser — Base64 minified JSON (starting with eyJ)', () => {
+    const rawMin = JSON.stringify({
+      project_id: 'seismic-codex-m01dl',
+      private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBg\n-----END PRIVATE KEY-----',
+      client_email: 'minified@seismic-codex-m01dl.iam.gserviceaccount.com',
+    });
+
+    const b64 = Buffer.from(rawMin).toString('base64');
+    assert.ok(b64.startsWith('eyJ'), 'Base64 minified JSON starts with eyJ');
+
+    const parsed = parseServiceAccountString(b64);
+    assert.ok(parsed, 'Successfully parsed Base64 minified JSON');
+    assert.equal(parsed?.client_email, 'minified@seismic-codex-m01dl.iam.gserviceaccount.com');
+  });
+
+  await t.test('10. Service Account Parser — Base64 with standard line wrapping', () => {
+    const rawPretty = JSON.stringify(
+      {
+        project_id: 'seismic-codex-m01dl',
+        private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBg\n-----END PRIVATE KEY-----',
+        client_email: 'wrapped@seismic-codex-m01dl.iam.gserviceaccount.com',
+      },
+      null,
+      2
+    );
+
+    const b64 = Buffer.from(rawPretty).toString('base64');
+    const wrapped = b64.match(/.{1,40}/g)?.join('\n') || b64;
+
+    const parsed = parseServiceAccountString(wrapped);
+    assert.ok(parsed, 'Successfully parsed wrapped Base64');
+    assert.equal(parsed?.client_email, 'wrapped@seismic-codex-m01dl.iam.gserviceaccount.com');
+  });
+
+  await t.test('11. Service Account Parser — Escaped private-key newlines normalization', () => {
+    const rawEscaped = JSON.stringify({
+      project_id: 'seismic-codex-m01dl',
+      private_key: '-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBg\\n-----END PRIVATE KEY-----',
+      client_email: 'escaped@seismic-codex-m01dl.iam.gserviceaccount.com',
+    });
+
+    const parsed = parseServiceAccountString(rawEscaped);
+    assert.ok(parsed);
+    assert.ok(
+      !parsed?.private_key.includes('\\n'),
+      'Literal \\n is converted into real line feed'
+    );
+    assert.ok(
+      parsed?.private_key.includes('\n'),
+      'Contains real line feed'
+    );
+  });
+
+  await t.test('12. Service Account Parser — Missing required fields rejection', () => {
+    // Missing private_key
+    const noKey = JSON.stringify({
+      project_id: 'test-p',
+      client_email: 'test@example.com',
+    });
+    assert.equal(parseServiceAccountString(noKey), null);
+
+    // Missing client_email
+    const noEmail = JSON.stringify({
+      project_id: 'test-p',
+      private_key: 'KEY',
+    });
+    assert.equal(parseServiceAccountString(noEmail), null);
+
+    // Empty object
+    assert.equal(parseServiceAccountString('{}'), null);
+  });
+
+  await t.test('13. Service Account Parser — Malformed JSON and garbage Base64 rejection', () => {
+    assert.equal(parseServiceAccountString(''), null);
+    assert.equal(parseServiceAccountString('   '), null);
+    assert.equal(parseServiceAccountString('not_valid_json'), null);
+    assert.equal(parseServiceAccountString('{ broken json: 123'), null);
+    assert.equal(parseServiceAccountString('VGVzdGluZyBub24tamNvbiBiYXNlNjQ='), null); // base64 of 'Testing non-json base64'
+  });
 });

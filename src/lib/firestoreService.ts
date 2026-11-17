@@ -13,6 +13,8 @@ import {
   limit,
   startAfter,
   onSnapshot,
+  serverTimestamp,
+  Timestamp,
   Unsubscribe,
   DocumentReference,
 } from 'firebase/firestore';
@@ -95,6 +97,27 @@ import {
 } from './vaultIntelligence.ts';
 import { processRevisionRecall } from './studyIntelligence.ts';
 import { clientDataCache } from './dataCache.ts';
+
+/**
+ * Generates a cryptographically strong, unbiased invitation code.
+ * Uses a 32-character unambiguous alphabet (5 bits/char) masked with `& 31`
+ * for zero modulo bias. Default length 16 = 80 bits of uniform entropy.
+ */
+export function generateSecureInviteCode(length = 16): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars (2^5)
+  const effectiveLen = Math.max(16, Math.min(32, length));
+  const bytes = new Uint8Array(effectiveLen);
+  if (typeof globalThis !== 'undefined' && globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    throw new Error('Cryptographically secure random number generator (crypto.getRandomValues) is unavailable');
+  }
+  let code = '';
+  for (let i = 0; i < effectiveLen; i++) {
+    code += chars.charAt(bytes[i] & 31);
+  }
+  return code;
+}
 
 const DEFAULT_CATEGORY_TEMPLATES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
   { name: 'Housing & Rent', type: 'fixed', icon: 'Home', color: '#6366f1' },
@@ -4126,50 +4149,225 @@ export const firestoreService = {
     const vaultSnap = await getDoc(vaultRef);
     if (!vaultSnap.exists()) throw new Error('Vault not found');
     const vault = vaultSnap.data() as JointVault;
+    if (vault.status !== 'active') throw new Error('Cannot create invitations for an archived vault');
     if (!vault.memberUids.includes(user.uid)) throw new Error('Unauthorized');
     if (vault.memberUids.length >= 2) throw new Error('Vault already has maximum members (2)');
 
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let inviteCode = '';
-    for (let i = 0; i < 10; i++) {
-      inviteCode += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    const expiresDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const inviteCode = generateSecureInviteCode(16);
 
     const invitation: VaultInvitation = {
-      id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: inviteCode,
       vaultId,
       vaultName: vault.name,
       invitedByUid: user.uid,
       invitedByName: user.displayName || 'Vault Partner',
       inviteCode,
-      invitedEmail: invitedEmail ? invitedEmail.trim() : undefined,
+      invitedEmail: invitedEmail && invitedEmail.trim() ? invitedEmail.trim().toLowerCase() : undefined,
       status: 'pending',
       createdAt: now.toISOString(),
-      expiresAt,
+      expiresAt: expiresDate.toISOString(),
     };
 
     try {
-      // Canonical invitation stored strictly in vault subcollection per hardened firestore.rules
+      // Canonical top-level /vaultInvitations/{inviteCode} secured via hardened firestore.rules
       await setDoc(
-        doc(db, `sharedVaults/${vaultId}/invitations`, invitation.id),
-        stripUndefined({ ...invitation })
+        doc(db, 'vaultInvitations', inviteCode),
+        stripUndefined({
+          ...invitation,
+          createdAtTimestamp: serverTimestamp(),
+          expiresAtTimestamp: Timestamp.fromDate(expiresDate),
+        })
       );
       return invitation;
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/invitations`);
+      handleFirestoreError(err, OperationType.WRITE, `vaultInvitations/${inviteCode}`);
       throw err;
     }
   },
 
   async acceptVaultInvitation(
-    _user: FirebaseUser,
-    _inviteCode: string
+    user: FirebaseUser,
+    inviteCode: string
   ): Promise<{ vault: JointVault; invitation: VaultInvitation }> {
-    throw new Error(
-      'Client-side direct vault invitation acceptance is disallowed by Firestore Security Rules. Invitations must be accepted via the trusted backend endpoint /api/joint-vaults/invitations/accept.'
-    );
+    const code = (inviteCode || '').trim().toUpperCase();
+    if (!code || code.length < 10) {
+      throw new Error('Invalid invitation code. Please verify the code and retry.');
+    }
+
+    const inviteRef = doc(db, 'vaultInvitations', code);
+
+    try {
+      const txResult = await runTransaction(db, async (tx) => {
+        const inviteSnap = await tx.get(inviteRef);
+        if (!inviteSnap.exists()) {
+          throw new Error('This invitation code is invalid, expired, revoked, or has already been used.');
+        }
+
+        const invite = inviteSnap.data() as VaultInvitation;
+
+        // Idempotency: Already accepted by this exact signed-in user
+        if (invite.status === 'accepted' && invite.acceptedByUid === user.uid) {
+          return { alreadyAccepted: true as const, vaultId: invite.vaultId, invitation: invite };
+        }
+
+        if (invite.status !== 'pending') {
+          throw new Error('This invitation code has already been used and is no longer valid.');
+        }
+
+        if (invite.invitedByUid === user.uid) {
+          throw new Error('You are already an active member of this vault.');
+        }
+
+        if (invite.expiresAt && new Date(invite.expiresAt) <= new Date()) {
+          throw new Error('This invitation code has expired. Please ask your partner to generate a new one.');
+        }
+
+        if (invite.invitedEmail) {
+          const normalizedUserEmail = (user.email || '').trim().toLowerCase();
+          if (!normalizedUserEmail || normalizedUserEmail !== invite.invitedEmail.trim().toLowerCase()) {
+            throw new Error('This invitation was sent to a different email address.');
+          }
+        }
+
+        const nowIso = new Date().toISOString();
+        const vaultRef = doc(db, 'sharedVaults', invite.vaultId);
+        const memberRef = doc(db, `sharedVaults/${invite.vaultId}/members`, user.uid);
+        const actId = `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const activityRef = doc(db, `sharedVaults/${invite.vaultId}/activity`, actId);
+
+        const partnerName = user.displayName || 'Partner';
+        const updatedMembers = [invite.invitedByUid, user.uid];
+        const updatedRatio: Record<string, number> = {
+          [invite.invitedByUid]: 50,
+          [user.uid]: 50,
+        };
+
+        // 1. Atomically mark invitation accepted
+        tx.update(inviteRef, {
+          status: 'accepted',
+          acceptedByUid: user.uid,
+          acceptedAt: nowIso,
+          acceptedAtTimestamp: serverTimestamp(),
+          updatedAt: nowIso,
+        });
+
+        // 2. Atomically add partner to vault root (enforced via getAfter() in firestore.rules)
+        tx.update(vaultRef, {
+          memberUids: updatedMembers,
+          targetRatio: updatedRatio,
+          lastAcceptedInviteCode: code,
+          updatedAt: nowIso,
+          updatedAtTimestamp: serverTimestamp(),
+        });
+
+        // 3. Atomically create (or reactivate if previously left) partner member record
+        tx.set(
+          memberRef,
+          stripUndefined({
+            uid: user.uid,
+            email: user.email || `${user.uid}@focusflow.app`,
+            name: partnerName,
+            role: 'partner',
+            status: 'active',
+            joinedAt: nowIso,
+            joinedAtTimestamp: serverTimestamp(),
+            updatedAt: nowIso,
+          }),
+          { merge: true }
+        );
+
+        // 4. Atomically record join activity
+        tx.set(
+          activityRef,
+          stripUndefined({
+            id: actId,
+            vaultId: invite.vaultId,
+            actorUid: user.uid,
+            actorName: partnerName,
+            type: 'member_joined',
+            title: 'Partner Joined Vault',
+            description: `${partnerName} joined "${invite.vaultName || 'Joint Vault'}"`,
+            timestamp: nowIso,
+            serverTimestamp: serverTimestamp(),
+          })
+        );
+
+        const updatedInvitation: VaultInvitation = {
+          ...invite,
+          status: 'accepted',
+          acceptedByUid: user.uid,
+          acceptedAt: nowIso,
+          updatedAt: nowIso,
+        };
+
+        return { alreadyAccepted: false as const, vaultId: invite.vaultId, invitation: updatedInvitation };
+      });
+
+      // Now user is an active member — read authoritative vault document
+      const vaultSnap = await getDoc(doc(db, 'sharedVaults', txResult.vaultId));
+      if (!vaultSnap.exists()) {
+        throw new Error('Target vault not found after joining.');
+      }
+      const vault = vaultSnap.data() as JointVault;
+      return { vault, invitation: txResult.invitation };
+    } catch (err: any) {
+      const codeStr = String(err?.code || '');
+      const msgStr = String(err?.message || '');
+      if (codeStr.includes('permission-denied') || msgStr.toLowerCase().includes('missing or insufficient permissions')) {
+        throw new Error(
+          'This invitation code is invalid, expired, revoked, sent to a different email, or has already been used.'
+        );
+      }
+      throw err;
+    }
+  },
+
+  async rejectVaultInvitation(
+    user: FirebaseUser,
+    inviteCode: string
+  ): Promise<VaultInvitation> {
+    const code = (inviteCode || '').trim().toUpperCase();
+    if (!code) throw new Error('Invite code is required');
+
+    const inviteRef = doc(db, 'vaultInvitations', code);
+    try {
+      return await runTransaction(db, async (tx) => {
+        const snap = await tx.get(inviteRef);
+        if (!snap.exists()) {
+          throw new Error('This invitation code is invalid, expired, or no longer pending.');
+        }
+        const invite = snap.data() as VaultInvitation;
+        if (invite.status !== 'pending') {
+          throw new Error('This invitation is no longer pending.');
+        }
+        if (invite.invitedByUid === user.uid) {
+          throw new Error('You cannot reject your own invitation. Use revoke instead.');
+        }
+        const nowIso = new Date().toISOString();
+        tx.update(inviteRef, {
+          status: 'rejected',
+          rejectedByUid: user.uid,
+          rejectedAt: nowIso,
+          rejectedAtTimestamp: serverTimestamp(),
+          updatedAt: nowIso,
+        });
+        return {
+          ...invite,
+          status: 'rejected',
+          rejectedByUid: user.uid,
+          rejectedAt: nowIso,
+          updatedAt: nowIso,
+        };
+      });
+    } catch (err: any) {
+      const codeStr = String(err?.code || '');
+      if (codeStr.includes('permission-denied')) {
+        throw new Error('This invitation code is invalid, expired, or cannot be rejected by this account.');
+      }
+      throw err;
+    }
   },
 
   async addVaultContribution(
@@ -4250,10 +4448,15 @@ export const firestoreService = {
       batch.update(contribRef, {
         status: 'reversed',
         reversedAt: nowIso,
+        reversedAtTimestamp: serverTimestamp(),
         reversedByUid: user.uid,
         reversalReason: contribution.reversalReason,
+        updatedAt: nowIso,
       });
-      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      batch.set(
+        doc(db, `sharedVaults/${vaultId}/activity`, activity.id),
+        stripUndefined({ ...activity, serverTimestamp: serverTimestamp() })
+      );
       await batch.commit();
       return contribution;
     } catch (err) {
@@ -4377,6 +4580,7 @@ export const firestoreService = {
     const snap = await getDoc(vaultRef);
     if (!snap.exists()) throw new Error('Vault not found');
     const vault = snap.data() as JointVault;
+    if (vault.status !== 'active') throw new Error('Cannot update ratio of an archived vault');
     if (!vault.memberUids.includes(user.uid)) throw new Error('Unauthorized');
 
     if (!isValidRatio(targetRatio, vault.memberUids)) {
@@ -4388,7 +4592,11 @@ export const firestoreService = {
     vault.updatedAt = nowIso;
 
     try {
-      await setDoc(vaultRef, { targetRatio, updatedAt: nowIso }, { merge: true });
+      await setDoc(
+        vaultRef,
+        { targetRatio, updatedAt: nowIso, updatedAtTimestamp: serverTimestamp() },
+        { merge: true }
+      );
       return vault;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}`);
@@ -4407,6 +4615,9 @@ export const firestoreService = {
     if (!snap.exists()) throw new Error('Expense not found');
     const expense = snap.data() as VaultExpense;
     if (expense.status !== 'active') throw new Error('Already reversed');
+    if (expense.paidByUid !== user.uid) {
+      throw new Error('Only the member who recorded this expense can reverse it.');
+    }
 
     const nowIso = new Date().toISOString();
     const reversalReason = (reason || 'Reversed by member').trim();
@@ -4432,11 +4643,15 @@ export const firestoreService = {
       batch.update(expRef, {
         status: 'reversed',
         reversedAt: nowIso,
+        reversedAtTimestamp: serverTimestamp(),
         reversedByUid: user.uid,
         reversalReason,
         updatedAt: nowIso,
       });
-      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      batch.set(
+        doc(db, `sharedVaults/${vaultId}/activity`, activity.id),
+        stripUndefined({ ...activity, serverTimestamp: serverTimestamp() })
+      );
       await batch.commit();
       return expense;
     } catch (err) {
@@ -4446,25 +4661,114 @@ export const firestoreService = {
   },
 
   async revokeVaultInvitation(
-    _user: FirebaseUser,
-    vaultId: string,
-    inviteId: string
+    user: FirebaseUser,
+    _vaultId: string,
+    inviteCodeOrId: string
   ): Promise<{ success: boolean }> {
-    const inviteRef = doc(db, `sharedVaults/${vaultId}/invitations`, inviteId);
-    const nowIso = new Date().toISOString();
+    const code = (inviteCodeOrId || '').trim().toUpperCase();
+    if (!code) throw new Error('Invitation code is required');
+
+    const inviteRef = doc(db, 'vaultInvitations', code);
     try {
-      await setDoc(
-        inviteRef,
-        {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(inviteRef);
+        if (!snap.exists()) {
+          throw new Error('Invitation not found');
+        }
+        const invite = snap.data() as VaultInvitation;
+        if (invite.status !== 'pending') {
+          throw new Error('Only pending invitations can be revoked');
+        }
+        const nowIso = new Date().toISOString();
+        tx.update(inviteRef, {
           status: 'revoked',
+          revokedByUid: user.uid,
           revokedAt: nowIso,
+          revokedAtTimestamp: serverTimestamp(),
           updatedAt: nowIso,
-        },
-        { merge: true }
-      );
+        });
+      });
       return { success: true };
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/invitations`);
+      handleFirestoreError(err, OperationType.WRITE, `vaultInvitations/${code}`);
+      throw err;
+    }
+  },
+
+  async leaveVault(
+    user: FirebaseUser,
+    vaultId: string
+  ): Promise<boolean> {
+    const vaultRef = doc(db, 'sharedVaults', vaultId);
+    const memberRef = doc(db, `sharedVaults/${vaultId}/members`, user.uid);
+
+    try {
+      await runTransaction(db, async (tx) => {
+        const vaultSnap = await tx.get(vaultRef);
+        if (!vaultSnap.exists()) {
+          throw new Error('Vault not found or access denied');
+        }
+        const vault = vaultSnap.data() as JointVault;
+        if (vault.status !== 'active') {
+          throw new Error('Cannot leave an archived vault');
+        }
+        if (!vault.memberUids.includes(user.uid)) {
+          throw new Error('You are not an active member of this vault');
+        }
+        if (vault.memberUids.length <= 1) {
+          const err: any = new Error(
+            'Single remaining member cannot leave vault. Please archive the vault instead.'
+          );
+          err.code = 'LAST_MEMBER_MUST_ARCHIVE';
+          err.status = 409;
+          throw err;
+        }
+
+        const remainingMembers = vault.memberUids.filter((uid) => uid !== user.uid);
+        const updatedRatio: Record<string, number> = { [remainingMembers[0]]: 100 };
+        const nowIso = new Date().toISOString();
+        const actId = `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const activityRef = doc(db, `sharedVaults/${vaultId}/activity`, actId);
+
+        const activity: VaultActivity = {
+          id: actId,
+          vaultId,
+          actorUid: user.uid,
+          actorName: user.displayName || 'Member',
+          type: 'member_left',
+          title: 'Member Left Vault',
+          description: `${user.displayName || 'Member'} left the vault`,
+          timestamp: nowIso,
+        };
+
+        // 1. Atomically remove self from vault root (enforced via getAfter() in firestore.rules)
+        tx.update(vaultRef, {
+          memberUids: remainingMembers,
+          targetRatio: updatedRatio,
+          updatedAt: nowIso,
+          updatedAtTimestamp: serverTimestamp(),
+        });
+
+        // 2. Atomically mark own member record as 'left'
+        tx.update(memberRef, {
+          status: 'left',
+          leftAt: nowIso,
+          leftAtTimestamp: serverTimestamp(),
+          updatedAt: nowIso,
+        });
+
+        // 3. Log member departure activity
+        tx.set(
+          activityRef,
+          stripUndefined({ ...activity, serverTimestamp: serverTimestamp() })
+        );
+      });
+      return true;
+    } catch (err: any) {
+      if (err?.code === 'LAST_MEMBER_MUST_ARCHIVE') {
+        throw err;
+      }
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}`);
       throw err;
     }
   },
@@ -4474,35 +4778,52 @@ export const firestoreService = {
     vaultId: string
   ): Promise<JointVault> {
     const vaultRef = doc(db, 'sharedVaults', vaultId);
-    const snap = await getDoc(vaultRef);
-    if (!snap.exists()) throw new Error('Vault not found');
-    const vault = snap.data() as JointVault;
-    if (!vault.memberUids.includes(user.uid)) throw new Error('Unauthorized');
-
-    const nowIso = new Date().toISOString();
-    vault.status = 'archived';
-    vault.updatedAt = nowIso;
-
-    const activity: VaultActivity = {
-      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      vaultId,
-      actorUid: user.uid,
-      actorName: user.displayName || 'Member',
-      type: 'vault_archived',
-      title: 'Joint Vault Archived',
-      description: `${user.displayName || 'Member'} archived the vault`,
-      timestamp: nowIso,
-    };
 
     try {
-      const batch = writeBatch(db);
-      batch.update(vaultRef, {
-        status: 'archived',
-        updatedAt: nowIso,
+      return await runTransaction(db, async (tx) => {
+        const snap = await tx.get(vaultRef);
+        if (!snap.exists()) throw new Error('Vault not found');
+        const vault = snap.data() as JointVault;
+        if (vault.status !== 'active') throw new Error('Vault is already archived');
+        if (!vault.memberUids.includes(user.uid)) throw new Error('Unauthorized');
+        if (vault.createdBy !== user.uid && vault.memberUids.length > 1) {
+          throw new Error('Only the vault creator or sole remaining member can archive this vault.');
+        }
+
+        const nowIso = new Date().toISOString();
+        const actId = `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const activity: VaultActivity = {
+          id: actId,
+          vaultId,
+          actorUid: user.uid,
+          actorName: user.displayName || 'Member',
+          type: 'vault_archived',
+          title: 'Joint Vault Archived',
+          description: `${user.displayName || 'Member'} archived the vault`,
+          timestamp: nowIso,
+        };
+
+        tx.update(vaultRef, {
+          status: 'archived',
+          archivedAt: nowIso,
+          archivedAtTimestamp: serverTimestamp(),
+          archivedByUid: user.uid,
+          updatedAt: nowIso,
+          updatedAtTimestamp: serverTimestamp(),
+        });
+        tx.set(
+          doc(db, `sharedVaults/${vaultId}/activity`, actId),
+          stripUndefined({ ...activity, serverTimestamp: serverTimestamp() })
+        );
+
+        return {
+          ...vault,
+          status: 'archived',
+          archivedAt: nowIso,
+          archivedByUid: user.uid,
+          updatedAt: nowIso,
+        };
       });
-      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
-      await batch.commit();
-      return vault;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}`);
       throw err;

@@ -38,41 +38,60 @@ let testingOverrideServiceAccount: ServiceAccountConfig | null | undefined = und
 export function __setServiceAccountForTesting(sa: ServiceAccountConfig | null | undefined): void {
   testingOverrideServiceAccount = sa;
   cachedAccessToken = null;
+  cachedServiceAccount = null;
 }
 
-function parseServiceAccountString(raw?: string): ServiceAccountConfig | null {
+export function parseServiceAccountString(raw?: string): ServiceAccountConfig | null {
   if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  let jsonStr = trimmed;
-  // If base64 encoded
-  if (trimmed.startsWith('eyJ') || (!trimmed.startsWith('{') && /^[A-Za-z0-9+/=]+$/.test(trimmed))) {
+  let parsed: any = null;
+
+  // 1. Try parsing directly as raw JSON (handles pretty or minified JSON)
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    // 2. If raw JSON parsing fails, attempt Base64 decoding
     try {
-      jsonStr = Buffer.from(trimmed, 'base64').toString('utf-8');
+      // Strip any whitespace, line breaks, or column wrapping (e.g. from standard base64 CLI output)
+      const cleanB64 = trimmed.replace(/\s+/g, '');
+      const decoded = Buffer.from(cleanB64, 'base64').toString('utf-8');
+      parsed = JSON.parse(decoded);
     } catch {
-      // ignore
+      // Both raw JSON and Base64 parsing failed
+      console.warn('[vaultBackendService] Failed to parse service account JSON from environment');
+      return null;
     }
   }
 
-  try {
-    const parsed = JSON.parse(jsonStr) as Partial<ServiceAccountConfig>;
-    if (parsed.client_email && parsed.private_key) {
-      let key = String(parsed.private_key);
-      if (key.includes('\\n')) {
-        key = key.replace(/\\n/g, '\n');
-      }
-      return {
-        client_email: String(parsed.client_email).trim(),
-        private_key: key,
-        project_id: String(parsed.project_id || resolveFirebaseProjectIdFallback()).trim(),
-      };
-    }
-  } catch {
-    // NEVER log raw credentials, tokens, or private keys
-    console.warn('[vaultBackendService] Failed to parse service account JSON from environment');
+  // 3. Validate parsed structure
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
   }
-  return null;
+
+  const client_email = typeof parsed.client_email === 'string' ? parsed.client_email.trim() : '';
+  let private_key = typeof parsed.private_key === 'string' ? parsed.private_key : '';
+  const project_id =
+    typeof parsed.project_id === 'string' && parsed.project_id.trim()
+      ? parsed.project_id.trim()
+      : resolveFirebaseProjectIdFallback();
+
+  if (!client_email || !private_key) {
+    console.warn('[vaultBackendService] Service account JSON missing required fields (client_email or private_key)');
+    return null;
+  }
+
+  // 4. Normalize escaped newlines in private key
+  if (private_key.includes('\\n')) {
+    private_key = private_key.replace(/\\n/g, '\n');
+  }
+
+  return {
+    client_email,
+    private_key,
+    project_id,
+  };
 }
 
 export function resolveServiceAccount(): ServiceAccountConfig | null {

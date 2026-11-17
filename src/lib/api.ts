@@ -3105,10 +3105,10 @@ export const api = {
   acceptVaultInvitation: (inviteCode: string): Promise<{ vault: JointVault; invitation: VaultInvitation }> =>
     withPrimaryWrite(
       async () => {
-        return request<{ vault: JointVault; invitation: VaultInvitation }>('/joint-vaults/invitations/accept', {
-          method: 'POST',
-          body: JSON.stringify({ inviteCode: inviteCode.trim().toUpperCase() }),
-        });
+        if (!auth.currentUser) {
+          throw new Error('Authentication required to accept a cloud vault invitation.');
+        }
+        return await firestoreService.acceptVaultInvitation(auth.currentUser, inviteCode);
       },
       () =>
         request<{ vault: JointVault; invitation: VaultInvitation }>('/joint-vaults/invitations/accept', {
@@ -3120,10 +3120,10 @@ export const api = {
   rejectVaultInvitation: (inviteCode: string): Promise<VaultInvitation> =>
     withPrimaryWrite(
       async () => {
-        return request<VaultInvitation>('/joint-vaults/invitations/reject', {
-          method: 'POST',
-          body: JSON.stringify({ inviteCode }),
-        });
+        if (!auth.currentUser) {
+          throw new Error('Authentication required to reject a cloud vault invitation.');
+        }
+        return await firestoreService.rejectVaultInvitation(auth.currentUser, inviteCode);
       },
       () =>
         request<VaultInvitation>('/joint-vaults/invitations/reject', {
@@ -3301,10 +3301,10 @@ export const api = {
   leaveVault: (vaultId: string): Promise<boolean> =>
     withPrimaryWrite(
       async () => {
-        const res = await request<{ success: boolean }>(`/joint-vaults/${vaultId}/leave`, {
-          method: 'POST',
-        });
-        return Boolean(res?.success);
+        if (!auth.currentUser) {
+          throw new Error('Authentication required to leave a cloud vault.');
+        }
+        return await firestoreService.leaveVault(auth.currentUser, vaultId);
       },
       async () => {
         const res = await request<{ success: boolean }>(`/joint-vaults/${vaultId}/leave`, {

@@ -199,10 +199,12 @@ export const JointVaultsView: React.FC = () => {
       const code = String(err?.code || '');
 
       let friendlyMsg = 'Failed to join vault. Please verify the code and retry.';
-      if (status === 503 || code === 'FIREBASE_ADMIN_NOT_CONFIGURED') {
-        friendlyMsg = 'Joint Vault server is not configured with Firebase Admin credentials (FIREBASE_SERVICE_ACCOUNT). Please configure FIREBASE_SERVICE_ACCOUNT in your server environment.';
+      if (code === 'permission-denied' || msg.toLowerCase().includes('missing or insufficient permissions')) {
+        friendlyMsg = 'This invitation code is invalid, expired, revoked, sent to a different email, or has already been used.';
+      } else if (status === 503 || code === 'FIREBASE_ADMIN_NOT_CONFIGURED') {
+        friendlyMsg = 'Joint Vault service is temporarily unavailable. Please retry in a moment.';
       } else if (status === 404 || code === 'NOT_FOUND' || msg.includes('404')) {
-        friendlyMsg = 'Joint Vault invitation API is temporarily unreachable (404). Please ensure the backend is deployed and retry.';
+        friendlyMsg = 'Joint Vault invitation service is temporarily unreachable (404). Please retry.';
       } else if (status === 401 || code === 'UNAUTHORIZED' || msg.includes('Unauthorized') || msg.includes('Authentication failed')) {
         friendlyMsg = 'Your authentication session has expired. Please sign in again to join this vault.';
       } else if (msg.toLowerCase().includes('different email')) {

@@ -46,24 +46,30 @@ service cloud.firestore {
     }
 
     function isValidRatioValue(val) {
-      return (val is int || val is float) && val >= 0 && val <= 100;
+      return (val is int || val is float) && val >= 0 && val <= 100 && int(val) == val;
+    }
+
+    function isValidSoloRatio(ratio, u0) {
+      return ratio is map
+        && ratio.size() == 1
+        && (u0 in ratio)
+        && (ratio[u0] is int || ratio[u0] is float)
+        && ratio[u0] == 100;
+    }
+
+    function isValidPairRatio(ratio, u0, u1) {
+      return ratio is map
+        && ratio.size() == 2
+        && (u0 in ratio)
+        && (u1 in ratio)
+        && isValidRatioValue(ratio[u0])
+        && (ratio[u1] is int || ratio[u1] is float)
+        && (ratio[u0] + ratio[u1] == 100);
     }
 
     function isValidTargetRatio(ratio, memberUids) {
-      return ratio is map
-        && ratio.size() <= 2
-        && (
-          memberUids.size() == 0 ||
-          (
-            memberUids.size() == 1 &&
-            (!(memberUids[0] in ratio) || isValidRatioValue(ratio[memberUids[0]]))
-          ) ||
-          (
-            memberUids.size() == 2 &&
-            (!(memberUids[0] in ratio) || isValidRatioValue(ratio[memberUids[0]])) &&
-            (!(memberUids[1] in ratio) || isValidRatioValue(ratio[memberUids[1]]))
-          )
-        );
+      return (memberUids.size() == 1 && isValidSoloRatio(ratio, memberUids[0]))
+        || (memberUids.size() == 2 && isValidPairRatio(ratio, memberUids[0], memberUids[1]));
     }
 
     function isSoftDelete(resourceData) {
@@ -867,65 +873,582 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // JOINT VAULT & INVITATION SHARED HELPERS
+    // ==========================================
+    // Assumed Data Models (Keyless Hardened Joint Vault Architecture):
+    //
+    // Collection: vaultInvitations/{inviteCode} (canonical top-level, unenumerable)
+    //   - id: string (valid ID) [immutable]
+    //   - vaultId: string (valid ID) [immutable]
+    //   - vaultName: string (1..128) [immutable]
+    //   - invitedByUid: string (== creator auth.uid) [immutable]
+    //   - invitedByName: string (1..128) [immutable]
+    //   - inviteCode: string (16..32, ^[A-Z2-9]+$, == doc ID) [immutable]
+    //   - invitedEmail: optional string (<= 256) or null [immutable]
+    //   - status: 'pending' -> 'accepted' | 'rejected' | 'revoked'
+    //   - createdAt: ISO date string [immutable]
+    //   - createdAtTimestamp: server timestamp (== request.time) [immutable]
+    //   - expiresAt: ISO date string [immutable]
+    //   - expiresAtTimestamp: timestamp (> request.time && <= request.time + 30d) [immutable]
+    //   - acceptedByUid / acceptedAt / acceptedAtTimestamp (on accept)
+    //   - rejectedByUid / rejectedAt / rejectedAtTimestamp (on reject)
+    //   - revokedByUid / revokedAt / revokedAtTimestamp (on revoke)
+    //   - updatedAt: ISO date string
+    //
+    // Collection: sharedVaults/{vaultId}
+    //   - id, name, description, currency, targetPaise, monthlyTargetPaise,
+    //     createdBy, memberUids (size 1..2), targetRatio (exact integer sum == 100),
+    //     status ('active' | 'archived'), createdAt, updatedAt, updatedAtTimestamp,
+    //     lastAcceptedInviteCode, archivedAt, archivedAtTimestamp, archivedByUid
+    //   Subcollections: members/{memberUid}, invitations/{inviteId} (legacy),
+    //     contributions/{contribId}, expenses/{expenseId}, settlements/{settleId},
+    //     activity/{activityId}
+    // ==========================================
+
+    function getVaultDoc(vId) {
+      return get(/databases/$(database)/documents/sharedVaults/$(vId));
+    }
+
+    function getVaultDocAfter(vId) {
+      return getAfter(/databases/$(database)/documents/sharedVaults/$(vId));
+    }
+
+    function isValidInviteCode(code) {
+      return code is string
+        && code.size() >= 16
+        && code.size() <= 32
+        && code.matches('^[A-Z2-9]+$');
+    }
+
+    function emailMatchesInvite(inviteData) {
+      let invited = inviteData.get('invitedEmail', null);
+      return invited == null
+        || invited == ''
+        || (
+          invited is string
+          && request.auth.token.get('email_verified', false) == true
+          && request.auth.token.get('email', null) is string
+          && request.auth.token.email.lower() == invited.lower()
+        );
+    }
+
+    // Single-get membership check (1 access call instead of exists + get)
+    function isMemberOfVault(vId) {
+      let v = getVaultDoc(vId);
+      return isSignedIn()
+        && v != null
+        && ('memberUids' in v.data)
+        && (request.auth.uid in v.data.memberUids);
+    }
+
+    // Single-get active vault membership check (1 access call)
+    function isActiveMemberOfVault(vId) {
+      let v = getVaultDoc(vId);
+      return isSignedIn()
+        && v != null
+        && v.data.status == 'active'
+        && ('memberUids' in v.data)
+        && (request.auth.uid in v.data.memberUids);
+    }
+
+    // Single-getAfter membership check for atomic join/create transactions (1 access call)
+    function isMemberOfVaultAfter(vId) {
+      let v = getVaultDocAfter(vId);
+      return isSignedIn()
+        && v != null
+        && ('memberUids' in v.data)
+        && (request.auth.uid in v.data.memberUids);
+    }
+
+    // ==========================================
+    // CANONICAL TOP-LEVEL VAULT INVITATIONS
+    // ==========================================
+    match /vaultInvitations/{inviteCode} {
+      function isTargetVaultEligibleForInvite(vaultId) {
+        let v = getVaultDoc(vaultId);
+        return v != null
+          && v.data.status == 'active'
+          && ('memberUids' in v.data)
+          && (request.auth.uid in v.data.memberUids)
+          && v.data.memberUids.size() == 1;
+      }
+
+      function isVaultAtomicallyJoinedByAccept(vaultId, code) {
+        let vBefore = getVaultDoc(vaultId);
+        let vAfter = getVaultDocAfter(vaultId);
+        return vBefore != null
+          && vAfter != null
+          && vBefore.data.status == 'active'
+          && ('memberUids' in vBefore.data)
+          && vBefore.data.memberUids.size() == 1
+          && !(request.auth.uid in vBefore.data.memberUids)
+          && ('memberUids' in vAfter.data)
+          && vAfter.data.memberUids.size() == 2
+          && (request.auth.uid in vAfter.data.memberUids)
+          && vAfter.data.lastAcceptedInviteCode == code;
+      }
+
+      function isValidInvitationAccept(code) {
+        let prev = resource.data;
+        let next = request.resource.data;
+        let changed = next.diff(prev).affectedKeys();
+        return prev.status == 'pending'
+          && next.status == 'accepted'
+          && request.auth.uid != prev.invitedByUid
+          && prev.expiresAtTimestamp is timestamp
+          && request.time < prev.expiresAtTimestamp
+          && emailMatchesInvite(prev)
+          && changed.hasOnly([
+            'status',
+            'acceptedByUid',
+            'acceptedAt',
+            'acceptedAtTimestamp',
+            'updatedAt'
+          ])
+          && next.acceptedByUid == request.auth.uid
+          && isIsoDate(next.acceptedAt)
+          && next.acceptedAtTimestamp == request.time
+          && isIsoDate(next.updatedAt)
+          && isVaultAtomicallyJoinedByAccept(prev.vaultId, code);
+      }
+
+      function isValidInvitationReject() {
+        let prev = resource.data;
+        let next = request.resource.data;
+        let changed = next.diff(prev).affectedKeys();
+        return prev.status == 'pending'
+          && next.status == 'rejected'
+          && request.auth.uid != prev.invitedByUid
+          && prev.expiresAtTimestamp is timestamp
+          && request.time < prev.expiresAtTimestamp
+          && emailMatchesInvite(prev)
+          && changed.hasOnly([
+            'status',
+            'rejectedByUid',
+            'rejectedAt',
+            'rejectedAtTimestamp',
+            'updatedAt'
+          ])
+          && next.rejectedByUid == request.auth.uid
+          && isIsoDate(next.rejectedAt)
+          && next.rejectedAtTimestamp == request.time
+          && isIsoDate(next.updatedAt);
+      }
+
+      function canRevokeVaultInvitation(vaultId, invitedByUid) {
+        let v = getVaultDoc(vaultId);
+        return v != null
+          && ('memberUids' in v.data)
+          && (request.auth.uid in v.data.memberUids)
+          && (request.auth.uid == invitedByUid || request.auth.uid == v.data.createdBy);
+      }
+
+      function isValidInvitationRevoke() {
+        let prev = resource.data;
+        let next = request.resource.data;
+        let changed = next.diff(prev).affectedKeys();
+        return prev.status == 'pending'
+          && next.status == 'revoked'
+          && changed.hasOnly([
+            'status',
+            'revokedByUid',
+            'revokedAt',
+            'revokedAtTimestamp',
+            'updatedAt'
+          ])
+          && next.revokedByUid == request.auth.uid
+          && isIsoDate(next.revokedAt)
+          && next.revokedAtTimestamp == request.time
+          && isIsoDate(next.updatedAt)
+          && canRevokeVaultInvitation(prev.vaultId, prev.invitedByUid);
+      }
+
+      // Strictly block collection enumeration
+      allow list: if false;
+
+      // Preserve audit trail & prevent invite code replay
+      allow delete: if false;
+
+      // Point lookup only (split per-branch for minimal expression budget):
+      // 1. Idempotent re-read by user who already accepted (0 gets)
+      allow get: if isSignedIn()
+        && resource != null
+        && resource.data.status == 'accepted'
+        && resource.data.acceptedByUid == request.auth.uid;
+
+      // 2. Prospective recipient with valid pending unexpired code & email match (0 gets)
+      allow get: if isSignedIn()
+        && resource != null
+        && resource.data.status == 'pending'
+        && resource.data.expiresAtTimestamp is timestamp
+        && request.time < resource.data.expiresAtTimestamp
+        && emailMatchesInvite(resource.data);
+
+      // 3. Active member of target vault (1 get)
+      allow get: if isSignedIn()
+        && resource != null
+        && resource.data.vaultId is string
+        && isValidId(resource.data.vaultId)
+        && isMemberOfVault(resource.data.vaultId);
+
+      allow create: if isSignedIn()
+        && isValidInviteCode(inviteCode)
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'vaultId',
+          'vaultName',
+          'invitedByUid',
+          'invitedByName',
+          'inviteCode',
+          'invitedEmail',
+          'status',
+          'createdAt',
+          'createdAtTimestamp',
+          'expiresAt',
+          'expiresAtTimestamp'
+        ])
+        && request.resource.data.inviteCode == inviteCode
+        && isValidId(request.resource.data.id)
+        && isValidId(request.resource.data.vaultId)
+        && isNonEmptyString(request.resource.data.vaultName, 128)
+        && request.resource.data.invitedByUid == request.auth.uid
+        && isNonEmptyString(request.resource.data.invitedByName, 128)
+        && (
+          !('invitedEmail' in request.resource.data)
+          || request.resource.data.invitedEmail == null
+          || (request.resource.data.invitedEmail is string && request.resource.data.invitedEmail.size() <= 256)
+        )
+        && request.resource.data.status == 'pending'
+        && isIsoDate(request.resource.data.createdAt)
+        && request.resource.data.createdAtTimestamp == request.time
+        && isIsoDate(request.resource.data.expiresAt)
+        && request.resource.data.expiresAtTimestamp is timestamp
+        && request.resource.data.expiresAtTimestamp > request.time
+        && request.resource.data.expiresAtTimestamp <= request.time + duration.value(30, 'd')
+        && isTargetVaultEligibleForInvite(request.resource.data.vaultId);
+
+      // 3 separate update statements so each transition gets its own fresh expression budget
+      // (affectedKeys().hasOnly(...) mathematically locks all 11 immutable fields)
+      allow update: if isSignedIn() && isValidInvitationAccept(inviteCode);
+      allow update: if isSignedIn() && isValidInvitationReject();
+      allow update: if isSignedIn() && isValidInvitationRevoke();
+    }
+
+    // ==========================================
     // COUPLE SHARED SAVINGS (JOINT VAULTS) ROOT
     // ==========================================
     match /sharedVaults/{vaultId} {
-      function isMemberOfVault(vId) {
-        return isSignedIn()
-          && exists(/databases/$(database)/documents/sharedVaults/$(vId))
-          && ('memberUids' in get(/databases/$(database)/documents/sharedVaults/$(vId)).data)
-          && (request.auth.uid in get(/databases/$(database)/documents/sharedVaults/$(vId)).data.memberUids);
+      function isValidVaultCreate(vId) {
+        let uid = request.auth.uid;
+        let data = request.resource.data;
+        return isValidId(vId)
+          && data.keys().hasOnly([
+            'id',
+            'name',
+            'description',
+            'currency',
+            'targetPaise',
+            'monthlyTargetPaise',
+            'createdBy',
+            'memberUids',
+            'targetRatio',
+            'status',
+            'createdAt',
+            'createdAtTimestamp',
+            'updatedAt',
+            'updatedAtTimestamp'
+          ])
+          && data.createdBy == uid
+          && data.memberUids == [uid]
+          && isPositivePaise(data.targetPaise)
+          && data.currency in ['INR', 'USD', 'EUR', 'GBP']
+          && data.status == 'active'
+          && isNonEmptyString(data.name, 128)
+          && (!('id' in data) || data.id == vId)
+          && (!('description' in data) || (data.description is string && data.description.size() <= 512))
+          && (!('monthlyTargetPaise' in data) || isNonNegativePaise(data.monthlyTargetPaise))
+          && (!('targetRatio' in data) || isValidSoloRatio(data.targetRatio, uid))
+          && (!('createdAt' in data) || isIsoDate(data.createdAt))
+          && (!('updatedAt' in data) || isIsoDate(data.updatedAt))
+          && (!('createdAtTimestamp' in data) || data.createdAtTimestamp == request.time)
+          && (!('updatedAtTimestamp' in data) || data.updatedAtTimestamp == request.time);
+      }
+
+      function isValidNormalVaultUpdate() {
+        let uid = request.auth.uid;
+        let prev = resource.data;
+        let next = request.resource.data;
+        let changed = next.diff(prev).affectedKeys();
+        return prev.status == 'active'
+          && (uid in prev.memberUids)
+          && changed.hasOnly([
+            'name',
+            'description',
+            'targetPaise',
+            'monthlyTargetPaise',
+            'targetRatio',
+            'updatedAt',
+            'updatedAtTimestamp'
+          ])
+          && isNonEmptyString(next.name, 128)
+          && (!('description' in next) || (next.description is string && next.description.size() <= 512))
+          && isPositivePaise(next.targetPaise)
+          && (!('monthlyTargetPaise' in next) || isNonNegativePaise(next.monthlyTargetPaise))
+          && (!('targetRatio' in next) || isValidTargetRatio(next.targetRatio, prev.memberUids))
+          && (!('updatedAt' in next) || isIsoDate(next.updatedAt))
+          && (!('updatedAtTimestamp' in changed) || next.updatedAtTimestamp == request.time);
+      }
+
+      function isValidVaultArchive() {
+        let uid = request.auth.uid;
+        let prev = resource.data;
+        let next = request.resource.data;
+        let changed = next.diff(prev).affectedKeys();
+        return prev.status == 'active'
+          && next.status == 'archived'
+          && (uid in prev.memberUids)
+          && (uid == prev.createdBy || prev.memberUids.size() == 1)
+          && changed.hasOnly([
+            'status',
+            'archivedAt',
+            'archivedAtTimestamp',
+            'archivedByUid',
+            'updatedAt',
+            'updatedAtTimestamp'
+          ])
+          && next.archivedByUid == uid
+          && isIsoDate(next.archivedAt)
+          && next.archivedAtTimestamp == request.time
+          && (!('updatedAt' in next) || isIsoDate(next.updatedAt))
+          && (!('updatedAtTimestamp' in changed) || next.updatedAtTimestamp == request.time);
+      }
+
+      function isValidPartnerJoinAtomicProof(vId, code, existingMemberUids) {
+        let uid = request.auth.uid;
+        let invData = get(/databases/$(database)/documents/vaultInvitations/$(code)).data;
+        let invAfterData = getAfter(/databases/$(database)/documents/vaultInvitations/$(code)).data;
+        return invData.vaultId == vId
+          && invData.status == 'pending'
+          && (invData.invitedByUid in existingMemberUids)
+          && invData.expiresAtTimestamp is timestamp
+          && request.time < invData.expiresAtTimestamp
+          && emailMatchesInvite(invData)
+          && invAfterData.status == 'accepted'
+          && invAfterData.acceptedByUid == uid
+          && getAfter(/databases/$(database)/documents/sharedVaults/$(vId)/members/$(uid)).data.status == 'active';
+      }
+
+      function isValidPartnerJoin(vId) {
+        let uid = request.auth.uid;
+        let prev = resource.data;
+        let next = request.resource.data;
+        let prevMembers = prev.memberUids;
+        let nextMembers = next.memberUids;
+        let changed = next.diff(prev).affectedKeys();
+        return prev.status == 'active'
+          && prevMembers.size() == 1
+          && !(uid in prevMembers)
+          && changed.hasOnly([
+            'memberUids',
+            'targetRatio',
+            'lastAcceptedInviteCode',
+            'updatedAt',
+            'updatedAtTimestamp'
+          ])
+          && nextMembers is list
+          && nextMembers.size() == 2
+          && nextMembers[0] == prevMembers[0]
+          && nextMembers[1] == uid
+          && ('targetRatio' in next)
+          && ('lastAcceptedInviteCode' in next)
+          && ('updatedAtTimestamp' in next)
+          && isValidPairRatio(next.targetRatio, prevMembers[0], uid)
+          && (!('updatedAt' in next) || isIsoDate(next.updatedAt))
+          && next.updatedAtTimestamp == request.time
+          && isValidInviteCode(next.lastAcceptedInviteCode)
+          && isValidPartnerJoinAtomicProof(vId, next.lastAcceptedInviteCode, prevMembers);
+      }
+
+      function isValidSelfLeave(vId) {
+        let uid = request.auth.uid;
+        let prev = resource.data;
+        let next = request.resource.data;
+        let prevMembers = prev.memberUids;
+        let nextMembers = next.memberUids;
+        let changed = next.diff(prev).affectedKeys();
+        return prev.status == 'active'
+          && prevMembers.size() == 2
+          && (uid in prevMembers)
+          && changed.hasOnly([
+            'memberUids',
+            'targetRatio',
+            'updatedAt',
+            'updatedAtTimestamp'
+          ])
+          && nextMembers is list
+          && nextMembers.size() == 1
+          && !(uid in nextMembers)
+          && (nextMembers[0] in prevMembers)
+          && isValidSoloRatio(next.targetRatio, nextMembers[0])
+          && (!('updatedAt' in next) || isIsoDate(next.updatedAt))
+          && next.updatedAtTimestamp == request.time
+          && getAfter(/databases/$(database)/documents/sharedVaults/$(vId)/members/$(uid)).data.status == 'left';
       }
 
       // Vault root document
       allow get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
       allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
-      allow create: if isSignedIn()
-        && isValidId(vaultId)
-        && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.memberUids == [request.auth.uid]
-        && isPositivePaise(request.resource.data.targetPaise)
-        && request.resource.data.currency in ['INR', 'USD', 'EUR', 'GBP']
-        && request.resource.data.status in ['active', 'archived']
-        && isNonEmptyString(request.resource.data.name, 128)
-        && (!('id' in request.resource.data) || request.resource.data.id == vaultId)
-        && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 512))
-        && (!('monthlyTargetPaise' in request.resource.data) || isNonNegativePaise(request.resource.data.monthlyTargetPaise))
-        && (!('targetRatio' in request.resource.data) || isValidTargetRatio(request.resource.data.targetRatio, request.resource.data.memberUids));
-      allow update: if isSignedIn()
-        && (isMemberOfVault(vaultId) || (request.auth.uid in resource.data.memberUids))
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'targetPaise', 'monthlyTargetPaise', 'targetRatio', 'status', 'updatedAt'])
-        && request.resource.data.memberUids == resource.data.memberUids
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.currency == resource.data.currency
-        && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
-        && (!('status' in request.resource.data) || request.resource.data.status in ['active', 'archived'])
-        && (!('targetPaise' in request.resource.data) || isPositivePaise(request.resource.data.targetPaise))
-        && (!('name' in request.resource.data) || isNonEmptyString(request.resource.data.name, 128))
-        && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 512))
-        && (!('monthlyTargetPaise' in request.resource.data) || isNonNegativePaise(request.resource.data.monthlyTargetPaise))
-        && (!('targetRatio' in request.resource.data) || isValidTargetRatio(request.resource.data.targetRatio, resource.data.memberUids));
+      allow create: if isSignedIn() && isValidVaultCreate(vaultId);
+
+      // 4 separate update statements (affectedKeys().hasOnly(...) locks all non-listed immutable fields)
+      allow update: if isSignedIn() && isValidNormalVaultUpdate();
+      allow update: if isSignedIn() && isValidVaultArchive();
+      allow update: if isSignedIn() && isValidSelfLeave(vaultId);
+      allow update: if isSignedIn() && isValidPartnerJoin(vaultId);
+
       allow delete: if false;
 
       // Subcollection: members
       match /members/{memberUid} {
+        function isCreatorOfVault(vId) {
+          let v = getVaultDoc(vId);
+          return v != null
+            && ('memberUids' in v.data)
+            && (request.auth.uid in v.data.memberUids)
+            && v.data.createdBy == request.auth.uid;
+        }
+
+        function isPartnerJoiningVault(vId) {
+          let vBefore = getVaultDoc(vId);
+          let vAfter = getVaultDocAfter(vId);
+          return vBefore != null
+            && vAfter != null
+            && ('memberUids' in vBefore.data)
+            && !(request.auth.uid in vBefore.data.memberUids)
+            && ('memberUids' in vAfter.data)
+            && (request.auth.uid in vAfter.data.memberUids);
+        }
+
+        function isMemberLeavingVault(vId) {
+          let vBefore = getVaultDoc(vId);
+          let vAfter = getVaultDocAfter(vId);
+          return vBefore != null
+            && vAfter != null
+            && ('memberUids' in vBefore.data)
+            && (request.auth.uid in vBefore.data.memberUids)
+            && ('memberUids' in vAfter.data)
+            && !(request.auth.uid in vAfter.data.memberUids);
+        }
+
+        function hasValidMemberCreateFields(memberUid) {
+          let data = request.resource.data;
+          return request.auth.uid == memberUid
+            && isValidId(memberUid)
+            && data.keys().hasOnly([
+              'uid',
+              'email',
+              'name',
+              'avatarUrl',
+              'role',
+              'status',
+              'joinedAt',
+              'joinedAtTimestamp',
+              'updatedAt'
+            ])
+            && data.uid == memberUid
+            && data.status == 'active'
+            && isNonEmptyString(data.name, 128)
+            && (!('email' in data) || isOptionalString(data.email, 256))
+            && (!('avatarUrl' in data) || isOptionalString(data.avatarUrl, 512))
+            && (!('updatedAt' in data) || isIsoDate(data.updatedAt));
+        }
+
+        function isValidCreatorMemberCreate(vId, memberUid) {
+          let data = request.resource.data;
+          return data.role == 'creator'
+            && hasValidMemberCreateFields(memberUid)
+            && (!('joinedAt' in data) || isIsoDate(data.joinedAt))
+            && (!('joinedAtTimestamp' in data) || data.joinedAtTimestamp == request.time)
+            && isCreatorOfVault(vId);
+        }
+
+        function isValidPartnerMemberCreate(vId, memberUid) {
+          let data = request.resource.data;
+          return data.role == 'partner'
+            && hasValidMemberCreateFields(memberUid)
+            && isIsoDate(data.joinedAt)
+            && data.joinedAtTimestamp == request.time
+            && isPartnerJoiningVault(vId);
+        }
+
+        function isValidMemberProfileUpdate(vId, memberUid) {
+          let prev = resource.data;
+          let next = request.resource.data;
+          let changed = next.diff(prev).affectedKeys();
+          return request.auth.uid == memberUid
+            && prev.status == 'active'
+            && changed.hasOnly(['name', 'avatarUrl', 'updatedAt'])
+            && (!('name' in next) || isNonEmptyString(next.name, 128))
+            && (!('avatarUrl' in next) || isOptionalString(next.avatarUrl, 512))
+            && (!('updatedAt' in next) || isIsoDate(next.updatedAt))
+            && isMemberOfVault(vId);
+        }
+
+        function isValidMemberSelfLeaveUpdate(vId, memberUid) {
+          let prev = resource.data;
+          let next = request.resource.data;
+          let changed = next.diff(prev).affectedKeys();
+          return request.auth.uid == memberUid
+            && prev.status == 'active'
+            && next.status == 'left'
+            && changed.hasOnly(['status', 'leftAt', 'leftAtTimestamp', 'updatedAt'])
+            && isIsoDate(next.leftAt)
+            && next.leftAtTimestamp == request.time
+            && (!('updatedAt' in next) || isIsoDate(next.updatedAt))
+            && isMemberLeavingVault(vId);
+        }
+
+        function isValidMemberRejoinUpdate(vId, memberUid) {
+          let prev = resource.data;
+          let next = request.resource.data;
+          let changed = next.diff(prev).affectedKeys();
+          return request.auth.uid == memberUid
+            && prev.status == 'left'
+            && next.status == 'active'
+            && changed.hasOnly([
+              'status',
+              'name',
+              'email',
+              'avatarUrl',
+              'joinedAt',
+              'joinedAtTimestamp',
+              'updatedAt'
+            ])
+            && isNonEmptyString(next.name, 128)
+            && (!('email' in next) || isOptionalString(next.email, 256))
+            && (!('avatarUrl' in next) || isOptionalString(next.avatarUrl, 512))
+            && isIsoDate(next.joinedAt)
+            && next.joinedAtTimestamp == request.time
+            && (!('updatedAt' in next) || isIsoDate(next.updatedAt))
+            && isPartnerJoiningVault(vId);
+        }
+
         allow read: if isMemberOfVault(vaultId);
-        allow create: if isMemberOfVault(vaultId)
-          && isValidId(memberUid)
-          && request.resource.data.uid == memberUid
-          && isNonEmptyString(request.resource.data.name, 128)
-          && (!('role' in request.resource.data) || request.resource.data.role in ['creator', 'partner'])
-          && (!('status' in request.resource.data) || request.resource.data.status in ['active', 'left']);
-        allow update: if isSignedIn()
-          && isMemberOfVault(vaultId)
-          && request.auth.uid == memberUid
-          && request.resource.data.uid == resource.data.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt'])
-          && (!('name' in request.resource.data) || isNonEmptyString(request.resource.data.name, 128));
+
+        // 2 separate create statements (Creator Setup vs Partner Atomic Join)
+        allow create: if isSignedIn() && isValidCreatorMemberCreate(vaultId, memberUid);
+        allow create: if isSignedIn() && isValidPartnerMemberCreate(vaultId, memberUid);
+
+        // 3 separate update statements (Profile Update vs Atomic Self-Leave vs Atomic Re-Join)
+        // (affectedKeys().hasOnly(...) mathematically locks uid, role, and non-listed fields)
+        allow update: if isSignedIn() && isValidMemberProfileUpdate(vaultId, memberUid);
+        allow update: if isSignedIn() && isValidMemberSelfLeaveUpdate(vaultId, memberUid);
+        allow update: if isSignedIn() && isValidMemberRejoinUpdate(vaultId, memberUid);
+
         allow delete: if false;
       }
 
-      // Subcollection: invitations
+      // Subcollection: invitations (legacy subcollection retained for backward compatibility)
       match /invitations/{inviteId} {
         allow read: if isMemberOfVault(vaultId);
         allow create: if isMemberOfVault(vaultId)
@@ -936,78 +1459,178 @@ service cloud.firestore {
           && (!('status' in request.resource.data) || request.resource.data.status in ['pending', 'accepted', 'rejected', 'expired', 'revoked']);
         allow update: if isMemberOfVault(vaultId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt', 'updatedAt'])
-          && request.resource.data.vaultId == resource.data.vaultId
-          && request.resource.data.invitedByUid == resource.data.invitedByUid
-          && request.resource.data.inviteCode == resource.data.inviteCode
           && (!('status' in request.resource.data) || request.resource.data.status in ['pending', 'accepted', 'rejected', 'expired', 'revoked']);
         allow delete: if false;
       }
 
       // Subcollection: contributions
       match /contributions/{contribId} {
+        function isValidContributionReversal(vId) {
+          let prev = resource.data;
+          let next = request.resource.data;
+          let changed = next.diff(prev).affectedKeys();
+          return isActiveMemberOfVault(vId)
+            && prev.status == 'active'
+            && prev.contributedByUid == request.auth.uid
+            && next.status == 'reversed'
+            && next.reversedByUid == request.auth.uid
+            && changed.hasOnly([
+              'status',
+              'reversedByUid',
+              'reversalReason',
+              'reversedAt',
+              'reversedAtTimestamp',
+              'updatedAt'
+            ])
+            && (!('reversalReason' in next) || (next.reversalReason is string && next.reversalReason.size() <= 512))
+            && (!('reversedAt' in next) || isIsoDate(next.reversedAt))
+            && (!('reversedAtTimestamp' in next) || next.reversedAtTimestamp == request.time)
+            && (!('updatedAt' in next) || isIsoDate(next.updatedAt));
+        }
+
         allow read: if isMemberOfVault(vaultId);
-        allow create: if isMemberOfVault(vaultId)
+        allow create: if isActiveMemberOfVault(vaultId)
           && isValidId(contribId)
+          && request.resource.data.keys().hasOnly([
+            'id',
+            'vaultId',
+            'contributedByUid',
+            'contributorName',
+            'amountPaise',
+            'date',
+            'description',
+            'createdAt',
+            'status'
+          ])
+          && (!('id' in request.resource.data) || request.resource.data.id == contribId)
           && request.resource.data.vaultId == vaultId
           && request.resource.data.contributedByUid == request.auth.uid
+          && (!('contributorName' in request.resource.data) || isNonEmptyString(request.resource.data.contributorName, 128))
           && isPositivePaise(request.resource.data.amountPaise)
           && request.resource.data.status == 'active'
           && isIsoDate(request.resource.data.date)
+          && (!('createdAt' in request.resource.data) || isIsoDate(request.resource.data.createdAt))
           && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 256));
-        allow update: if isMemberOfVault(vaultId)
-          && resource.data.contributedByUid == request.auth.uid
-          && request.resource.data.status == 'reversed'
-          && request.resource.data.reversedByUid == request.auth.uid
-          && request.resource.data.vaultId == resource.data.vaultId
-          && request.resource.data.contributedByUid == resource.data.contributedByUid
-          && request.resource.data.amountPaise == resource.data.amountPaise
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reversedByUid', 'reversalReason', 'reversedAt', 'updatedAt']);
+        allow update: if isValidContributionReversal(vaultId);
         allow delete: if false;
       }
 
       // Subcollection: expenses
       match /expenses/{expenseId} {
+        function isValidExpenseReversal(vId) {
+          let prev = resource.data;
+          let next = request.resource.data;
+          let changed = next.diff(prev).affectedKeys();
+          return isActiveMemberOfVault(vId)
+            && prev.status == 'active'
+            && prev.paidByUid == request.auth.uid
+            && next.status == 'reversed'
+            && next.reversedByUid == request.auth.uid
+            && changed.hasOnly([
+              'status',
+              'reversedByUid',
+              'reversalReason',
+              'reversedAt',
+              'reversedAtTimestamp',
+              'updatedAt'
+            ])
+            && (!('reversalReason' in next) || (next.reversalReason is string && next.reversalReason.size() <= 512))
+            && (!('reversedAt' in next) || isIsoDate(next.reversedAt))
+            && (!('reversedAtTimestamp' in next) || next.reversedAtTimestamp == request.time)
+            && (!('updatedAt' in next) || isIsoDate(next.updatedAt));
+        }
+
         allow read: if isMemberOfVault(vaultId);
-        allow create: if isMemberOfVault(vaultId)
+        allow create: if isActiveMemberOfVault(vaultId)
           && isValidId(expenseId)
+          && request.resource.data.keys().hasOnly([
+            'id',
+            'vaultId',
+            'paidByUid',
+            'payerName',
+            'amountPaise',
+            'description',
+            'date',
+            'splitMode',
+            'memberShares',
+            'createdAt',
+            'status'
+          ])
+          && (!('id' in request.resource.data) || request.resource.data.id == expenseId)
           && request.resource.data.vaultId == vaultId
           && request.resource.data.paidByUid == request.auth.uid
+          && (!('payerName' in request.resource.data) || isNonEmptyString(request.resource.data.payerName, 128))
           && isPositivePaise(request.resource.data.amountPaise)
           && request.resource.data.status == 'active'
           && isIsoDate(request.resource.data.date)
           && isNonEmptyString(request.resource.data.description, 256)
-          && request.resource.data.splitMode in ['equal', 'custom', 'ratio'];
-        allow update: if isMemberOfVault(vaultId)
-          && request.resource.data.status == 'reversed'
-          && request.resource.data.vaultId == resource.data.vaultId
-          && request.resource.data.paidByUid == resource.data.paidByUid
-          && request.resource.data.amountPaise == resource.data.amountPaise
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reversedByUid', 'reversalReason', 'reversedAt', 'updatedAt']);
+          && request.resource.data.splitMode in ['equal', 'custom', 'ratio']
+          && (!('memberShares' in request.resource.data) || (request.resource.data.memberShares is map && request.resource.data.memberShares.size() <= 2))
+          && (!('createdAt' in request.resource.data) || isIsoDate(request.resource.data.createdAt));
+        allow update: if isValidExpenseReversal(vaultId);
         allow delete: if false;
       }
 
       // Subcollection: settlements
       match /settlements/{settleId} {
         allow read: if isMemberOfVault(vaultId);
-        allow create: if isMemberOfVault(vaultId)
+        allow create: if isActiveMemberOfVault(vaultId)
           && isValidId(settleId)
+          && request.resource.data.keys().hasOnly([
+            'id',
+            'vaultId',
+            'fromUid',
+            'fromName',
+            'toUid',
+            'toName',
+            'amountPaise',
+            'date',
+            'notes',
+            'createdAt'
+          ])
+          && (!('id' in request.resource.data) || request.resource.data.id == settleId)
           && request.resource.data.vaultId == vaultId
           && request.resource.data.fromUid == request.auth.uid
+          && (!('fromName' in request.resource.data) || isNonEmptyString(request.resource.data.fromName, 128))
           && isPositivePaise(request.resource.data.amountPaise)
           && isNonEmptyString(request.resource.data.toUid, 128)
-          && isIsoDate(request.resource.data.date);
+          && (!('toName' in request.resource.data) || isNonEmptyString(request.resource.data.toName, 128))
+          && isIsoDate(request.resource.data.date)
+          && (!('notes' in request.resource.data) || (request.resource.data.notes is string && request.resource.data.notes.size() <= 512))
+          && (!('createdAt' in request.resource.data) || isIsoDate(request.resource.data.createdAt));
         allow update, delete: if false;
       }
 
       // Subcollection: activity
       match /activity/{activityId} {
         allow read: if isMemberOfVault(vaultId);
-        allow create: if (isMemberOfVault(vaultId) || (isSignedIn() && request.resource.data.actorUid == request.auth.uid))
+        allow create: if isSignedIn()
           && isValidId(activityId)
+          && request.resource.data.keys().hasOnly([
+            'id',
+            'vaultId',
+            'actorUid',
+            'actorName',
+            'type',
+            'title',
+            'description',
+            'amountPaise',
+            'timestamp',
+            'serverTimestamp',
+            'metadata'
+          ])
+          && (!('id' in request.resource.data) || request.resource.data.id == activityId)
           && request.resource.data.vaultId == vaultId
           && request.resource.data.actorUid == request.auth.uid
+          && (!('actorName' in request.resource.data) || isNonEmptyString(request.resource.data.actorName, 128))
+          && (!('type' in request.resource.data) || isNonEmptyString(request.resource.data.type, 64))
           && isNonEmptyString(request.resource.data.title, 128)
-          && isIsoDate(request.resource.data.timestamp);
+          && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 512))
+          && (!('amountPaise' in request.resource.data) || isPositivePaise(request.resource.data.amountPaise))
+          && isIsoDate(request.resource.data.timestamp)
+          && (!('serverTimestamp' in request.resource.data) || request.resource.data.serverTimestamp == request.time)
+          && (!('metadata' in request.resource.data) || (request.resource.data.metadata is map && request.resource.data.metadata.size() <= 16))
+          && (isMemberOfVault(vaultId) || isMemberOfVaultAfter(vaultId));
         allow update, delete: if false;
       }
     }

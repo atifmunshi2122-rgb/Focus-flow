@@ -21,6 +21,11 @@ export interface JointVault {
   status: VaultStatus;
   createdAt: string;      // ISO string
   updatedAt: string;      // ISO string
+  updatedAtTimestamp?: unknown;
+  lastAcceptedInviteCode?: string;
+  archivedAt?: string;
+  archivedAtTimestamp?: unknown;
+  archivedByUid?: string;
 }
 
 export interface VaultMember {
@@ -31,6 +36,10 @@ export interface VaultMember {
   role: MemberRole;
   status: MemberStatus;
   joinedAt: string;
+  joinedAtTimestamp?: unknown;
+  leftAt?: string;
+  leftAtTimestamp?: unknown;
+  updatedAt?: string;
 }
 
 export interface VaultInvitation {
@@ -39,14 +48,22 @@ export interface VaultInvitation {
   vaultName: string;
   invitedByUid: string;
   invitedByName: string;
-  inviteCode: string;     // Single-use unpredictable token
+  inviteCode: string;     // Single-use unpredictable CSPRNG token (>= 80 bits entropy)
   invitedEmail?: string;
   status: InvitationStatus;
   createdAt: string;
+  createdAtTimestamp?: unknown;
   expiresAt: string;
+  expiresAtTimestamp?: unknown;
   acceptedByUid?: string;
   acceptedAt?: string;
+  acceptedAtTimestamp?: unknown;
+  rejectedByUid?: string;
+  rejectedAt?: string;
+  rejectedAtTimestamp?: unknown;
+  revokedByUid?: string;
   revokedAt?: string;
+  revokedAtTimestamp?: unknown;
   updatedAt?: string;
 }
 
@@ -61,8 +78,10 @@ export interface VaultContribution {
   createdAt: string;
   status: ContributionStatus;
   reversedAt?: string;
+  reversedAtTimestamp?: unknown;
   reversedByUid?: string;
   reversalReason?: string;
+  updatedAt?: string;
 }
 
 export interface VaultExpense {
@@ -78,8 +97,10 @@ export interface VaultExpense {
   createdAt: string;
   status: ExpenseStatus;
   reversedAt?: string;
+  reversedAtTimestamp?: unknown;
   reversedByUid?: string;
   reversalReason?: string;
+  updatedAt?: string;
 }
 
 export interface VaultSettlement {
