@@ -23,6 +23,7 @@ import {
   EmptyStateIllustration,
   MotionStaggerGrid,
   MotionStaggerItem,
+  SkeletonList,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
 import {
@@ -35,6 +36,8 @@ import {
   Filter,
   Check,
   TrendingUp,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
 
@@ -82,17 +85,21 @@ export const HabitTrackerView: React.FC = () => {
   const [reminderTime, setReminderTime] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Month navigation for matrix heatmap
-  const todayStr = useMemo(() => getTodayDateString(DEFAULT_TIMEZONE), []);
+  // Month navigation for matrix heatmap & configured timezone
+  const userTimezone = settings?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = useMemo(() => getTodayDateString(userTimezone), [userTimezone]);
   const [matrixMonthOffset, setMatrixMonthOffset] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadHabits = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const list = await api.getHabits();
-      setHabits(list);
+      setHabits(Array.isArray(list) ? list : []);
     } catch (err) {
       console.error('Failed to load habits:', err);
+      setLoadError('Failed to load habits. Please check connection and retry.');
     } finally {
       setLoading(false);
     }
@@ -416,7 +423,28 @@ export const HabitTrackerView: React.FC = () => {
       </div>
 
       {/* Habits List */}
-      {filteredHabits.length === 0 ? (
+      {loading && habits.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <SkeletonList rows={4} />
+          <SkeletonList rows={4} />
+        </div>
+      ) : loadError && habits.length === 0 ? (
+        <ThemeCard className="p-8 text-center my-6">
+          <div className="max-w-md mx-auto flex flex-col items-center">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mb-4">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-1">
+              Unable to Load Habits
+            </h3>
+            <p className="text-sm text-[var(--ff-text-muted)] mb-5">{loadError}</p>
+            <ThemeButton variant="primary" size="sm" onClick={loadHabits}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              <span>Retry Connection</span>
+            </ThemeButton>
+          </div>
+        </ThemeCard>
+      ) : filteredHabits.length === 0 ? (
         <EmptyStateIllustration
           icon={<Flame className="w-10 h-10 text-amber-500" />}
           title="No Habits Found"
@@ -475,22 +503,24 @@ export const HabitTrackerView: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
                       <button
                         type="button"
                         onClick={() => openEditModal(habit)}
-                        className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)]"
+                        className="p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--ff-accent)]"
                         title="Edit Habit"
+                        aria-label={`Edit habit ${habit.title}`}
                       >
-                        <Edit2 className="w-3.5 h-3.5" />
+                        <Edit2 className="w-4 h-4" />
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteHabit(habit.id, habit.title)}
-                        className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-red-500 hover:bg-red-500/10"
+                        className="p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-[var(--ff-text-muted)] hover:text-red-500 hover:bg-red-500/10 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-500"
                         title="Delete Habit"
+                        aria-label={`Delete habit ${habit.title}`}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>

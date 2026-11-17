@@ -22,6 +22,7 @@ import {
 } from '../../types/study.ts';
 import { FocusSession } from '../../types/index.ts';
 import { DEFAULT_ACADEMIC_TIERS } from '../../data/studySeedData.ts';
+import { DEFAULT_TIMEZONE } from '../../lib/dateTime.ts';
 import {
   categorizeRevisions,
   computeStudyProgressSummary,
@@ -324,6 +325,8 @@ export const StudyView: React.FC = () => {
     };
   }, []);
 
+  const studyTz = settings?.timezone || DEFAULT_TIMEZONE;
+
   // Derived calculations
   const progressSummary = useMemo(() => {
     return computeStudyProgressSummary({
@@ -332,12 +335,13 @@ export const StudyView: React.FC = () => {
       revisions,
       mistakes,
       focusSessions,
+      timezone: studyTz,
     });
-  }, [subjects, topics, revisions, mistakes, focusSessions]);
+  }, [subjects, topics, revisions, mistakes, focusSessions, studyTz]);
 
   const categorizedRevs = useMemo(() => {
-    return categorizeRevisions(revisions);
-  }, [revisions]);
+    return categorizeRevisions(revisions, studyTz);
+  }, [revisions, studyTz]);
 
   // Combined Academic Tiers (default + user-created)
   const allTiers = useMemo<AcademicTier[]>(() => {

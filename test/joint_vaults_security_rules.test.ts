@@ -14,7 +14,7 @@ app.use((req, _res, next) => {
   if (mockUid) {
     (req as any).auth = {
       userId: mockUid,
-      email: `${mockUid}@focusflow.test`,
+      email: mockUid === 'usr_bob_sec_02' ? 'bob@focusflow.test' : `${mockUid}@focusflow.test`,
       name: mockUid.toUpperCase(),
       isGuest: false,
     };

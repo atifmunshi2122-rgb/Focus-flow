@@ -4020,8 +4020,8 @@ export const firestoreService = {
       }
       return summaries;
     } catch (err) {
-      console.warn('[firestoreService] getJointVaults query failed:', err);
-      return [];
+      handleFirestoreError(err, OperationType.LIST, 'sharedVaults');
+      throw err;
     }
   },
 
@@ -4041,16 +4041,16 @@ export const firestoreService = {
         getDocs(query(collection(db, `sharedVaults/${vaultId}/activity`), limit(30))),
       ]);
 
-      const members = membersSnap.docs.map((d) => d.data() as VaultMember);
-      const contributions = contribSnap.docs.map((d) => d.data() as VaultContribution);
-      const expenses = expSnap.docs.map((d) => d.data() as VaultExpense);
-      const settlements = settleSnap.docs.map((d) => d.data() as VaultSettlement);
-      const activities = actSnap.docs.map((d) => d.data() as VaultActivity);
+      const members = (membersSnap as any).docs.map((d: any) => d.data() as VaultMember);
+      const contributions = (contribSnap as any).docs.map((d: any) => d.data() as VaultContribution);
+      const expenses = (expSnap as any).docs.map((d: any) => d.data() as VaultExpense);
+      const settlements = (settleSnap as any).docs.map((d: any) => d.data() as VaultSettlement);
+      const activities = (actSnap as any).docs.map((d: any) => d.data() as VaultActivity);
 
       return buildVaultSummary(vault, members, contributions, expenses, settlements, activities);
     } catch (err) {
       handleFirestoreError(err, OperationType.GET, `sharedVaults/${vaultId}`);
-      return null;
+      throw err;
     }
   },
 
@@ -4151,7 +4151,11 @@ export const firestoreService = {
     };
 
     try {
-      await setDoc(doc(db, `sharedVaults/${vaultId}/invitations`, invitation.id), stripUndefined({ ...invitation }));
+      // Canonical invitation stored strictly in vault subcollection per hardened firestore.rules
+      await setDoc(
+        doc(db, `sharedVaults/${vaultId}/invitations`, invitation.id),
+        stripUndefined({ ...invitation })
+      );
       return invitation;
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/invitations`);
@@ -4160,82 +4164,12 @@ export const firestoreService = {
   },
 
   async acceptVaultInvitation(
-    user: FirebaseUser,
-    inviteCode: string
+    _user: FirebaseUser,
+    _inviteCode: string
   ): Promise<{ vault: JointVault; invitation: VaultInvitation }> {
-    const code = inviteCode.trim().toUpperCase();
-    return await runTransaction(db, async (tx) => {
-      const vaultSnapshots = await getDocs(collection(db, 'sharedVaults'));
-      let foundInvite: VaultInvitation | null = null;
-      let targetVault: JointVault | null = null;
-
-      for (const vDoc of vaultSnapshots.docs) {
-        const invSnap = await getDocs(query(collection(db, `sharedVaults/${vDoc.id}/invitations`), where('inviteCode', '==', code), where('status', '==', 'pending')));
-        if (!invSnap.empty) {
-          foundInvite = invSnap.docs[0].data() as VaultInvitation;
-          targetVault = vDoc.data() as JointVault;
-          break;
-        }
-      }
-
-      if (!foundInvite || !targetVault) {
-        throw new Error('Invalid or already accepted invitation code');
-      }
-      if (new Date(foundInvite.expiresAt) <= new Date()) {
-        throw new Error('Invitation code has expired');
-      }
-      if (targetVault.memberUids.length >= 2) {
-        throw new Error('Vault already has maximum members (2)');
-      }
-      if (targetVault.memberUids.includes(user.uid)) {
-        throw new Error('You are already a member of this vault');
-      }
-
-      const nowIso = new Date().toISOString();
-      const updatedMembers = [...targetVault.memberUids, user.uid];
-      const updatedRatio = { [targetVault.createdBy]: 50, [user.uid]: 50 };
-
-      foundInvite.status = 'accepted';
-      foundInvite.acceptedByUid = user.uid;
-      foundInvite.acceptedAt = nowIso;
-
-      const newMember: VaultMember = {
-        uid: user.uid,
-        email: user.email || `${user.uid}@focusflow.app`,
-        name: user.displayName || 'Partner',
-        role: 'partner',
-        status: 'active',
-        joinedAt: nowIso,
-      };
-
-      const activity: VaultActivity = {
-        id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        vaultId: targetVault.id,
-        actorUid: user.uid,
-        actorName: newMember.name,
-        type: 'member_joined',
-        title: 'Partner Joined Vault',
-        description: `${newMember.name} joined "${targetVault.name}"`,
-        timestamp: nowIso,
-      };
-
-      tx.update(doc(db, 'sharedVaults', targetVault.id), {
-        memberUids: updatedMembers,
-        targetRatio: updatedRatio,
-        updatedAt: nowIso,
-      });
-      tx.set(doc(db, `sharedVaults/${targetVault.id}/members`, user.uid), stripUndefined({ ...newMember }));
-      tx.update(doc(db, `sharedVaults/${targetVault.id}/invitations`, foundInvite.id), {
-        status: 'accepted',
-        acceptedByUid: user.uid,
-        acceptedAt: nowIso,
-      });
-      tx.set(doc(db, `sharedVaults/${targetVault.id}/activity`, activity.id), stripUndefined({ ...activity }));
-
-      targetVault.memberUids = updatedMembers;
-      targetVault.targetRatio = updatedRatio;
-      return { vault: targetVault, invitation: foundInvite };
-    });
+    throw new Error(
+      'Client-side direct vault invitation acceptance is disallowed by Firestore Security Rules. Invitations must be accepted via the trusted backend endpoint /api/joint-vaults/invitations/accept.'
+    );
   },
 
   async addVaultContribution(

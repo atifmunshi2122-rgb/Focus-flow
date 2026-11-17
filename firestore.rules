@@ -878,7 +878,8 @@ service cloud.firestore {
       }
 
       // Vault root document
-      allow read: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+      allow get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
       allow create: if isSignedIn()
         && isValidId(vaultId)
         && request.resource.data.createdBy == request.auth.uid
@@ -909,13 +910,14 @@ service cloud.firestore {
       // Subcollection: members
       match /members/{memberUid} {
         allow read: if isMemberOfVault(vaultId);
-        allow create: if (isMemberOfVault(vaultId) || (isSignedIn() && request.auth.uid == memberUid))
+        allow create: if isMemberOfVault(vaultId)
           && isValidId(memberUid)
           && request.resource.data.uid == memberUid
           && isNonEmptyString(request.resource.data.name, 128)
           && (!('role' in request.resource.data) || request.resource.data.role in ['creator', 'partner'])
           && (!('status' in request.resource.data) || request.resource.data.status in ['active', 'left']);
         allow update: if isSignedIn()
+          && isMemberOfVault(vaultId)
           && request.auth.uid == memberUid
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt'])

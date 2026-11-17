@@ -3510,13 +3510,15 @@ apiRouter.get('/joint-vaults/:vaultId', (req: Request, res: Response) => {
 apiRouter.post('/joint-vaults/:vaultId/invitations', async (req: Request, res: Response) => {
   const auth = getAuth(req);
   const { vaultId } = req.params;
-  const { invitedEmail } = req.body || {};
+  const body = req.body || {};
+  const { invitedEmail, id, inviteCode } = body;
 
   try {
     const invitation = dbService.createVaultInvitation(
       vaultId,
       { id: auth.userId, name: auth.name },
-      invitedEmail
+      invitedEmail,
+      { id, inviteCode }
     );
     await dbService.flush();
     res.status(201).json(invitation);

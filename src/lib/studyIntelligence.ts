@@ -7,32 +7,31 @@ import {
   StudyTopic,
 } from '../types/study.ts';
 import { FocusSession } from '../types/index.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString, addDays } from './dateTime.ts';
 
 export const REVISION_INTERVAL_LADDER = [1, 3, 7, 14, 30, 60] as const;
 
 /**
  * Calculates next revision date string (YYYY-MM-DD) given base date and interval in days.
- * If only intervalDays is provided, calculates from today.
+ * If only intervalDays is provided, calculates from today in the configured timezone.
  */
 export function calculateNextRevisionDate(
   baseDateStrOrDays: string | number,
-  maybeIntervalDays?: number
+  maybeIntervalDays?: number,
+  timezone: string = DEFAULT_TIMEZONE
 ): string {
   let baseDateStr: string;
   let intervalDays: number;
 
   if (typeof baseDateStrOrDays === 'number') {
     intervalDays = baseDateStrOrDays;
-    baseDateStr = new Date().toISOString().slice(0, 10);
+    baseDateStr = getTodayDateString(timezone);
   } else {
     baseDateStr = baseDateStrOrDays;
     intervalDays = maybeIntervalDays ?? 1;
   }
 
-  const base = new Date(`${baseDateStr.slice(0, 10)}T12:00:00Z`);
-  const next = new Date(base);
-  next.setUTCDate(next.getUTCDate() + intervalDays);
-  return next.toISOString().slice(0, 10);
+  return addDays(baseDateStr.slice(0, 10), intervalDays);
 }
 
 /**
@@ -41,9 +40,10 @@ export function calculateNextRevisionDate(
 export function processRevisionRecall(
   revision: StudyRevision,
   difficulty: RevisionDifficulty,
-  reviewDateStr?: string
+  reviewDateStr?: string,
+  timezone: string = DEFAULT_TIMEZONE
 ): StudyRevision {
-  const todayStr = reviewDateStr || new Date().toISOString().slice(0, 10);
+  const todayStr = reviewDateStr || getTodayDateString(timezone);
   const ladder = REVISION_INTERVAL_LADDER;
   const currentIdx = ladder.indexOf(revision.intervalDays as 1 | 3 | 7 | 14 | 30 | 60);
 
@@ -73,7 +73,7 @@ export function processRevisionRecall(
     }
   }
 
-  const nextRevisionAt = calculateNextRevisionDate(todayStr, nextIntervalDays);
+  const nextRevisionAt = calculateNextRevisionDate(todayStr, nextIntervalDays, timezone);
 
   return {
     ...revision,
@@ -89,16 +89,23 @@ export function processRevisionRecall(
 
 /**
  * Categorizes active revisions into due today, overdue, upcoming, and mastered groups.
+ * Respects configured user timezone or explicitly passed reference date.
  */
 export function categorizeRevisions(
   revisions: StudyRevision[],
-  todayStr: string = new Date().toISOString().slice(0, 10)
+  todayStrOrTimezone?: string,
+  timezone: string = DEFAULT_TIMEZONE
 ): {
   dueToday: StudyRevision[];
   overdue: StudyRevision[];
   upcoming: StudyRevision[];
   mastered: StudyRevision[];
 } {
+  const todayStr =
+    todayStrOrTimezone && /^\d{4}-\d{2}-\d{2}$/.test(todayStrOrTimezone)
+      ? todayStrOrTimezone
+      : getTodayDateString(todayStrOrTimezone || timezone || DEFAULT_TIMEZONE);
+
   const dueToday: StudyRevision[] = [];
   const overdue: StudyRevision[] = [];
   const upcoming: StudyRevision[] = [];
@@ -135,8 +142,10 @@ export function computeStudyProgressSummary(input: {
   mistakes: StudyMistake[];
   focusSessions?: FocusSession[];
   todayStr?: string;
+  timezone?: string;
 }): StudyProgressSummary {
-  const todayStr = input.todayStr || new Date().toISOString().slice(0, 10);
+  const tz = input.timezone || DEFAULT_TIMEZONE;
+  const todayStr = input.todayStr || getTodayDateString(tz);
   const activeSubjects = input.subjects.filter((s) => !s.deletedAt);
   const activeTopics = input.topics.filter((t) => !t.deletedAt);
   const activeMistakes = input.mistakes.filter((m) => !m.deletedAt);
@@ -161,7 +170,7 @@ export function computeStudyProgressSummary(input: {
     totalTopics > 0 ? Math.min(100, Math.round((completedTopics / totalTopics) * 100)) : 0;
 
   // Revisions categorization
-  const { dueToday, overdue, mastered } = categorizeRevisions(input.revisions, todayStr);
+  const { dueToday, overdue, mastered } = categorizeRevisions(input.revisions, todayStr, tz);
 
   // Mistakes metrics
   const totalMistakesCount = activeMistakes.length;
@@ -169,6 +178,18 @@ export function computeStudyProgressSummary(input: {
   const highSeverityMistakesCount = activeMistakes.filter(
     (m) => !m.resolved && m.severity === 'High'
   ).length;
+
+  const getSessionActualMins = (fs: FocusSession): number => {
+    const effectiveSecs =
+      typeof fs.actualDurationSeconds === 'number' && !Number.isNaN(fs.actualDurationSeconds)
+        ? fs.actualDurationSeconds
+        : typeof fs.durationSeconds === 'number' && !Number.isNaN(fs.durationSeconds)
+        ? fs.durationSeconds
+        : typeof fs.durationMinutes === 'number'
+        ? fs.durationMinutes * 60
+        : 0;
+    return Math.round(effectiveSecs / 60);
+  };
 
   // Study focus minutes from completed work focus sessions (reflecting actual completed time)
   const studyFocusKeywords = ['study', 'dsa', 'exam', 'core', 'revision', 'gate', 'sem', 'sub_'];
@@ -182,13 +203,9 @@ export function computeStudyProgressSummary(input: {
       if (fs.completed && fs.mode === 'work') {
         const titleLower = (fs.taskTitle || '').toLowerCase();
         const isStudyKeyword = studyFocusKeywords.some((k) => titleLower.includes(k));
-        const isStudyLinked = Boolean(fs.subjectCode || fs.topicId);
+        const isStudyLinked = Boolean(fs.subjectId || fs.subjectCode || fs.topicId);
         if (isStudyKeyword || isStudyLinked) {
-          const actualMins =
-            typeof fs.durationSeconds === 'number' && fs.durationSeconds > 0
-              ? Math.max(1, Math.round(fs.durationSeconds / 60))
-              : (fs.durationMinutes || 0);
-          totalStudyMinutes += actualMins;
+          totalStudyMinutes += getSessionActualMins(fs);
         }
       }
     }
@@ -205,12 +222,9 @@ export function computeStudyProgressSummary(input: {
     if (input.focusSessions) {
       for (const fs of input.focusSessions) {
         const resolvedSubCode = fs.subjectCode || (fs.topicId ? topicSubjectMap.get(fs.topicId) : undefined);
-        if (fs.completed && fs.mode === 'work' && resolvedSubCode === sub.code) {
-          const actualMins =
-            typeof fs.durationSeconds === 'number' && fs.durationSeconds > 0
-              ? Math.max(1, Math.round(fs.durationSeconds / 60))
-              : (fs.durationMinutes || 0);
-          subjectStudyMinutes += actualMins;
+        const matchesSub = resolvedSubCode === sub.code || (fs.subjectId && (fs.subjectId === sub.id || fs.subjectId === sub.code));
+        if (fs.completed && fs.mode === 'work' && matchesSub) {
+          subjectStudyMinutes += getSessionActualMins(fs);
         }
       }
     }
@@ -278,14 +292,35 @@ export function computeStudyPlanAnalytics(
 
   // Authoritative actual minutes derived from task records or completed focus sessions
   const taskActualMinutes = activeTasks.reduce((sum, t) => sum + (t.actualMinutes || 0), 0);
-  const sessionMins = focusSessions
-    .filter((fs) => fs.completed && fs.mode === 'work')
+
+  const planTaskIds = new Set(activeTasks.map((t) => t.id));
+  const planTopicIds = new Set(activeTasks.map((t) => t.topicId).filter((id): id is string => Boolean(id)));
+  const planSubjectIds = new Set(activeTasks.map((t) => t.subjectId).filter((id): id is string => Boolean(id)));
+  const planTitles = new Set(activeTasks.map((t) => t.title.toLowerCase().trim()).filter(Boolean));
+  const planIds = new Set(activeTasks.map((t) => t.planId).filter((id): id is string => Boolean(id)));
+
+  // Count ONLY completed work sessions that are associated with the relevant plan/tasks
+  const sessionMins = activeTasks.length === 0 ? 0 : focusSessions
+    .filter((fs) => {
+      if (!fs.completed || fs.mode !== 'work') return false;
+      const matchesTaskId = Boolean(fs.taskId && planTaskIds.has(fs.taskId));
+      const matchesPlanId = Boolean((fs as unknown as { planId?: string }).planId && planIds.has((fs as unknown as { planId?: string }).planId!));
+      const matchesTopicId = Boolean(fs.topicId && planTopicIds.has(fs.topicId));
+      const matchesSubjectId = Boolean(
+        (fs.subjectId && planSubjectIds.has(fs.subjectId)) ||
+        ((fs as unknown as { subjectCode?: string }).subjectCode && planSubjectIds.has((fs as unknown as { subjectCode?: string }).subjectCode!))
+      );
+      const matchesTitle = Boolean(fs.taskTitle && planTitles.has(fs.taskTitle.toLowerCase().trim()));
+      return matchesTaskId || matchesPlanId || matchesTopicId || matchesSubjectId || matchesTitle;
+    })
     .reduce((sum, fs) => {
-      const mins =
-        typeof fs.durationSeconds === 'number' && fs.durationSeconds > 0
-          ? Math.round(fs.durationSeconds / 60)
-          : (fs.durationMinutes || 0);
-      return sum + mins;
+      const effectiveSecs =
+        typeof fs.actualDurationSeconds === 'number' && !Number.isNaN(fs.actualDurationSeconds)
+          ? fs.actualDurationSeconds
+          : typeof fs.durationSeconds === 'number' && !Number.isNaN(fs.durationSeconds)
+          ? fs.durationSeconds
+          : (fs.durationMinutes || 0) * 60;
+      return sum + Math.round(effectiveSecs / 60);
     }, 0);
 
   const totalActualMinutes = Math.max(taskActualMinutes, sessionMins);
@@ -333,14 +368,18 @@ export function computeStudyGoalProgress(goal: StudyGoal): {
 
 export function computeStudyExamReadiness(
   exam: StudyExam,
-  topics: StudyTopic[]
+  topics: StudyTopic[],
+  timezoneOrTodayStr?: string
 ): {
   coveredTopicsCount: number;
   totalSyllabusTopicsCount: number;
   readinessPct: number;
   daysRemaining: number;
 } {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr =
+    timezoneOrTodayStr && /^\d{4}-\d{2}-\d{2}$/.test(timezoneOrTodayStr)
+      ? timezoneOrTodayStr
+      : getTodayDateString(timezoneOrTodayStr || DEFAULT_TIMEZONE);
   const examDate = new Date(`${exam.examDate}T00:00:00Z`);
   const today = new Date(`${todayStr}T00:00:00Z`);
   const diffDays = Math.ceil((examDate.getTime() - today.getTime()) / 86400000);

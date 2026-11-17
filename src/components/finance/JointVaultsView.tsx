@@ -109,9 +109,19 @@ export const JointVaultsView: React.FC = () => {
       if (safeData.length > 0 && !selectedVaultId) {
         setSelectedVaultId(safeData[0].vault.id);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load joint vaults:', err);
-      setLoadError('Failed to load joint vaults. Please check connection and retry.');
+      const code = err?.code || '';
+      const msg = String(err?.message || '');
+      if (code === 'permission-denied' || msg.includes('permission-denied') || msg.includes('Permission denied')) {
+        setLoadError('Access to joint vaults was denied by security rules. Please verify your account permissions.');
+      } else if (code === 'unauthenticated' || msg.includes('unauthenticated')) {
+        setLoadError('Your session has expired. Please sign in again to access joint vaults.');
+      } else if (code === 'unavailable' || msg.includes('unavailable') || msg.includes('Failed to fetch') || msg.includes('network')) {
+        setLoadError('Network connection issue. Please check your internet connection and retry.');
+      } else {
+        setLoadError('Failed to load joint vaults. Please check connection and retry.');
+      }
     } finally {
       setLoading(false);
     }
@@ -658,7 +668,7 @@ export const JointVaultsView: React.FC = () => {
           </ThemeButton>
 
           <ThemeButton
-            variant="ghost"
+            variant="secondary"
             size="xs"
             onClick={() => {
               setJoinError(null);
@@ -666,7 +676,8 @@ export const JointVaultsView: React.FC = () => {
             }}
             title="Join partner's vault with invite code"
           >
-            <Users className="w-3.5 h-3.5" />
+            <Users className="w-3.5 h-3.5 mr-1" />
+            <span>Join with Code</span>
           </ThemeButton>
         </div>
       </div>

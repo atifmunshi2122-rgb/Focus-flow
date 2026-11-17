@@ -250,6 +250,29 @@ export class VaultBackendService {
     const vaultId = pathMatch[1];
     const inviteId = pathMatch[2];
 
+    // Fetch target vault document
+    const vaultRes = await fetch(`${baseUrl}/sharedVaults/${vaultId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!vaultRes.ok) {
+      throw new Error('Target vault not found or inaccessible');
+    }
+    const vaultDoc = await vaultRes.json();
+    const vaultData = fromFirestoreDoc(vaultDoc) as JointVault;
+
+    // Idempotency: If already accepted by the exact same account, return existing state
+    if (inviteData.status === 'accepted') {
+      const currentMembers = Array.isArray(vaultData.memberUids) ? vaultData.memberUids : [];
+      if (currentMembers.includes(user.id) && inviteData.acceptedByUid === user.id) {
+        return { vault: vaultData, invitation: inviteData };
+      }
+      throw new Error('This invitation code has already been processed or used, and is no longer valid.');
+    }
+
+    if (inviteData.status === 'revoked') {
+      throw new Error('This invitation code has been revoked. Please ask your partner to generate a new code.');
+    }
+
     if (inviteData.status !== 'pending') {
       throw new Error('Invalid or already processed invitation code');
     }
@@ -278,18 +301,17 @@ export class VaultBackendService {
           ],
         }),
       });
-      throw new Error('Invitation has expired');
+      throw new Error('This invitation code has expired. Please ask your partner to generate a new one.');
     }
 
-    // 2. Fetch target vault document
-    const vaultRes = await fetch(`${baseUrl}/sharedVaults/${vaultId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!vaultRes.ok) {
-      throw new Error('Target vault not found or inaccessible');
+    // Enforce intended recipient email match if specified
+    if (inviteData.invitedEmail) {
+      const normalizedInvited = inviteData.invitedEmail.trim().toLowerCase();
+      const normalizedUser = (user.email || '').trim().toLowerCase();
+      if (!normalizedUser || normalizedInvited !== normalizedUser) {
+        throw new Error('This invitation was sent to a different email address.');
+      }
     }
-    const vaultDoc = await vaultRes.json();
-    const vaultData = fromFirestoreDoc(vaultDoc) as JointVault;
 
     if (vaultData.status !== 'active') {
       throw new Error('Target vault not found or archived');

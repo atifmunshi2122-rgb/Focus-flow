@@ -13,7 +13,7 @@ app.use((req, _res, next) => {
   if (mockUid) {
     (req as any).auth = {
       userId: mockUid,
-      email: `${mockUid}@test.com`,
+      email: mockUid === 'usr_bob_couple_02' ? 'bob@example.com' : `${mockUid}@test.com`,
       name: mockUid.toUpperCase(),
       isGuest: false,
     };

@@ -3044,34 +3044,14 @@ export const api = {
     withPrimaryRead(
       async () => {
         if (auth.currentUser) {
-          try {
-            const list = await firestoreService.getJointVaults(auth.currentUser);
-            if (Array.isArray(list) && list.length > 0) return list;
-          } catch (err) {
-            console.warn('[JointVaults] Firestore getJointVaults failed, falling back to backend API:', err);
-          }
-          try {
-            const backendList = await request<VaultSummary[]>('/joint-vaults');
-            if (Array.isArray(backendList)) return backendList;
-          } catch (fallbackErr) {
-            console.warn('[JointVaults] Backend API fallback also failed:', fallbackErr);
-          }
-          return [];
+          return await firestoreService.getJointVaults(auth.currentUser);
         }
-        try {
-          const list = await request<VaultSummary[]>('/joint-vaults');
-          return Array.isArray(list) ? list : [];
-        } catch {
-          return [];
-        }
+        const list = await request<VaultSummary[]>('/joint-vaults');
+        return Array.isArray(list) ? list : [];
       },
       async () => {
-        try {
-          const list = await request<VaultSummary[]>('/joint-vaults');
-          return Array.isArray(list) ? list : [];
-        } catch {
-          return [];
-        }
+        const list = await request<VaultSummary[]>('/joint-vaults');
+        return Array.isArray(list) ? list : [];
       }
     ),
 
@@ -3079,12 +3059,7 @@ export const api = {
     withPrimaryRead(
       async () => {
         if (auth.currentUser) {
-          try {
-            return await firestoreService.getJointVault(vaultId, auth.currentUser);
-          } catch (err) {
-            console.warn('[JointVaults] Firestore getJointVault failed, falling back to backend API:', err);
-            return request<VaultSummary>(`/joint-vaults/${vaultId}`);
-          }
+          return await firestoreService.getJointVault(vaultId, auth.currentUser);
         }
         return request<VaultSummary>(`/joint-vaults/${vaultId}`);
       },
@@ -3102,12 +3077,7 @@ export const api = {
     withPrimaryWrite(
       async () => {
         if (auth.currentUser) {
-          try {
-            return await firestoreService.createJointVault(auth.currentUser, data);
-          } catch (err) {
-            console.warn('[JointVaults] Firestore createJointVault failed, falling back to backend API:', err);
-            return request<JointVault>('/joint-vaults', { method: 'POST', body: JSON.stringify(data) });
-          }
+          return await firestoreService.createJointVault(auth.currentUser, data);
         }
         return request<JointVault>('/joint-vaults', { method: 'POST', body: JSON.stringify(data) });
       },
@@ -3118,15 +3088,7 @@ export const api = {
     withPrimaryWrite(
       async () => {
         if (auth.currentUser) {
-          try {
-            return await firestoreService.createVaultInvitation(auth.currentUser, vaultId, invitedEmail);
-          } catch (err) {
-            console.warn('[JointVaults] Firestore createVaultInvitation failed, falling back to backend API:', err);
-            return request<VaultInvitation>(`/joint-vaults/${vaultId}/invitations`, {
-              method: 'POST',
-              body: JSON.stringify({ invitedEmail }),
-            });
-          }
+          return await firestoreService.createVaultInvitation(auth.currentUser, vaultId, invitedEmail);
         }
         return request<VaultInvitation>(`/joint-vaults/${vaultId}/invitations`, {
           method: 'POST',
@@ -3143,17 +3105,15 @@ export const api = {
   acceptVaultInvitation: (inviteCode: string): Promise<{ vault: JointVault; invitation: VaultInvitation }> =>
     withPrimaryWrite(
       async () => {
-        // Invitation redemption is strictly mediated through the trusted backend
-        // to prevent exposing unscoped invitations to non-members and avoid client-side self-join attacks.
         return request<{ vault: JointVault; invitation: VaultInvitation }>('/joint-vaults/invitations/accept', {
           method: 'POST',
-          body: JSON.stringify({ inviteCode }),
+          body: JSON.stringify({ inviteCode: inviteCode.trim().toUpperCase() }),
         });
       },
       () =>
         request<{ vault: JointVault; invitation: VaultInvitation }>('/joint-vaults/invitations/accept', {
           method: 'POST',
-          body: JSON.stringify({ inviteCode }),
+          body: JSON.stringify({ inviteCode: inviteCode.trim().toUpperCase() }),
         })
     ),
 
@@ -3195,11 +3155,7 @@ export const api = {
     withPrimaryWrite(
       async () => {
         if (auth.currentUser) {
-          try {
-            return await firestoreService.addVaultContribution(auth.currentUser, vaultId, data);
-          } catch (err) {
-            console.warn('[JointVaults] Firestore addVaultContribution failed, falling back to backend API:', err);
-          }
+          return await firestoreService.addVaultContribution(auth.currentUser, vaultId, data);
         }
         const res = await request<{ contribution: VaultContribution }>(`/joint-vaults/${vaultId}/contributions`, {
           method: 'POST',
@@ -3224,11 +3180,7 @@ export const api = {
     withPrimaryWrite(
       async () => {
         if (auth.currentUser) {
-          try {
-            return await firestoreService.reverseVaultContribution(auth.currentUser, vaultId, contributionId, reason);
-          } catch (err) {
-            console.warn('[JointVaults] Firestore reverseVaultContribution failed, falling back to backend API:', err);
-          }
+          return await firestoreService.reverseVaultContribution(auth.currentUser, vaultId, contributionId, reason);
         }
         const res = await request<{ contribution: VaultContribution }>(
           `/joint-vaults/${vaultId}/contributions/${contributionId}/reverse`,
@@ -3264,11 +3216,7 @@ export const api = {
     withPrimaryWrite(
       async () => {
         if (auth.currentUser) {
-          try {
-            return await firestoreService.addVaultExpense(auth.currentUser, vaultId, data);
-          } catch (err) {
-            console.warn('[JointVaults] Firestore addVaultExpense failed, falling back to backend API:', err);
-          }
+          return await firestoreService.addVaultExpense(auth.currentUser, vaultId, data);
         }
         const res = await request<{ expense: VaultExpense }>(`/joint-vaults/${vaultId}/expenses`, {
           method: 'POST',
@@ -3308,11 +3256,7 @@ export const api = {
     withPrimaryWrite(
       async () => {
         if (auth.currentUser) {
-          try {
-            return await firestoreService.recordVaultSettlement(auth.currentUser, vaultId, data);
-          } catch (err) {
-            console.warn('[JointVaults] Firestore recordVaultSettlement failed, falling back to backend API:', err);
-          }
+          return await firestoreService.recordVaultSettlement(auth.currentUser, vaultId, data);
         }
         const res = await request<{ settlement: VaultSettlement }>(`/joint-vaults/${vaultId}/settlements`, {
           method: 'POST',
@@ -3333,11 +3277,7 @@ export const api = {
     withPrimaryWrite(
       async () => {
         if (auth.currentUser) {
-          try {
-            return await firestoreService.updateVaultRatio(auth.currentUser, vaultId, targetRatio);
-          } catch (err) {
-            console.warn('[JointVaults] Firestore updateVaultRatio failed, falling back to backend API:', err);
-          }
+          return await firestoreService.updateVaultRatio(auth.currentUser, vaultId, targetRatio);
         }
         return request<JointVault>(`/joint-vaults/${vaultId}/ratio`, {
           method: 'PATCH',

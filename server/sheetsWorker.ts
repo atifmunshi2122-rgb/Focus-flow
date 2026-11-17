@@ -324,14 +324,23 @@ export async function historicalResync(
  * Fetches existing Column A IDs per target worksheet once per flush batch
  * to guarantee idempotent append behavior without duplicate rows.
  */
-async function fetchExistingRecordIds(
+interface SheetRecordLocations {
+  idToRow: Map<string, number>;
+  maxRow: number;
+}
+
+/**
+ * Pre-fetches existing record IDs and their 1-based row numbers from Column A of target worksheets
+ * to guarantee idempotent append, in-place update, and accurate deletion.
+ */
+async function fetchExistingRecordLocations(
   spreadsheetId: string,
   sheetNames: string[],
   accessToken: string,
   fetchImpl: FetchLike
-): Promise<Map<string, Set<string>>> {
-  const idMap = new Map<string, Set<string>>();
-  if (sheetNames.length === 0) return idMap;
+): Promise<Map<string, SheetRecordLocations>> {
+  const locMap = new Map<string, SheetRecordLocations>();
+  if (sheetNames.length === 0) return locMap;
 
   const rangesQuery = sheetNames
     .map((s) => `ranges=${encodeURIComponent(`${s}!A2:A`)}`)
@@ -347,7 +356,7 @@ async function fetchExistingRecordIds(
 
   if (!res.ok) {
     // Non-fatal: if batchGet fails transiently, continue without pre-fetched set
-    return idMap;
+    return locMap;
   }
 
   const body = (await res.json()) as {
@@ -357,23 +366,59 @@ async function fetchExistingRecordIds(
   for (let i = 0; i < sheetNames.length; i++) {
     const sheet = sheetNames[i];
     const vr = valueRanges[i];
-    const set = new Set<string>();
+    const idToRow = new Map<string, number>();
+    let maxRow = 1;
     if (Array.isArray(vr?.values)) {
-      for (const row of vr.values) {
+      for (let r = 0; r < vr.values.length; r++) {
+        const rowNum = r + 2;
+        maxRow = Math.max(maxRow, rowNum);
+        const row = vr.values[r];
         if (Array.isArray(row) && row[0] !== undefined && row[0] !== null) {
           const val = String(row[0]).trim();
-          if (val) set.add(val);
+          if (val) {
+            idToRow.set(val, rowNum);
+          }
         }
       }
     }
-    idMap.set(sheet, set);
+    locMap.set(sheet, { idToRow, maxRow });
   }
-  return idMap;
+  return locMap;
+}
+
+/**
+ * Extracts the primary record ID from an operation's payload or dedupeKey.
+ */
+function extractRecordIdFromOp(op: DurableSyncOperation): string {
+  if (Array.isArray(op.payload) && op.payload.length > 0) {
+    const first = op.payload[0];
+    if (first !== undefined && first !== null) {
+      return String(first).trim();
+    }
+  }
+  if (typeof op.payload === 'string') {
+    return op.payload.trim();
+  }
+  if (op.payload && typeof op.payload === 'object' && 'id' in op.payload) {
+    const idVal = (op.payload as { id?: unknown }).id;
+    if (idVal !== undefined && idVal !== null) {
+      return String(idVal).trim();
+    }
+  }
+  if (op.dedupeKey) {
+    const parts = op.dedupeKey.split('_');
+    if (parts.length >= 3) {
+      return parts[parts.length - 1].trim();
+    }
+  }
+  return '';
 }
 
 /**
  * Executes pending durable sync operations against Google Sheets API with:
- * - Idempotency check via Column A IDs
+ * - Idempotent create/append (checks Column A IDs before appending)
+ * - In-place row update targeting the exact matching row in Column A
+ * - Row clearing for delete operations according to the sync architecture
  * - Retry with exponential backoff + jitter
  * - Permanent 'failed' transition after 5 failed attempts
  */
@@ -402,9 +447,9 @@ export async function flushQueueOperations(
   }
 
   const targetSheets = Array.from(
-    new Set(eligibleOps.filter((o) => Array.isArray(o.payload)).map((o) => o.sheetName))
+    new Set(eligibleOps.map((o) => o.sheetName).filter(Boolean))
   );
-  const existingIdsBySheet = await fetchExistingRecordIds(
+  const existingLocationsBySheet = await fetchExistingRecordLocations(
     spreadsheetId,
     targetSheets,
     accessToken,
@@ -418,12 +463,111 @@ export async function flushQueueOperations(
 
   for (const op of eligibleOps) {
     try {
-      if (Array.isArray(op.payload)) {
-        const recordId =
-          op.payload[0] !== undefined && op.payload[0] !== null ? String(op.payload[0]).trim() : '';
-        const existingSet = existingIdsBySheet.get(op.sheetName);
+      const recordId = extractRecordIdFromOp(op);
+      const action = (op.action || 'create').toLowerCase();
+      let sheetLoc = existingLocationsBySheet.get(op.sheetName);
+      if (!sheetLoc) {
+        sheetLoc = { idToRow: new Map(), maxRow: 1 };
+        existingLocationsBySheet.set(op.sheetName, sheetLoc);
+      }
 
-        if (recordId && existingSet && existingSet.has(recordId)) {
+      if (action === 'update') {
+        const existingRow = recordId ? sheetLoc.idToRow.get(recordId) : undefined;
+        if (existingRow) {
+          // In-place update of matching row
+          const updateRes = await fetchImpl(
+            `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
+              `${op.sheetName}!A${existingRow}`
+            )}?valueInputOption=USER_ENTERED`,
+            {
+              method: 'PUT',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                values: [Array.isArray(op.payload) ? (op.payload as (string | number)[]) : [recordId]],
+              }),
+            }
+          );
+
+          if (!updateRes.ok) {
+            const errMsg = await readErrorText(updateRes);
+            throw new Error(`Failed to update row in ${op.sheetName}: ${errMsg}`);
+          }
+        } else {
+          // If record does not yet exist, append it (upsert)
+          const appendRes = await fetchImpl(
+            `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
+              `${op.sheetName}!A2:append`
+            )}?valueInputOption=USER_ENTERED`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                values: [Array.isArray(op.payload) ? (op.payload as (string | number)[]) : [recordId]],
+              }),
+            }
+          );
+
+          if (!appendRes.ok) {
+            const errMsg = await readErrorText(appendRes);
+            throw new Error(`Failed to append row for update in ${op.sheetName}: ${errMsg}`);
+          }
+
+          if (recordId) {
+            sheetLoc.maxRow++;
+            sheetLoc.idToRow.set(recordId, sheetLoc.maxRow);
+          }
+        }
+      } else if (action === 'delete') {
+        const existingRow = recordId ? sheetLoc.idToRow.get(recordId) : undefined;
+        if (existingRow) {
+          // Safely clear matching row values
+          const clearRes = await fetchImpl(
+            `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
+              `${op.sheetName}!A${existingRow}:Z${existingRow}`
+            )}:clear`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({}),
+            }
+          );
+
+          if (!clearRes.ok) {
+            const batchClearRes = await fetchImpl(
+              `${SHEETS_API_BASE}/${spreadsheetId}/values:batchClear`,
+              {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  ranges: [`${op.sheetName}!A${existingRow}:Z${existingRow}`],
+                }),
+              }
+            );
+
+            if (!batchClearRes.ok) {
+              const errMsg = await readErrorText(clearRes);
+              throw new Error(`Failed to delete row in ${op.sheetName}: ${errMsg}`);
+            }
+          }
+
+          sheetLoc.idToRow.delete(recordId);
+        }
+        // If row did not exist, delete is an idempotent success
+      } else {
+        // create / append operation
+        if (recordId && sheetLoc.idToRow.has(recordId)) {
           skippedDuplicates++;
           processed++;
           results.push({
@@ -448,7 +592,7 @@ export async function flushQueueOperations(
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              values: [op.payload as (string | number)[]],
+              values: [Array.isArray(op.payload) ? (op.payload as (string | number)[]) : [recordId]],
             }),
           }
         );
@@ -459,10 +603,8 @@ export async function flushQueueOperations(
         }
 
         if (recordId) {
-          if (!existingIdsBySheet.has(op.sheetName)) {
-            existingIdsBySheet.set(op.sheetName, new Set());
-          }
-          existingIdsBySheet.get(op.sheetName)!.add(recordId);
+          sheetLoc.maxRow++;
+          sheetLoc.idToRow.set(recordId, sheetLoc.maxRow);
         }
       }
 

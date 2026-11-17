@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -6,7 +6,7 @@ import { SubscriptionPlan, ExpenseCategory } from '../../types/index.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise, toMajorCurrency } from '../../lib/currency.ts';
 import { ThemeCard, ThemeButton, ThemeInput, ThemeBadge } from '../ui/ThemePrimitives.tsx';
-import { AnimatedNumber, MotionStaggerGrid, MotionStaggerItem, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { AnimatedNumber, MotionStaggerGrid, MotionStaggerItem, SkeletonList, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
 import {
   CreditCard,
@@ -19,6 +19,8 @@ import {
   PlayCircle,
   AlertCircle,
   TrendingUp,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 
 export const SubscriptionManager: React.FC = () => {
@@ -30,6 +32,7 @@ export const SubscriptionManager: React.FC = () => {
   const [subscriptions, setSubscriptions] = useState<SubscriptionPlan[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -45,18 +48,22 @@ export const SubscriptionManager: React.FC = () => {
   const [formUrl, setFormUrl] = useState('');
   const [formNotes, setFormNotes] = useState('');
 
-  useEffect(() => {
+  const fetchSubscriptions = useCallback(() => {
     let isMounted = true;
     setLoading(true);
+    setLoadError(null);
 
     Promise.all([api.getSubscriptions(), api.getCategories()])
       .then(([subs, cats]) => {
         if (!isMounted) return;
-        setSubscriptions(subs);
-        setCategories(cats);
+        setSubscriptions(Array.isArray(subs) ? subs : []);
+        setCategories(Array.isArray(cats) ? cats : []);
       })
       .catch((err) => {
-        if (isMounted) showToast('Failed to load subscriptions', 'error');
+        if (!isMounted) return;
+        console.error('Failed to load subscriptions:', err);
+        setLoadError('Failed to load subscriptions. Please check connection and retry.');
+        showToast('Failed to load subscriptions', 'error');
       })
       .finally(() => {
         if (isMounted) setLoading(false);
@@ -65,7 +72,11 @@ export const SubscriptionManager: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [refreshKey, showToast]);
+  }, [showToast]);
+
+  useEffect(() => {
+    return fetchSubscriptions();
+  }, [fetchSubscriptions, refreshKey]);
 
   const openCreateModal = () => {
     setEditingSub(null);
@@ -292,7 +303,29 @@ export const SubscriptionManager: React.FC = () => {
       </AnimatePresence>
 
       {/* Subscriptions Grid */}
-      {subscriptions.length === 0 ? (
+      {loading && subscriptions.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonList rows={3} />
+          <SkeletonList rows={3} />
+          <SkeletonList rows={3} />
+        </div>
+      ) : loadError && subscriptions.length === 0 ? (
+        <ThemeCard className="p-8 text-center my-6">
+          <div className="max-w-md mx-auto flex flex-col items-center">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mb-4">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-1">
+              Unable to Load Subscriptions
+            </h3>
+            <p className="text-sm text-[var(--ff-text-muted)] mb-5">{loadError}</p>
+            <ThemeButton variant="primary" size="sm" onClick={() => fetchSubscriptions()}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              <span>Retry Connection</span>
+            </ThemeButton>
+          </div>
+        </ThemeCard>
+      ) : subscriptions.length === 0 ? (
         <ThemeCard className="text-center py-12">
           <CreditCard className="w-10 h-10 mx-auto text-[var(--ff-text-muted)] mb-3" />
           <h3 className="text-base font-bold text-[var(--ff-text-primary)]">No Active Subscriptions Tracked</h3>

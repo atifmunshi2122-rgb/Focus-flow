@@ -2475,6 +2475,7 @@ export class DatabaseService {
 
   public createJointVault(
     data: {
+      id?: string;
       name: string;
       description?: string;
       targetPaise: number;
@@ -2485,8 +2486,12 @@ export class DatabaseService {
     creatorUser: { id: string; email?: string; name?: string }
   ): JointVault {
     this.ensureJointVaultsArrays();
+    if (data.id) {
+      const existing = (this.db.jointVaults || []).find((v) => v.id === data.id);
+      if (existing) return existing;
+    }
     const nowIso = new Date().toISOString();
-    const vaultId = `vlt_${crypto.randomUUID ? crypto.randomUUID() : Date.now() + '_' + Math.random().toString(36).slice(2, 8)}`;
+    const vaultId = data.id || `vlt_${crypto.randomUUID ? crypto.randomUUID() : Date.now() + '_' + Math.random().toString(36).slice(2, 8)}`;
     const currency = data.currency || 'INR';
 
     const vault: JointVault = {
@@ -2569,7 +2574,8 @@ export class DatabaseService {
   public createVaultInvitation(
     vaultId: string,
     inviterUser: { id: string; name?: string },
-    invitedEmail?: string
+    invitedEmail?: string,
+    options?: { id?: string; inviteCode?: string }
   ): VaultInvitation {
     this.ensureJointVaultsArrays();
     const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
@@ -2579,10 +2585,10 @@ export class DatabaseService {
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const inviteCode = crypto.randomBytes(6).toString('hex').toUpperCase();
+    const inviteCode = options?.inviteCode || crypto.randomBytes(6).toString('hex').toUpperCase();
 
     const invitation: VaultInvitation = {
-      id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: options?.id || `inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       vaultId,
       vaultName: vault.name,
       invitedByUid: inviterUser.id,
@@ -2605,19 +2611,44 @@ export class DatabaseService {
   ): { vault: JointVault; invitation: VaultInvitation } {
     this.ensureJointVaultsArrays();
     const code = inviteCode.trim().toUpperCase();
-    const invitation = (this.db.vaultInvitations || []).find(
-      (inv) => inv.inviteCode === code && inv.status === 'pending'
-    );
-    if (!invitation) throw new Error('Invalid or already processed invitation code');
-
-    if (new Date(invitation.expiresAt) <= new Date()) {
-      invitation.status = 'expired';
-      this.save();
-      throw new Error('Invitation has expired');
+    const allInvitations = this.db.vaultInvitations || [];
+    const codeMatches = allInvitations.filter((inv) => inv.inviteCode === code);
+    if (codeMatches.length === 0) {
+      throw new Error('Invalid invitation code. Please verify the code and retry.');
     }
+    const invitation = codeMatches[codeMatches.length - 1];
 
     const vault = (this.db.jointVaults || []).find((v) => v.id === invitation.vaultId);
+
+    if (invitation.status === 'accepted') {
+      // Idempotency: If already accepted by the exact same account, return existing state
+      if (vault && vault.memberUids.includes(user.id) && invitation.acceptedByUid === user.id) {
+        return { vault, invitation };
+      }
+      throw new Error('Invalid or already processed invitation code');
+    }
+    if (invitation.status === 'revoked') {
+      throw new Error('This invitation code has been revoked. Please ask your partner to generate a new code.');
+    }
+    if (invitation.status === 'expired' || new Date(invitation.expiresAt) <= new Date()) {
+      invitation.status = 'expired';
+      this.save();
+      throw new Error('This invitation code has expired. Please ask your partner to generate a new one.');
+    }
+    if (invitation.status !== 'pending') {
+      throw new Error('This invitation code is no longer valid.');
+    }
+
     if (!vault || vault.status !== 'active') throw new Error('Target vault not found or archived');
+
+    // Enforce intended recipient email match if specified
+    if (invitation.invitedEmail) {
+      const normalizedInvited = invitation.invitedEmail.trim().toLowerCase();
+      const normalizedUser = (user.email || '').trim().toLowerCase();
+      if (!normalizedUser || normalizedInvited !== normalizedUser) {
+        throw new Error('This invitation was sent to a different email address.');
+      }
+    }
 
     if (vault.memberUids.includes(user.id)) {
       throw new Error('You are already a member of this vault');

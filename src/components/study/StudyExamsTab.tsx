@@ -1,4 +1,6 @@
 import React from 'react';
+import { useApp } from '../../context/AppContext.tsx';
+import { DEFAULT_TIMEZONE } from '../../lib/dateTime.ts';
 import { StudyExam, StudySubject, StudyTopic } from '../../types/study.ts';
 import { computeStudyExamReadiness } from '../../lib/studyIntelligence.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
@@ -19,6 +21,8 @@ export const StudyExamsTab: React.FC<StudyExamsTabProps> = ({
   onOpenAddExam,
   onDeleteExam,
 }) => {
+  const { settings } = useApp();
+  const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const activeExams = exams.filter((e) => !e.deletedAt);
 
   return (
@@ -54,7 +58,7 @@ export const StudyExamsTab: React.FC<StudyExamsTabProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeExams.map((exam) => {
-            const readiness = computeStudyExamReadiness(exam, topics);
+            const readiness = computeStudyExamReadiness(exam, topics, tz);
             const isUrgent = readiness.daysRemaining <= 3 && readiness.daysRemaining >= 0;
             const isPassed = readiness.daysRemaining < 0;
 

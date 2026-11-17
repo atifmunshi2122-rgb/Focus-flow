@@ -1427,6 +1427,13 @@
       "name": "Guest Workspace",
       "avatarUrl": "",
       "createdAt": "2026-11-17T08:41:18.153Z"
+    },
+    {
+      "id": "gst_mwku5hry_qlpa8mzu",
+      "email": "guest@focusflow.local",
+      "name": "Guest Workspace",
+      "avatarUrl": "",
+      "createdAt": "2026-11-17T15:16:53.196Z"
     }
   ],
   "userSettings": [
@@ -3524,6 +3531,16 @@
     },
     {
       "userId": "gst_660bc766f2e669ec",
+      "currency": "INR",
+      "pomodoroWorkDuration": 25,
+      "shortBreakDuration": 5,
+      "longBreakDuration": 15,
+      "autoSwitchSessions": false,
+      "soundEnabled": true,
+      "theme": "dark"
+    },
+    {
+      "userId": "gst_mwku5hry_qlpa8mzu",
       "currency": "INR",
       "pomodoroWorkDuration": 25,
       "shortBreakDuration": 5,
@@ -23873,6 +23890,102 @@
     {
       "id": "cat_gst_660bc766f2e669ec_12",
       "userId": "gst_660bc766f2e669ec",
+      "name": "Emergency & Miscellaneous",
+      "type": "variable",
+      "icon": "AlertCircle",
+      "color": "#64748b"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_1",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Housing & Rent",
+      "type": "fixed",
+      "icon": "Home",
+      "color": "#6366f1"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_2",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Internet & Utilities",
+      "type": "fixed",
+      "icon": "Wifi",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_3",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Subscriptions",
+      "type": "fixed",
+      "icon": "Tv",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_4",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Insurance & Healthcare",
+      "type": "fixed",
+      "icon": "Shield",
+      "color": "#ec4899"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_5",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Education & Fees",
+      "type": "fixed",
+      "icon": "GraduationCap",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_6",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Food & Dining",
+      "type": "variable",
+      "icon": "Utensils",
+      "color": "#10b981"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_7",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Groceries",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_8",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Transportation & Fuel",
+      "type": "variable",
+      "icon": "Car",
+      "color": "#f97316"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_9",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Shopping & Retail",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#a855f7"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_10",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Entertainment & Leisure",
+      "type": "variable",
+      "icon": "Film",
+      "color": "#06b6d4"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_11",
+      "userId": "gst_mwku5hry_qlpa8mzu",
+      "name": "Personal & Wellness",
+      "type": "variable",
+      "icon": "Heart",
+      "color": "#e11d48"
+    },
+    {
+      "id": "cat_gst_mwku5hry_qlpa8mzu_12",
+      "userId": "gst_mwku5hry_qlpa8mzu",
       "name": "Emergency & Miscellaneous",
       "type": "variable",
       "icon": "AlertCircle",
