@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import { FinanceSummaryData } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
 import { AnalyticsCharts } from './AnalyticsCharts.tsx';
@@ -12,6 +13,7 @@ import { DailyExpenseTracker } from './DailyExpenseTracker.tsx';
 import { FinancialCalendarView } from './FinancialCalendarView.tsx';
 import { SmartSpendingInsightsCard } from './SmartSpendingInsightsCard.tsx';
 import { FinancialReportsView } from './FinancialReportsView.tsx';
+import { JointVaultsView } from './JointVaultsView.tsx';
 import type { ExpenseTransaction, IncomeTransaction } from '../../types/index.ts';
 import {
   ThemeButton,
@@ -42,6 +44,8 @@ import {
   PieChart,
   ArrowRight,
   ChevronRight,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 
 interface FinanceOverviewProps {
@@ -55,6 +59,7 @@ type FinanceSubTab =
   | 'income'
   | 'expenses'
   | 'savings'
+  | 'vaults'
   | 'reports';
 
 export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAction }) => {
@@ -62,10 +67,16 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
   const [subTab, setSubTab] = useState<FinanceSubTab>('overview');
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
+  const cachedExpenses = clientDataCache.getExpenses();
+  const cachedIncomes = clientDataCache.getIncomes();
+  const hasCachedFinance = Boolean(cachedExpenses || cachedIncomes);
+
   const [summary, setSummary] = useState<FinanceSummaryData | null>(null);
-  const [allExpenses, setAllExpenses] = useState<ExpenseTransaction[]>([]);
-  const [allIncomes, setAllIncomes] = useState<IncomeTransaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [allExpenses, setAllExpenses] = useState<ExpenseTransaction[]>(() => cachedExpenses || []);
+  const [allIncomes, setAllIncomes] = useState<IncomeTransaction[]>(() => cachedIncomes || []);
+  const [loading, setLoading] = useState(!hasCachedFinance);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
   const [filter, setFilter] = useState<string>('this_month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -122,18 +133,41 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
   }, [filteredIncomes, summary]);
 
   const fetchSummary = (f = filter, start?: string, end?: string) => {
-    setLoading(true);
+    if (!hasCachedFinance && !summary) {
+      setLoading(true);
+    }
+    setLoadError(null);
     Promise.all([
       api.getFinanceSummary(f, start, end).catch(() => null),
-      api.getExpenses().catch(() => []),
-      api.getIncomes().catch(() => []),
+      api.getExpenses().catch(() => clientDataCache.getExpenses() || []),
+      api.getIncomes().catch(() => clientDataCache.getIncomes() || []),
     ])
       .then(([sum, exps, incs]) => {
-        setSummary(sum);
-        setAllExpenses(exps);
-        setAllIncomes(incs);
+        if (sum) {
+          setSummary(sum);
+          setIsStale(false);
+        } else if (!summary) {
+          setLoadError('Failed to load financial summary. Please check your connection.');
+        } else {
+          setIsStale(true);
+        }
+        if (exps && exps.length > 0) {
+          setAllExpenses(exps);
+          clientDataCache.setExpenses(exps);
+        }
+        if (incs && incs.length > 0) {
+          setAllIncomes(incs);
+          clientDataCache.setIncomes(incs);
+        }
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error('Failed to load finance overview:', err);
+        if (!summary) {
+          setLoadError('Failed to load financial data. Please check your network connection.');
+        } else {
+          setIsStale(true);
+        }
+      })
       .finally(() => setLoading(false));
   };
 
@@ -181,6 +215,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
             { id: 'income', label: 'Income' },
             { id: 'expenses', label: 'Expenses' },
             { id: 'savings', label: 'Savings Goals' },
+            { id: 'vaults', label: 'Joint Vaults (Couple)' },
             { id: 'reports', label: 'Reports' },
           ]}
         />
@@ -204,6 +239,8 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
         <ExpenseManager />
       ) : subTab === 'savings' ? (
         <BudgetSavingsManager showBudgets={false} showSavings={true} />
+      ) : subTab === 'vaults' ? (
+        <JointVaultsView />
       ) : subTab === 'reports' ? (
         <FinancialReportsView />
       ) : (
@@ -228,6 +265,23 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
           <span>Add Transaction</span>
         </ThemeButton>
       </div>
+
+      {/* Stale Cache Notice */}
+      {isStale && (
+        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>Cached financial metrics: Displaying previously saved records while reconnecting.</span>
+          </div>
+          <button
+            onClick={() => fetchSummary()}
+            className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 transition-colors text-xs font-semibold shrink-0 cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Refresh</span>
+          </button>
+        </div>
+      )}
 
       {/* Custom Date Range Picker */}
       <AnimatePresence initial={false}>
@@ -485,6 +539,24 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
       {/* Analytics Charts Submodule + Monthly Budgets */}
       {loading && !summary ? (
         <SkeletonDashboard />
+      ) : loadError && !summary ? (
+        <ThemeCard className="p-8 text-center my-6">
+          <div className="max-w-md mx-auto flex flex-col items-center">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mb-4">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-1">
+              Unable to Load Financial Overview
+            </h3>
+            <p className="text-sm text-[var(--ff-text-muted)] mb-5">
+              {loadError}
+            </p>
+            <ThemeButton variant="primary" size="sm" onClick={() => fetchSummary()}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              <span>Retry Connection</span>
+            </ThemeButton>
+          </div>
+        </ThemeCard>
       ) : summary ? (
         <>
           <SmartSpendingInsightsCard expenses={allExpenses} incomes={allIncomes} />

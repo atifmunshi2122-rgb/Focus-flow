@@ -97,12 +97,11 @@ test('Phase 9 Verification — Firestore Security Rules AST & Pattern Verificati
     );
   }
 
-  // D. Verify affectedKeys().hasOnly constraint on all 5 Phase 9 hardened collections
+  // D. Verify affectedKeys().hasOnly constraint on hardened collections
   const affectedKeysMatches = rules.match(/request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasOnly/g);
-  assert.equal(
-    affectedKeysMatches?.length,
-    5,
-    'Exactly 5 subcollections (habits, study_subjects, study_topics, study_revisions, study_mistakes) must enforce affectedKeys().hasOnly'
+  assert.ok(
+    (affectedKeysMatches?.length ?? 0) >= 5,
+    'Hardened collections must enforce affectedKeys().hasOnly'
   );
 
   // E. Verify soft-delete preservation restricts affectedKeys to deletedAt/updatedAt

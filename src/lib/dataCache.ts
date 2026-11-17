@@ -15,6 +15,9 @@ import {
   StudyRevision,
   StudyMistake,
   StudyPlanTask,
+  FocusStatsData,
+  TimeBlock,
+  PomodoroGoal,
 } from '../types/index.ts';
 
 interface CacheEntry<T> {
@@ -256,6 +259,29 @@ class ClientDataCache {
   }
   setStudyPlanTasks(tasks: StudyPlanTask[]): void {
     this.set('study_plan_tasks', tasks);
+  }
+
+  getFocusStats(): FocusStatsData | null {
+    return this.get<FocusStatsData>('focus_stats', 120 * 1000);
+  }
+  setFocusStats(stats: FocusStatsData): void {
+    this.set('focus_stats', stats);
+  }
+
+  getPomodoroGoals(): PomodoroGoal[] | null {
+    return this.get<PomodoroGoal[]>('pomodoro_goals', 180 * 1000);
+  }
+  setPomodoroGoals(goals: PomodoroGoal[]): void {
+    this.set('pomodoro_goals', goals);
+  }
+
+  getTimeBlocks(date?: string): TimeBlock[] | null {
+    const domain = date ? `time_blocks_${date}` : 'time_blocks_all';
+    return this.get<TimeBlock[]>(domain, 120 * 1000);
+  }
+  setTimeBlocks(blocks: TimeBlock[], date?: string): void {
+    const domain = date ? `time_blocks_${date}` : 'time_blocks_all';
+    this.set(domain, blocks);
   }
 
   /**

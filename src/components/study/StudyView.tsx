@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import {
   AcademicTier,
   StudySubject,
@@ -130,6 +131,14 @@ export const StudyView: React.FC = () => {
   } = useApp();
 
   const { isDisabled, profile } = useMotionPreferences();
+  const cachedSubs = clientDataCache.getStudySubjects();
+  const cachedTops = clientDataCache.getStudyTopics();
+  const cachedRevs = clientDataCache.getStudyRevisions();
+  const cachedMists = clientDataCache.getStudyMistakes();
+  const cachedSess = clientDataCache.getFocusSessions();
+  const cachedPlanTasks = clientDataCache.getStudyPlanTasks();
+  const hasCachedStudy = Boolean(cachedSubs && cachedSubs.length > 0);
+
   const [activeSubTab, setActiveSubTab] = useState<StudySubTab>('syllabus');
   const [selectedTier, setSelectedTier] = useState<string>('all');
   const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>('all');
@@ -137,14 +146,14 @@ export const StudyView: React.FC = () => {
   const [mistakeSeverityFilter, setMistakeSeverityFilter] = useState<'All' | 'High' | 'Medium' | 'Low'>('All');
 
   // Live state
-  const [subjects, setSubjects] = useState<StudySubject[]>([]);
-  const [topics, setTopics] = useState<StudyTopic[]>([]);
-  const [revisions, setRevisions] = useState<StudyRevision[]>([]);
-  const [mistakes, setMistakes] = useState<StudyMistake[]>([]);
-  const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
+  const [subjects, setSubjects] = useState<StudySubject[]>(() => cachedSubs || []);
+  const [topics, setTopics] = useState<StudyTopic[]>(() => cachedTops || []);
+  const [revisions, setRevisions] = useState<StudyRevision[]>(() => cachedRevs || []);
+  const [mistakes, setMistakes] = useState<StudyMistake[]>(() => cachedMists || []);
+  const [focusSessions, setFocusSessions] = useState<FocusSession[]>(() => cachedSess || []);
   const [goals, setGoals] = useState<StudyGoal[]>([]);
   const [plans, setPlans] = useState<StudyPlan[]>([]);
-  const [planTasks, setPlanTasks] = useState<StudyPlanTask[]>([]);
+  const [planTasks, setPlanTasks] = useState<StudyPlanTask[]>(() => cachedPlanTasks || []);
   const [resources, setResources] = useState<StudyResource[]>([]);
   const [exams, setExams] = useState<StudyExam[]>([]);
   const [notes, setNotes] = useState<StudyNote[]>([]);
@@ -152,8 +161,9 @@ export const StudyView: React.FC = () => {
   const [flashcards, setFlashcards] = useState<StudyFlashcard[]>([]);
   const [quizzes, setQuizzes] = useState<StudyQuiz[]>([]);
   const [customTiers, setCustomTiers] = useState<AcademicTier[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!hasCachedStudy);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
   const [deletingSubjectId, setDeletingSubjectId] = useState<string | null>(null);
 
   // Global search & filters state
@@ -190,24 +200,27 @@ export const StudyView: React.FC = () => {
   const loadData = async () => {
     const currentUid = user?.id ?? null;
     const generation = ++loadGenerationRef.current;
+    const isUserSwitch = activeUserIdRef.current !== currentUid;
     activeUserIdRef.current = currentUid;
 
-    // FIX 1: Immediately clear all Study data from view when user changes, refreshes, or logs out
-    setSubjects([]);
-    setTopics([]);
-    setRevisions([]);
-    setMistakes([]);
-    setFocusSessions([]);
-    setLoadError(null);
-    setGoals([]);
-    setPlans([]);
-    setPlanTasks([]);
-    setResources([]);
-    setExams([]);
-    setNotes([]);
-    setActivityLogs([]);
-    setFlashcards([]);
-    setQuizzes([]);
+    // Immediately clear Study data only when user switches or logs out
+    if (isUserSwitch) {
+      setSubjects([]);
+      setTopics([]);
+      setRevisions([]);
+      setMistakes([]);
+      setFocusSessions([]);
+      setLoadError(null);
+      setGoals([]);
+      setPlans([]);
+      setPlanTasks([]);
+      setResources([]);
+      setExams([]);
+      setNotes([]);
+      setActivityLogs([]);
+      setFlashcards([]);
+      setQuizzes([]);
+    }
 
     // If user is not resolved or logged out, do not execute unauthenticated fetch or seed
     if (!currentUid) {
@@ -215,10 +228,12 @@ export const StudyView: React.FC = () => {
       return;
     }
 
-    setLoading(true);
+    if (isUserSwitch || (subjects.length === 0 && !hasCachedStudy)) {
+      setLoading(true);
+    }
+    setLoadError(null);
 
     try {
-      // FIX 2: Do NOT swallow network errors into empty arrays via .catch(() => [])
       const [
         subs,
         tops,
@@ -253,19 +268,24 @@ export const StudyView: React.FC = () => {
         api.getStudyTiers().catch(() => []),
       ]);
 
-      // FIX 1: If user switched or another load triggered while waiting, ignore stale response
+      // If user switched or another load triggered while waiting, ignore stale response
       if (generation !== loadGenerationRef.current || activeUserIdRef.current !== currentUid) {
         return;
       }
 
       setSubjects(subs);
+      clientDataCache.setStudySubjects(subs);
       setTopics(tops);
+      clientDataCache.setStudyTopics(tops);
       setRevisions(revs);
+      clientDataCache.setStudyRevisions(revs);
       setMistakes(mists);
+      clientDataCache.setStudyMistakes(mists);
       setFocusSessions(sess);
       setGoals(goalsData);
       setPlans(plansData);
       setPlanTasks(tasksData);
+      clientDataCache.setStudyPlanTasks(tasksData);
       setResources(resData);
       setExams(examsData);
       setNotes(notesData);
@@ -274,13 +294,18 @@ export const StudyView: React.FC = () => {
       setQuizzes(quizzesData);
       setCustomTiers(tiersData || []);
       setLoadError(null);
+      setIsStale(false);
     } catch (err: unknown) {
       if (generation !== loadGenerationRef.current || activeUserIdRef.current !== currentUid) {
         return;
       }
       console.error('Failed to load study data:', err);
       const msg = err instanceof Error ? err.message : 'Error loading study data.';
-      setLoadError(msg);
+      if (subjects.length > 0 || (cachedSubs && cachedSubs.length > 0)) {
+        setIsStale(true);
+      } else {
+        setLoadError(msg);
+      }
       showToast('Error loading study data. Please retry.', 'error');
     } finally {
       if (generation === loadGenerationRef.current && activeUserIdRef.current === currentUid) {
@@ -1410,6 +1435,20 @@ export const StudyView: React.FC = () => {
           </ThemeButton>
         </div>
       </div>
+
+      {/* Stale Cache Notice */}
+      {isStale && (
+        <div className="flex items-center justify-between p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Cached study records: Displaying saved study data while reconnecting.</span>
+          </div>
+          <ThemeButton variant="secondary" size="sm" onClick={() => void loadData()}>
+            <RotateCcw className="w-3.5 h-3.5 mr-1" />
+            Refresh
+          </ThemeButton>
+        </div>
+      )}
 
       {/* Network / Load Error Alert */}
       {loadError && (

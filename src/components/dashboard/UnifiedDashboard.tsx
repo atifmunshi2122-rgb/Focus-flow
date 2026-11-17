@@ -204,6 +204,8 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const [studySubjects, setStudySubjects] = useState<StudySubject[]>(() => clientDataCache.getStudySubjects() || []);
   const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>(() => clientDataCache.getStudyPlanTasks() || []);
   const [loading, setLoading] = useState(!cachedDash);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
 
   const todayStr = useMemo(
     () => getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE),
@@ -233,10 +235,16 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
+  const loadDashboardData = () => {
     if (!clientDataCache.getDashboardData()) {
       setLoading(true);
     }
+    setLoadError(null);
+    const staleCheck = clientDataCache.getWithStale<DashboardData>('dashboard');
+    if (staleCheck.data) {
+      setIsStale(staleCheck.isStale);
+    }
+
     const skipStudy = layoutConfig.hiddenWidgets.includes('study_pulse');
     Promise.all([
       api.getDashboard(),
@@ -276,9 +284,21 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
         setStudyMistakes(sm);
         setStudySubjects(ssub);
         setStudyPlanTasks(spt);
+        setIsStale(false);
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error('Failed to load dashboard:', err);
+        if (!data && !clientDataCache.getDashboardData()) {
+          setLoadError('Failed to load dashboard metrics. Please check your network connection.');
+        } else {
+          setIsStale(true);
+        }
+      })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadDashboardData();
   }, [refreshKey]);
 
   const productivityScore = useMemo(() => {
@@ -1289,6 +1309,22 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     }
   };
 
+  if (loadError && !data) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[360px] p-8 text-center space-y-4 rounded-2xl border border-red-500/30 bg-red-500/10">
+        <AlertTriangle className="w-10 h-10 text-red-400" />
+        <div className="space-y-1">
+          <h3 className="text-base font-semibold text-[var(--ff-text-primary)]">Unable to Load Dashboard</h3>
+          <p className="text-xs text-[var(--ff-text-muted)] max-w-sm">{loadError}</p>
+        </div>
+        <ThemeButton variant="primary" size="sm" onClick={loadDashboardData}>
+          <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+          Retry Connection
+        </ThemeButton>
+      </div>
+    );
+  }
+
   return (
     <SkeletonCrossfade
       loading={isInitialLoading}
@@ -1296,6 +1332,22 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       contentKey="dashboard-ready"
     >
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
+      {isStale && (
+        <div className="flex items-center justify-between p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Cached metrics: Displaying previously saved records while network reconnects.</span>
+          </div>
+          <button
+            type="button"
+            onClick={loadDashboardData}
+            className="text-xs font-semibold underline hover:text-amber-200"
+          >
+            Refresh
+          </button>
+        </div>
+      )}
+
       {/* Customize & Timeframe Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)]">
         <div className="flex flex-wrap items-center gap-3">

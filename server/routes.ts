@@ -3446,6 +3446,287 @@ apiRouter.post('/backup/restore', async (req: Request, res: Response, next: Next
 });
 
 // ----------------------------------------------------
+// JOINT VAULTS (COUPLE SHARED SAVINGS)
+// ----------------------------------------------------
+apiRouter.get('/joint-vaults', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const vaults = dbService.getJointVaultsForUser(userId);
+  res.json(vaults);
+});
+
+apiRouter.post('/joint-vaults', async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const body = req.body || {};
+
+  if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
+    res.status(400).json({ error: 'Vault name is required' });
+    return;
+  }
+  if (!body.targetPaise || !Number.isInteger(body.targetPaise) || body.targetPaise <= 0) {
+    res.status(400).json({ error: 'Target amount must be a positive integer in minor units (paise)' });
+    return;
+  }
+
+  const allowedCurrencies = ['INR', 'USD', 'EUR', 'GBP'];
+  const currency = allowedCurrencies.includes(body.currency) ? body.currency : 'INR';
+
+  try {
+    const vault = dbService.createJointVault(
+      {
+        name: body.name,
+        description: body.description,
+        targetPaise: body.targetPaise,
+        monthlyTargetPaise: body.monthlyTargetPaise,
+        currency,
+        targetRatio: body.targetRatio,
+      },
+      { id: auth.userId, email: auth.email, name: auth.name }
+    );
+    await dbService.flush();
+    const summary = dbService.getVaultSummary(vault.id, auth.userId);
+    res.status(201).json(summary || vault);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to create joint vault';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.get('/joint-vaults/:vaultId', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { vaultId } = req.params;
+  const summary = dbService.getVaultSummary(vaultId, userId);
+  if (!summary) {
+    res.status(404).json({ error: 'Vault not found or access denied' });
+    return;
+  }
+  res.json(summary);
+});
+
+apiRouter.post('/joint-vaults/:vaultId/invitations', async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const { vaultId } = req.params;
+  const { invitedEmail } = req.body || {};
+
+  try {
+    const invitation = dbService.createVaultInvitation(
+      vaultId,
+      { id: auth.userId, name: auth.name },
+      invitedEmail
+    );
+    await dbService.flush();
+    res.status(201).json(invitation);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to create invitation';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/invitations/accept', async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const { inviteCode } = req.body || {};
+  if (!inviteCode || typeof inviteCode !== 'string') {
+    res.status(400).json({ error: 'Invite code is required' });
+    return;
+  }
+
+  try {
+    const result = dbService.acceptVaultInvitation(inviteCode, {
+      id: auth.userId,
+      email: auth.email,
+      name: auth.name,
+    });
+    await dbService.flush();
+    const summary = dbService.getVaultSummary(result.vault.id, auth.userId);
+    res.json(summary || result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to accept invitation';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/invitations/reject', async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const { inviteCode } = req.body || {};
+  if (!inviteCode || typeof inviteCode !== 'string') {
+    res.status(400).json({ error: 'Invite code is required' });
+    return;
+  }
+
+  try {
+    const invitation = dbService.rejectVaultInvitation(inviteCode, auth.userId);
+    await dbService.flush();
+    res.json(invitation);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to reject invitation';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/:vaultId/invitations/:inviteId/revoke', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { vaultId, inviteId } = req.params;
+
+  const success = dbService.revokeVaultInvitation(vaultId, inviteId, userId);
+  if (!success) {
+    res.status(400).json({ error: 'Failed to revoke invitation or unauthorized' });
+    return;
+  }
+  await dbService.flush();
+  res.json({ success: true });
+});
+
+apiRouter.post('/joint-vaults/:vaultId/contributions', async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const { vaultId } = req.params;
+  const body = req.body || {};
+
+  try {
+    const contribution = dbService.addVaultContribution(
+      vaultId,
+      { id: auth.userId, name: auth.name },
+      {
+        amountPaise: body.amountPaise,
+        date: body.date,
+        description: body.description,
+      }
+    );
+    await dbService.flush();
+    const summary = dbService.getVaultSummary(vaultId, auth.userId);
+    res.status(201).json({ contribution, summary });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to add contribution';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/:vaultId/contributions/:id/reverse', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { vaultId, id } = req.params;
+  const { reason } = req.body || {};
+
+  try {
+    const contribution = dbService.reverseVaultContribution(vaultId, id, userId, reason || 'Reversed by member');
+    await dbService.flush();
+    const summary = dbService.getVaultSummary(vaultId, userId);
+    res.json({ contribution, summary });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to reverse contribution';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/:vaultId/expenses', async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const { vaultId } = req.params;
+  const body = req.body || {};
+
+  try {
+    const expense = dbService.addVaultExpense(
+      vaultId,
+      { id: auth.userId, name: auth.name },
+      {
+        amountPaise: body.amountPaise,
+        description: body.description,
+        date: body.date,
+        splitMode: body.splitMode,
+        customShares: body.customShares,
+      }
+    );
+    await dbService.flush();
+    const summary = dbService.getVaultSummary(vaultId, auth.userId);
+    res.status(201).json({ expense, summary });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to add joint expense';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/:vaultId/expenses/:id/reverse', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { vaultId, id } = req.params;
+
+  try {
+    const expense = dbService.reverseVaultExpense(vaultId, id, userId);
+    await dbService.flush();
+    const summary = dbService.getVaultSummary(vaultId, userId);
+    res.json({ expense, summary });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to reverse expense';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/:vaultId/settlements', async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const { vaultId } = req.params;
+  const body = req.body || {};
+
+  try {
+    const settlement = dbService.recordVaultSettlement(
+      vaultId,
+      { id: auth.userId, name: auth.name },
+      {
+        toUid: body.toUid,
+        toName: body.toName,
+        amountPaise: body.amountPaise,
+        date: body.date,
+        notes: body.notes,
+      }
+    );
+    await dbService.flush();
+    const summary = dbService.getVaultSummary(vaultId, auth.userId);
+    res.status(201).json({ settlement, summary });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to record settlement';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.patch('/joint-vaults/:vaultId/ratio', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { vaultId } = req.params;
+  const { targetRatio } = req.body || {};
+
+  try {
+    const vault = dbService.updateVaultRatio(vaultId, userId, targetRatio);
+    await dbService.flush();
+    const summary = dbService.getVaultSummary(vaultId, userId);
+    res.json(summary || vault);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to update target ratio';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/:vaultId/leave', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { vaultId } = req.params;
+
+  try {
+    const success = dbService.leaveVault(vaultId, userId);
+    await dbService.flush();
+    res.json({ success });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to leave vault';
+    res.status(400).json({ error: msg });
+  }
+});
+
+apiRouter.post('/joint-vaults/:vaultId/archive', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { vaultId } = req.params;
+
+  try {
+    const vault = dbService.archiveVault(vaultId, userId);
+    await dbService.flush();
+    res.json(vault);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to archive vault';
+    res.status(400).json({ error: msg });
+  }
+});
+
+// ----------------------------------------------------
 // Final 404 handler for unmatched /api routes
 // ----------------------------------------------------
 apiRouter.use((_req: Request, res: Response) => {

@@ -34,6 +34,7 @@ const BillsTracker = lazy(() => import('./components/finance/BillsTracker.tsx').
 const TransactionsLedger = lazy(() => import('./components/finance/TransactionsLedger.tsx').then((m) => ({ default: m.TransactionsLedger })));
 const EnvelopeBudgetManager = lazy(() => import('./components/finance/EnvelopeBudgetManager.tsx').then((m) => ({ default: m.EnvelopeBudgetManager })));
 const SubscriptionManager = lazy(() => import('./components/finance/SubscriptionManager.tsx').then((m) => ({ default: m.SubscriptionManager })));
+const JointVaultsView = lazy(() => import('./components/finance/JointVaultsView.tsx').then((m) => ({ default: m.JointVaultsView })));
 const StudyView = lazy(() => import('./components/study/StudyView.tsx').then((m) => ({ default: m.StudyView })));
 const AnalyticsReportsView = lazy(() => import('./components/analytics/AnalyticsReportsView.tsx').then((m) => ({ default: m.AnalyticsReportsView })));
 const ExportCenterView = lazy(() => import('./components/export/ExportCenterView.tsx').then((m) => ({ default: m.ExportCenterView })));
@@ -59,6 +60,7 @@ import {
   CreditCard,
   Layers,
   Repeat,
+  Heart,
   BarChart3,
   Download,
 } from 'lucide-react';
@@ -79,6 +81,7 @@ const MORE_GRID_ITEMS: MobileMoreItem[] = [
   { id: 'transactions', label: 'Transactions', icon: ReceiptText },
   { id: 'envelopes', label: 'Envelopes', icon: Layers },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
+  { id: 'vaults', label: 'Couple Vaults', icon: Heart },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'exports', label: 'Export Center', icon: Download },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -356,6 +359,8 @@ const MainContent: React.FC = () => {
                   {currentTab === 'envelopes' && <EnvelopeBudgetManager />}
 
                   {currentTab === 'subscriptions' && <SubscriptionManager />}
+
+                  {currentTab === 'vaults' && <JointVaultsView />}
 
                   {currentTab === 'study' && <StudyView />}
 

@@ -164,48 +164,59 @@ export const ExportCenterView: React.FC = () => {
     studyRevisions: (clientDataCache.getStudyRevisions() || []).filter((item: StudyRevision) => !item.deletedAt),
   }));
 
-  const loadAllData = () => {
+  const loadAllData = async () => {
     setLoading(true);
-    Promise.all([
-      api.getIncomes().catch(() => [] as IncomeTransaction[]),
-      api.getExpenses().catch(() => [] as ExpenseTransaction[]),
-      api.getBills().catch(() => [] as Bill[]),
-      api.getEnvelopes().catch(() => [] as BudgetEnvelope[]),
-      api.getSavingsGoals().catch(() => [] as SavingsGoal[]),
-      api.getSubscriptions().catch(() => [] as SubscriptionPlan[]),
-      api.getCategories().catch(() => [] as ExpenseCategory[]),
-      api.getTasks().catch(() => [] as Task[]),
-      api.getFocusSessions().catch(() => [] as FocusSession[]),
-      api.getHabits().catch(() => [] as Habit[]),
-      api.getTimeBlocks().catch(() => [] as TimeBlock[]),
-      api.getStudySubjects().catch(() => [] as StudySubject[]),
-      api.getStudyTopics().catch(() => [] as StudyTopic[]),
-      api.getStudyRevisions().catch(() => [] as StudyRevision[]),
-    ])
-      .then(([inc, exp, b, env, sg, sub, cat, t, s, h, tb, sSub, sTop, sRev]) => {
-        setRawData({
-          userName: user?.name || 'Verified User',
-          userSettings: settings,
-          incomes: inc.filter((item: IncomeTransaction) => !item.deletedAt),
-          expenses: exp.filter((item: ExpenseTransaction) => !item.deletedAt),
-          bills: b.filter((item: Bill) => !item.deletedAt),
-          envelopes: env.filter((item: BudgetEnvelope) => !item.deletedAt),
-          savingsGoals: sg,
-          subscriptions: sub.filter((item: SubscriptionPlan) => !item.deletedAt),
-          categories: cat,
-          tasks: t.filter((item: Task) => !item.deletedAt),
-          sessions: s,
-          habits: h.filter((item: Habit) => !item.deletedAt),
-          timeBlocks: tb.filter((item: TimeBlock) => !item.deletedAt),
-          studySubjects: sSub.filter((item: StudySubject) => !item.deletedAt),
-          studyTopics: sTop.filter((item: StudyTopic) => !item.deletedAt),
-          studyRevisions: sRev.filter((item: StudyRevision) => !item.deletedAt),
-        });
-      })
-      .catch((err) => {
-        showToast('Failed to load export collections', 'error');
-      })
-      .finally(() => setLoading(false));
+    try {
+      // Execute collections in controlled batches of 3-4 to avoid network saturation on slow connections
+      const [inc, exp, b, env] = await Promise.all([
+        api.getIncomes().catch(() => [] as IncomeTransaction[]),
+        api.getExpenses().catch(() => [] as ExpenseTransaction[]),
+        api.getBills().catch(() => [] as Bill[]),
+        api.getEnvelopes().catch(() => [] as BudgetEnvelope[]),
+      ]);
+
+      const [sg, sub, cat, t] = await Promise.all([
+        api.getSavingsGoals().catch(() => [] as SavingsGoal[]),
+        api.getSubscriptions().catch(() => [] as SubscriptionPlan[]),
+        api.getCategories().catch(() => [] as ExpenseCategory[]),
+        api.getTasks().catch(() => [] as Task[]),
+      ]);
+
+      const [s, h, tb] = await Promise.all([
+        api.getFocusSessions().catch(() => [] as FocusSession[]),
+        api.getHabits().catch(() => [] as Habit[]),
+        api.getTimeBlocks().catch(() => [] as TimeBlock[]),
+      ]);
+
+      const [sSub, sTop, sRev] = await Promise.all([
+        api.getStudySubjects().catch(() => [] as StudySubject[]),
+        api.getStudyTopics().catch(() => [] as StudyTopic[]),
+        api.getStudyRevisions().catch(() => [] as StudyRevision[]),
+      ]);
+
+      setRawData({
+        userName: user?.name || 'Verified User',
+        userSettings: settings,
+        incomes: inc.filter((item: IncomeTransaction) => !item.deletedAt),
+        expenses: exp.filter((item: ExpenseTransaction) => !item.deletedAt),
+        bills: b.filter((item: Bill) => !item.deletedAt),
+        envelopes: env.filter((item: BudgetEnvelope) => !item.deletedAt),
+        savingsGoals: sg,
+        subscriptions: sub.filter((item: SubscriptionPlan) => !item.deletedAt),
+        categories: cat,
+        tasks: t.filter((item: Task) => !item.deletedAt),
+        sessions: s,
+        habits: h.filter((item: Habit) => !item.deletedAt),
+        timeBlocks: tb.filter((item: TimeBlock) => !item.deletedAt),
+        studySubjects: sSub.filter((item: StudySubject) => !item.deletedAt),
+        studyTopics: sTop.filter((item: StudyTopic) => !item.deletedAt),
+        studyRevisions: sRev.filter((item: StudyRevision) => !item.deletedAt),
+      });
+    } catch (err) {
+      showToast('Failed to load export collections', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

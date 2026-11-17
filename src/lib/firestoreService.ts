@@ -8,6 +8,7 @@ import {
   writeBatch,
   runTransaction,
   query,
+  where,
   orderBy,
   limit,
   startAfter,
@@ -73,7 +74,24 @@ import {
   PomodoroInterruption,
   PomodoroAmbientPreset,
 } from '../types/index.ts';
+import {
+  JointVault,
+  VaultMember,
+  VaultInvitation,
+  VaultContribution,
+  VaultExpense,
+  VaultSettlement,
+  VaultActivity,
+  VaultSummary,
+  ExpenseSplitMode,
+} from '../types/vault.ts';
+import {
+  isValidRatio,
+  splitExpense,
+  buildVaultSummary,
+} from './vaultIntelligence.ts';
 import { processRevisionRecall } from './studyIntelligence.ts';
+import { clientDataCache } from './dataCache.ts';
 
 const DEFAULT_CATEGORY_TEMPLATES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
   { name: 'Housing & Rent', type: 'fixed', icon: 'Home', color: '#6366f1' },
@@ -660,7 +678,9 @@ export const firestoreService = {
   },
 
   async getFocusStats(userId: string, targetTimezone: string = DEFAULT_TIMEZONE): Promise<FocusStatsData> {
-    const all = await this.getFocusSessions(userId);
+    const cachedSessions = clientDataCache.getFocusSessions();
+    const all = cachedSessions || (await this.getFocusSessions(userId));
+    if (!cachedSessions) clientDataCache.setFocusSessions(all);
     const sessions = all.filter((s) => s.completed);
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const last7Days: FocusStatsData['last7Days'] = [];
@@ -1660,6 +1680,13 @@ export const firestoreService = {
 
   // Aggregated Dashboard & Finance Summary
   async getDashboard(userId: string): Promise<DashboardData> {
+    const cachedSessions = clientDataCache.getFocusSessions();
+    const cachedTasks = clientDataCache.getTasks();
+    const cachedIncomes = clientDataCache.getIncomes();
+    const cachedExpenses = clientDataCache.getExpenses();
+    const cachedBills = clientDataCache.getBills();
+    const cachedCats = clientDataCache.getCategories();
+
     const [sessions, tasks, incomes, expenses, bills, cats, userSettings]: [
       FocusSession[],
       Task[],
@@ -1669,14 +1696,21 @@ export const firestoreService = {
       ExpenseCategory[],
       Partial<UserSettings> | null,
     ] = await Promise.all([
-      this.getFocusSessions(userId),
-      this.getTasks(userId),
-      this.getIncomes(userId),
-      this.getExpenses(userId),
-      this.getBills(userId),
-      this.getCategories(userId),
+      cachedSessions ? Promise.resolve(cachedSessions) : this.getFocusSessions(userId),
+      cachedTasks ? Promise.resolve(cachedTasks) : this.getTasks(userId),
+      cachedIncomes ? Promise.resolve(cachedIncomes) : this.getIncomes(userId),
+      cachedExpenses ? Promise.resolve(cachedExpenses) : this.getExpenses(userId),
+      cachedBills ? Promise.resolve(cachedBills) : this.getBills(userId),
+      cachedCats ? Promise.resolve(cachedCats) : this.getCategories(userId),
       this.getSettings(userId).catch(() => null),
     ]);
+
+    if (!cachedSessions) clientDataCache.setFocusSessions(sessions);
+    if (!cachedTasks) clientDataCache.setTasks(tasks);
+    if (!cachedIncomes) clientDataCache.setIncomes(incomes);
+    if (!cachedExpenses) clientDataCache.setExpenses(expenses);
+    if (!cachedBills) clientDataCache.setBills(bills);
+    if (!cachedCats) clientDataCache.setCategories(cats);
 
     const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
     const todayStr = getTodayDateString(tz);
@@ -1791,13 +1825,23 @@ export const firestoreService = {
     customStart?: string,
     customEnd?: string
   ): Promise<FinanceSummaryData> {
+    const cachedIncomes = clientDataCache.getIncomes();
+    const cachedExpenses = clientDataCache.getExpenses();
+    const cachedBills = clientDataCache.getBills();
+    const cachedCats = clientDataCache.getCategories();
+
     const [allIncomes, allExpenses, allBills, cats, userSettings] = await Promise.all([
-      this.getIncomes(userId),
-      this.getExpenses(userId),
-      this.getBills(userId),
-      this.getCategories(userId),
+      cachedIncomes ? Promise.resolve(cachedIncomes) : this.getIncomes(userId),
+      cachedExpenses ? Promise.resolve(cachedExpenses) : this.getExpenses(userId),
+      cachedBills ? Promise.resolve(cachedBills) : this.getBills(userId),
+      cachedCats ? Promise.resolve(cachedCats) : this.getCategories(userId),
       this.getSettings(userId).catch(() => null),
     ]);
+
+    if (!cachedIncomes) clientDataCache.setIncomes(allIncomes);
+    if (!cachedExpenses) clientDataCache.setExpenses(allExpenses);
+    if (!cachedBills) clientDataCache.setBills(allBills);
+    if (!cachedCats) clientDataCache.setCategories(cats);
 
     const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
     const todayStr = getTodayDateString(tz);
@@ -4006,5 +4050,487 @@ export const firestoreService = {
 
     await this.saveSettings(userId, patch);
     return merged;
+  },
+
+  // ==========================================
+  // JOINT VAULTS (COUPLE SHARED SAVINGS)
+  // ==========================================
+
+  async getJointVaults(user: FirebaseUser): Promise<VaultSummary[]> {
+    const q = query(collection(db, 'sharedVaults'), where('memberUids', 'array-contains', user.uid));
+    try {
+      const snap = await getDocs(q);
+      const summaries: VaultSummary[] = [];
+      for (const d of snap.docs) {
+        const sum = await this.getJointVault(d.id, user);
+        if (sum) summaries.push(sum);
+      }
+      return summaries;
+    } catch (err) {
+      console.warn('[firestoreService] getJointVaults query failed:', err);
+      return [];
+    }
+  },
+
+  async getJointVault(vaultId: string, user: FirebaseUser): Promise<VaultSummary | null> {
+    const vaultRef = doc(db, 'sharedVaults', vaultId);
+    try {
+      const vaultSnap = await getDoc(vaultRef);
+      if (!vaultSnap.exists()) return null;
+      const vault = vaultSnap.data() as JointVault;
+      if (!vault.memberUids.includes(user.uid)) return null;
+
+      const [membersSnap, contribSnap, expSnap, settleSnap, actSnap] = await Promise.all([
+        getDocs(collection(db, `sharedVaults/${vaultId}/members`)),
+        getDocs(collection(db, `sharedVaults/${vaultId}/contributions`)),
+        getDocs(collection(db, `sharedVaults/${vaultId}/expenses`)),
+        getDocs(collection(db, `sharedVaults/${vaultId}/settlements`)),
+        getDocs(query(collection(db, `sharedVaults/${vaultId}/activity`), limit(30))),
+      ]);
+
+      const members = membersSnap.docs.map((d) => d.data() as VaultMember);
+      const contributions = contribSnap.docs.map((d) => d.data() as VaultContribution);
+      const expenses = expSnap.docs.map((d) => d.data() as VaultExpense);
+      const settlements = settleSnap.docs.map((d) => d.data() as VaultSettlement);
+      const activities = actSnap.docs.map((d) => d.data() as VaultActivity);
+
+      return buildVaultSummary(vault, members, contributions, expenses, settlements, activities);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, `sharedVaults/${vaultId}`);
+      return null;
+    }
+  },
+
+  async createJointVault(
+    user: FirebaseUser,
+    data: {
+      name: string;
+      description?: string;
+      targetPaise: number;
+      monthlyTargetPaise?: number;
+      currency?: 'INR' | 'USD' | 'EUR' | 'GBP';
+      targetRatio?: Record<string, number>;
+    }
+  ): Promise<JointVault> {
+    const nowIso = new Date().toISOString();
+    const vaultId = `vlt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const currency = data.currency || 'INR';
+
+    const vault: JointVault = {
+      id: vaultId,
+      name: data.name.trim(),
+      description: (data.description || '').trim(),
+      currency,
+      targetPaise: data.targetPaise,
+      monthlyTargetPaise: data.monthlyTargetPaise || Math.round(data.targetPaise / 10),
+      createdBy: user.uid,
+      memberUids: [user.uid],
+      targetRatio: data.targetRatio && isValidRatio(data.targetRatio, [user.uid]) ? data.targetRatio : { [user.uid]: 100 },
+      status: 'active',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    const creatorMember: VaultMember = {
+      uid: user.uid,
+      email: user.email || `${user.uid}@focusflow.app`,
+      name: user.displayName || 'Vault Creator',
+      role: 'creator',
+      status: 'active',
+      joinedAt: nowIso,
+    };
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.uid,
+      actorName: creatorMember.name,
+      type: 'vault_created',
+      title: 'Joint Vault Created',
+      description: `${creatorMember.name} created the vault "${vault.name}"`,
+      timestamp: nowIso,
+    };
+
+    try {
+      await setDoc(doc(db, 'sharedVaults', vaultId), stripUndefined({ ...vault }));
+      const batch = writeBatch(db);
+      batch.set(doc(db, `sharedVaults/${vaultId}/members`, user.uid), stripUndefined({ ...creatorMember }));
+      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      await batch.commit();
+      return vault;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}`);
+      throw err;
+    }
+  },
+
+  async createVaultInvitation(
+    user: FirebaseUser,
+    vaultId: string,
+    invitedEmail?: string
+  ): Promise<VaultInvitation> {
+    const vaultRef = doc(db, 'sharedVaults', vaultId);
+    const vaultSnap = await getDoc(vaultRef);
+    if (!vaultSnap.exists()) throw new Error('Vault not found');
+    const vault = vaultSnap.data() as JointVault;
+    if (!vault.memberUids.includes(user.uid)) throw new Error('Unauthorized');
+    if (vault.memberUids.length >= 2) throw new Error('Vault already has maximum members (2)');
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let inviteCode = '';
+    for (let i = 0; i < 10; i++) {
+      inviteCode += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    const invitation: VaultInvitation = {
+      id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      vaultName: vault.name,
+      invitedByUid: user.uid,
+      invitedByName: user.displayName || 'Vault Partner',
+      inviteCode,
+      invitedEmail: invitedEmail ? invitedEmail.trim() : undefined,
+      status: 'pending',
+      createdAt: now.toISOString(),
+      expiresAt,
+    };
+
+    try {
+      await setDoc(doc(db, `sharedVaults/${vaultId}/invitations`, invitation.id), stripUndefined({ ...invitation }));
+      return invitation;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/invitations`);
+      throw err;
+    }
+  },
+
+  async acceptVaultInvitation(
+    user: FirebaseUser,
+    inviteCode: string
+  ): Promise<{ vault: JointVault; invitation: VaultInvitation }> {
+    const code = inviteCode.trim().toUpperCase();
+    return await runTransaction(db, async (tx) => {
+      const vaultSnapshots = await getDocs(collection(db, 'sharedVaults'));
+      let foundInvite: VaultInvitation | null = null;
+      let targetVault: JointVault | null = null;
+
+      for (const vDoc of vaultSnapshots.docs) {
+        const invSnap = await getDocs(query(collection(db, `sharedVaults/${vDoc.id}/invitations`), where('inviteCode', '==', code), where('status', '==', 'pending')));
+        if (!invSnap.empty) {
+          foundInvite = invSnap.docs[0].data() as VaultInvitation;
+          targetVault = vDoc.data() as JointVault;
+          break;
+        }
+      }
+
+      if (!foundInvite || !targetVault) {
+        throw new Error('Invalid or already accepted invitation code');
+      }
+      if (new Date(foundInvite.expiresAt) <= new Date()) {
+        throw new Error('Invitation code has expired');
+      }
+      if (targetVault.memberUids.length >= 2) {
+        throw new Error('Vault already has maximum members (2)');
+      }
+      if (targetVault.memberUids.includes(user.uid)) {
+        throw new Error('You are already a member of this vault');
+      }
+
+      const nowIso = new Date().toISOString();
+      const updatedMembers = [...targetVault.memberUids, user.uid];
+      const updatedRatio = { [targetVault.createdBy]: 50, [user.uid]: 50 };
+
+      foundInvite.status = 'accepted';
+      foundInvite.acceptedByUid = user.uid;
+      foundInvite.acceptedAt = nowIso;
+
+      const newMember: VaultMember = {
+        uid: user.uid,
+        email: user.email || `${user.uid}@focusflow.app`,
+        name: user.displayName || 'Partner',
+        role: 'partner',
+        status: 'active',
+        joinedAt: nowIso,
+      };
+
+      const activity: VaultActivity = {
+        id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        vaultId: targetVault.id,
+        actorUid: user.uid,
+        actorName: newMember.name,
+        type: 'member_joined',
+        title: 'Partner Joined Vault',
+        description: `${newMember.name} joined "${targetVault.name}"`,
+        timestamp: nowIso,
+      };
+
+      tx.update(doc(db, 'sharedVaults', targetVault.id), {
+        memberUids: updatedMembers,
+        targetRatio: updatedRatio,
+        updatedAt: nowIso,
+      });
+      tx.set(doc(db, `sharedVaults/${targetVault.id}/members`, user.uid), stripUndefined({ ...newMember }));
+      tx.update(doc(db, `sharedVaults/${targetVault.id}/invitations`, foundInvite.id), {
+        status: 'accepted',
+        acceptedByUid: user.uid,
+        acceptedAt: nowIso,
+      });
+      tx.set(doc(db, `sharedVaults/${targetVault.id}/activity`, activity.id), stripUndefined({ ...activity }));
+
+      targetVault.memberUids = updatedMembers;
+      targetVault.targetRatio = updatedRatio;
+      return { vault: targetVault, invitation: foundInvite };
+    });
+  },
+
+  async addVaultContribution(
+    user: FirebaseUser,
+    vaultId: string,
+    data: { amountPaise: number; date?: string; description?: string }
+  ): Promise<VaultContribution> {
+    const nowIso = new Date().toISOString();
+    const contributionId = `vcb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const contribution: VaultContribution = {
+      id: contributionId,
+      vaultId,
+      contributedByUid: user.uid,
+      contributorName: user.displayName || 'Member',
+      amountPaise: data.amountPaise,
+      date: data.date || nowIso.slice(0, 10),
+      description: (data.description || 'Shared savings contribution').trim(),
+      createdAt: nowIso,
+      status: 'active',
+    };
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.uid,
+      actorName: contribution.contributorName,
+      type: 'contribution_added',
+      title: 'Contribution Added',
+      description: `${contribution.contributorName} contributed savings`,
+      amountPaise: contribution.amountPaise,
+      timestamp: nowIso,
+    };
+
+    try {
+      const batch = writeBatch(db);
+      batch.set(doc(db, `sharedVaults/${vaultId}/contributions`, contributionId), stripUndefined({ ...contribution }));
+      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      await batch.commit();
+      return contribution;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/contributions`);
+      throw err;
+    }
+  },
+
+  async reverseVaultContribution(
+    user: FirebaseUser,
+    vaultId: string,
+    contributionId: string,
+    reason: string
+  ): Promise<VaultContribution> {
+    const contribRef = doc(db, `sharedVaults/${vaultId}/contributions`, contributionId);
+    const snap = await getDoc(contribRef);
+    if (!snap.exists()) throw new Error('Contribution not found');
+    const contribution = snap.data() as VaultContribution;
+    if (contribution.status !== 'active') throw new Error('Already reversed');
+
+    const nowIso = new Date().toISOString();
+    contribution.status = 'reversed';
+    contribution.reversedAt = nowIso;
+    contribution.reversedByUid = user.uid;
+    contribution.reversalReason = reason.trim();
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.uid,
+      actorName: user.displayName || 'Member',
+      type: 'contribution_reversed',
+      title: 'Contribution Reversed',
+      description: `Contribution was reversed: ${contribution.reversalReason}`,
+      amountPaise: contribution.amountPaise,
+      timestamp: nowIso,
+    };
+
+    try {
+      const batch = writeBatch(db);
+      batch.update(contribRef, {
+        status: 'reversed',
+        reversedAt: nowIso,
+        reversedByUid: user.uid,
+        reversalReason: contribution.reversalReason,
+      });
+      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      await batch.commit();
+      return contribution;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/contributions`);
+      throw err;
+    }
+  },
+
+  async addVaultExpense(
+    user: FirebaseUser,
+    vaultId: string,
+    data: {
+      amountPaise: number;
+      description: string;
+      date?: string;
+      splitMode?: ExpenseSplitMode;
+      customShares?: Record<string, number>;
+    }
+  ): Promise<VaultExpense> {
+    const vaultRef = doc(db, 'sharedVaults', vaultId);
+    const vaultSnap = await getDoc(vaultRef);
+    if (!vaultSnap.exists()) throw new Error('Vault not found');
+    const vault = vaultSnap.data() as JointVault;
+
+    const uidA = vault.memberUids[0];
+    const uidB = vault.memberUids[1] || uidA;
+    const ratioA = vault.targetRatio[uidA] ?? 50;
+    const splitMode = data.splitMode || 'equal';
+    const memberShares = splitExpense(data.amountPaise, splitMode, uidA, uidB, ratioA, data.customShares);
+
+    const nowIso = new Date().toISOString();
+    const expenseId = `vex_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const expense: VaultExpense = {
+      id: expenseId,
+      vaultId,
+      paidByUid: user.uid,
+      payerName: user.displayName || 'Member',
+      amountPaise: data.amountPaise,
+      description: data.description.trim(),
+      date: data.date || nowIso.slice(0, 10),
+      splitMode,
+      memberShares,
+      createdAt: nowIso,
+      status: 'active',
+    };
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.uid,
+      actorName: expense.payerName,
+      type: 'expense_added',
+      title: 'Joint Expense Recorded',
+      description: `${expense.payerName} paid for "${expense.description}"`,
+      amountPaise: expense.amountPaise,
+      timestamp: nowIso,
+    };
+
+    try {
+      const batch = writeBatch(db);
+      batch.set(doc(db, `sharedVaults/${vaultId}/expenses`, expenseId), stripUndefined({ ...expense }));
+      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      await batch.commit();
+      return expense;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/expenses`);
+      throw err;
+    }
+  },
+
+  async recordVaultSettlement(
+    user: FirebaseUser,
+    vaultId: string,
+    data: { toUid: string; toName?: string; amountPaise: number; date?: string; notes?: string }
+  ): Promise<VaultSettlement> {
+    const nowIso = new Date().toISOString();
+    const settlementId = `vstl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const settlement: VaultSettlement = {
+      id: settlementId,
+      vaultId,
+      fromUid: user.uid,
+      fromName: user.displayName || 'Member',
+      toUid: data.toUid,
+      toName: data.toName || 'Partner',
+      amountPaise: data.amountPaise,
+      date: data.date || nowIso.slice(0, 10),
+      notes: (data.notes || 'Settlement payment').trim(),
+      createdAt: nowIso,
+    };
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.uid,
+      actorName: settlement.fromName,
+      type: 'settlement_recorded',
+      title: 'Settlement Payment Recorded',
+      description: `${settlement.fromName} paid reimbursement to ${settlement.toName}`,
+      amountPaise: settlement.amountPaise,
+      timestamp: nowIso,
+    };
+
+    try {
+      const batch = writeBatch(db);
+      batch.set(doc(db, `sharedVaults/${vaultId}/settlements`, settlementId), stripUndefined({ ...settlement }));
+      batch.set(doc(db, `sharedVaults/${vaultId}/activity`, activity.id), stripUndefined({ ...activity }));
+      await batch.commit();
+      return settlement;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}/settlements`);
+      throw err;
+    }
+  },
+
+  async updateVaultRatio(
+    user: FirebaseUser,
+    vaultId: string,
+    targetRatio: Record<string, number>
+  ): Promise<JointVault> {
+    const vaultRef = doc(db, 'sharedVaults', vaultId);
+    const snap = await getDoc(vaultRef);
+    if (!snap.exists()) throw new Error('Vault not found');
+    const vault = snap.data() as JointVault;
+    if (!vault.memberUids.includes(user.uid)) throw new Error('Unauthorized');
+
+    if (!isValidRatio(targetRatio, vault.memberUids)) {
+      throw new Error('Invalid ratio: must sum to 100');
+    }
+
+    const nowIso = new Date().toISOString();
+    vault.targetRatio = targetRatio;
+    vault.updatedAt = nowIso;
+
+    try {
+      await setDoc(vaultRef, { targetRatio, updatedAt: nowIso }, { merge: true });
+      return vault;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `sharedVaults/${vaultId}`);
+      throw err;
+    }
+  },
+
+  subscribeToVault(vaultId: string, onUpdate: (summary: VaultSummary | null) => void): Unsubscribe {
+    const vaultRef = doc(db, 'sharedVaults', vaultId);
+    return onSnapshot(vaultRef, async (snap) => {
+      if (!snap.exists()) {
+        onUpdate(null);
+        return;
+      }
+      const vault = snap.data() as JointVault;
+      const [membersSnap, contribSnap, expSnap, settleSnap, actSnap] = await Promise.all([
+        getDocs(collection(db, `sharedVaults/${vaultId}/members`)),
+        getDocs(collection(db, `sharedVaults/${vaultId}/contributions`)),
+        getDocs(collection(db, `sharedVaults/${vaultId}/expenses`)),
+        getDocs(collection(db, `sharedVaults/${vaultId}/settlements`)),
+        getDocs(query(collection(db, `sharedVaults/${vaultId}/activity`), limit(30))),
+      ]);
+      const members = membersSnap.docs.map((d) => d.data() as VaultMember);
+      const contributions = contribSnap.docs.map((d) => d.data() as VaultContribution);
+      const expenses = expSnap.docs.map((d) => d.data() as VaultExpense);
+      const settlements = settleSnap.docs.map((d) => d.data() as VaultSettlement);
+      const activities = actSnap.docs.map((d) => d.data() as VaultActivity);
+
+      onUpdate(buildVaultSummary(vault, members, contributions, expenses, settlements, activities));
+    });
   },
 };

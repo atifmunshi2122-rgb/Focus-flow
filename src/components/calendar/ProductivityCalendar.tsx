@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import {
   Task,
   Bill,
@@ -40,6 +41,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Check,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 import { type QuickActionType } from '../common/QuickActionModal.tsx';
 
@@ -87,17 +90,31 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
 
   // Data state
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [bills, setBills] = useState<Bill[]>([]);
-  const [sessions, setSessions] = useState<FocusSession[]>([]);
-  const [incomes, setIncomes] = useState<IncomeTransaction[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseTransaction[]>([]);
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedTasks = clientDataCache.getTasks();
+  const cachedBills = clientDataCache.getBills();
+  const cachedSessions = clientDataCache.getFocusSessions();
+  const cachedIncomes = clientDataCache.getIncomes();
+  const cachedExpenses = clientDataCache.getExpenses();
+  const cachedHabits = clientDataCache.getHabits();
+  const hasCachedCalendar = Boolean(
+    cachedTasks || cachedBills || cachedSessions || cachedIncomes || cachedExpenses || cachedHabits
+  );
 
-  useEffect(() => {
-    let isMounted = true;
-    setLoading(true);
+  const [tasks, setTasks] = useState<Task[]>(() => (cachedTasks ? cachedTasks.filter((item) => !item.deletedAt) : []));
+  const [bills, setBills] = useState<Bill[]>(() => (cachedBills ? cachedBills.filter((item) => !item.deletedAt) : []));
+  const [sessions, setSessions] = useState<FocusSession[]>(() => cachedSessions || []);
+  const [incomes, setIncomes] = useState<IncomeTransaction[]>(() => (cachedIncomes ? cachedIncomes.filter((item) => !item.deletedAt) : []));
+  const [expenses, setExpenses] = useState<ExpenseTransaction[]>(() => (cachedExpenses ? cachedExpenses.filter((item) => !item.deletedAt) : []));
+  const [habits, setHabits] = useState<Habit[]>(() => (cachedHabits ? cachedHabits.filter((item) => !item.deletedAt) : []));
+  const [loading, setLoading] = useState(!hasCachedCalendar);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
+
+  const fetchCalendarData = () => {
+    if (!hasCachedCalendar && tasks.length === 0) {
+      setLoading(true);
+    }
+    setLoadError(null);
 
     Promise.all([
       api.getTasks(),
@@ -108,25 +125,36 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
       api.getHabits().catch(() => []),
     ])
       .then(([t, b, s, inc, exp, h]) => {
-        if (!isMounted) return;
         setTasks(t.filter((item) => !item.deletedAt));
+        clientDataCache.setTasks(t);
         setBills(b.filter((item) => !item.deletedAt));
+        clientDataCache.setBills(b);
         setSessions(s);
+        clientDataCache.setFocusSessions(s);
         setIncomes(inc.filter((item) => !item.deletedAt));
+        clientDataCache.setIncomes(inc);
         setExpenses(exp.filter((item) => !item.deletedAt));
+        clientDataCache.setExpenses(exp);
         setHabits(h.filter((item) => !item.deletedAt));
+        clientDataCache.setHabits(h);
+        setIsStale(false);
       })
       .catch((err) => {
-        if (isMounted) showToast('Failed to load calendar events', 'error');
+        console.error('Failed to load calendar events:', err);
+        if (hasCachedCalendar || tasks.length > 0 || bills.length > 0) {
+          setIsStale(true);
+        } else {
+          setLoadError('Failed to load calendar events. Please check your network connection.');
+        }
       })
       .finally(() => {
-        if (isMounted) setLoading(false);
+        setLoading(false);
       });
+  };
 
-    return () => {
-      isMounted = false;
-    };
-  }, [refreshKey, showToast]);
+  useEffect(() => {
+    fetchCalendarData();
+  }, [refreshKey]);
 
   // Calendar month grid calculation (deterministic, leap-year safe)
   const monthDays = useMemo(() => {
@@ -388,19 +416,57 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
         </div>
       </div>
 
-      {/* Weekday Header */}
-      <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider py-1">
-        <div>Mon</div>
-        <div>Tue</div>
-        <div>Wed</div>
-        <div>Thu</div>
-        <div>Fri</div>
-        <div>Sat</div>
-        <div>Sun</div>
-      </div>
+      {/* Stale Cache Notice */}
+      {isStale && (
+        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>Cached calendar metrics: Displaying previously saved schedule while reconnecting.</span>
+          </div>
+          <button
+            onClick={() => fetchCalendarData()}
+            className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 transition-colors text-xs font-semibold shrink-0 cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Refresh</span>
+          </button>
+        </div>
+      )}
 
-      {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-2">
+      {/* Network Failure State when no cached data exists */}
+      {loadError && tasks.length === 0 && bills.length === 0 ? (
+        <div className="p-8 text-center my-6 rounded-xl border border-[var(--ff-border)] bg-[var(--ff-card-bg)]">
+          <div className="max-w-md mx-auto flex flex-col items-center">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mb-4">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-1">
+              Unable to Load Calendar Events
+            </h3>
+            <p className="text-sm text-[var(--ff-text-muted)] mb-5">
+              {loadError}
+            </p>
+            <ThemeButton variant="primary" size="sm" onClick={() => fetchCalendarData()}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              <span>Retry Connection</span>
+            </ThemeButton>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Weekday Header */}
+          <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider py-1">
+            <div>Mon</div>
+            <div>Tue</div>
+            <div>Wed</div>
+            <div>Thu</div>
+            <div>Fri</div>
+            <div>Sat</div>
+            <div>Sun</div>
+          </div>
+
+          {/* Calendar Grid */}
+          <div className="grid grid-cols-7 gap-2">
         {displayedDays.map((day) => {
           const netPaise = day.incomePaise - day.expensePaise;
 
@@ -509,6 +575,8 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
           );
         })}
       </div>
+      </>
+      )}
 
       {/* Day Details Central Hub Modal */}
       <AnimatePresence>

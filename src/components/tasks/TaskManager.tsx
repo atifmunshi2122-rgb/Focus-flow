@@ -46,6 +46,7 @@ import {
   History,
   X,
   AlertCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { getOverdueTasks } from '../../lib/productivityIntelligence.ts';
 import { playTaskCompleteSound } from '../../lib/sound.ts';
@@ -81,6 +82,8 @@ export const TaskManager: React.FC = () => {
   const cachedTasks = clientDataCache.getTasks();
   const [tasks, setTasks] = useState<Task[]>(() => cachedTasks || []);
   const [loading, setLoading] = useState(!cachedTasks);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<TaskViewMode>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -105,16 +108,28 @@ export const TaskManager: React.FC = () => {
   const [isSubmittingQuick, setIsSubmittingQuick] = useState(false);
 
   const loadTasks = () => {
-    if (!clientDataCache.getTasks()) {
+    if (!clientDataCache.getTasks() && tasks.length === 0) {
       setLoading(true);
     }
+    setLoadError(null);
     api
       .getTasks()
       .then((taskList) => {
         clientDataCache.setTasks(taskList);
         setTasks(taskList);
+        setIsStale(false);
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error('Failed to load tasks:', err);
+        const cached = clientDataCache.getTasks();
+        if (cached && cached.length > 0) {
+          setIsStale(true);
+        } else if (tasks.length > 0) {
+          setIsStale(true);
+        } else {
+          setLoadError('Failed to load tasks. Please check your internet connection.');
+        }
+      })
       .finally(() => setLoading(false));
   };
 
@@ -652,6 +667,23 @@ export const TaskManager: React.FC = () => {
         </div>
       </div>
 
+      {/* Stale Cache Notice */}
+      {isStale && (
+        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>Cached tasks: Displaying previously saved tasks while reconnecting.</span>
+          </div>
+          <button
+            onClick={() => loadTasks()}
+            className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 transition-colors text-xs font-semibold shrink-0 cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Refresh</span>
+          </button>
+        </div>
+      )}
+
       {/* Overdue Task Carry-Forward Banner */}
       {overdueTasks.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl">
@@ -750,7 +782,25 @@ export const TaskManager: React.FC = () => {
         skeleton={<SkeletonList rows={4} />}
         contentKey={viewMode}
       >
-        {viewMode === 'kanban' ? (
+        {loadError && tasks.length === 0 ? (
+          <ThemeCard className="p-8 text-center my-6">
+            <div className="max-w-md mx-auto flex flex-col items-center">
+              <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mb-4">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-1">
+                Unable to Load Tasks
+              </h3>
+              <p className="text-sm text-[var(--ff-text-muted)] mb-5">
+                {loadError}
+              </p>
+              <ThemeButton variant="primary" size="sm" onClick={() => loadTasks()}>
+                <RotateCcw className="w-4 h-4 mr-2" />
+                <span>Retry Connection</span>
+              </ThemeButton>
+            </div>
+          </ThemeCard>
+        ) : viewMode === 'kanban' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3" style={{ gap: 'var(--ff-grid-gap)' }}>
           {(
             [

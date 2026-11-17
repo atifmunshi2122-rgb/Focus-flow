@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import {
   DEFAULT_TIMEZONE,
   getTodayDateString,
@@ -7,6 +8,26 @@ import {
   formatYmd,
   parseDateString,
 } from './dateTime.js';
+import type {
+  JointVault,
+  VaultMember,
+  VaultInvitation,
+  VaultContribution,
+  VaultExpense,
+  VaultSettlement,
+  VaultActivity,
+  VaultSummary,
+} from '../src/types/vault.ts';
+import {
+  isValidRatio,
+  allocateTargetPaise,
+  computeMemberContributionStats,
+  computeVaultSettlement,
+  splitExpense,
+  computeMilestones,
+  buildVaultSummary,
+} from '../src/lib/vaultIntelligence.ts';
+import { formatCurrency } from '../src/lib/currency.ts';
 
 // Local JSON fallback store paths (supports DATA_DIR volume mounts for self-hosted deployments;
 // primary persistence for signed-in users lives in Cloud Firestore).
@@ -383,6 +404,13 @@ export interface DatabaseSchema {
   studyTopics?: StudyTopic[];
   studyRevisions?: StudyRevision[];
   studyMistakes?: StudyMistake[];
+  jointVaults?: JointVault[];
+  vaultMembers?: VaultMember[];
+  vaultInvitations?: VaultInvitation[];
+  vaultContributions?: VaultContribution[];
+  vaultExpenses?: VaultExpense[];
+  vaultSettlements?: VaultSettlement[];
+  vaultActivities?: VaultActivity[];
 }
 
 const DEFAULT_CATEGORIES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -449,6 +477,13 @@ export class DatabaseService {
     studyTopics: [],
     studyRevisions: [],
     studyMistakes: [],
+    jointVaults: [],
+    vaultMembers: [],
+    vaultInvitations: [],
+    vaultContributions: [],
+    vaultExpenses: [],
+    vaultSettlements: [],
+    vaultActivities: [],
   };
 
   private writeQueue: Promise<void> = Promise.resolve();
@@ -543,6 +578,13 @@ export class DatabaseService {
         studyTopics: Array.isArray(parsed.studyTopics) ? parsed.studyTopics : [],
         studyRevisions: Array.isArray(parsed.studyRevisions) ? parsed.studyRevisions : [],
         studyMistakes: Array.isArray(parsed.studyMistakes) ? parsed.studyMistakes : [],
+        jointVaults: Array.isArray(parsed.jointVaults) ? parsed.jointVaults : [],
+        vaultMembers: Array.isArray(parsed.vaultMembers) ? parsed.vaultMembers : [],
+        vaultInvitations: Array.isArray(parsed.vaultInvitations) ? parsed.vaultInvitations : [],
+        vaultContributions: Array.isArray(parsed.vaultContributions) ? parsed.vaultContributions : [],
+        vaultExpenses: Array.isArray(parsed.vaultExpenses) ? parsed.vaultExpenses : [],
+        vaultSettlements: Array.isArray(parsed.vaultSettlements) ? parsed.vaultSettlements : [],
+        vaultActivities: Array.isArray(parsed.vaultActivities) ? parsed.vaultActivities : [],
       };
     } catch (err) {
       this.isCorrupted = true;
@@ -2415,6 +2457,578 @@ export class DatabaseService {
     this.db.studyMistakes[idx].deletedAt = new Date().toISOString();
     this.save();
     return true;
+  }
+
+  // ==========================================
+  // JOINT VAULTS (COUPLE SHARED SAVINGS)
+  // ==========================================
+
+  private ensureJointVaultsArrays(): void {
+    if (!this.db.jointVaults) this.db.jointVaults = [];
+    if (!this.db.vaultMembers) this.db.vaultMembers = [];
+    if (!this.db.vaultInvitations) this.db.vaultInvitations = [];
+    if (!this.db.vaultContributions) this.db.vaultContributions = [];
+    if (!this.db.vaultExpenses) this.db.vaultExpenses = [];
+    if (!this.db.vaultSettlements) this.db.vaultSettlements = [];
+    if (!this.db.vaultActivities) this.db.vaultActivities = [];
+  }
+
+  public createJointVault(
+    data: {
+      name: string;
+      description?: string;
+      targetPaise: number;
+      monthlyTargetPaise?: number;
+      currency?: 'INR' | 'USD' | 'EUR' | 'GBP';
+      targetRatio?: Record<string, number>;
+    },
+    creatorUser: { id: string; email?: string; name?: string }
+  ): JointVault {
+    this.ensureJointVaultsArrays();
+    const nowIso = new Date().toISOString();
+    const vaultId = `vlt_${crypto.randomUUID ? crypto.randomUUID() : Date.now() + '_' + Math.random().toString(36).slice(2, 8)}`;
+    const currency = data.currency || 'INR';
+
+    const vault: JointVault = {
+      id: vaultId,
+      name: data.name.trim(),
+      description: (data.description || '').trim(),
+      currency,
+      targetPaise: data.targetPaise,
+      monthlyTargetPaise: data.monthlyTargetPaise || Math.round(data.targetPaise / 10),
+      createdBy: creatorUser.id,
+      memberUids: [creatorUser.id],
+      targetRatio: data.targetRatio && isValidRatio(data.targetRatio, [creatorUser.id]) ? data.targetRatio : { [creatorUser.id]: 100 },
+      status: 'active',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    const creatorMember: VaultMember = {
+      uid: creatorUser.id,
+      email: creatorUser.email || `${creatorUser.id}@focusflow.app`,
+      name: creatorUser.name || 'Vault Creator',
+      role: 'creator',
+      status: 'active',
+      joinedAt: nowIso,
+    };
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: creatorUser.id,
+      actorName: creatorMember.name,
+      type: 'vault_created',
+      title: 'Joint Vault Created',
+      description: `${creatorMember.name} created the vault "${vault.name}"`,
+      timestamp: nowIso,
+    };
+
+    this.db.jointVaults!.push(vault);
+    this.db.vaultMembers!.push(creatorMember);
+    this.db.vaultActivities!.push(activity);
+    this.save();
+    return vault;
+  }
+
+  public getJointVaultsForUser(userId: string): VaultSummary[] {
+    this.ensureJointVaultsArrays();
+    const userVaults = (this.db.jointVaults || []).filter(
+      (v) => v.memberUids.includes(userId)
+    );
+    return userVaults
+      .map((vault) => this.getVaultSummary(vault.id, userId))
+      .filter((v): v is VaultSummary => v !== null);
+  }
+
+  public getVaultSummary(vaultId: string, userId: string): VaultSummary | null {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault) return null;
+    // Strict membership check: user MUST be an active member!
+    if (!vault.memberUids.includes(userId)) return null;
+
+    const members = (this.db.vaultMembers || []).filter(
+      (m) => m.status === 'active' && vault.memberUids.includes(m.uid)
+    );
+    const contributions = (this.db.vaultContributions || []).filter((c) => c.vaultId === vaultId);
+    const expenses = (this.db.vaultExpenses || []).filter((e) => e.vaultId === vaultId);
+    const settlements = (this.db.vaultSettlements || []).filter((s) => s.vaultId === vaultId);
+    const activities = (this.db.vaultActivities || []).filter((a) => a.vaultId === vaultId);
+
+    return buildVaultSummary(vault, members, contributions, expenses, settlements, activities);
+  }
+
+  public getVault(vaultId: string, userId: string): JointVault | null {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault || !vault.memberUids.includes(userId)) return null;
+    return vault;
+  }
+
+  public createVaultInvitation(
+    vaultId: string,
+    inviterUser: { id: string; name?: string },
+    invitedEmail?: string
+  ): VaultInvitation {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault) throw new Error('Vault not found');
+    if (!vault.memberUids.includes(inviterUser.id)) throw new Error('Unauthorized: only vault members can invite');
+    if (vault.memberUids.length >= 2) throw new Error('Vault already has maximum members (2)');
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const inviteCode = crypto.randomBytes(6).toString('hex').toUpperCase();
+
+    const invitation: VaultInvitation = {
+      id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      vaultName: vault.name,
+      invitedByUid: inviterUser.id,
+      invitedByName: inviterUser.name || 'Vault Partner',
+      inviteCode,
+      invitedEmail: invitedEmail ? invitedEmail.trim() : undefined,
+      status: 'pending',
+      createdAt: now.toISOString(),
+      expiresAt,
+    };
+
+    this.db.vaultInvitations!.push(invitation);
+    this.save();
+    return invitation;
+  }
+
+  public acceptVaultInvitation(
+    inviteCode: string,
+    user: { id: string; email?: string; name?: string }
+  ): { vault: JointVault; invitation: VaultInvitation } {
+    this.ensureJointVaultsArrays();
+    const code = inviteCode.trim().toUpperCase();
+    const invitation = (this.db.vaultInvitations || []).find(
+      (inv) => inv.inviteCode === code && inv.status === 'pending'
+    );
+    if (!invitation) throw new Error('Invalid or already processed invitation code');
+
+    if (new Date(invitation.expiresAt) <= new Date()) {
+      invitation.status = 'expired';
+      this.save();
+      throw new Error('Invitation has expired');
+    }
+
+    const vault = (this.db.jointVaults || []).find((v) => v.id === invitation.vaultId);
+    if (!vault || vault.status !== 'active') throw new Error('Target vault not found or archived');
+
+    if (vault.memberUids.includes(user.id)) {
+      throw new Error('You are already a member of this vault');
+    }
+    if (vault.memberUids.length >= 2) {
+      throw new Error('Vault already has the maximum of 2 active members');
+    }
+
+    const nowIso = new Date().toISOString();
+    invitation.status = 'accepted';
+    invitation.acceptedByUid = user.id;
+    invitation.acceptedAt = nowIso;
+
+    vault.memberUids.push(user.id);
+    // Initialize 50/50 couple target ratio
+    vault.targetRatio = {
+      [vault.createdBy]: 50,
+      [user.id]: 50,
+    };
+    vault.updatedAt = nowIso;
+
+    const newMember: VaultMember = {
+      uid: user.id,
+      email: user.email || `${user.id}@focusflow.app`,
+      name: user.name || 'Partner',
+      role: 'partner',
+      status: 'active',
+      joinedAt: nowIso,
+    };
+    this.db.vaultMembers!.push(newMember);
+
+    const activity: VaultActivity = {
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId: vault.id,
+      actorUid: user.id,
+      actorName: newMember.name,
+      type: 'member_joined',
+      title: 'Partner Joined Vault',
+      description: `${newMember.name} joined "${vault.name}"`,
+      timestamp: nowIso,
+    };
+    this.db.vaultActivities!.push(activity);
+
+    this.save();
+    return { vault, invitation };
+  }
+
+  public rejectVaultInvitation(inviteCode: string, userId: string): VaultInvitation {
+    this.ensureJointVaultsArrays();
+    const code = inviteCode.trim().toUpperCase();
+    const invitation = (this.db.vaultInvitations || []).find(
+      (inv) => inv.inviteCode === code && inv.status === 'pending'
+    );
+    if (!invitation) throw new Error('Invalid or already processed invitation');
+    invitation.status = 'rejected';
+    this.save();
+    return invitation;
+  }
+
+  public revokeVaultInvitation(vaultId: string, inviteId: string, userId: string): boolean {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault || !vault.memberUids.includes(userId)) return false;
+    const invitation = (this.db.vaultInvitations || []).find(
+      (inv) => inv.id === inviteId && inv.vaultId === vaultId
+    );
+    if (!invitation || invitation.status !== 'pending') return false;
+    invitation.status = 'revoked';
+    this.save();
+    return true;
+  }
+
+  public addVaultContribution(
+    vaultId: string,
+    user: { id: string; name?: string },
+    data: { amountPaise: number; date?: string; description?: string }
+  ): VaultContribution {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault) throw new Error('Vault not found');
+    if (!vault.memberUids.includes(user.id)) throw new Error('Unauthorized: only vault members can contribute');
+    if (vault.status !== 'active') throw new Error('Cannot contribute to an archived vault');
+
+    if (!data.amountPaise || !Number.isInteger(data.amountPaise) || data.amountPaise <= 0) {
+      throw new Error('Contribution amount must be a positive integer in paise');
+    }
+
+    const nowIso = new Date().toISOString();
+    const contribution: VaultContribution = {
+      id: `vcb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      contributedByUid: user.id,
+      contributorName: user.name || 'Member',
+      amountPaise: data.amountPaise,
+      date: data.date || nowIso.slice(0, 10),
+      description: (data.description || 'Shared savings contribution').trim(),
+      createdAt: nowIso,
+      status: 'active',
+    };
+
+    this.db.vaultContributions!.push(contribution);
+
+    const activeContribs = (this.db.vaultContributions || []).filter(
+      (c) => c.vaultId === vaultId && c.status === 'active'
+    );
+    const totalContributed = activeContribs.reduce((acc, c) => acc + c.amountPaise, 0);
+
+    // Milestone checks (25%, 50%, 75%, 100%)
+    for (const pct of [25, 50, 75, 100] as const) {
+      const milestoneTarget = Math.floor((vault.targetPaise * pct) / 100);
+      const alreadyLogged = (this.db.vaultActivities || []).some(
+        (a) =>
+          a.vaultId === vaultId &&
+          a.type === 'milestone_achieved' &&
+          (a.metadata as { percent?: number } | undefined)?.percent === pct
+      );
+      if (!alreadyLogged && totalContributed >= milestoneTarget) {
+        this.db.vaultActivities!.push({
+          id: `act_milestone_${vaultId}_${pct}_${Date.now()}`,
+          vaultId,
+          actorUid: user.id,
+          actorName: user.name || 'Member',
+          type: 'milestone_achieved',
+          title: `${pct}% Milestone Reached!`,
+          description: `The vault "${vault.name}" reached ${pct}% of its savings goal!`,
+          amountPaise: totalContributed,
+          timestamp: nowIso,
+          metadata: { percent: pct, targetPaise: milestoneTarget },
+        });
+      }
+    }
+
+    this.db.vaultActivities!.push({
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.id,
+      actorName: user.name || 'Member',
+      type: 'contribution_added',
+      title: 'Contribution Added',
+      description: `${user.name || 'Member'} contributed ${formatCurrency(contribution.amountPaise, vault.currency)}`,
+      amountPaise: contribution.amountPaise,
+      timestamp: nowIso,
+    });
+
+    vault.updatedAt = nowIso;
+    this.save();
+    return contribution;
+  }
+
+  public reverseVaultContribution(
+    vaultId: string,
+    contributionId: string,
+    userId: string,
+    reason: string
+  ): VaultContribution {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault || !vault.memberUids.includes(userId)) throw new Error('Unauthorized');
+
+    const contribution = (this.db.vaultContributions || []).find(
+      (c) => c.id === contributionId && c.vaultId === vaultId
+    );
+    if (!contribution) throw new Error('Contribution not found');
+    if (contribution.status !== 'active') throw new Error('Contribution is already reversed');
+
+    const nowIso = new Date().toISOString();
+    contribution.status = 'reversed';
+    contribution.reversedAt = nowIso;
+    contribution.reversedByUid = userId;
+    contribution.reversalReason = reason ? reason.trim() : 'Manual reversal';
+
+    this.db.vaultActivities!.push({
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: userId,
+      actorName: 'Member',
+      type: 'contribution_reversed',
+      title: 'Contribution Reversed',
+      description: `Contribution of ${formatCurrency(contribution.amountPaise, vault.currency)} was reversed: ${contribution.reversalReason}`,
+      amountPaise: contribution.amountPaise,
+      timestamp: nowIso,
+    });
+
+    vault.updatedAt = nowIso;
+    this.save();
+    return contribution;
+  }
+
+  public addVaultExpense(
+    vaultId: string,
+    user: { id: string; name?: string },
+    data: {
+      amountPaise: number;
+      description: string;
+      date?: string;
+      splitMode?: 'equal' | 'ratio' | 'custom';
+      customShares?: Record<string, number>;
+    }
+  ): VaultExpense {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault) throw new Error('Vault not found');
+    if (!vault.memberUids.includes(user.id)) throw new Error('Unauthorized');
+    if (vault.memberUids.length < 2) throw new Error('Joint expenses require 2 active members');
+
+    if (!data.amountPaise || !Number.isInteger(data.amountPaise) || data.amountPaise <= 0) {
+      throw new Error('Expense amount must be a positive integer in paise');
+    }
+
+    const uidA = vault.memberUids[0];
+    const uidB = vault.memberUids[1];
+    const ratioA = vault.targetRatio[uidA] ?? 50;
+    const splitMode = data.splitMode || 'equal';
+    const memberShares = splitExpense(data.amountPaise, splitMode, uidA, uidB, ratioA, data.customShares);
+
+    const nowIso = new Date().toISOString();
+    const expense: VaultExpense = {
+      id: `vex_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      paidByUid: user.id,
+      payerName: user.name || 'Member',
+      amountPaise: data.amountPaise,
+      description: data.description.trim(),
+      date: data.date || nowIso.slice(0, 10),
+      splitMode,
+      memberShares,
+      createdAt: nowIso,
+      status: 'active',
+    };
+
+    this.db.vaultExpenses!.push(expense);
+
+    this.db.vaultActivities!.push({
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: user.id,
+      actorName: user.name || 'Member',
+      type: 'expense_added',
+      title: 'Joint Expense Recorded',
+      description: `${user.name || 'Member'} paid ${formatCurrency(expense.amountPaise, vault.currency)} for "${expense.description}"`,
+      amountPaise: expense.amountPaise,
+      timestamp: nowIso,
+    });
+
+    vault.updatedAt = nowIso;
+    this.save();
+    return expense;
+  }
+
+  public reverseVaultExpense(vaultId: string, expenseId: string, userId: string): VaultExpense {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault || !vault.memberUids.includes(userId)) throw new Error('Unauthorized');
+
+    const expense = (this.db.vaultExpenses || []).find((e) => e.id === expenseId && e.vaultId === vaultId);
+    if (!expense) throw new Error('Expense not found');
+    if (expense.status !== 'active') throw new Error('Expense is already reversed');
+
+    const nowIso = new Date().toISOString();
+    expense.status = 'reversed';
+    expense.reversedAt = nowIso;
+    expense.reversedByUid = userId;
+
+    this.db.vaultActivities!.push({
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: userId,
+      actorName: 'Member',
+      type: 'expense_reversed',
+      title: 'Joint Expense Reversed',
+      description: `Expense "${expense.description}" of ${formatCurrency(expense.amountPaise, vault.currency)} was reversed`,
+      amountPaise: expense.amountPaise,
+      timestamp: nowIso,
+    });
+
+    vault.updatedAt = nowIso;
+    this.save();
+    return expense;
+  }
+
+  public recordVaultSettlement(
+    vaultId: string,
+    fromUser: { id: string; name?: string },
+    data: { toUid: string; toName?: string; amountPaise: number; date?: string; notes?: string }
+  ): VaultSettlement {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault) throw new Error('Vault not found');
+    if (!vault.memberUids.includes(fromUser.id)) throw new Error('Unauthorized');
+    if (!vault.memberUids.includes(data.toUid)) throw new Error('Recipient must be a vault member');
+
+    if (!data.amountPaise || !Number.isInteger(data.amountPaise) || data.amountPaise <= 0) {
+      throw new Error('Settlement amount must be a positive integer in paise');
+    }
+
+    const nowIso = new Date().toISOString();
+    const settlement: VaultSettlement = {
+      id: `vstl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      fromUid: fromUser.id,
+      fromName: fromUser.name || 'Member',
+      toUid: data.toUid,
+      toName: data.toName || 'Partner',
+      amountPaise: data.amountPaise,
+      date: data.date || nowIso.slice(0, 10),
+      notes: (data.notes || 'Settlement payment').trim(),
+      createdAt: nowIso,
+    };
+
+    this.db.vaultSettlements!.push(settlement);
+
+    this.db.vaultActivities!.push({
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: fromUser.id,
+      actorName: fromUser.name || 'Member',
+      type: 'settlement_recorded',
+      title: 'Settlement Payment Recorded',
+      description: `${settlement.fromName} paid ${formatCurrency(settlement.amountPaise, vault.currency)} to ${settlement.toName}`,
+      amountPaise: settlement.amountPaise,
+      timestamp: nowIso,
+    });
+
+    vault.updatedAt = nowIso;
+    this.save();
+    return settlement;
+  }
+
+  public updateVaultRatio(
+    vaultId: string,
+    userId: string,
+    targetRatio: Record<string, number>
+  ): JointVault {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault || !vault.memberUids.includes(userId)) throw new Error('Unauthorized');
+    if (!isValidRatio(targetRatio, vault.memberUids)) {
+      throw new Error('Invalid target ratio: must be positive integers summing to 100 for all vault members');
+    }
+
+    vault.targetRatio = targetRatio;
+    vault.updatedAt = new Date().toISOString();
+
+    this.db.vaultActivities!.push({
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: userId,
+      actorName: 'Member',
+      type: 'ratio_updated',
+      title: 'Contribution Ratio Updated',
+      description: `Target ratio updated to ${Object.values(targetRatio).join('/')}`,
+      timestamp: vault.updatedAt,
+    });
+
+    this.save();
+    return vault;
+  }
+
+  public leaveVault(vaultId: string, userId: string): boolean {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault || !vault.memberUids.includes(userId)) return false;
+
+    if (vault.memberUids.length <= 1) {
+      throw new Error('Single remaining member cannot leave vault. Please archive the vault instead.');
+    }
+
+    const member = (this.db.vaultMembers || []).find((m) => m.uid === userId);
+    if (member) {
+      member.status = 'left';
+    }
+
+    vault.memberUids = vault.memberUids.filter((id) => id !== userId);
+    vault.updatedAt = new Date().toISOString();
+
+    this.db.vaultActivities!.push({
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: userId,
+      actorName: member?.name || 'Partner',
+      type: 'member_left',
+      title: 'Member Left Vault',
+      description: `${member?.name || 'A member'} left the vault`,
+      timestamp: vault.updatedAt,
+    });
+
+    this.save();
+    return true;
+  }
+
+  public archiveVault(vaultId: string, userId: string): JointVault {
+    this.ensureJointVaultsArrays();
+    const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
+    if (!vault || !vault.memberUids.includes(userId)) throw new Error('Unauthorized');
+
+    vault.status = 'archived';
+    vault.updatedAt = new Date().toISOString();
+
+    this.db.vaultActivities!.push({
+      id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      vaultId,
+      actorUid: userId,
+      actorName: 'Member',
+      type: 'vault_archived',
+      title: 'Vault Archived',
+      description: `The vault "${vault.name}" was archived`,
+      timestamp: vault.updatedAt,
+    });
+
+    this.save();
+    return vault;
   }
 }
 

@@ -1406,6 +1406,27 @@
       "name": "Guest Workspace",
       "avatarUrl": "",
       "createdAt": "2026-11-15T19:50:10.780Z"
+    },
+    {
+      "id": "gst_mwkepoy2_t57q5z2g",
+      "email": "guest@focusflow.local",
+      "name": "Guest Workspace",
+      "avatarUrl": "",
+      "createdAt": "2026-11-17T08:04:41.742Z"
+    },
+    {
+      "id": "gst_mwkepvdy_fkm6q76k",
+      "email": "guest@focusflow.local",
+      "name": "Guest Workspace",
+      "avatarUrl": "",
+      "createdAt": "2026-11-17T08:04:50.087Z"
+    },
+    {
+      "id": "gst_660bc766f2e669ec",
+      "email": "guest@focusflow.local",
+      "name": "Guest Workspace",
+      "avatarUrl": "",
+      "createdAt": "2026-11-17T08:41:18.153Z"
     }
   ],
   "userSettings": [
@@ -3473,6 +3494,36 @@
     },
     {
       "userId": "gst_mwgs161h_7va2rpla",
+      "currency": "INR",
+      "pomodoroWorkDuration": 25,
+      "shortBreakDuration": 5,
+      "longBreakDuration": 15,
+      "autoSwitchSessions": false,
+      "soundEnabled": true,
+      "theme": "dark"
+    },
+    {
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "currency": "INR",
+      "pomodoroWorkDuration": 25,
+      "shortBreakDuration": 5,
+      "longBreakDuration": 15,
+      "autoSwitchSessions": false,
+      "soundEnabled": true,
+      "theme": "dark"
+    },
+    {
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "currency": "INR",
+      "pomodoroWorkDuration": 25,
+      "shortBreakDuration": 5,
+      "longBreakDuration": 15,
+      "autoSwitchSessions": false,
+      "soundEnabled": true,
+      "theme": "dark"
+    },
+    {
+      "userId": "gst_660bc766f2e669ec",
       "currency": "INR",
       "pomodoroWorkDuration": 25,
       "shortBreakDuration": 5,
@@ -23538,6 +23589,294 @@
       "type": "variable",
       "icon": "AlertCircle",
       "color": "#64748b"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_1",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Housing & Rent",
+      "type": "fixed",
+      "icon": "Home",
+      "color": "#6366f1"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_2",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Internet & Utilities",
+      "type": "fixed",
+      "icon": "Wifi",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_3",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Subscriptions",
+      "type": "fixed",
+      "icon": "Tv",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_4",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Insurance & Healthcare",
+      "type": "fixed",
+      "icon": "Shield",
+      "color": "#ec4899"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_5",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Education & Fees",
+      "type": "fixed",
+      "icon": "GraduationCap",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_6",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Food & Dining",
+      "type": "variable",
+      "icon": "Utensils",
+      "color": "#10b981"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_7",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Groceries",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_8",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Transportation & Fuel",
+      "type": "variable",
+      "icon": "Car",
+      "color": "#f97316"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_9",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Shopping & Retail",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#a855f7"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_10",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Entertainment & Leisure",
+      "type": "variable",
+      "icon": "Film",
+      "color": "#06b6d4"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_11",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Personal & Wellness",
+      "type": "variable",
+      "icon": "Heart",
+      "color": "#e11d48"
+    },
+    {
+      "id": "cat_gst_mwkepoy2_t57q5z2g_12",
+      "userId": "gst_mwkepoy2_t57q5z2g",
+      "name": "Emergency & Miscellaneous",
+      "type": "variable",
+      "icon": "AlertCircle",
+      "color": "#64748b"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_1",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Housing & Rent",
+      "type": "fixed",
+      "icon": "Home",
+      "color": "#6366f1"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_2",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Internet & Utilities",
+      "type": "fixed",
+      "icon": "Wifi",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_3",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Subscriptions",
+      "type": "fixed",
+      "icon": "Tv",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_4",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Insurance & Healthcare",
+      "type": "fixed",
+      "icon": "Shield",
+      "color": "#ec4899"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_5",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Education & Fees",
+      "type": "fixed",
+      "icon": "GraduationCap",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_6",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Food & Dining",
+      "type": "variable",
+      "icon": "Utensils",
+      "color": "#10b981"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_7",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Groceries",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_8",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Transportation & Fuel",
+      "type": "variable",
+      "icon": "Car",
+      "color": "#f97316"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_9",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Shopping & Retail",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#a855f7"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_10",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Entertainment & Leisure",
+      "type": "variable",
+      "icon": "Film",
+      "color": "#06b6d4"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_11",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Personal & Wellness",
+      "type": "variable",
+      "icon": "Heart",
+      "color": "#e11d48"
+    },
+    {
+      "id": "cat_gst_mwkepvdy_fkm6q76k_12",
+      "userId": "gst_mwkepvdy_fkm6q76k",
+      "name": "Emergency & Miscellaneous",
+      "type": "variable",
+      "icon": "AlertCircle",
+      "color": "#64748b"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_1",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Housing & Rent",
+      "type": "fixed",
+      "icon": "Home",
+      "color": "#6366f1"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_2",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Internet & Utilities",
+      "type": "fixed",
+      "icon": "Wifi",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_3",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Subscriptions",
+      "type": "fixed",
+      "icon": "Tv",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_4",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Insurance & Healthcare",
+      "type": "fixed",
+      "icon": "Shield",
+      "color": "#ec4899"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_5",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Education & Fees",
+      "type": "fixed",
+      "icon": "GraduationCap",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_6",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Food & Dining",
+      "type": "variable",
+      "icon": "Utensils",
+      "color": "#10b981"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_7",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Groceries",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_8",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Transportation & Fuel",
+      "type": "variable",
+      "icon": "Car",
+      "color": "#f97316"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_9",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Shopping & Retail",
+      "type": "variable",
+      "icon": "ShoppingBag",
+      "color": "#a855f7"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_10",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Entertainment & Leisure",
+      "type": "variable",
+      "icon": "Film",
+      "color": "#06b6d4"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_11",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Personal & Wellness",
+      "type": "variable",
+      "icon": "Heart",
+      "color": "#e11d48"
+    },
+    {
+      "id": "cat_gst_660bc766f2e669ec_12",
+      "userId": "gst_660bc766f2e669ec",
+      "name": "Emergency & Miscellaneous",
+      "type": "variable",
+      "icon": "AlertCircle",
+      "color": "#64748b"
     }
   ],
   "recurringExpenses": [
@@ -43041,5 +43380,12 @@
       "updatedAt": "2026-11-14T19:30:05.726Z",
       "deletedAt": "2026-11-14T19:30:05.726Z"
     }
-  ]
+  ],
+  "jointVaults": [],
+  "vaultMembers": [],
+  "vaultInvitations": [],
+  "vaultContributions": [],
+  "vaultExpenses": [],
+  "vaultSettlements": [],
+  "vaultActivities": []
 }

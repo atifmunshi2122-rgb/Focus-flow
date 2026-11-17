@@ -520,4 +520,5 @@ export interface OfflineOutboxOperation {
 
 export * from './study.ts';
 export * from './pomodoro.ts';
+export * from './vault.ts';
 

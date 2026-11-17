@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import { FocusSession, FocusStatsData, Habit, Task, TimeBlock } from '../../types/index.ts';
 import type { PomodoroGoal } from '../../types/pomodoro.ts';
 import type { StudySubject, StudyRevision, StudyPlanTask } from '../../types/study.ts';
@@ -47,17 +48,23 @@ export const FocusAnalytics: React.FC = () => {
   const { isDisabled, intensity } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
 
+  const cachedStats = clientDataCache.getFocusStats();
+  const cachedSessions = clientDataCache.getFocusSessions();
+  const cachedTasks = clientDataCache.getTasks();
+  const cachedHabits = clientDataCache.getHabits();
+  const hasCachedFocus = Boolean(cachedSessions || cachedStats);
+
   const [subTab, setSubTab] = useState<'analytics' | 'timeline' | 'planner'>('analytics');
-  const [stats, setStats] = useState<FocusStatsData | null>(null);
-  const [sessions, setSessions] = useState<FocusSession[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
-  const [goals, setGoals] = useState<PomodoroGoal[]>([]);
-  const [studySubjects, setStudySubjects] = useState<StudySubject[]>([]);
-  const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>([]);
-  const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<FocusStatsData | null>(() => cachedStats);
+  const [sessions, setSessions] = useState<FocusSession[]>(() => cachedSessions || []);
+  const [tasks, setTasks] = useState<Task[]>(() => cachedTasks || []);
+  const [habits, setHabits] = useState<Habit[]>(() => cachedHabits || []);
+  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>(() => clientDataCache.getTimeBlocks() || []);
+  const [goals, setGoals] = useState<PomodoroGoal[]>(() => clientDataCache.getPomodoroGoals() || []);
+  const [studySubjects, setStudySubjects] = useState<StudySubject[]>(() => clientDataCache.getStudySubjects() || []);
+  const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>(() => clientDataCache.getStudyRevisions() || []);
+  const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>(() => clientDataCache.getStudyPlanTasks() || []);
+  const [loading, setLoading] = useState(!hasCachedFocus);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [statsFailed, setStatsFailed] = useState<boolean>(false);
   const activeRequestSeqRef = useRef<number>(0);
@@ -69,7 +76,9 @@ export const FocusAnalytics: React.FC = () => {
 
   const loadFocusData = useCallback(() => {
     const seq = ++activeRequestSeqRef.current;
-    setLoading(true);
+    if (!hasCachedFocus) {
+      setLoading(true);
+    }
     setFetchError(null);
 
     Promise.allSettled([
@@ -102,33 +111,56 @@ export const FocusAnalytics: React.FC = () => {
 
       if (statsRes.status === 'fulfilled' && statsRes.value) {
         setStats(statsRes.value);
+        clientDataCache.setFocusStats(statsRes.value);
         setStatsFailed(false);
       } else {
         setStatsFailed(true);
         primaryFailed = true;
       }
 
-      if (sessionsRes.status === 'fulfilled') {
-        setSessions(sessionsRes.value || []);
-      } else {
+      if (sessionsRes.status === 'fulfilled' && sessionsRes.value) {
+        setSessions(sessionsRes.value);
+        clientDataCache.setFocusSessions(sessionsRes.value);
+      } else if (!cachedSessions) {
         primaryFailed = true;
       }
 
-      if (tasksRes.status === 'fulfilled') setTasks(tasksRes.value || []);
-      if (habitsRes.status === 'fulfilled') setHabits(habitsRes.value || []);
-      if (blocksRes.status === 'fulfilled') setTimeBlocks(blocksRes.value || []);
-      if (goalsRes.status === 'fulfilled') setGoals(goalsRes.value || []);
-      if (subsRes.status === 'fulfilled') setStudySubjects(subsRes.value || []);
-      if (revsRes.status === 'fulfilled') setStudyRevisions(revsRes.value || []);
-      if (plansRes.status === 'fulfilled') setStudyPlanTasks(plansRes.value || []);
+      if (tasksRes.status === 'fulfilled' && tasksRes.value) {
+        setTasks(tasksRes.value);
+        clientDataCache.setTasks(tasksRes.value);
+      }
+      if (habitsRes.status === 'fulfilled' && habitsRes.value) {
+        setHabits(habitsRes.value);
+        clientDataCache.setHabits(habitsRes.value);
+      }
+      if (blocksRes.status === 'fulfilled' && blocksRes.value) {
+        setTimeBlocks(blocksRes.value);
+        clientDataCache.setTimeBlocks(blocksRes.value, todayStr);
+      }
+      if (goalsRes.status === 'fulfilled' && goalsRes.value) {
+        setGoals(goalsRes.value);
+        clientDataCache.setPomodoroGoals(goalsRes.value);
+      }
+      if (subsRes.status === 'fulfilled' && subsRes.value) {
+        setStudySubjects(subsRes.value);
+        clientDataCache.setStudySubjects(subsRes.value);
+      }
+      if (revsRes.status === 'fulfilled' && revsRes.value) {
+        setStudyRevisions(revsRes.value);
+        clientDataCache.setStudyRevisions(revsRes.value);
+      }
+      if (plansRes.status === 'fulfilled' && plansRes.value) {
+        setStudyPlanTasks(plansRes.value);
+        clientDataCache.setStudyPlanTasks(plansRes.value);
+      }
 
-      if (primaryFailed && (!statsRes || statsRes.status === 'rejected') && (!sessionsRes || sessionsRes.status === 'rejected')) {
+      if (primaryFailed && !hasCachedFocus && (!statsRes || statsRes.status === 'rejected') && (!sessionsRes || sessionsRes.status === 'rejected')) {
         setFetchError('Failed to load focus analytics. Please check connection and retry.');
       }
 
       setLoading(false);
     });
-  }, [todayStr]);
+  }, [todayStr, hasCachedFocus, cachedSessions]);
 
   useEffect(() => {
     loadFocusData();

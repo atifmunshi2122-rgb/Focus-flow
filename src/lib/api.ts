@@ -41,6 +41,15 @@ import {
   PomodoroPreset,
   PomodoroInterruption,
   PomodoroAmbientPreset,
+  CurrencyCode,
+  JointVault,
+  VaultMember,
+  VaultInvitation,
+  VaultContribution,
+  VaultExpense,
+  VaultSettlement,
+  VaultSummary,
+  ExpenseSplitMode,
 } from '../types/index.ts';
 import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
@@ -711,7 +720,9 @@ export const api = {
   getFocusStats: () =>
     withPrimaryRead(
       (uid) => firestoreService.getFocusStats(uid),
-      () => request<FocusStatsData>('/focus/stats')
+      () => request<FocusStatsData>('/focus/stats'),
+      'focus_stats',
+      120 * 1000
     ),
 
   // Tasks
@@ -825,7 +836,9 @@ export const api = {
         if (startDate) query += `&startDate=${encodeURIComponent(startDate)}`;
         if (endDate) query += `&endDate=${encodeURIComponent(endDate)}`;
         return request<FinanceSummaryData>(`/finance/summary${query}`);
-      }
+      },
+      `finance_summary_${filter}_${startDate || ''}_${endDate || ''}`,
+      120 * 1000
     ),
 
   // Income
@@ -1338,7 +1351,9 @@ export const api = {
   getTimeBlocks: (date?: string) =>
     withPrimaryRead(
       (uid) => firestoreService.getTimeBlocks(uid, date),
-      () => request<TimeBlock[]>(`/time-blocks${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+      () => request<TimeBlock[]>(`/time-blocks${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+      date ? `time_blocks_${date}` : 'time_blocks_all',
+      120 * 1000
     ),
 
   createTimeBlock: (block: Partial<TimeBlock>) => {
@@ -2346,7 +2361,9 @@ export const api = {
   getStudyPlanTasks: (planId?: string) =>
     withPrimaryRead(
       (uid) => firestoreService.getStudyPlanTasks(uid, planId),
-      () => request<StudyPlanTask[]>(`/study/plan-tasks${planId ? `?planId=${encodeURIComponent(planId)}` : ''}`).catch(() => [])
+      () => request<StudyPlanTask[]>(`/study/plan-tasks${planId ? `?planId=${encodeURIComponent(planId)}` : ''}`).catch(() => []),
+      planId ? `study_plantasks_${planId}` : 'study_plantasks_all',
+      180 * 1000
     ),
 
   saveStudyPlanTask: (task: Partial<StudyPlanTask>) =>
@@ -2877,7 +2894,9 @@ export const api = {
   getPomodoroGoals: () =>
     withPrimaryRead(
       (uid) => firestoreService.getPomodoroGoals(uid),
-      () => Promise.resolve(readGuestStore<PomodoroGoal[]>('pom_goals', []).filter((g) => !g.deletedAt))
+      () => Promise.resolve(readGuestStore<PomodoroGoal[]>('pom_goals', []).filter((g) => !g.deletedAt)),
+      'pomodoro_goals',
+      180 * 1000
     ),
 
   savePomodoroGoal: (goal: Partial<PomodoroGoal>) => {
@@ -3016,6 +3035,360 @@ export const api = {
       },
       () => Promise.resolve(true)
     ),
+
+  // ==========================================
+  // JOINT VAULTS (COUPLE SHARED SAVINGS)
+  // ==========================================
+
+  getJointVaults: (): Promise<VaultSummary[]> =>
+    withPrimaryRead(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.getJointVaults(auth.currentUser);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore getJointVaults failed, falling back to backend API:', err);
+            try {
+              return await request<VaultSummary[]>('/joint-vaults');
+            } catch (fallbackErr) {
+              console.warn('[JointVaults] Backend API fallback also failed:', fallbackErr);
+              return [];
+            }
+          }
+        }
+        try {
+          return await request<VaultSummary[]>('/joint-vaults');
+        } catch {
+          return [];
+        }
+      },
+      async () => {
+        try {
+          return await request<VaultSummary[]>('/joint-vaults');
+        } catch {
+          return [];
+        }
+      }
+    ),
+
+  getJointVault: (vaultId: string): Promise<VaultSummary | null> =>
+    withPrimaryRead(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.getJointVault(vaultId, auth.currentUser);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore getJointVault failed, falling back to backend API:', err);
+            return request<VaultSummary>(`/joint-vaults/${vaultId}`);
+          }
+        }
+        return request<VaultSummary>(`/joint-vaults/${vaultId}`);
+      },
+      () => request<VaultSummary>(`/joint-vaults/${vaultId}`)
+    ),
+
+  createJointVault: (data: {
+    name: string;
+    description?: string;
+    targetPaise: number;
+    monthlyTargetPaise?: number;
+    currency?: CurrencyCode;
+    targetRatio?: Record<string, number>;
+  }): Promise<JointVault> =>
+    withPrimaryWrite(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.createJointVault(auth.currentUser, data);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore createJointVault failed, falling back to backend API:', err);
+            return request<JointVault>('/joint-vaults', { method: 'POST', body: JSON.stringify(data) });
+          }
+        }
+        return request<JointVault>('/joint-vaults', { method: 'POST', body: JSON.stringify(data) });
+      },
+      () => request<JointVault>('/joint-vaults', { method: 'POST', body: JSON.stringify(data) })
+    ),
+
+  createVaultInvitation: (vaultId: string, invitedEmail?: string): Promise<VaultInvitation> =>
+    withPrimaryWrite(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.createVaultInvitation(auth.currentUser, vaultId, invitedEmail);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore createVaultInvitation failed, falling back to backend API:', err);
+            return request<VaultInvitation>(`/joint-vaults/${vaultId}/invitations`, {
+              method: 'POST',
+              body: JSON.stringify({ invitedEmail }),
+            });
+          }
+        }
+        return request<VaultInvitation>(`/joint-vaults/${vaultId}/invitations`, {
+          method: 'POST',
+          body: JSON.stringify({ invitedEmail }),
+        });
+      },
+      () =>
+        request<VaultInvitation>(`/joint-vaults/${vaultId}/invitations`, {
+          method: 'POST',
+          body: JSON.stringify({ invitedEmail }),
+        })
+    ),
+
+  acceptVaultInvitation: (inviteCode: string): Promise<{ vault: JointVault; invitation: VaultInvitation }> =>
+    withPrimaryWrite(
+      async () => {
+        // Invitation redemption is strictly mediated through the trusted backend
+        // to prevent exposing unscoped invitations to non-members and avoid client-side self-join attacks.
+        return request<{ vault: JointVault; invitation: VaultInvitation }>('/joint-vaults/invitations/accept', {
+          method: 'POST',
+          body: JSON.stringify({ inviteCode }),
+        });
+      },
+      () =>
+        request<{ vault: JointVault; invitation: VaultInvitation }>('/joint-vaults/invitations/accept', {
+          method: 'POST',
+          body: JSON.stringify({ inviteCode }),
+        })
+    ),
+
+  rejectVaultInvitation: (inviteCode: string): Promise<VaultInvitation> =>
+    withPrimaryWrite(
+      async () => {
+        return request<VaultInvitation>('/joint-vaults/invitations/reject', {
+          method: 'POST',
+          body: JSON.stringify({ inviteCode }),
+        });
+      },
+      () =>
+        request<VaultInvitation>('/joint-vaults/invitations/reject', {
+          method: 'POST',
+          body: JSON.stringify({ inviteCode }),
+        })
+    ),
+
+  revokeVaultInvitation: (vaultId: string, inviteId: string): Promise<boolean> =>
+    withPrimaryWrite(
+      async () => {
+        const res = await request<{ success: boolean }>(`/joint-vaults/${vaultId}/invitations/${inviteId}/revoke`, {
+          method: 'POST',
+        });
+        return Boolean(res?.success);
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/joint-vaults/${vaultId}/invitations/${inviteId}/revoke`, {
+          method: 'POST',
+        });
+        return Boolean(res?.success);
+      }
+    ),
+
+  addVaultContribution: (
+    vaultId: string,
+    data: { amountPaise: number; date?: string; description?: string }
+  ): Promise<VaultContribution> =>
+    withPrimaryWrite(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.addVaultContribution(auth.currentUser, vaultId, data);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore addVaultContribution failed, falling back to backend API:', err);
+          }
+        }
+        const res = await request<{ contribution: VaultContribution }>(`/joint-vaults/${vaultId}/contributions`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        return res.contribution;
+      },
+      async () => {
+        const res = await request<{ contribution: VaultContribution }>(`/joint-vaults/${vaultId}/contributions`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        return res.contribution;
+      }
+    ),
+
+  reverseVaultContribution: (
+    vaultId: string,
+    contributionId: string,
+    reason: string
+  ): Promise<VaultContribution> =>
+    withPrimaryWrite(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.reverseVaultContribution(auth.currentUser, vaultId, contributionId, reason);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore reverseVaultContribution failed, falling back to backend API:', err);
+          }
+        }
+        const res = await request<{ contribution: VaultContribution }>(
+          `/joint-vaults/${vaultId}/contributions/${contributionId}/reverse`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          }
+        );
+        return res.contribution;
+      },
+      async () => {
+        const res = await request<{ contribution: VaultContribution }>(
+          `/joint-vaults/${vaultId}/contributions/${contributionId}/reverse`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          }
+        );
+        return res.contribution;
+      }
+    ),
+
+  addVaultExpense: (
+    vaultId: string,
+    data: {
+      amountPaise: number;
+      description: string;
+      date?: string;
+      splitMode?: ExpenseSplitMode;
+      customShares?: Record<string, number>;
+    }
+  ): Promise<VaultExpense> =>
+    withPrimaryWrite(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.addVaultExpense(auth.currentUser, vaultId, data);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore addVaultExpense failed, falling back to backend API:', err);
+          }
+        }
+        const res = await request<{ expense: VaultExpense }>(`/joint-vaults/${vaultId}/expenses`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        return res.expense;
+      },
+      async () => {
+        const res = await request<{ expense: VaultExpense }>(`/joint-vaults/${vaultId}/expenses`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        return res.expense;
+      }
+    ),
+
+  reverseVaultExpense: (vaultId: string, expenseId: string): Promise<VaultExpense> =>
+    withPrimaryWrite(
+      async () => {
+        const res = await request<{ expense: VaultExpense }>(`/joint-vaults/${vaultId}/expenses/${expenseId}/reverse`, {
+          method: 'POST',
+        });
+        return res.expense;
+      },
+      async () => {
+        const res = await request<{ expense: VaultExpense }>(`/joint-vaults/${vaultId}/expenses/${expenseId}/reverse`, {
+          method: 'POST',
+        });
+        return res.expense;
+      }
+    ),
+
+  recordVaultSettlement: (
+    vaultId: string,
+    data: { toUid: string; toName?: string; amountPaise: number; date?: string; notes?: string }
+  ): Promise<VaultSettlement> =>
+    withPrimaryWrite(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.recordVaultSettlement(auth.currentUser, vaultId, data);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore recordVaultSettlement failed, falling back to backend API:', err);
+          }
+        }
+        const res = await request<{ settlement: VaultSettlement }>(`/joint-vaults/${vaultId}/settlements`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        return res.settlement;
+      },
+      async () => {
+        const res = await request<{ settlement: VaultSettlement }>(`/joint-vaults/${vaultId}/settlements`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        return res.settlement;
+      }
+    ),
+
+  updateVaultRatio: (vaultId: string, targetRatio: Record<string, number>): Promise<JointVault> =>
+    withPrimaryWrite(
+      async () => {
+        if (auth.currentUser) {
+          try {
+            return await firestoreService.updateVaultRatio(auth.currentUser, vaultId, targetRatio);
+          } catch (err) {
+            console.warn('[JointVaults] Firestore updateVaultRatio failed, falling back to backend API:', err);
+          }
+        }
+        return request<JointVault>(`/joint-vaults/${vaultId}/ratio`, {
+          method: 'PATCH',
+          body: JSON.stringify({ targetRatio }),
+        });
+      },
+      () =>
+        request<JointVault>(`/joint-vaults/${vaultId}/ratio`, {
+          method: 'PATCH',
+          body: JSON.stringify({ targetRatio }),
+        })
+    ),
+
+  leaveVault: (vaultId: string): Promise<boolean> =>
+    withPrimaryWrite(
+      async () => {
+        const res = await request<{ success: boolean }>(`/joint-vaults/${vaultId}/leave`, {
+          method: 'POST',
+        });
+        return Boolean(res?.success);
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/joint-vaults/${vaultId}/leave`, {
+          method: 'POST',
+        });
+        return Boolean(res?.success);
+      }
+    ),
+
+  archiveVault: (vaultId: string): Promise<JointVault> =>
+    withPrimaryWrite(
+      async () => {
+        return request<JointVault>(`/joint-vaults/${vaultId}/archive`, {
+          method: 'POST',
+        });
+      },
+      () =>
+        request<JointVault>(`/joint-vaults/${vaultId}/archive`, {
+          method: 'POST',
+        })
+    ),
+
+  subscribeToVault: (vaultId: string, onUpdate: (summary: VaultSummary | null) => void): (() => void) => {
+    if (auth.currentUser) {
+      try {
+        return firestoreService.subscribeToVault(vaultId, onUpdate);
+      } catch (err) {
+        console.warn('[JointVaults] Firestore subscription failed, falling back to polling:', err);
+      }
+    }
+    const interval = setInterval(() => {
+      api.getJointVault(vaultId).then(onUpdate).catch(() => onUpdate(null));
+    }, 4000);
+    return () => clearInterval(interval);
+  },
 };
 
 void auth;

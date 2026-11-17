@@ -675,3 +675,270 @@ test('9. Boundary Limits, Length Bounds & Time-Block Constraints', { skip: skipR
   });
   assert.equal(validTimeBlock.status, 200, 'Valid time block where endMinute > startMinute must succeed');
 });
+
+test('10. Shared Vaults Security: Invitation Privacy, Anti-Self-Join & Reversals', { skip: skipReason }, async () => {
+  const ownerUid = 'usr_vault_owner_' + Date.now();
+  const attackerUid = 'usr_vault_attacker_' + Date.now();
+  const vaultId = 'vlt_sec_' + Date.now();
+
+  // Create owner user doc
+  await firestoreRequest(`users/${ownerUid}`, 'PATCH', {
+    uid: ownerUid,
+    data: { id: ownerUid, email: 'vaultowner@test.com', name: 'Vault Owner' },
+  });
+
+  // Create vault as owner
+  const createVaultRes = await firestoreRequest(`sharedVaults/${vaultId}`, 'PATCH', {
+    uid: ownerUid,
+    data: {
+      id: vaultId,
+      name: 'Couple Savings Vault',
+      createdBy: ownerUid,
+      memberUids: [ownerUid],
+      targetPaise: 50000000,
+      currency: 'INR',
+      status: 'active',
+    },
+  });
+  assert.equal(createVaultRes.status, 200, 'Owner vault creation must succeed');
+
+  // Create invitation under vault as owner
+  const inviteId = 'inv_sec_' + Date.now();
+  const createInviteRes = await firestoreRequest(`sharedVaults/${vaultId}/invitations/${inviteId}`, 'PATCH', {
+    uid: ownerUid,
+    data: {
+      id: inviteId,
+      vaultId,
+      invitedByUid: ownerUid,
+      inviteCode: 'SECRET_INVITE_CODE_123',
+      status: 'pending',
+    },
+  });
+  assert.equal(createInviteRes.status, 200, 'Member invitation creation must succeed');
+
+  // 1. Issue 1 Fix: Non-member attacker CANNOT read invitation even with inviteCode
+  const attackerReadInvite = await firestoreRequest(`sharedVaults/${vaultId}/invitations/${inviteId}`, 'GET', {
+    uid: attackerUid,
+  });
+  assert.equal(attackerReadInvite.status, 403, 'Non-member read on invitation must be strictly denied');
+
+  // Vault member CAN read invitation
+  const ownerReadInvite = await firestoreRequest(`sharedVaults/${vaultId}/invitations/${inviteId}`, 'GET', {
+    uid: ownerUid,
+  });
+  assert.equal(ownerReadInvite.status, 200, 'Vault member read on invitation must succeed');
+
+  // Attacker cannot update invitation
+  const attackerUpdateInvite = await firestoreRequest(`sharedVaults/${vaultId}/invitations/${inviteId}`, 'PATCH', {
+    uid: attackerUid,
+    data: {
+      acceptedByUid: attackerUid,
+      status: 'accepted',
+    },
+    updateMask: ['acceptedByUid', 'status'],
+  });
+  assert.equal(attackerUpdateInvite.status, 403, 'Non-member update on invitation must be strictly denied');
+
+  // 2. Issue 2 Fix: Attacker CANNOT self-join vault by patching memberUids
+  const attackerSelfJoin = await firestoreRequest(`sharedVaults/${vaultId}`, 'PATCH', {
+    uid: attackerUid,
+    data: {
+      memberUids: [ownerUid, attackerUid],
+    },
+    updateMask: ['memberUids'],
+  });
+  assert.equal(attackerSelfJoin.status, 403, 'Unvalidated vault self-join must be strictly rejected');
+
+  // Attacker CANNOT create member doc for someone else under vault
+  const attackerCreateOtherMember = await firestoreRequest(`sharedVaults/${vaultId}/members/other_target_uid`, 'PATCH', {
+    uid: attackerUid,
+    data: {
+      uid: 'other_target_uid',
+      name: 'Spoofed Partner',
+      role: 'partner',
+      status: 'active',
+    },
+  });
+  assert.equal(attackerCreateOtherMember.status, 403, 'Non-member cannot create member document for other users');
+
+  // Member role escalation is strictly blocked (only name and updatedAt allowed)
+  const roleEscalationAttempt = await firestoreRequest(`sharedVaults/${vaultId}/members/${ownerUid}`, 'PATCH', {
+    uid: ownerUid,
+    data: {
+      role: 'creator', // Attempting to alter or mutate role
+      status: 'active',
+    },
+    updateMask: ['role', 'status'],
+  });
+  assert.equal(roleEscalationAttempt.status, 403, 'Role escalation or status modification on member update must be rejected');
+
+  // 3. Issue 4 Fix: Contributions & Reversal Key Restriction
+  const contribId = 'cnt_sec_' + Date.now();
+  const createContribRes = await firestoreRequest(`sharedVaults/${vaultId}/contributions/${contribId}`, 'PATCH', {
+    uid: ownerUid,
+    data: {
+      id: contribId,
+      vaultId,
+      contributedByUid: ownerUid,
+      amountPaise: 250000,
+      status: 'active',
+      date: '2026-11-17',
+    },
+  });
+  assert.equal(createContribRes.status, 200, 'Member contribution creation must succeed');
+
+  // Attacker cannot tamper with contribution amount during reversal
+  const tamperContribRes = await firestoreRequest(`sharedVaults/${vaultId}/contributions/${contribId}`, 'PATCH', {
+    uid: ownerUid,
+    data: {
+      status: 'reversed',
+      reversedByUid: ownerUid,
+      amountPaise: 1000, // Attempt to tamper with amountPaise
+      updatedAt: '2026-11-17T12:00:00Z',
+    },
+    updateMask: ['status', 'reversedByUid', 'amountPaise', 'updatedAt'],
+  });
+  assert.equal(tamperContribRes.status, 403, 'Tampering with non-reversal keys on contribution must be rejected');
+
+  // Legitimate reversal succeeds with allowed affectedKeys
+  const validReversalRes = await firestoreRequest(`sharedVaults/${vaultId}/contributions/${contribId}`, 'PATCH', {
+    uid: ownerUid,
+    data: {
+      status: 'reversed',
+      reversedByUid: ownerUid,
+      reversalReason: 'Accidental duplicate payment',
+      reversedAt: '2026-11-17T12:00:00Z',
+      updatedAt: '2026-11-17T12:00:00Z',
+    },
+    updateMask: ['status', 'reversedByUid', 'reversalReason', 'reversedAt', 'updatedAt'],
+  });
+  assert.equal(validReversalRes.status, 200, 'Valid contribution reversal with allowed keys must succeed');
+});
+
+test('11. Sensitive Collections Update Hardening & Immutable Field Protection', { skip: skipReason }, async () => {
+  const uid = 'usr_sec_sens_' + Date.now();
+  const otherUid = 'usr_other_sens_' + Date.now();
+
+  await firestoreRequest(`users/${uid}`, 'PATCH', {
+    uid,
+    data: { id: uid, email: 'sensitive@test.com', name: 'Sensitive Test User' },
+  });
+
+  // A. Expense update restrictions
+  const expId = 'exp_sens_1';
+  await firestoreRequest(`users/${uid}/expenses/${expId}`, 'PATCH', {
+    uid,
+    data: {
+      id: expId,
+      userId: uid,
+      description: 'Grocery Run',
+      amountPaise: 120000,
+      date: '2026-11-17',
+      type: 'variable',
+      paymentMethod: 'upi_bank',
+      createdAt: '2026-11-17T10:00:00Z',
+    },
+  });
+
+  // Legitimate expense update (allowed key)
+  const validExpUpdate = await firestoreRequest(`users/${uid}/expenses/${expId}`, 'PATCH', {
+    uid,
+    data: {
+      description: 'Grocery Run (Organic)',
+      amountPaise: 135000,
+      updatedAt: '2026-11-17T11:00:00Z',
+    },
+    updateMask: ['description', 'amountPaise', 'updatedAt'],
+  });
+  assert.equal(validExpUpdate.status, 200, 'Valid expense update on allowed keys must succeed');
+
+  // Attack: Try to change userId on expense
+  const tamperExpUserId = await firestoreRequest(`users/${uid}/expenses/${expId}`, 'PATCH', {
+    uid,
+    data: {
+      userId: otherUid,
+    },
+    updateMask: ['userId'],
+  });
+  assert.equal(tamperExpUserId.status, 403, 'Modifying userId on expense must be strictly rejected');
+
+  // Attack: Try to inject unallowed key on expense
+  const tamperExpInjectedKey = await firestoreRequest(`users/${uid}/expenses/${expId}`, 'PATCH', {
+    uid,
+    data: {
+      isAdminEscalated: true,
+    },
+    updateMask: ['isAdminEscalated'],
+  });
+  assert.equal(tamperExpInjectedKey.status, 403, 'Injecting unallowed key on expense must be strictly rejected');
+
+  // B. Income update restrictions
+  const incId = 'inc_sens_1';
+  await firestoreRequest(`users/${uid}/income/${incId}`, 'PATCH', {
+    uid,
+    data: {
+      id: incId,
+      userId: uid,
+      source: 'Freelance Design',
+      amountPaise: 5000000,
+      date: '2026-11-17',
+      createdAt: '2026-11-17T10:00:00Z',
+    },
+  });
+
+  const tamperIncUserId = await firestoreRequest(`users/${uid}/income/${incId}`, 'PATCH', {
+    uid,
+    data: {
+      userId: otherUid,
+    },
+    updateMask: ['userId'],
+  });
+  assert.equal(tamperIncUserId.status, 403, 'Modifying userId on income must be strictly rejected');
+
+  // C. Bills update restrictions
+  const billId = 'bill_sens_1';
+  await firestoreRequest(`users/${uid}/bills/${billId}`, 'PATCH', {
+    uid,
+    data: {
+      id: billId,
+      userId: uid,
+      name: 'Electricity Bill',
+      amountPaise: 350000,
+      dueDate: '2026-11-25',
+      status: 'UNPAID',
+      createdAt: '2026-11-17T10:00:00Z',
+    },
+  });
+
+  const tamperBillUserId = await firestoreRequest(`users/${uid}/bills/${billId}`, 'PATCH', {
+    uid,
+    data: {
+      userId: otherUid,
+    },
+    updateMask: ['userId'],
+  });
+  assert.equal(tamperBillUserId.status, 403, 'Modifying userId on bill must be strictly rejected');
+
+  // D. Study plan task: immutability of planId and userId
+  const taskId = 'task_plan_sens_1';
+  await firestoreRequest(`users/${uid}/study_plan_tasks/${taskId}`, 'PATCH', {
+    uid,
+    data: {
+      id: taskId,
+      userId: uid,
+      planId: 'plan_math_101',
+      title: 'Complete Chapter 4 Exercises',
+      scheduledDate: '2026-11-18',
+      createdAt: '2026-11-17T10:00:00Z',
+    },
+  });
+
+  const tamperTaskPlanId = await firestoreRequest(`users/${uid}/study_plan_tasks/${taskId}`, 'PATCH', {
+    uid,
+    data: {
+      planId: 'plan_hijacked_999',
+    },
+    updateMask: ['planId'],
+  });
+  assert.equal(tamperTaskPlanId.status, 403, 'Modifying planId on study_plan_tasks must be strictly rejected');
+});

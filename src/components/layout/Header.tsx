@@ -94,8 +94,31 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     envelopes: 'Envelope Budgets',
     subscriptions: 'Recurring Subscriptions',
     analytics: 'Visual Intelligence & Reports',
+    exports: 'Export Center',
     recovery: 'Data Recovery Center',
     settings: 'Settings & Theme Studio',
+    vaults: 'Couple Shared Vaults',
+  };
+
+  const mobileTabLabels: Record<string, string> = {
+    dashboard: 'Dashboard',
+    calendar: 'Calendar',
+    focus: 'Focus Timer',
+    clock: 'Real Clock',
+    timeblocks: 'Time Blocks',
+    tasks: 'Tasks',
+    habits: 'Habits',
+    study: 'Study OS',
+    finance: 'Finance',
+    transactions: 'Transactions',
+    bills: 'Bills & Payments',
+    envelopes: 'Envelopes',
+    subscriptions: 'Subscriptions',
+    analytics: 'Analytics',
+    exports: 'Exports',
+    recovery: 'Recovery',
+    settings: 'Settings',
+    vaults: 'Couple Vaults',
   };
 
   const tabSectionMap: Record<string, string> = {
@@ -113,8 +136,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     envelopes: 'Wealth Command',
     subscriptions: 'Wealth Command',
     analytics: 'Intelligence',
+    exports: 'System',
     recovery: 'Intelligence',
     settings: 'Preferences',
+    vaults: 'Wealth Command',
   };
 
   const formatTimerMinSec = (seconds: number) => {
@@ -130,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
       className="ff-header sticky top-0 z-30 flex items-center justify-between gap-1.5 sm:gap-3 lg:gap-4 h-16 px-2.5 sm:px-4 md:px-6 lg:px-6 2xl:px-8 max-w-full"
     >
       {/* Zone 1: Mobile Menu Trigger + Section Heading */}
-      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 shrink">
+      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 mr-2">
         <button
           type="button"
           onClick={onOpenMobileMenu}
@@ -140,18 +165,19 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2 overflow-hidden min-w-0">
+        <div className="flex items-center gap-2 overflow-hidden min-w-0 flex-1">
           <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
+            <motion.div
               key={currentTab}
               initial={isDisabled ? false : { opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={isDisabled ? { opacity: 0 } : { opacity: 0, y: -5 }}
               transition={{ duration: MOTION_DURATION.dropdown * 0.8, ease: MOTION_EASING.decelerate }}
-              className="ff-heading text-sm sm:text-base md:text-lg font-bold text-[var(--ff-text-primary)] whitespace-nowrap inline-block truncate max-w-[120px] xs:max-w-[170px] sm:max-w-[220px] xl:max-w-none"
+              className="ff-heading text-sm sm:text-base md:text-lg font-bold text-[var(--ff-text-primary)] truncate block min-w-0"
             >
-              {tabLabels[currentTab] || 'Dashboard'}
-            </motion.span>
+              <span className="hidden sm:inline">{tabLabels[currentTab] || 'Executive Dashboard'}</span>
+              <span className="sm:hidden">{mobileTabLabels[currentTab] || tabLabels[currentTab] || 'Dashboard'}</span>
+            </motion.div>
           </AnimatePresence>
         </div>
       </div>
@@ -337,7 +363,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
         {/* Google Sheets Sync Pill */}
         {googleSpreadsheetId ? (
           <div
-            className="flex items-center gap-1.5 px-2 2xl:px-2.5 py-1.5 text-xs border shrink-0"
+            className="hidden sm:flex items-center gap-1.5 px-2 2xl:px-2.5 py-1.5 text-xs border shrink-0"
             style={{
               borderRadius: 'var(--ff-radius-button)',
               background: 'var(--ff-success-soft)',
@@ -436,7 +462,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
             <button
               type="button"
               onClick={signOutGoogle}
-              className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors"
+              className="hidden sm:inline-flex p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] transition-colors"
               title="Sign out of Google"
               aria-label="Sign out of Google"
             >

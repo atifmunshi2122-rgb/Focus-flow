@@ -22,7 +22,7 @@ service cloud.firestore {
     }
 
     function isIsoDate(val) {
-      return val is string && val.matches('^\\d{4}-\\d{2}-\\d{2}$');
+      return val is string && (val.matches('^\\d{4}-\\d{2}-\\d{2}$') || val.matches('^\\d{4}-\\d{2}-\\d{2}T.*$'));
     }
 
     function isNonEmptyString(val, maxLen) {
@@ -45,10 +45,37 @@ service cloud.firestore {
       return (val is int || val is float) && val >= minVal && val <= maxVal && int(val) == val;
     }
 
+    function isValidRatioValue(val) {
+      return (val is int || val is float) && val >= 0 && val <= 100;
+    }
+
+    function isValidTargetRatio(ratio, memberUids) {
+      return ratio is map
+        && ratio.size() <= 2
+        && (
+          memberUids.size() == 0 ||
+          (
+            memberUids.size() == 1 &&
+            (!(memberUids[0] in ratio) || isValidRatioValue(ratio[memberUids[0]]))
+          ) ||
+          (
+            memberUids.size() == 2 &&
+            (!(memberUids[0] in ratio) || isValidRatioValue(ratio[memberUids[0]])) &&
+            (!(memberUids[1] in ratio) || isValidRatioValue(ratio[memberUids[1]]))
+          )
+        );
+    }
+
     function isSoftDelete(resourceData) {
       return resourceData != null && (
         request.resource.data.diff(resourceData).affectedKeys().hasOnly(['deletedAt', 'updatedAt']) ||
         request.resource.data.diff(resourceData).affectedKeys().hasOnly(['deletedAt'])
+      ) && (
+        !('userId' in resourceData) || request.resource.data.userId == resourceData.userId
+      ) && (
+        !('id' in resourceData) || request.resource.data.id == resourceData.id
+      ) && (
+        !('createdAt' in resourceData) || request.resource.data.createdAt == resourceData.createdAt
       ) && (
         request.resource.data.deletedAt == null ||
         (request.resource.data.deletedAt is string && request.resource.data.deletedAt.size() <= 64)
@@ -99,11 +126,13 @@ service cloud.firestore {
           && request.resource.data.status in ['todo', 'in_progress', 'completed']
           && isBoundedInt(request.resource.data.estimatedPomodoros, 1, 100);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) ||
             (
-              request.resource.data.userId == userId
-              && isNonEmptyString(request.resource.data.title, 256)
+              isNonEmptyString(request.resource.data.title, 256)
               && request.resource.data.priority in ['low', 'medium', 'high']
               && request.resource.data.status in ['todo', 'in_progress', 'completed']
             )
@@ -181,13 +210,15 @@ service cloud.firestore {
           && isPositivePaise(request.resource.data.amountPaise)
           && isIsoDate(request.resource.data.date);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
-              && isNonEmptyString(request.resource.data.source, 256)
+            isSoftDelete(resource.data) || (
+              isNonEmptyString(request.resource.data.source, 256)
               && isPositivePaise(request.resource.data.amountPaise)
               && isIsoDate(request.resource.data.date)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['source', 'amountPaise', 'date', 'category', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -204,14 +235,16 @@ service cloud.firestore {
           && request.resource.data.recurrence in ['monthly', 'quarterly', 'yearly']
           && isBoundedInt(request.resource.data.dueDay, 1, 31);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
-              && isNonEmptyString(request.resource.data.name, 256)
+            isSoftDelete(resource.data) || (
+              isNonEmptyString(request.resource.data.name, 256)
               && isPositivePaise(request.resource.data.amountPaise)
               && request.resource.data.recurrence in ['monthly', 'quarterly', 'yearly']
               && isBoundedInt(request.resource.data.dueDay, 1, 31)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'amountPaise', 'category', 'recurrence', 'dueDay', 'autoPaid', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -229,13 +262,17 @@ service cloud.firestore {
           && request.resource.data.type in ['fixed', 'variable']
           && request.resource.data.paymentMethod in ['credit_card', 'debit_card', 'upi_bank', 'cash', 'other'];
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
-              && isNonEmptyString(request.resource.data.description, 256)
+            isSoftDelete(resource.data) || (
+              isNonEmptyString(request.resource.data.description, 256)
               && isPositivePaise(request.resource.data.amountPaise)
               && isIsoDate(request.resource.data.date)
+              && request.resource.data.type in ['fixed', 'variable']
+              && request.resource.data.paymentMethod in ['credit_card', 'debit_card', 'upi_bank', 'cash', 'other']
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['description', 'amountPaise', 'date', 'type', 'paymentMethod', 'categoryId', 'categoryName', 'categoryColor', 'billId', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -252,14 +289,16 @@ service cloud.firestore {
           && isIsoDate(request.resource.data.dueDate)
           && request.resource.data.status in ['PAID', 'UNPAID', 'OVERDUE'];
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
-              && isNonEmptyString(request.resource.data.name, 256)
+            isSoftDelete(resource.data) || (
+              isNonEmptyString(request.resource.data.name, 256)
               && isPositivePaise(request.resource.data.amountPaise)
               && isIsoDate(request.resource.data.dueDate)
               && request.resource.data.status in ['PAID', 'UNPAID', 'OVERDUE']
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'amountPaise', 'dueDate', 'category', 'status', 'isAutoPay', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -305,15 +344,17 @@ service cloud.firestore {
           && isBoundedInt(request.resource.data.endMinute, 0, 1440)
           && request.resource.data.endMinute > request.resource.data.startMinute;
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
-              && isIsoDate(request.resource.data.date)
+            isSoftDelete(resource.data) || (
+              isIsoDate(request.resource.data.date)
               && isNonEmptyString(request.resource.data.title, 256)
               && isBoundedInt(request.resource.data.startMinute, 0, 1440)
               && isBoundedInt(request.resource.data.endMinute, 0, 1440)
               && request.resource.data.endMinute > request.resource.data.startMinute
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'date', 'startMinute', 'endMinute', 'color', 'category', 'completed', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -328,12 +369,14 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.name, 128)
           && isNonNegativePaise(request.resource.data.allocatedPaise);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
-              && isNonEmptyString(request.resource.data.name, 128)
+            isSoftDelete(resource.data) || (
+              isNonEmptyString(request.resource.data.name, 128)
               && isNonNegativePaise(request.resource.data.allocatedPaise)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'allocatedPaise', 'spentPaise', 'color', 'icon', 'category', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -350,14 +393,16 @@ service cloud.firestore {
           && request.resource.data.billingCycle in ['monthly', 'quarterly', 'yearly']
           && isIsoDate(request.resource.data.nextRenewalDate);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
-            isSoftDelete(resource.data) ||
-            (
-              request.resource.data.userId == userId
-              && isNonEmptyString(request.resource.data.name, 256)
+            isSoftDelete(resource.data) || (
+              isNonEmptyString(request.resource.data.name, 256)
               && isPositivePaise(request.resource.data.amountPaise)
               && request.resource.data.billingCycle in ['monthly', 'quarterly', 'yearly']
               && isIsoDate(request.resource.data.nextRenewalDate)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'amountPaise', 'billingCycle', 'category', 'nextRenewalDate', 'status', 'autoRenew', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -516,10 +561,15 @@ service cloud.firestore {
           && request.resource.data.userId == userId
           && isNonEmptyString(request.resource.data.title, 256);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
-              request.resource.data.userId == resource.data.userId
-              && isNonEmptyString(request.resource.data.title, 256)
+              isNonEmptyString(request.resource.data.title, 256)
+              && (!('status' in request.resource.data) || request.resource.data.status in ['active', 'completed', 'paused', 'cancelled'])
+              && (!('priority' in request.resource.data) || request.resource.data.priority in ['low', 'medium', 'high'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'goalType', 'subjectId', 'subjectCode', 'targetValue', 'currentValue', 'unit', 'startDate', 'endDate', 'status', 'priority', 'milestones', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -534,10 +584,15 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.title, 256)
           && request.resource.data.planType in ['daily', 'weekly', 'monthly', 'semester', 'exam'];
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
-              request.resource.data.userId == resource.data.userId
-              && isNonEmptyString(request.resource.data.title, 256)
+              isNonEmptyString(request.resource.data.title, 256)
+              && (!('planType' in request.resource.data) || request.resource.data.planType in ['daily', 'weekly', 'monthly', 'semester', 'exam'])
+              && (!('status' in request.resource.data) || request.resource.data.status in ['active', 'completed', 'paused', 'archived'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'planType', 'subjectIds', 'startDate', 'endDate', 'dailyTargetMinutes', 'weeklyTargetMinutes', 'recurringPattern', 'status', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -552,10 +607,16 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.title, 256)
           && isIsoDate(request.resource.data.scheduledDate);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
+          && (!('planId' in resource.data) || request.resource.data.planId == resource.data.planId)
           && (
             isSoftDelete(resource.data) || (
-              request.resource.data.userId == resource.data.userId
-              && isNonEmptyString(request.resource.data.title, 256)
+              isNonEmptyString(request.resource.data.title, 256)
+              && (!('status' in request.resource.data) || request.resource.data.status in ['pending', 'in_progress', 'completed', 'skipped'])
+              && (!('priority' in request.resource.data) || request.resource.data.priority in ['low', 'medium', 'high'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'subjectId', 'topicId', 'scheduledDate', 'startTime', 'endTime', 'estimatedMinutes', 'actualMinutes', 'priority', 'status', 'completedAt', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -570,10 +631,14 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.title, 256)
           && request.resource.data.resourceType in ['pdf', 'video', 'link', 'document', 'image', 'other'];
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
-              request.resource.data.userId == resource.data.userId
-              && isNonEmptyString(request.resource.data.title, 256)
+              isNonEmptyString(request.resource.data.title, 256)
+              && (!('resourceType' in request.resource.data) || request.resource.data.resourceType in ['pdf', 'video', 'link', 'document', 'image', 'other'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'resourceType', 'subjectId', 'topicId', 'url', 'storagePath', 'tags', 'isBookmarked', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -588,10 +653,15 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.title, 256)
           && isIsoDate(request.resource.data.examDate);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
-              request.resource.data.userId == resource.data.userId
-              && isNonEmptyString(request.resource.data.title, 256)
+              isNonEmptyString(request.resource.data.title, 256)
+              && (!('preparationStatus' in request.resource.data) || request.resource.data.preparationStatus in ['not_started', 'preparing', 'ready', 'completed'])
+              && (!('resultStatus' in request.resource.data) || request.resource.data.resultStatus in ['pending', 'published'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'examType', 'subjectIds', 'examDate', 'startTime', 'durationMinutes', 'totalMarks', 'obtainedMarks', 'syllabusTopicIds', 'preparationStatus', 'resultStatus', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -605,10 +675,13 @@ service cloud.firestore {
           && request.resource.data.userId == userId
           && isNonEmptyString(request.resource.data.title, 256);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
-              request.resource.data.userId == resource.data.userId
-              && isNonEmptyString(request.resource.data.title, 256)
+              isNonEmptyString(request.resource.data.title, 256)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'content', 'subjectId', 'topicId', 'tags', 'isPinned', 'isBookmarked', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -633,9 +706,14 @@ service cloud.firestore {
           && request.resource.data.userId == userId
           && isNonEmptyString(request.resource.data.question, 1024);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
-              request.resource.data.userId == resource.data.userId
+              isNonEmptyString(request.resource.data.question, 1024)
+              && (!('difficulty' in request.resource.data) || request.resource.data.difficulty in ['easy', 'medium', 'hard'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['question', 'answer', 'difficulty', 'reviewCount', 'lastReviewedAt', 'nextReviewAt', 'subjectId', 'topicId', 'isBookmarked', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -649,9 +727,13 @@ service cloud.firestore {
           && request.resource.data.userId == userId
           && isNonEmptyString(request.resource.data.title, 256);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
-              request.resource.data.userId == resource.data.userId
+              isNonEmptyString(request.resource.data.title, 256)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'subjectId', 'topicId', 'questions', 'attempts', 'highestScore', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -748,6 +830,150 @@ service cloud.firestore {
           && request.resource.data.userId == userId
           && isNonEmptyString(request.resource.data.name, 128);
         allow delete: if isOwner(userId);
+      }
+    }
+
+    // ==========================================
+    // COUPLE SHARED SAVINGS (JOINT VAULTS) ROOT
+    // ==========================================
+    match /sharedVaults/{vaultId} {
+      function isMemberOfVault(vId) {
+        return isSignedIn()
+          && exists(/databases/$(database)/documents/sharedVaults/$(vId))
+          && ('memberUids' in get(/databases/$(database)/documents/sharedVaults/$(vId)).data)
+          && (request.auth.uid in get(/databases/$(database)/documents/sharedVaults/$(vId)).data.memberUids);
+      }
+
+      // Vault root document
+      allow read: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+      allow create: if isSignedIn()
+        && isValidId(vaultId)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.memberUids == [request.auth.uid]
+        && isPositivePaise(request.resource.data.targetPaise)
+        && request.resource.data.currency in ['INR', 'USD', 'EUR', 'GBP']
+        && request.resource.data.status in ['active', 'archived']
+        && isNonEmptyString(request.resource.data.name, 128)
+        && (!('id' in request.resource.data) || request.resource.data.id == vaultId)
+        && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 512))
+        && (!('monthlyTargetPaise' in request.resource.data) || isNonNegativePaise(request.resource.data.monthlyTargetPaise))
+        && (!('targetRatio' in request.resource.data) || isValidTargetRatio(request.resource.data.targetRatio, request.resource.data.memberUids));
+      allow update: if isSignedIn()
+        && isMemberOfVault(vaultId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'targetPaise', 'monthlyTargetPaise', 'targetRatio', 'status', 'updatedAt'])
+        && request.resource.data.memberUids == resource.data.memberUids
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.currency == resource.data.currency
+        && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+        && (!('status' in request.resource.data) || request.resource.data.status in ['active', 'archived'])
+        && (!('targetPaise' in request.resource.data) || isPositivePaise(request.resource.data.targetPaise))
+        && (!('name' in request.resource.data) || isNonEmptyString(request.resource.data.name, 128))
+        && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 512))
+        && (!('monthlyTargetPaise' in request.resource.data) || isNonNegativePaise(request.resource.data.monthlyTargetPaise))
+        && (!('targetRatio' in request.resource.data) || isValidTargetRatio(request.resource.data.targetRatio, resource.data.memberUids));
+      allow delete: if false;
+
+      // Subcollection: members
+      match /members/{memberUid} {
+        allow read: if isMemberOfVault(vaultId);
+        allow create: if (isMemberOfVault(vaultId) || (isSignedIn() && request.auth.uid == memberUid))
+          && isValidId(memberUid)
+          && request.resource.data.uid == memberUid
+          && isNonEmptyString(request.resource.data.name, 128)
+          && (!('role' in request.resource.data) || request.resource.data.role in ['creator', 'partner'])
+          && (!('status' in request.resource.data) || request.resource.data.status in ['active', 'left']);
+        allow update: if isSignedIn()
+          && request.auth.uid == memberUid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt'])
+          && (!('name' in request.resource.data) || isNonEmptyString(request.resource.data.name, 128));
+        allow delete: if false;
+      }
+
+      // Subcollection: invitations
+      match /invitations/{inviteId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow create: if isMemberOfVault(vaultId)
+          && isValidId(inviteId)
+          && request.resource.data.invitedByUid == request.auth.uid
+          && request.resource.data.vaultId == vaultId
+          && isNonEmptyString(request.resource.data.inviteCode, 64)
+          && (!('status' in request.resource.data) || request.resource.data.status in ['pending', 'accepted', 'rejected', 'expired', 'revoked']);
+        allow update: if isMemberOfVault(vaultId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt', 'updatedAt'])
+          && request.resource.data.vaultId == resource.data.vaultId
+          && request.resource.data.invitedByUid == resource.data.invitedByUid
+          && request.resource.data.inviteCode == resource.data.inviteCode
+          && (!('status' in request.resource.data) || request.resource.data.status in ['pending', 'accepted', 'rejected', 'expired', 'revoked']);
+        allow delete: if false;
+      }
+
+      // Subcollection: contributions
+      match /contributions/{contribId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow create: if isMemberOfVault(vaultId)
+          && isValidId(contribId)
+          && request.resource.data.vaultId == vaultId
+          && request.resource.data.contributedByUid == request.auth.uid
+          && isPositivePaise(request.resource.data.amountPaise)
+          && request.resource.data.status == 'active'
+          && isIsoDate(request.resource.data.date)
+          && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 256));
+        allow update: if isMemberOfVault(vaultId)
+          && resource.data.contributedByUid == request.auth.uid
+          && request.resource.data.status == 'reversed'
+          && request.resource.data.reversedByUid == request.auth.uid
+          && request.resource.data.vaultId == resource.data.vaultId
+          && request.resource.data.contributedByUid == resource.data.contributedByUid
+          && request.resource.data.amountPaise == resource.data.amountPaise
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reversedByUid', 'reversalReason', 'reversedAt', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      // Subcollection: expenses
+      match /expenses/{expenseId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow create: if isMemberOfVault(vaultId)
+          && isValidId(expenseId)
+          && request.resource.data.vaultId == vaultId
+          && request.resource.data.paidByUid == request.auth.uid
+          && isPositivePaise(request.resource.data.amountPaise)
+          && request.resource.data.status == 'active'
+          && isIsoDate(request.resource.data.date)
+          && isNonEmptyString(request.resource.data.description, 256)
+          && request.resource.data.splitMode in ['equal', 'custom', 'ratio'];
+        allow update: if isMemberOfVault(vaultId)
+          && request.resource.data.status == 'reversed'
+          && request.resource.data.vaultId == resource.data.vaultId
+          && request.resource.data.paidByUid == resource.data.paidByUid
+          && request.resource.data.amountPaise == resource.data.amountPaise
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reversedByUid', 'reversalReason', 'reversedAt', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      // Subcollection: settlements
+      match /settlements/{settleId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow create: if isMemberOfVault(vaultId)
+          && isValidId(settleId)
+          && request.resource.data.vaultId == vaultId
+          && request.resource.data.fromUid == request.auth.uid
+          && isPositivePaise(request.resource.data.amountPaise)
+          && isNonEmptyString(request.resource.data.toUid, 128)
+          && isIsoDate(request.resource.data.date);
+        allow update, delete: if false;
+      }
+
+      // Subcollection: activity
+      match /activity/{activityId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow create: if (isMemberOfVault(vaultId) || (isSignedIn() && request.resource.data.actorUid == request.auth.uid))
+          && isValidId(activityId)
+          && request.resource.data.vaultId == vaultId
+          && request.resource.data.actorUid == request.auth.uid
+          && isNonEmptyString(request.resource.data.title, 128)
+          && isIsoDate(request.resource.data.timestamp);
+        allow update, delete: if false;
       }
     }
   }
