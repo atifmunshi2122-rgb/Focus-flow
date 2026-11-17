@@ -315,7 +315,9 @@ service cloud.firestore {
           && isIsoDate(request.resource.data.paidDate)
           && request.resource.data.paymentMethod in ['credit_card', 'debit_card', 'upi_bank', 'cash', 'other'];
         allow update: if isOwner(userId)
-          && request.resource.data.userId == userId;
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
         allow delete: if isOwner(userId);
       }
 
@@ -429,6 +431,9 @@ service cloud.firestore {
           && request.resource.data.frequency in ['daily', 'weekly', 'custom']
           && isBoundedInt(request.resource.data.targetDaysPerWeek, 1, 7);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
@@ -450,6 +455,9 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.name, 128)
           && isNonEmptyString(request.resource.data.shortTitle, 64);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
@@ -469,6 +477,9 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.code, 64)
           && isNonEmptyString(request.resource.data.name, 256);
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
@@ -491,6 +502,9 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.subtopic, 256)
           && request.resource.data.priority in ['High', 'Medium', 'Low'];
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
@@ -517,6 +531,9 @@ service cloud.firestore {
           && request.resource.data.difficulty in ['easy', 'medium', 'hard']
           && request.resource.data.status in ['scheduled', 'due', 'overdue', 'mastered'];
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
@@ -542,6 +559,9 @@ service cloud.firestore {
           && request.resource.data.severity in ['High', 'Medium', 'Low']
           && request.resource.data.resolved is bool;
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
@@ -755,6 +775,9 @@ service cloud.firestore {
             isBoundedInt(request.resource.data.soundVolume, 0, 100)
           );
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
@@ -792,6 +815,9 @@ service cloud.firestore {
             request.resource.data.status in ['active', 'paused', 'completed', 'cancelled']
           );
         allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
           && (
             isSoftDelete(resource.data) || (
               request.resource.data.userId == resource.data.userId
@@ -816,18 +842,25 @@ service cloud.firestore {
       // Pomodoro settings subcollection (User timer preferences fallback)
       match /pomodoro_settings/{settingId} {
         allow read: if isOwner(userId);
-        allow create, update: if isOwner(userId)
+        allow create: if isOwner(userId)
           && isValidId(settingId)
           && request.resource.data.userId == userId;
+        allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id);
         allow delete: if isOwner(userId);
       }
 
       // Pomodoro ambient presets subcollection (Custom sound presets)
       match /pomodoro_ambient_presets/{presetId} {
         allow read: if isOwner(userId);
-        allow create, update: if isOwner(userId)
+        allow create: if isOwner(userId)
           && isValidId(presetId)
           && request.resource.data.userId == userId
+          && isNonEmptyString(request.resource.data.name, 128);
+        allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
           && isNonEmptyString(request.resource.data.name, 128);
         allow delete: if isOwner(userId);
       }
@@ -859,7 +892,7 @@ service cloud.firestore {
         && (!('monthlyTargetPaise' in request.resource.data) || isNonNegativePaise(request.resource.data.monthlyTargetPaise))
         && (!('targetRatio' in request.resource.data) || isValidTargetRatio(request.resource.data.targetRatio, request.resource.data.memberUids));
       allow update: if isSignedIn()
-        && isMemberOfVault(vaultId)
+        && (isMemberOfVault(vaultId) || (request.auth.uid in resource.data.memberUids))
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'targetPaise', 'monthlyTargetPaise', 'targetRatio', 'status', 'updatedAt'])
         && request.resource.data.memberUids == resource.data.memberUids
         && request.resource.data.createdBy == resource.data.createdBy

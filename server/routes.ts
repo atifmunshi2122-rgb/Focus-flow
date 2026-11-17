@@ -9,6 +9,7 @@ import {
   Bill,
   SavingsGoal,
 } from './db.js';
+import { vaultBackendService } from './vaultBackendService.js';
 import { buildDefaultStudyWorkspace } from '../src/data/studySeedData.ts';
 import { AuthenticatedRequest, requireUserContext } from './auth.js';
 import {
@@ -330,7 +331,11 @@ apiRouter.get('/dashboard', (req: Request, res: Response) => {
   );
 
   const getSessionDurationSecs = (s: FocusSession) =>
-    typeof s.actualDurationSeconds === 'number' ? s.actualDurationSeconds : s.durationSeconds;
+    typeof s.actualDurationSeconds === 'number' && !Number.isNaN(s.actualDurationSeconds)
+      ? s.actualDurationSeconds
+      : typeof s.durationSeconds === 'number' && !Number.isNaN(s.durationSeconds)
+        ? s.durationSeconds
+        : (s.durationMinutes || 0) * 60;
   const todayFocusSeconds = todaySessions
     .filter((s) => s.mode === 'work')
     .reduce((acc, s) => acc + getSessionDurationSecs(s), 0);
@@ -338,8 +343,8 @@ apiRouter.get('/dashboard', (req: Request, res: Response) => {
     weekSessions.reduce((acc, s) => acc + getSessionDurationSecs(s), 0) / 60
   );
   const completedPomodoroSessions = todaySessions.filter((s) => s.mode === 'work').length;
-  const streak = calculateBoundedStreakDays(userSessions, new Date());
-  const bestStreakDays = computeBestStreakDays(userSessions);
+  const streak = calculateBoundedStreakDays(userSessions, tz);
+  const bestStreakDays = computeBestStreakDays(userSessions, tz);
 
   // Tasks summary (exclude trashed)
   const activeTasks = db.tasks.filter((t) => t.userId === userId && !t.deletedAt);
@@ -545,8 +550,8 @@ apiRouter.post('/focus/sessions', async (req: Request, res: Response, _next: Nex
     completed !== undefined
       ? completed
       : parsedStatus !== undefined
-      ? parsedStatus === 'completed'
-      : true;
+        ? parsedStatus === 'completed'
+        : true;
   const resolvedStatus: 'in_progress' | 'completed' | 'interrupted' =
     parsedStatus || (isCompleted ? 'completed' : 'in_progress');
 
@@ -583,10 +588,10 @@ apiRouter.post('/focus/sessions', async (req: Request, res: Response, _next: Nex
     endedAt === null
       ? null
       : typeof endedAt === 'string' && !Number.isNaN(Date.parse(endedAt))
-      ? endedAt
-      : isCompleted
-      ? new Date().toISOString()
-      : null;
+        ? endedAt
+        : isCompleted
+          ? new Date().toISOString()
+          : null;
 
   const clientProvidedId =
     typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128 ? id.trim() : null;
@@ -1597,10 +1602,10 @@ apiRouter.post('/finance/expenses', async (req: Request, res: Response, next: Ne
     } else {
       const nameMatch = db.categories.find(
         (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-               c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
+          c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
       ) || db.categories.find(
         (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-               (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
+          (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
       );
       if (nameMatch) {
         resolvedCategoryId = nameMatch.id;
@@ -1611,10 +1616,10 @@ apiRouter.post('/finance/expenses', async (req: Request, res: Response, next: Ne
   if (!resolvedCategoryId && rawCatName) {
     const nameMatch = db.categories.find(
       (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-             c.name.trim().toLowerCase() === rawCatName.toLowerCase()
+        c.name.trim().toLowerCase() === rawCatName.toLowerCase()
     ) || db.categories.find(
       (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-             (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
+        (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
     );
     if (nameMatch) {
       resolvedCategoryId = nameMatch.id;
@@ -1823,10 +1828,10 @@ apiRouter.post('/finance/recurring', async (req: Request, res: Response, next: N
     } else {
       const nameMatch = db.categories.find(
         (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-               c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
+          c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
       ) || db.categories.find(
         (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-               (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
+          (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
       );
       if (nameMatch) {
         resolvedCategoryId = nameMatch.id;
@@ -1837,10 +1842,10 @@ apiRouter.post('/finance/recurring', async (req: Request, res: Response, next: N
   if (!resolvedCategoryId && rawCatName) {
     const nameMatch = db.categories.find(
       (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-             c.name.trim().toLowerCase() === rawCatName.toLowerCase()
+        c.name.trim().toLowerCase() === rawCatName.toLowerCase()
     ) || db.categories.find(
       (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-             (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
+        (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
     );
     if (nameMatch) {
       resolvedCategoryId = nameMatch.id;
@@ -2060,10 +2065,10 @@ apiRouter.post('/finance/bills', async (req: Request, res: Response, next: NextF
     } else {
       const nameMatch = db.categories.find(
         (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-               c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
+          c.name.trim().toLowerCase() === categoryId.trim().toLowerCase()
       ) || db.categories.find(
         (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-               (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
+          (c.name.toLowerCase().includes(categoryId.trim().toLowerCase()) || categoryId.trim().toLowerCase().includes(c.name.toLowerCase()))
       );
       if (nameMatch) {
         resolvedCategoryId = nameMatch.id;
@@ -2074,10 +2079,10 @@ apiRouter.post('/finance/bills', async (req: Request, res: Response, next: NextF
   if (!resolvedCategoryId && rawCatName) {
     const nameMatch = db.categories.find(
       (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-             c.name.trim().toLowerCase() === rawCatName.toLowerCase()
+        c.name.trim().toLowerCase() === rawCatName.toLowerCase()
     ) || db.categories.find(
       (c) => (c.userId === userId || c.userId === 'usr_atif_default') &&
-             (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
+        (c.name.toLowerCase().includes(rawCatName.toLowerCase()) || rawCatName.toLowerCase().includes(c.name.toLowerCase()))
     );
     if (nameMatch) {
       resolvedCategoryId = nameMatch.id;
@@ -3530,13 +3535,15 @@ apiRouter.post('/joint-vaults/invitations/accept', async (req: Request, res: Res
   }
 
   try {
-    const result = dbService.acceptVaultInvitation(inviteCode, {
+    const result = await vaultBackendService.acceptVaultInvitation(inviteCode, {
       id: auth.userId,
       email: auth.email,
       name: auth.name,
     });
-    await dbService.flush();
-    const summary = dbService.getVaultSummary(result.vault.id, auth.userId);
+    if (!vaultBackendService.isFirestoreConfigured()) {
+      await dbService.flush();
+    }
+    const summary = await vaultBackendService.getVaultSummary(result.vault.id, auth.userId);
     res.json(summary || result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to accept invitation';

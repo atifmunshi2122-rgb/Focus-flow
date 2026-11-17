@@ -1,4 +1,5 @@
 import type { FocusSession } from './db.js';
+import { DEFAULT_TIMEZONE, calculateFocusStreakDays, computeBestStreakDays as computeBestStreakDaysTz } from './dateTime.js';
 
 export const ALLOWED_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP'] as const;
 export const ALLOWED_THEMES = ['light', 'dark', 'system'] as const;
@@ -124,90 +125,25 @@ export function computeNextRecurrenceDueDate(
 const MAX_STREAK_DAYS = 365;
 
 /**
- * Bounded O(N) streak calculation using a Set of valid YYYY-MM-DD dates.
- * Caps iteration strictly to MAX_STREAK_DAYS so corrupt session records can never hang Node.
+ * Timezone-aware bounded streak calculation using calendar-day arithmetic.
+ * Accurately tracks consecutive work sessions mapped to target timezone days.
  */
 export function calculateBoundedStreakDays(
   sessions: ReadonlyArray<Pick<FocusSession, 'startedAt' | 'completed' | 'mode'>>,
+  timezoneOrRefDate: string | Date = DEFAULT_TIMEZONE,
   referenceDate: Date = new Date()
 ): number {
-  const completedWorkDates = new Set<string>();
-
-  for (const session of sessions) {
-    if (!session || !session.completed || session.mode !== 'work') continue;
-    if (typeof session.startedAt !== 'string' || session.startedAt.length < 10) continue;
-    const candidateDate = session.startedAt.slice(0, 10);
-    if (parseIsoDate(candidateDate)) {
-      completedWorkDates.add(candidateDate);
-    }
-  }
-
-  if (completedWorkDates.size === 0) return 0;
-
-  const formatUtcDate = (d: Date) => d.toISOString().slice(0, 10);
-  const baseUtc = new Date(
-    Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth(), referenceDate.getUTCDate())
-  );
-
-  const todayStr = formatUtcDate(baseUtc);
-  const yesterdayUtc = new Date(baseUtc);
-  yesterdayUtc.setUTCDate(yesterdayUtc.getUTCDate() - 1);
-  const yesterdayStr = formatUtcDate(yesterdayUtc);
-
-  let startOffset = -1;
-  if (completedWorkDates.has(todayStr)) {
-    startOffset = 0;
-  } else if (completedWorkDates.has(yesterdayStr)) {
-    startOffset = 1;
-  } else {
-    return 0;
-  }
-
-  let streak = 0;
-  for (let i = 0; i < MAX_STREAK_DAYS; i++) {
-    const cursor = new Date(baseUtc);
-    cursor.setUTCDate(cursor.getUTCDate() - (startOffset + i));
-    if (completedWorkDates.has(formatUtcDate(cursor))) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-
-  return streak;
+  const tz = typeof timezoneOrRefDate === 'string' ? timezoneOrRefDate : DEFAULT_TIMEZONE;
+  const refDate = timezoneOrRefDate instanceof Date ? timezoneOrRefDate : referenceDate;
+  return calculateFocusStreakDays(sessions, tz, refDate);
 }
 
 /**
  * Deterministic all-time longest consecutive streak (non-punitive historical record).
  */
 export function computeBestStreakDays(
-  sessions: ReadonlyArray<Pick<FocusSession, 'startedAt' | 'completed' | 'mode'>>
+  sessions: ReadonlyArray<Pick<FocusSession, 'startedAt' | 'completed' | 'mode'>>,
+  timezone: string = DEFAULT_TIMEZONE
 ): number {
-  const uniqueDates = new Set<string>();
-  for (const s of sessions) {
-    if (!s || !s.completed || s.mode !== 'work' || typeof s.startedAt !== 'string') continue;
-    const dateStr = s.startedAt.slice(0, 10);
-    if (parseIsoDate(dateStr)) {
-      uniqueDates.add(dateStr);
-    }
-  }
-  if (uniqueDates.size === 0) return 0;
-
-  const sorted = Array.from(uniqueDates).sort();
-  let best = 1;
-  let current = 1;
-
-  for (let i = 1; i < sorted.length; i++) {
-    const prevMs = Date.parse(`${sorted[i - 1]}T00:00:00.000Z`);
-    const currMs = Date.parse(`${sorted[i]}T00:00:00.000Z`);
-    const diffDays = Math.round((currMs - prevMs) / 86_400_000);
-    if (diffDays === 1) {
-      current++;
-      if (current > best) best = current;
-    } else if (diffDays > 1) {
-      current = 1;
-    }
-  }
-
-  return best;
+  return computeBestStreakDaysTz(sessions, timezone);
 }

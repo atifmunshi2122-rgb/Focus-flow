@@ -3045,26 +3045,30 @@ export const api = {
       async () => {
         if (auth.currentUser) {
           try {
-            return await firestoreService.getJointVaults(auth.currentUser);
+            const list = await firestoreService.getJointVaults(auth.currentUser);
+            if (Array.isArray(list) && list.length > 0) return list;
           } catch (err) {
             console.warn('[JointVaults] Firestore getJointVaults failed, falling back to backend API:', err);
-            try {
-              return await request<VaultSummary[]>('/joint-vaults');
-            } catch (fallbackErr) {
-              console.warn('[JointVaults] Backend API fallback also failed:', fallbackErr);
-              return [];
-            }
           }
+          try {
+            const backendList = await request<VaultSummary[]>('/joint-vaults');
+            if (Array.isArray(backendList)) return backendList;
+          } catch (fallbackErr) {
+            console.warn('[JointVaults] Backend API fallback also failed:', fallbackErr);
+          }
+          return [];
         }
         try {
-          return await request<VaultSummary[]>('/joint-vaults');
+          const list = await request<VaultSummary[]>('/joint-vaults');
+          return Array.isArray(list) ? list : [];
         } catch {
           return [];
         }
       },
       async () => {
         try {
-          return await request<VaultSummary[]>('/joint-vaults');
+          const list = await request<VaultSummary[]>('/joint-vaults');
+          return Array.isArray(list) ? list : [];
         } catch {
           return [];
         }

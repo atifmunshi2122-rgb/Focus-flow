@@ -23,9 +23,12 @@ import {
   getTodayDateString,
   getDaysInMonth,
   getStartOfWeek,
+  getEndOfWeek,
   formatYmd,
   parseDateString,
   formatDateInTimezone,
+  calculateFocusStreakDays,
+  computeBestStreakDays,
 } from './dateTime.ts';
 import {
   User,
@@ -210,66 +213,14 @@ function computeNextRecurrenceDueDate(
   return d.toISOString().slice(0, 10);
 }
 
-function computeBestStreakDays(sessions: FocusSession[]): number {
-  const dates = Array.from(
-    new Set(
-      sessions
-        .filter((s) => s && s.completed && s.mode === 'work' && typeof s.startedAt === 'string')
-        .map((s) => s.startedAt.slice(0, 10))
-        .filter((d) => isIsoDate(d))
-    )
-  ).sort();
-  if (dates.length === 0) return 0;
-
-  let best = 1;
-  let current = 1;
-  for (let i = 1; i < dates.length; i++) {
-    const prev = new Date(`${dates[i - 1]}T00:00:00.000Z`);
-    const next = new Date(`${dates[i]}T00:00:00.000Z`);
-    const diffDays = Math.round((next.getTime() - prev.getTime()) / 86400000);
-    if (diffDays === 1) {
-      current++;
-      if (current > best) best = current;
-    } else if (diffDays > 1) {
-      current = 1;
-    }
-  }
-  return best;
-}
-
-function calculateBoundedStreakDays(sessions: FocusSession[], referenceDate = new Date()): number {
-  const completedDates = new Set<string>();
-  for (const s of sessions) {
-    if (!s || !s.completed || s.mode !== 'work' || typeof s.startedAt !== 'string') continue;
-    const candidate = s.startedAt.slice(0, 10);
-    if (isIsoDate(candidate)) {
-      completedDates.add(candidate);
-    }
-  }
-  if (completedDates.size === 0) return 0;
-
-  const baseUtc = new Date(
-    Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth(), referenceDate.getUTCDate())
-  );
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const todayStr = fmt(baseUtc);
-  const yest = new Date(baseUtc);
-  yest.setUTCDate(yest.getUTCDate() - 1);
-  const yesterdayStr = fmt(yest);
-
-  let startOffset = -1;
-  if (completedDates.has(todayStr)) startOffset = 0;
-  else if (completedDates.has(yesterdayStr)) startOffset = 1;
-  else return 0;
-
-  let streak = 0;
-  for (let i = 0; i < 365; i++) {
-    const cursor = new Date(baseUtc);
-    cursor.setUTCDate(cursor.getUTCDate() - (startOffset + i));
-    if (completedDates.has(fmt(cursor))) streak++;
-    else break;
-  }
-  return streak;
+function calculateBoundedStreakDays(
+  sessions: FocusSession[],
+  timezoneOrRefDate: string | Date = DEFAULT_TIMEZONE,
+  referenceDate = new Date()
+): number {
+  const tz = typeof timezoneOrRefDate === 'string' ? timezoneOrRefDate : DEFAULT_TIMEZONE;
+  const refDate = timezoneOrRefDate instanceof Date ? timezoneOrRefDate : referenceDate;
+  return calculateFocusStreakDays(sessions, tz, refDate);
 }
 
 async function listSubcollection<T>(path: string): Promise<T[]> {
@@ -1715,16 +1666,23 @@ export const firestoreService = {
     const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
     const todayStr = getTodayDateString(tz);
     const currentMonthKey = todayStr.substring(0, 7);
-    const weekStartStr = getStartOfWeek(todayStr);
+    const weekStartStr = getStartOfWeek(todayStr, tz);
+
+    const getSessionDurationSecs = (s: FocusSession) =>
+      typeof s.actualDurationSeconds === 'number' && !Number.isNaN(s.actualDurationSeconds)
+        ? s.actualDurationSeconds
+        : typeof s.durationSeconds === 'number' && !Number.isNaN(s.durationSeconds)
+        ? s.durationSeconds
+        : (s.durationMinutes || 0) * 60;
 
     const todaySessions = sessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === todayStr && s.completed);
-    const todayFocusSeconds = todaySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
+    const todayFocusSeconds = todaySessions.reduce((acc, s) => acc + getSessionDurationSecs(s), 0);
     const weeklyFocusSeconds = sessions
       .filter((s) => s.mode === 'work' && s.completed && formatDateInTimezone(s.startedAt, tz) >= weekStartStr)
-      .reduce((acc, s) => acc + s.durationSeconds, 0);
+      .reduce((acc, s) => acc + getSessionDurationSecs(s), 0);
     const completedPomodoroSessions = todaySessions.filter((s) => s.mode === 'work').length;
-    const focusStreakDays = calculateBoundedStreakDays(sessions, new Date());
-    const bestStreakDays = computeBestStreakDays(sessions);
+    const focusStreakDays = calculateFocusStreakDays(sessions, tz, new Date());
+    const bestStreakDays = computeBestStreakDays(sessions, tz);
 
     const completedTasksCount = tasks.filter((t) => t.status === 'completed').length;
     const pendingTasksCount = tasks.filter((t) => t.status !== 'completed').length;
@@ -1854,13 +1812,8 @@ export const firestoreService = {
       startDateStr = todayStr;
       endDateStr = todayStr;
     } else if (filter === 'this_week') {
-      const now = new Date(`${todayStr}T12:00:00.000Z`);
-      const day = now.getDay();
-      const diffToMonday = (day + 6) % 7;
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - diffToMonday);
-      startDateStr = startOfWeek.toISOString().split('T')[0];
-      endDateStr = todayStr;
+      startDateStr = getStartOfWeek(todayStr, tz);
+      endDateStr = getEndOfWeek(todayStr, tz);
     } else if (filter === 'last_month') {
       let lmYear = currentY;
       let lmMonth = currentM - 1;

@@ -46,6 +46,8 @@ export const TIMER_CLIENT_ID =
 
 export type TimerBroadcastMessage = {
   senderId?: string;
+  timestamp?: number;
+  revision?: number;
 } & (
   | {
       type: 'TIMER_SYNC_START';
@@ -70,6 +72,7 @@ export type TimerBroadcastMessage = {
         timeLeft: number;
         stopwatchElapsed: number;
         timerEngine: TimerEngineMode;
+        activeSessionId?: string | null;
       };
     }
   | {
@@ -78,6 +81,7 @@ export type TimerBroadcastMessage = {
         totalDuration: number;
         timerEngine: TimerEngineMode;
         timerMode: TimerMode;
+        activeSessionId?: string | null;
       };
     }
   | {
@@ -98,6 +102,10 @@ export type TimerBroadcastMessage = {
       payload: {
         completionKey: string;
         completedAt: string;
+        nextMode?: TimerMode;
+        nextDurationSecs?: number;
+        completedCycleCount?: number;
+        activeSessionId?: string | null;
       };
     }
 );
@@ -443,13 +451,18 @@ export function releaseCompletionLock(
   }
 }
 
+let monotonicRevision = 0;
+
 export function broadcastTimerEvent(msg: TimerBroadcastMessage): void {
   if (typeof BroadcastChannel === 'undefined') return;
   try {
     const ch = new BroadcastChannel(TIMER_BROADCAST_CHANNEL);
+    monotonicRevision += 1;
     ch.postMessage({
       ...msg,
       senderId: msg.senderId || TIMER_CLIENT_ID,
+      timestamp: msg.timestamp || Date.now(),
+      revision: msg.revision !== undefined ? msg.revision : monotonicRevision,
     });
     ch.close();
   } catch {

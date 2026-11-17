@@ -45,6 +45,7 @@ import {
   Info,
   DollarSign,
   ShieldCheck,
+  AlertCircle,
 } from 'lucide-react';
 
 export const JointVaultsView: React.FC = () => {
@@ -60,6 +61,8 @@ export const JointVaultsView: React.FC = () => {
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isContributeModalOpen, setIsContributeModalOpen] = useState(false);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -101,9 +104,10 @@ export const JointVaultsView: React.FC = () => {
     setLoadError(null);
     try {
       const data = await api.getJointVaults();
-      setVaults(data);
-      if (data.length > 0 && !selectedVaultId) {
-        setSelectedVaultId(data[0].vault.id);
+      const safeData = Array.isArray(data) ? data : [];
+      setVaults(safeData);
+      if (safeData.length > 0 && !selectedVaultId) {
+        setSelectedVaultId(safeData[0].vault.id);
       }
     } catch (err) {
       console.error('Failed to load joint vaults:', err);
@@ -166,17 +170,47 @@ export const JointVaultsView: React.FC = () => {
 
   const handleJoinVault = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinCode.trim()) return;
+    if (!joinCode.trim() || isJoining) return;
+
+    setIsJoining(true);
+    setJoinError(null);
 
     try {
       const result = await api.acceptVaultInvitation(joinCode.trim());
       showToast(`Joined vault "${result.vault.name}"!`, 'success');
       setIsJoinModalOpen(false);
       setJoinCode('');
+      setJoinError(null);
       setSelectedVaultId(result.vault.id);
-      loadVaults();
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to join vault', 'error');
+      await loadVaults();
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      const status = err?.status;
+      const code = String(err?.code || '');
+
+      let friendlyMsg = 'Failed to join vault. Please verify the code and retry.';
+      if (status === 404 || code === 'NOT_FOUND' || msg.includes('404')) {
+        friendlyMsg = 'Joint Vault invitation API is temporarily unreachable (404). Please ensure the backend is deployed and retry.';
+      } else if (status === 401 || code === 'UNAUTHORIZED' || msg.includes('Unauthorized') || msg.includes('Authentication failed')) {
+        friendlyMsg = 'Your authentication session has expired. Please sign in again to join this vault.';
+      } else if (msg.toLowerCase().includes('already processed') || msg.toLowerCase().includes('already accepted') || msg.toLowerCase().includes('already used')) {
+        friendlyMsg = 'This invitation code has already been used and is no longer valid.';
+      } else if (msg.toLowerCase().includes('expired')) {
+        friendlyMsg = 'This invitation code has expired. Please ask your partner to generate a new one.';
+      } else if (msg.toLowerCase().includes('maximum') || msg.toLowerCase().includes('full') || msg.toLowerCase().includes('2 active members')) {
+        friendlyMsg = 'This vault already has the maximum of 2 active partners.';
+      } else if (msg.toLowerCase().includes('already a member')) {
+        friendlyMsg = 'You are already an active member of this vault.';
+      } else if (msg.toLowerCase().includes('network') || msg.toLowerCase().includes('offline') || msg.toLowerCase().includes('failed to fetch')) {
+        friendlyMsg = 'Network connection interrupted. Please check your internet connection and retry.';
+      } else if (msg) {
+        friendlyMsg = msg;
+      }
+
+      setJoinError(friendlyMsg);
+      showToast(friendlyMsg, 'error');
+    } finally {
+      setIsJoining(false);
     }
   };
 
@@ -374,10 +408,34 @@ export const JointVaultsView: React.FC = () => {
             Unable to Load Joint Vaults
           </h3>
           <p className="text-sm text-[var(--ff-text-muted)] mb-5">{loadError}</p>
-          <ThemeButton variant="primary" size="sm" onClick={loadVaults}>
-            <RotateCcw className="w-4 h-4 mr-2" />
-            <span>Retry Connection</span>
-          </ThemeButton>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <ThemeButton variant="primary" size="sm" onClick={loadVaults}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              <span>Retry Connection</span>
+            </ThemeButton>
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setLoadError(null);
+                setIsCreateModalOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              <span>Create Joint Vault</span>
+            </ThemeButton>
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setLoadError(null);
+                setIsJoinModalOpen(true);
+              }}
+            >
+              <Users className="w-4 h-4 mr-1.5" />
+              <span>Join with Code</span>
+            </ThemeButton>
+          </div>
         </div>
       </ThemeCard>
     );
@@ -461,26 +519,64 @@ export const JointVaultsView: React.FC = () => {
         </ThemeModal>
 
         {/* Join Modal */}
-        <ThemeModal isOpen={isJoinModalOpen} onClose={() => setIsJoinModalOpen(false)} title="Join Partner's Vault">
+        <ThemeModal
+          isOpen={isJoinModalOpen}
+          onClose={() => {
+            if (!isJoining) {
+              setIsJoinModalOpen(false);
+              setJoinError(null);
+            }
+          }}
+          title="Join Partner's Vault"
+        >
           <form onSubmit={handleJoinVault} className="space-y-4">
+            {joinError && (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold">Unable to Join Vault</p>
+                  <p className="mt-0.5">{joinError}</p>
+                </div>
+              </div>
+            )}
             <div>
-              <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">Enter 10-12 Character Invite Code *</label>
+              <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">
+                Enter 10-12 Character Invite Code *
+              </label>
               <ThemeInput
                 required
+                disabled={isJoining}
                 placeholder="e.g. ABC123XYZ"
                 value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  setJoinCode(e.target.value.toUpperCase());
+                  if (joinError) setJoinError(null);
+                }}
               />
               <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
                 Ask your partner to generate a single-use invite code from their vault.
               </span>
             </div>
             <div className="pt-2 flex justify-end gap-2">
-              <ThemeButton variant="secondary" size="sm" type="button" onClick={() => setIsJoinModalOpen(false)}>
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                type="button"
+                disabled={isJoining}
+                onClick={() => {
+                  setIsJoinModalOpen(false);
+                  setJoinError(null);
+                }}
+              >
                 Cancel
               </ThemeButton>
-              <ThemeButton variant="primary" size="sm" type="submit">
-                Join Vault
+              <ThemeButton
+                variant="primary"
+                size="sm"
+                type="submit"
+                disabled={isJoining || !joinCode.trim()}
+              >
+                {isJoining ? 'Joining Vault...' : 'Join Vault'}
               </ThemeButton>
             </div>
           </form>
@@ -559,6 +655,18 @@ export const JointVaultsView: React.FC = () => {
 
           <ThemeButton variant="ghost" size="xs" onClick={() => setIsCreateModalOpen(true)} title="Create another vault">
             <Plus className="w-3.5 h-3.5" />
+          </ThemeButton>
+
+          <ThemeButton
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              setJoinError(null);
+              setIsJoinModalOpen(true);
+            }}
+            title="Join partner's vault with invite code"
+          >
+            <Users className="w-3.5 h-3.5" />
           </ThemeButton>
         </div>
       </div>
@@ -664,11 +772,10 @@ export const JointVaultsView: React.FC = () => {
       {/* Net Settlement Banner if shared expenses exist */}
       {settlement && settlement.totalExpensesPaise > 0 && (
         <div
-          className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-            settlement.settled
+          className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${settlement.settled
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
               : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-          }`}
+            }`}
         >
           <div className="flex items-center gap-3">
             <Scale className="w-5 h-5 shrink-0" />
@@ -680,9 +787,9 @@ export const JointVaultsView: React.FC = () => {
                 {settlement.settled
                   ? 'All shared expenses are completely balanced. Neither partner owes reimbursement.'
                   : `${settlement.debtorName} owes ${settlement.creditorName} ${formatCurrency(
-                      Math.abs(settlement.netBalancePaise),
-                      vault.currency
-                    )} to balance shared expenses.`}
+                    Math.abs(settlement.netBalancePaise),
+                    vault.currency
+                  )} to balance shared expenses.`}
               </p>
             </div>
           </div>
@@ -712,11 +819,10 @@ export const JointVaultsView: React.FC = () => {
           {milestones.map((m) => (
             <div
               key={m.percent}
-              className={`p-2.5 rounded-lg border text-center transition-all ${
-                m.achieved
+              className={`p-2.5 rounded-lg border text-center transition-all ${m.achieved
                   ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
                   : 'border-[var(--ff-border)] bg-[var(--ff-card-bg)] text-[var(--ff-text-muted)] opacity-60'
-              }`}
+                }`}
             >
               <div className="text-xs font-bold">{m.percent}% Target</div>
               <div className="text-[11px] font-mono mt-0.5">{formatCurrency(m.targetPaise, vault.currency, { compact: true })}</div>
@@ -734,11 +840,10 @@ export const JointVaultsView: React.FC = () => {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-3 py-1.5 rounded-lg capitalize transition-colors ${
-              activeTab === tab
+            className={`px-3 py-1.5 rounded-lg capitalize transition-colors ${activeTab === tab
                 ? 'bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)]'
                 : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
-            }`}
+              }`}
           >
             {tab}
           </button>
@@ -1071,11 +1176,10 @@ export const JointVaultsView: React.FC = () => {
                 key={preset}
                 type="button"
                 onClick={() => setRatioPreset(preset)}
-                className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-all ${
-                  ratioPreset === preset
+                className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-all ${ratioPreset === preset
                     ? 'border-[var(--ff-accent)] bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)]'
                     : 'border-[var(--ff-border)] text-[var(--ff-text-secondary)]'
-                }`}
+                  }`}
               >
                 {preset}
               </button>
@@ -1088,6 +1192,70 @@ export const JointVaultsView: React.FC = () => {
             </ThemeButton>
             <ThemeButton variant="primary" size="sm" type="submit">
               Apply Target Ratio
+            </ThemeButton>
+          </div>
+        </form>
+      </ThemeModal>
+
+      {/* MODAL 6: Join Partner's Vault (Accessible from Active View) */}
+      <ThemeModal
+        isOpen={isJoinModalOpen}
+        onClose={() => {
+          if (!isJoining) {
+            setIsJoinModalOpen(false);
+            setJoinError(null);
+          }
+        }}
+        title="Join Partner's Vault"
+      >
+        <form onSubmit={handleJoinVault} className="space-y-4">
+          {joinError && (
+            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold">Unable to Join Vault</p>
+                <p className="mt-0.5">{joinError}</p>
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">
+              Enter 10-12 Character Invite Code *
+            </label>
+            <ThemeInput
+              required
+              disabled={isJoining}
+              placeholder="e.g. ABC123XYZ"
+              value={joinCode}
+              onChange={(e) => {
+                setJoinCode(e.target.value.toUpperCase());
+                if (joinError) setJoinError(null);
+              }}
+            />
+            <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
+              Ask your partner to generate a single-use invite code from their vault.
+            </span>
+          </div>
+          <div className="pt-2 flex justify-end gap-2">
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              type="button"
+              disabled={isJoining}
+              onClick={() => {
+                setIsJoinModalOpen(false);
+                setJoinError(null);
+              }}
+            >
+              Cancel
+            </ThemeButton>
+            <ThemeButton
+              variant="primary"
+              size="sm"
+              type="submit"
+              disabled={isJoining || !joinCode.trim()}
+            >
+              {isJoining ? 'Joining Vault...' : 'Join Vault'}
             </ThemeButton>
           </div>
         </form>

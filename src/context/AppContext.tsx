@@ -161,7 +161,10 @@ interface AppContextType {
   user: User | null;
   settings: UserSettings | null;
   currency: CurrencyCode;
-  updateSettings: (newSettings: Partial<UserSettings>) => Promise<void>;
+  updateSettings: (
+    newSettings: Partial<UserSettings>,
+    options?: { silent?: boolean; skipRefresh?: boolean }
+  ) => Promise<void>;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
   reseedData: () => Promise<void>;
@@ -303,6 +306,24 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+const DEFAULT_APP_POMODORO_SETTINGS: PomodoroSettings = {
+  id: 'default',
+  userId: '',
+  focusDuration: 25,
+  shortBreakDuration: 5,
+  longBreakDuration: 15,
+  longBreakInterval: 4,
+  autoStartBreaks: false,
+  autoStartFocus: false,
+  alertTone: 'chime',
+  soundVolume: 70,
+  ambientPreset: 'off',
+  ambientVolume: 0.35,
+  desktopNotifications: false,
+  tickingSoundEnabled: false,
+  updatedAt: new Date().toISOString(),
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentTab, setCurrentTabState] = useState<NavTab>(() => readInitialTabFromHash());
   const [recentTabs, setRecentTabs] = useState<NavTab[]>(() => {
@@ -394,6 +415,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const initialThemeLoadedRef = useRef(false);
   const restoredFirebaseUidRef = useRef<string | null>(null);
   const themePersistSeqRef = useRef(0);
+  const authGenerationRef = useRef<number>(0);
+  const lastTimerMsgTimestampRef = useRef<number>(0);
+  const lastTimerMsgRevisionRef = useRef<number>(0);
 
   // Firebase Auth state
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -507,23 +531,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const completedCycleCountRef = useRef<number>(0);
   completedCycleCountRef.current = completedCycleCount;
   const guestInitialRecoveryDoneRef = useRef<boolean>(false);
-  const [pomodoroSettings, setPomodoroSettings] = useState<PomodoroSettings>({
-    id: 'default',
-    userId: '',
-    focusDuration: 25,
-    shortBreakDuration: 5,
-    longBreakDuration: 15,
-    longBreakInterval: 4,
-    autoStartBreaks: false,
-    autoStartFocus: false,
-    alertTone: 'chime',
-    soundVolume: 70,
-    ambientPreset: 'off',
-    ambientVolume: 0.35,
-    desktopNotifications: false,
-    tickingSoundEnabled: false,
-    updatedAt: new Date().toISOString(),
-  });
+  const [pomodoroSettings, setPomodoroSettings] = useState<PomodoroSettings>(DEFAULT_APP_POMODORO_SETTINGS);
   const pomodoroSettingsRef = useRef<PomodoroSettings>(pomodoroSettings);
   pomodoroSettingsRef.current = pomodoroSettings;
   const pauseCountRef = useRef<number>(0);
@@ -552,6 +560,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const activeSessionIdRef = useRef<string | null>(initialTimer.activeSessionId);
   activeSessionIdRef.current = activeSessionId;
   const pendingSessionCreationRef = useRef<{ [sessionId: string]: Promise<FocusSession> }>({});
+
+  const clearUserScopedState = useCallback(() => {
+    authGenerationRef.current += 1;
+    setUser(null);
+    setFirebaseUser(null);
+    setGoogleAccessToken(null);
+    setGoogleSpreadsheetId(null);
+    setLastSyncedAt(null);
+    setSyncStatus('idle');
+    setSyncLastError(null);
+    setSyncQueueCount(0);
+    setOfflineOutboxCount(0);
+    setTasks([]);
+    setHabits([]);
+    setNotifications([]);
+    setPomodoroSettings(DEFAULT_APP_POMODORO_SETTINGS);
+    pomodoroSettingsRef.current = DEFAULT_APP_POMODORO_SETTINGS;
+    setSavedThemes([]);
+    setActiveSavedThemeId(null);
+    setSettings(null);
+    setActiveTaskId(null);
+    activeSessionIdRef.current = null;
+    setActiveSessionIdState(null);
+    activePresetIdRef.current = null;
+    setActivePresetId(null);
+    setActiveStudySubjectCode(null);
+    setActiveStudyTopicId(null);
+    setActiveStudyActivityType(null);
+    clientDataCache.setActiveUser(null);
+    clientDataCache.clear();
+    restoredFirebaseUidRef.current = null;
+    setThemeSyncState('local');
+    setAuthError(null);
+  }, []);
 
   const isFullAppPreview = previewThemeConfig !== null;
   const effectiveThemeConfig = previewThemeConfig ?? themeConfig;
@@ -913,9 +955,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     testConnection().catch(console.error);
 
+    const gen = authGenerationRef.current;
     api
       .getMe()
       .then(({ user: u, settings: s }) => {
+        if (authGenerationRef.current !== gen) return;
         setUser((prev) => prev || u);
         setSettings(s);
 
@@ -958,6 +1002,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const unsubscribe = initAuthListener(
       async (fbUser, token) => {
+        authGenerationRef.current += 1;
+        const gen = authGenerationRef.current;
         setFirebaseUser(fbUser);
         clientDataCache.setActiveUser(fbUser.uid);
         if (token) setGoogleAccessToken(token);
@@ -973,6 +1019,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         api
           .getPomodoroSettings()
           .then((pSet) => {
+            if (authGenerationRef.current !== gen) return;
             if (pSet) {
               setPomodoroSettings(pSet);
               pomodoroSettingsRef.current = pSet;
@@ -1090,29 +1137,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
       () => {
         const hadFbUser = restoredFirebaseUidRef.current !== null;
-        setFirebaseUser(null);
-        setGoogleAccessToken(null);
-        clientDataCache.setActiveUser(null);
-        clientDataCache.clear();
-        restoredFirebaseUidRef.current = null;
-        setThemeSyncState('local');
-        setActiveTaskId(null);
-        activeSessionIdRef.current = null;
-        setActiveSessionIdState(null);
-        activePresetIdRef.current = null;
-        setActivePresetId(null);
+        clearUserScopedState();
         if (hadFbUser) {
-          setUser(null);
           triggerRefresh();
         }
       }
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [clearUserScopedState]);
 
   // Load tasks & evaluate deterministic notifications
   useEffect(() => {
+    const gen = authGenerationRef.current;
     Promise.all([
       api.getTasks().catch(() => [] as Task[]),
       api.getBills().catch(() => []),
@@ -1123,6 +1160,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       api.getHabits().catch(() => [] as Habit[]),
     ])
       .then(([taskList, billList, dashData, finSummary, goalList, expenseList, habitList]) => {
+        if (authGenerationRef.current !== gen) return;
         setTasks(taskList);
         setHabits(habitList);
         const items = evaluateDeterministicNotifications({
@@ -1143,7 +1181,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const activeTask = tasks.find((t) => t.id === activeTaskId) || null;
 
-  const updateSettings = async (newSettings: Partial<UserSettings>) => {
+  const updateSettings = async (
+    newSettings: Partial<UserSettings>,
+    options?: { silent?: boolean; skipRefresh?: boolean }
+  ) => {
     try {
       const res = await api.updateSettings(newSettings);
       setSettings(res.settings);
@@ -1155,10 +1196,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (newSettings.googleSpreadsheetId) setGoogleSpreadsheetId(newSettings.googleSpreadsheetId);
       if (newSettings.lastSyncedAt) setLastSyncedAt(newSettings.lastSyncedAt);
 
-      showToast('Settings saved successfully', 'success');
-      triggerRefresh();
+      if (!options?.silent) {
+        showToast('Settings saved successfully', 'success');
+      }
+      if (!options?.skipRefresh && !options?.silent) {
+        triggerRefresh();
+      }
     } catch {
-      showToast('Failed to update settings', 'error');
+      if (!options?.silent) {
+        showToast('Failed to update settings', 'error');
+      }
     }
   };
 
@@ -1362,13 +1409,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const signOutGoogle = async () => {
     try {
       await fbSignOut();
-      setFirebaseUser(null);
-      setGoogleAccessToken(null);
-      clientDataCache.setActiveUser(null);
-      clientDataCache.clear();
-      setAuthError(null);
-      restoredFirebaseUidRef.current = null;
-      setThemeSyncState('local');
+      clearUserScopedState();
       showToast('Signed out of Google account', 'info');
       triggerRefresh();
     } catch {
@@ -1521,7 +1562,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const activeOps = (await api.getSyncQueue().catch(() => [])).filter((o) => o.status !== 'completed');
       setSyncQueueCount(activeOps.length);
       setSyncLastError(googleSheetsService.getLastError());
-      await updateSettings({ lastSyncedAt: nowIso });
+      await updateSettings({ lastSyncedAt: nowIso }, { silent: true });
       showToast('Executive Google Sheets workbook synchronized successfully!', 'success');
     } catch (err: unknown) {
       const msg = handleSheetsSyncError(err, 'Sync failed');
@@ -1613,7 +1654,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const activeOps = (await api.getSyncQueue().catch(() => [])).filter((o) => o.status !== 'completed');
       setSyncQueueCount(activeOps.length);
       setSyncLastError(googleSheetsService.getLastError());
-      await updateSettings({ lastSyncedAt: nowIso });
+      await updateSettings({ lastSyncedAt: nowIso }, { silent: true });
       showToast('Historical resync completed — all 23 worksheets rebuilt safely!', 'success');
     } catch (err: unknown) {
       const msg = handleSheetsSyncError(err, 'Resync failed');
@@ -2016,6 +2057,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timerMode,
         timerEngine,
         sessionStartTime: sessionStartTimeRef.current,
+        activeSessionId: activeSessionIdRef.current,
+        activePresetId: activePresetIdRef.current,
         activeTaskId,
         activeStudySubjectCode,
         activeStudyTopicId,
@@ -2060,7 +2103,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         typeof window !== 'undefined' ? window.localStorage : null,
         firebaseUser?.uid
       );
-      broadcastTimerEvent({ type: 'TIMER_SYNC_PAUSE', payload: { timeLeft: 0, stopwatchElapsed: elapsed, timerEngine } });
+      broadcastTimerEvent({
+        type: 'TIMER_SYNC_PAUSE',
+        payload: {
+          timeLeft: 0,
+          stopwatchElapsed: elapsed,
+          timerEngine,
+          activeSessionId: activeSessionIdRef.current,
+        },
+      });
     } else if (targetEndTimeMsRef.current !== null) {
       const remaining = Math.max(0, Math.ceil((targetEndTimeMsRef.current - Date.now()) / 1000));
       timeLeftRef.current = remaining;
@@ -2071,7 +2122,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         typeof window !== 'undefined' ? window.localStorage : null,
         firebaseUser?.uid
       );
-      broadcastTimerEvent({ type: 'TIMER_SYNC_PAUSE', payload: { timeLeft: remaining, stopwatchElapsed: 0, timerEngine } });
+      broadcastTimerEvent({
+        type: 'TIMER_SYNC_PAUSE',
+        payload: {
+          timeLeft: remaining,
+          stopwatchElapsed: 0,
+          timerEngine,
+          activeSessionId: activeSessionIdRef.current,
+        },
+      });
     }
     setIsRunning(false);
     playTimerPauseSound(settings?.soundEnabled ?? true, settings?.soundVolume);
@@ -2112,7 +2171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     broadcastTimerEvent({
       type: 'TIMER_SYNC_RESET',
-      payload: { totalDuration: safeTotal, timerEngine, timerMode },
+      payload: { totalDuration: safeTotal, timerEngine, timerMode, activeSessionId: null },
     });
   }, [settings, clearTimerHandles, finalizeInterruptedWorkSession, timerEngine, timerMode, firebaseUser?.uid]);
 
@@ -2333,11 +2392,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fbUserNow?.uid
       );
 
-      broadcastTimerEvent({
-        type: 'TIMER_SYNC_COMPLETED',
-        payload: { completionKey, completedAt: endedAt },
-      });
-
       const currentPom = pomodoroSettingsRef.current;
       const isSound = settingsNow?.soundEnabled ?? true;
       const soundVol = currentPom?.soundVolume ?? settingsNow?.soundVolume ?? 70;
@@ -2352,6 +2406,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCompletedCycleCount(currentCycles);
         const interval = currentPom?.longBreakInterval || 4;
         const nextMode: TimerMode = currentCycles % interval === 0 ? 'long_break' : 'short_break';
+        const breakMinutes =
+          nextMode === 'long_break'
+            ? Math.max(1, Math.min(90, Math.round(currentPom?.longBreakDuration || settingsNow?.longBreakDuration || 15)))
+            : Math.max(1, Math.min(60, Math.round(currentPom?.shortBreakDuration || settingsNow?.shortBreakDuration || 5)));
+        const nextDurationSecs = breakMinutes * 60;
+
+        broadcastTimerEvent({
+          type: 'TIMER_SYNC_COMPLETED',
+          payload: {
+            completionKey,
+            completedAt: endedAt,
+            nextMode,
+            nextDurationSecs,
+            completedCycleCount: currentCycles,
+            activeSessionId: null,
+          },
+        });
 
         if (currentPom?.desktopNotifications) {
           sendPomodoroNotification({
@@ -2497,12 +2568,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         switchModeNow('work');
+        const workMinutes = Math.max(
+          1,
+          Math.min(180, Math.round(currentPom?.focusDuration || settingsNow?.pomodoroWorkDuration || 25))
+        );
+        const nextDurationSecs = workMinutes * 60;
+
+        broadcastTimerEvent({
+          type: 'TIMER_SYNC_COMPLETED',
+          payload: {
+            completionKey,
+            completedAt: endedAt,
+            nextMode: 'work',
+            nextDurationSecs,
+            completedCycleCount: completedCycleCountRef.current || 0,
+            activeSessionId: null,
+          },
+        });
+
         const shouldAutoStartFocus = currentPom?.autoStartFocus ?? settingsNow?.autoSwitchSessions ?? false;
         if (shouldAutoStartFocus) {
-          const workMinutes = Math.max(
-            1,
-            Math.min(180, Math.round(currentPom?.focusDuration || settingsNow?.pomodoroWorkDuration || 25))
-          );
           autoSwitchTimeoutRef.current = setTimeout(() => {
             autoSwitchTimeoutRef.current = null;
             completionHandledRef.current = false;
@@ -2557,11 +2642,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return;
         }
 
+        // Monotonic timestamp check: reject stale/out-of-order broadcasts
+        if (typeof msg.timestamp === 'number') {
+          if (msg.timestamp < lastTimerMsgTimestampRef.current - 2000) {
+            return;
+          }
+          lastTimerMsgTimestampRef.current = Math.max(lastTimerMsgTimestampRef.current, msg.timestamp);
+        }
+
         switch (msg.type) {
           case 'TIMER_SYNC_START': {
             targetEndTimeMsRef.current = msg.payload.targetEndTimeMs;
             stopwatchStartMsRef.current = msg.payload.stopwatchStartMs;
             sessionStartTimeRef.current = msg.payload.sessionStartTime;
+            if (msg.payload.activeSessionId !== undefined) {
+              activeSessionIdRef.current = msg.payload.activeSessionId;
+              setActiveSessionIdState(msg.payload.activeSessionId);
+            }
+            if (msg.payload.activePresetId !== undefined) {
+              activePresetIdRef.current = msg.payload.activePresetId;
+              setActivePresetId(msg.payload.activePresetId);
+            }
             completionHandledRef.current = false;
             setTimerMode(msg.payload.timerMode);
             setTimerEngineState(msg.payload.timerEngine);
@@ -2588,6 +2689,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             targetEndTimeMsRef.current = null;
             stopwatchStartMsRef.current = null;
             setIsRunning(false);
+            if (msg.payload.activeSessionId !== undefined) {
+              activeSessionIdRef.current = msg.payload.activeSessionId;
+              setActiveSessionIdState(msg.payload.activeSessionId);
+            }
             if (msg.payload.timerEngine === 'stopwatch') {
               stopwatchElapsedRef.current = msg.payload.stopwatchElapsed;
               setStopwatchElapsed(msg.payload.stopwatchElapsed);
@@ -2603,6 +2708,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             stopwatchStartMsRef.current = null;
             completionHandledRef.current = false;
             sessionStartTimeRef.current = null;
+            activeSessionIdRef.current = null;
+            setActiveSessionIdState(null);
             setIsRunning(false);
             setTimerEngineState(msg.payload.timerEngine);
             setTimerMode(msg.payload.timerMode);
@@ -2630,9 +2737,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             completionHandledRef.current = true;
             clearTimerHandles();
             targetEndTimeMsRef.current = null;
+            stopwatchStartMsRef.current = null;
+            sessionStartTimeRef.current = null;
+            activeSessionIdRef.current = null;
+            setActiveSessionIdState(null);
             setIsRunning(false);
-            completedCycleCountRef.current = (completedCycleCountRef.current || 0) + 1;
-            setCompletedCycleCount(completedCycleCountRef.current);
+            if (typeof msg.payload.completedCycleCount === 'number') {
+              completedCycleCountRef.current = msg.payload.completedCycleCount;
+              setCompletedCycleCount(msg.payload.completedCycleCount);
+            }
+            if (msg.payload.nextMode) {
+              setTimerMode(msg.payload.nextMode);
+            }
+            if (typeof msg.payload.nextDurationSecs === 'number') {
+              timeLeftRef.current = msg.payload.nextDurationSecs;
+              setTimeLeft(msg.payload.nextDurationSecs);
+              totalDurationRef.current = msg.payload.nextDurationSecs;
+              setTotalDuration(msg.payload.nextDurationSecs);
+            }
             break;
           }
         }
