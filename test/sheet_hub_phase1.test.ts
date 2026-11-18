@@ -2,6 +2,7 @@ import './test_bootstrap.ts';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import http from 'node:http';
 import zlib from 'node:zlib';
 import app from '../api/index.ts';
@@ -891,7 +892,12 @@ describe('Sheet Hub Phase 1 — Backend Worker & Read-Only Routes', () => {
 // 5. FIRST SAMPLE LOCAL FIXTURE TEST — SEMESTER 3 XLSX
 // (Local XLSX fixture verification ONLY — NOT live Google Sheets API testing)
 // ============================================================================
-const SEMESTER_3_XLSX_PATH = '/Users/munshimdatif/Downloads/Semester 3 - Syllabus & Topic Tracker.xlsx';
+const candidateFixturePaths = [
+  path.resolve(process.cwd(), 'test/fixtures/Semester 3 - Syllabus & Topic Tracker.xlsx'),
+  path.resolve(process.cwd(), 'Semester 3 - Syllabus & Topic Tracker.xlsx'),
+  '/Users/munshimdatif/Downloads/Semester 3 - Syllabus & Topic Tracker.xlsx',
+];
+const SEMESTER_3_XLSX_PATH = candidateFixturePaths.find((p) => fs.existsSync(p)) || candidateFixturePaths[0];
 const hasSemester3Fixture = fs.existsSync(SEMESTER_3_XLSX_PATH);
 
 describe(

@@ -3536,9 +3536,16 @@ apiRouter.post('/sheet-hub/pull', async (req: Request, res: Response) => {
 
 apiRouter.get('/sheet-hub/sample-semester3', async (_req: Request, res: Response) => {
   try {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
     const { parseLocalXlsxFixture } = await import('./localXlsxParser.js');
     const { detectWorkbookSchema } = await import('../src/lib/sheetHub/schemaDetector.js');
-    const fixturePath = '/Users/munshimdatif/Downloads/Semester 3 - Syllabus & Topic Tracker.xlsx';
+    const candidatePaths = [
+      path.resolve(process.cwd(), 'test/fixtures/Semester 3 - Syllabus & Topic Tracker.xlsx'),
+      path.resolve(process.cwd(), 'Semester 3 - Syllabus & Topic Tracker.xlsx'),
+      '/Users/munshimdatif/Downloads/Semester 3 - Syllabus & Topic Tracker.xlsx',
+    ];
+    const fixturePath = candidatePaths.find((p) => fs.existsSync(p)) || candidatePaths[0];
     const parsedTabs = parseLocalXlsxFixture(fixturePath);
     const inspectedWorkbook = detectWorkbookSchema(parsedTabs);
     const inspectedTabs = inspectedWorkbook.tabs;
