@@ -315,6 +315,9 @@ html:not(.dark):not([data-theme-mode="dark"]) {
 
 .ff-card {
   position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: break-word;
   background: var(--ff-surface-card);
   border: var(--ff-border-width) solid var(--ff-border-color);
   border-radius: var(--ff-radius-card);
@@ -337,6 +340,9 @@ html:not(.dark):not([data-theme-mode="dark"]) {
 }
 
 .ff-card-elevated {
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: break-word;
   background: var(--ff-surface-elevated);
   border: var(--ff-border-width) solid var(--ff-border-color);
   border-radius: var(--ff-radius-card);
@@ -353,6 +359,9 @@ html:not(.dark):not([data-theme-mode="dark"]) {
 }
 
 .ff-card-inset {
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: break-word;
   background: var(--ff-surface-inset);
   border: var(--ff-border-width) solid var(--ff-border-color);
   border-radius: calc(var(--ff-radius-card) * 0.78);
@@ -365,6 +374,9 @@ html:not(.dark):not([data-theme-mode="dark"]) {
 }
 
 .ff-surface-subtle {
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: break-word;
   background: var(--ff-surface-subtle);
   border: var(--ff-border-width) solid var(--ff-border-color);
   border-radius: calc(var(--ff-radius-card) * 0.75);
@@ -1233,6 +1245,10 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
    ========================================================================== */
 .ff-card-3d {
   position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: break-word;
+  padding: var(--ff-card-pad);
   background: var(--ff-surface-card);
   border: var(--ff-border-width) solid var(--ff-border-color);
   border-radius: var(--ff-radius-card);

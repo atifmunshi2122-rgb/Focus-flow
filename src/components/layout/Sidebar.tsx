@@ -61,6 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setCurrentTab,
     user,
     firebaseUser,
+    signInWithGoogle,
     theme,
     toggleTheme,
     isRunning,
@@ -440,11 +441,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           {/* User mini badge */}
           <div
-            className={`flex items-center gap-2.5 p-2 ${!isExpanded ? 'justify-center' : ''}`}
+            role={!firebaseUser ? 'button' : undefined}
+            tabIndex={!firebaseUser ? 0 : undefined}
+            onClick={!firebaseUser ? () => void signInWithGoogle() : undefined}
+            onKeyDown={
+              !firebaseUser
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      void signInWithGoogle();
+                    }
+                  }
+                : undefined
+            }
+            className={`flex items-center gap-2.5 p-2 ${!isExpanded ? 'justify-center' : ''} ${
+              !firebaseUser ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''
+            }`}
             style={{
               borderRadius: 'var(--ff-radius-button)',
               background: 'var(--ff-surface-muted)',
             }}
+            title={!firebaseUser ? 'Sign in with Google to sync cloud data' : undefined}
           >
             <div
               className="w-8 h-8 aspect-square rounded-full flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden"
@@ -461,13 +478,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
               ) : (
                 <span>
-                  {(firebaseUser?.displayName || user?.name || 'Munshi Md Atif')
+                  {(firebaseUser
+                    ? firebaseUser.displayName || user?.name || 'User'
+                    : 'Guest Mode'
+                  )
                     .split(' ')
                     .map((n) => n[0])
                     .filter(Boolean)
                     .slice(0, 2)
                     .join('')
-                    .toUpperCase() || 'M'}
+                    .toUpperCase() || 'G'}
                 </span>
               )}
             </div>
@@ -475,13 +495,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex-1 min-w-0 pr-1">
                 <p
                   className="text-xs font-semibold truncate text-[var(--ff-text-primary)]"
-                  title={firebaseUser?.displayName || user?.name || 'Munshi Md Atif'}
+                  title={firebaseUser ? firebaseUser.displayName || user?.name || 'Signed In' : 'Guest Mode'}
                 >
-                  {firebaseUser?.displayName || user?.name || 'Munshi Md Atif'}
+                  {firebaseUser ? firebaseUser.displayName || user?.name || 'Signed In' : 'Guest Mode'}
                 </p>
                 <div className="ff-sidebar-muted flex items-center gap-1 text-[11px] text-[var(--ff-text-muted)] truncate">
                   <Flame className="w-3 h-3" style={{ color: 'var(--ff-warning)' }} />
-                  <span>Pro Plan</span>
+                  <span>{firebaseUser ? 'Cloud Synced' : 'Sign in to sync'}</span>
                 </div>
               </div>
             )}

@@ -103,6 +103,8 @@ const MainContent: React.FC = () => {
     resolveConfirmDialog,
     authError,
     clearAuthError,
+    isAuthenticated,
+    user,
     isSigningIn,
     signInWithGoogle,
     authorizeGoogleSheets,
@@ -121,6 +123,7 @@ const MainContent: React.FC = () => {
   const [quickActionInitialDate, setQuickActionInitialDate] = useState<string | undefined>(undefined);
   const [quickActionContext, setQuickActionContext] = useState<'global' | 'finance' | 'calendar'>('global');
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [guestBannerDismissed, setGuestBannerDismissed] = useState(false);
 
   const handleOpenQuickAction = (
     initialType?: QuickActionType | string,
@@ -302,6 +305,50 @@ const MainContent: React.FC = () => {
           className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1920px] mx-auto min-w-0 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-8"
           style={{ paddingBottom: isFullAppPreview ? '8rem' : undefined }}
         >
+          {!isAuthenticated && Boolean(user) && !guestBannerDismissed && (
+            <div
+              className="mb-4 px-4 py-2.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs"
+              style={{
+                background: 'var(--ff-surface-card)',
+                borderColor: 'var(--ff-accent-border)',
+              }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ background: 'var(--ff-accent)' }}
+                />
+                <span className="text-[var(--ff-text-primary)] font-medium">
+                  Viewing local Guest Mode.{' '}
+                  <span className="text-[var(--ff-text-muted)]">
+                    Sign in with Google to load and sync your cloud FocusFlow &amp; Finance data.
+                  </span>
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={isSigningIn}
+                  onClick={() => void signInWithGoogle()}
+                  className="px-3 py-1 rounded-lg font-bold text-xs transition-opacity disabled:opacity-60"
+                  style={{
+                    background: 'var(--ff-accent)',
+                    color: 'var(--ff-accent-contrast)',
+                  }}
+                >
+                  {isSigningIn ? 'Signing in...' : 'Sign in with Google'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGuestBannerDismissed(true)}
+                  className="px-2 py-1 text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                  aria-label="Dismiss guest mode notice"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
           <LazyChunkErrorBoundary key={currentTab} onReset={() => setCurrentTab('dashboard')}>
             <Suspense fallback={<TabLoadingFallback />}>
               <AnimatePresence mode="wait" initial={false}>

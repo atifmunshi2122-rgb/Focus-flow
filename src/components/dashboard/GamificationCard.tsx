@@ -26,6 +26,7 @@ interface GamificationCardProps {
   bestStreakDays?: number;
   dailyFocusGoalMinutes?: number;
   compact?: boolean;
+  className?: string;
 }
 
 export const GamificationCard: React.FC<GamificationCardProps> = ({
@@ -37,6 +38,7 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
   bestStreakDays,
   dailyFocusGoalMinutes,
   compact = false,
+  className = '',
 }) => {
   const [showAllBadges, setShowAllBadges] = useState(false);
   const { intensity, isDisabled } = useMotionPreferences();
@@ -58,60 +60,58 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
   const visibleBadges = showAllBadges ? summary.badges : summary.badges.slice(0, 6);
 
   return (
-    <InteractiveSurface3D maxTilt={2.5}>
-      <ThemeCard className="space-y-4">
+    <InteractiveSurface3D maxTilt={1.5} className={`h-full ${className}`}>
+      <ThemeCard className="space-y-4 h-full flex flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <motion.div
-            whileHover={isDisabled ? undefined : { scale: 1.08, rotate: [0, -6, 6, 0] }}
-            transition={{ duration: 0.3 }}
-            className="w-10 h-10 flex items-center justify-center shrink-0"
+            whileHover={isDisabled ? undefined : { scale: 1.05 }}
+            transition={{ duration: 0.2 }}
+            className="w-9 h-9 flex items-center justify-center shrink-0 border"
             style={{
               borderRadius: 'var(--ff-radius-button)',
-              background: 'linear-gradient(135deg, var(--ff-accent), var(--ff-accent-secondary))',
-              color: 'var(--ff-accent-contrast)',
-              boxShadow: isDisabled
-                ? undefined
-                : '0 0 16px color-mix(in oklab, var(--ff-accent) 45%, transparent)',
+              background: 'var(--ff-accent-soft)',
+              borderColor: 'var(--ff-accent-border)',
+              color: 'var(--ff-accent-text)',
             }}
           >
-            <Trophy className="w-5 h-5" />
+            <Trophy className="w-4 h-4" />
           </motion.div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-bold text-[var(--ff-text-primary)] leading-snug break-words">
                 Level {summary.level} · {summary.rankTitle}
               </h3>
               <ThemeBadge tone="accent">
                 <AnimatedNumber value={summary.xp} /> XP
               </ThemeBadge>
             </div>
-            <p className="text-xs text-[var(--ff-text-muted)]">
+            <p className="text-xs text-[var(--ff-text-muted)] whitespace-normal break-words leading-snug mt-0.5">
               Rule-based milestones • {summary.earnedCount}/{summary.badges.length} badges unlocked
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--ff-warning-soft)] text-[var(--ff-warning)] font-semibold">
-            <Flame className="w-3.5 h-3.5" />
+        <div className="flex flex-wrap items-center gap-2.5 text-xs">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--ff-warning-soft)] text-[var(--ff-warning)] font-semibold whitespace-nowrap">
+            <Flame className="w-3.5 h-3.5 shrink-0" />
             <span>Best Streak: {summary.records.bestStreakDays}d</span>
           </div>
           <div
-            className="hidden sm:flex items-center gap-1 text-[11px] text-[var(--ff-text-muted)]"
+            className="hidden sm:flex items-center gap-1 text-[11px] text-[var(--ff-text-muted)] whitespace-nowrap"
             title="Missing a day never erases your XP, badges, or best streak record"
           >
-            <ShieldCheck className="w-3.5 h-3.5 text-[var(--ff-success)]" />
+            <ShieldCheck className="w-3.5 h-3.5 text-[var(--ff-success)] shrink-0" />
             <span>Non-punitive</span>
           </div>
         </div>
       </div>
 
       {/* Level XP Progress */}
-      <div>
-        <div className="flex items-center justify-between text-[11px] text-[var(--ff-text-muted)] mb-1">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[var(--ff-text-muted)] mb-1">
           <span>Level Progress</span>
-          <span className="font-mono">
+          <span className="font-mono whitespace-nowrap tabular-nums">
             {summary.currentLevelXp} / {summary.nextLevelXp} XP ({summary.levelProgressPercent}%)
           </span>
         </div>
@@ -124,21 +124,26 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
       </div>
 
       {!compact && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1">
+        <div className="space-y-4 pt-1 min-w-0">
           {/* Daily & Weekly Challenges */}
-          <div className="space-y-2">
+          <div className="space-y-2 min-w-0">
             <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
-              <Target className="w-3.5 h-3.5" /> Active Challenges
+              <Target className="w-3.5 h-3.5 shrink-0" />
+              <span>Active Challenges</span>
             </h4>
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {summary.challenges.map((ch) => (
-                <div key={ch.id} className="ff-surface-subtle p-2.5">
-                  <div className="flex items-center justify-between text-xs gap-2 mb-1">
-                    <span className="font-semibold text-[var(--ff-text-primary)] truncate">
+                <div
+                  key={ch.id}
+                  title={`${ch.title} (${ch.progress}/${ch.target} ${ch.unit})`}
+                  className="ff-surface-subtle p-3 min-w-0 flex flex-col justify-between gap-2"
+                >
+                  <div className="flex items-start justify-between text-xs gap-2.5 min-w-0">
+                    <span className="font-semibold text-[var(--ff-text-primary)] min-w-0 flex-1 whitespace-normal break-words leading-snug">
                       {ch.title}
                     </span>
                     <span
-                      className="font-mono text-[11px] shrink-0 font-semibold"
+                      className="font-mono text-[11px] shrink-0 whitespace-nowrap font-semibold tabular-nums"
                       style={{ color: ch.completed ? 'var(--ff-success)' : 'var(--ff-accent-text)' }}
                     >
                       {ch.progress}/{ch.target} {ch.unit}
@@ -157,59 +162,60 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
           </div>
 
           {/* Achievements Grid */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
+          <div className="space-y-2 min-w-0">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
-                <Award className="w-3.5 h-3.5" /> Achievement Badges
+                <Award className="w-3.5 h-3.5 shrink-0" />
+                <span>Achievement Badges</span>
               </h4>
               <button
                 type="button"
                 onClick={() => setShowAllBadges((v) => !v)}
-                className="text-[11px] font-semibold text-[var(--ff-accent-text)] hover:underline"
+                className="text-[11px] font-semibold text-[var(--ff-accent-text)] hover:underline shrink-0"
               >
                 {showAllBadges ? 'Show Fewer' : `View All (${summary.badges.length})`}
               </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <AnimatePresence mode="popLayout">
                 {visibleBadges.map((b) => (
                   <motion.div
                     key={b.id}
                     layout
-                    initial={isDisabled ? false : { opacity: 0, scale: 0.94, y: 6 }}
-                    animate={{ opacity: b.earned ? 1 : 0.72, scale: 1, y: 0 }}
-                    exit={isDisabled ? undefined : { opacity: 0, scale: 0.94, y: 6 }}
-                    whileHover={isDisabled ? undefined : { y: -2, scale: 1.02 }}
-                    whileTap={isDisabled ? undefined : { scale: 0.98 }}
+                    initial={isDisabled ? false : { opacity: 0, scale: 0.96, y: 6 }}
+                    animate={{ opacity: b.earned ? 1 : 0.78, scale: 1, y: 0 }}
+                    exit={isDisabled ? undefined : { opacity: 0, scale: 0.96, y: 6 }}
+                    whileHover={isDisabled ? undefined : { y: -1 }}
+                    whileTap={isDisabled ? undefined : { scale: 0.99 }}
                     transition={getSpringTransition(intensity, isDisabled)}
-                    className="p-2.5 border transition-shadow cursor-default"
+                    title={`${b.title}: ${b.description} (${b.earned ? 'Unlocked' : `${b.progress}/${b.target}`})`}
+                    className="p-3 border transition-shadow cursor-default min-w-0 flex flex-col justify-between gap-1.5"
                     style={{
                       borderRadius: 'var(--ff-radius-button)',
                       borderColor: b.earned ? 'var(--ff-accent-border)' : 'var(--ff-border-color)',
                       background: b.earned ? 'var(--ff-accent-soft)' : 'var(--ff-surface-subtle)',
-                      boxShadow:
-                        b.earned && !isDisabled
-                          ? '0 0 12px color-mix(in oklab, var(--ff-accent) 25%, transparent)'
-                          : undefined,
                     }}
                   >
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span className="text-xs font-bold text-[var(--ff-text-primary)] truncate">
+                    <div className="flex items-start justify-between gap-2 min-w-0">
+                      <span className="text-xs font-bold text-[var(--ff-text-primary)] min-w-0 flex-1 whitespace-normal break-words leading-snug">
                         {b.title}
                       </span>
-                      <span className="text-[10px] font-mono font-bold text-[var(--ff-accent-text)] shrink-0 flex items-center gap-1">
+                      <span className="text-[10px] font-mono font-bold text-[var(--ff-accent-text)] shrink-0 whitespace-nowrap flex items-center gap-1 pt-0.5 tabular-nums">
                         {b.earned && (
                           <motion.span
                             initial={isDisabled ? false : { scale: 0 }}
                             animate={{ scale: 1 }}
                             transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                            className="w-1.5 h-1.5 rounded-full bg-[var(--ff-success)] inline-block"
+                            className="w-1.5 h-1.5 rounded-full bg-[var(--ff-success)] inline-block shrink-0"
                           />
                         )}
                         {b.earned ? 'UNLOCKED' : `${b.progress}/${b.target}`}
                       </span>
                     </div>
-                    <p className="text-[11px] text-[var(--ff-text-muted)] mt-0.5 line-clamp-1">
+                    <p
+                      title={b.description}
+                      className="text-[11px] text-[var(--ff-text-muted)] leading-relaxed whitespace-normal break-words line-clamp-2"
+                    >
                       {b.description}
                     </p>
                   </motion.div>

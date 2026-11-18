@@ -55,10 +55,12 @@ import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
 import { offlineOutbox } from './offlineOutbox.ts';
 import { clientDataCache } from './dataCache.ts';
+import { handleGuestLocalFallback } from './guestLocalStore.ts';
 import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
 
 const BASE_URL = import.meta.env?.VITE_API_URL || '/api';
 const GUEST_SESSION_KEY = 'ff_guest_session_id';
+let guestServerRequiresAuth = false;
 
 function readGuestStore<T>(bucket: string, fallback: T): T {
   if (typeof window === 'undefined' || !window.localStorage) return fallback;
@@ -103,6 +105,17 @@ async function resolveAuthHeaders(): Promise<Record<string, string>> {
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const authHeaders = await resolveAuthHeaders();
+  const isUnauthenticatedGuest = !auth.currentUser && !('Authorization' in authHeaders);
+
+  // If this session already discovered the production API requires auth (401),
+  // serve isolated local guest storage directly without spamming console 401s.
+  if (isUnauthenticatedGuest && guestServerRequiresAuth) {
+    const guestResult = handleGuestLocalFallback(getOrCreateGuestSessionId(), endpoint, options);
+    if (guestResult !== undefined) {
+      return guestResult as T;
+    }
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...authHeaders,
@@ -113,6 +126,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     ...options,
     headers,
   });
+
+  if (response.status === 401 && isUnauthenticatedGuest) {
+    guestServerRequiresAuth = true;
+    const guestResult = handleGuestLocalFallback(getOrCreateGuestSessionId(), endpoint, options);
+    if (guestResult !== undefined) {
+      return guestResult as T;
+    }
+  }
 
   if (!response.ok) {
     let errorMsg = `API Error: ${response.status} ${response.statusText}`;

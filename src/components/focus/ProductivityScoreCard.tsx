@@ -39,19 +39,24 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
   const strokeDashoffset = circumference - (scoreData.totalScore / 100) * circumference;
 
   return (
-    <ThemeCard variant="3d" className={`p-5 relative overflow-hidden ${className}`}>
-      {/* Subtle ambient tier background bloom */}
+    <ThemeCard variant="3d" className={`p-5 relative min-w-0 ${className}`}>
+      {/* Subtle ambient tier background bloom clipped inside its own decorative layer */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -right-12 -top-12 w-48 h-48 rounded-full blur-3xl opacity-15"
-        style={{ backgroundColor: scoreData.tierColor }}
-      />
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        style={{ borderRadius: 'inherit' }}
+      >
+        <div
+          className="absolute -right-12 -top-12 w-48 h-48 rounded-full blur-3xl opacity-15"
+          style={{ backgroundColor: scoreData.tierColor }}
+        />
+      </div>
 
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 mb-4 relative z-10">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-2.5 mb-4 relative z-10 min-w-0">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
           <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm"
+            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm mt-0.5"
             style={{
               backgroundColor: `color-mix(in oklab, ${scoreData.tierColor} 18%, transparent)`,
               color: scoreData.tierColor,
@@ -60,11 +65,11 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
           >
             <Award className="w-5 h-5" />
           </div>
-          <div>
-            <h3 className="font-bold text-base text-[var(--ff-text-primary)]">
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-base text-[var(--ff-text-primary)] leading-snug break-words">
               Daily Productivity Score
             </h3>
-            <span className="text-xs text-[var(--ff-text-muted)]">
+            <span className="text-xs text-[var(--ff-text-muted)] block whitespace-normal break-words leading-snug mt-0.5">
               Deterministic 0–100 execution index
             </span>
           </div>
@@ -73,18 +78,18 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
         <button
           type="button"
           onClick={() => setShowFormula((prev) => !prev)}
-          className="flex items-center gap-1 text-xs font-medium text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] transition-colors p-1 rounded-md"
+          className="flex items-center gap-1 text-xs font-medium text-[var(--ff-text-muted)] hover:text-[var(--ff-accent-text)] transition-colors p-1 rounded-md shrink-0"
           title="Inspect calculation formula"
           aria-expanded={showFormula}
         >
           <HelpCircle className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Formula</span>
+          <span>Formula</span>
           {showFormula ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         </button>
       </div>
 
       {/* Main Score & Tier Cluster */}
-      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 py-2 relative z-10">
+      <div className="flex flex-col 2xl:flex-row items-center 2xl:items-start gap-5 py-1 relative z-10 min-w-0">
         {/* Circular Progress Gauge */}
         <div className="relative w-28 h-28 flex items-center justify-center shrink-0">
           {/* Subtle soft gauge bloom */}
@@ -146,33 +151,33 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
         </div>
 
         {/* Tier Info & Components Breakdown */}
-        <div className="flex-1 w-full space-y-3">
-          <div className="flex items-center justify-between">
+        <div className="flex-1 w-full min-w-0 space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 min-w-0">
             <span
-              className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full inline-flex items-center gap-1.5"
+              className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 max-w-full whitespace-normal leading-tight"
               style={{
                 backgroundColor: `color-mix(in oklab, ${scoreData.tierColor} 16%, transparent)`,
                 color: scoreData.tierColor,
               }}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              {scoreData.tier}
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span>{scoreData.tier}</span>
             </span>
-            <span className="text-xs text-[var(--ff-text-muted)]">
+            <span className="text-xs text-[var(--ff-text-muted)] whitespace-normal leading-snug">
               Updated in real-time
             </span>
           </div>
 
           {/* Four Weighted Pillar Progress Bars */}
-          <div className="space-y-2 text-xs">
+          <div className="space-y-2.5 text-xs">
             {/* 1. Task Completion (35%) */}
-            <div>
-              <div className="flex justify-between items-center text-[var(--ff-text-secondary)] mb-1">
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  Task Completion (35 pts max)
+            <div className="min-w-0">
+              <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
+                <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                  <span>Task Completion (35 pts max)</span>
                 </span>
-                <span className="font-mono font-semibold">
+                <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
                   {scoreData.taskCompletionPoints} / 35
                 </span>
               </div>
@@ -184,13 +189,13 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
             </div>
 
             {/* 2. Focus Time Attainment (35%) */}
-            <div>
-              <div className="flex justify-between items-center text-[var(--ff-text-secondary)] mb-1">
-                <span className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                  Focus Time Goal (35 pts max)
+            <div className="min-w-0">
+              <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
+                <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                  <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
+                  <span>Focus Time Goal (35 pts max)</span>
                 </span>
-                <span className="font-mono font-semibold">
+                <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
                   {scoreData.focusTimePoints} / 35
                 </span>
               </div>
@@ -202,13 +207,13 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
             </div>
 
             {/* 3. Habit Consistency (20%) */}
-            <div>
-              <div className="flex justify-between items-center text-[var(--ff-text-secondary)] mb-1">
-                <span className="flex items-center gap-1.5">
-                  <Flame className="w-3.5 h-3.5 text-amber-500" />
-                  Habit Consistency (20 pts max)
+            <div className="min-w-0">
+              <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
+                <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                  <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                  <span>Habit Consistency (20 pts max)</span>
                 </span>
-                <span className="font-mono font-semibold">
+                <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
                   {scoreData.habitConsistencyPoints} / 20
                 </span>
               </div>
@@ -220,13 +225,13 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
             </div>
 
             {/* 4. Momentum Bonus (10%) */}
-            <div>
-              <div className="flex justify-between items-center text-[var(--ff-text-secondary)] mb-1">
-                <span className="flex items-center gap-1.5">
-                  <TrendingUp className="w-3.5 h-3.5 text-purple-500" />
-                  Daily Targets Bonus (10 pts max)
+            <div className="min-w-0">
+              <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
+                <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                  <TrendingUp className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-0.5" />
+                  <span>Daily Targets Bonus (10 pts max)</span>
                 </span>
-                <span className="font-mono font-semibold">
+                <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
                   {scoreData.targetBonusPoints} / 10
                 </span>
               </div>

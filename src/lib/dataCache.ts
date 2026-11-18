@@ -15,6 +15,8 @@ import {
   StudyRevision,
   StudyMistake,
   StudyPlanTask,
+  StudyExam,
+  AuditLogEntry,
   FocusStatsData,
   TimeBlock,
   PomodoroGoal,
@@ -259,6 +261,20 @@ class ClientDataCache {
   }
   setStudyPlanTasks(tasks: StudyPlanTask[]): void {
     this.set('study_plan_tasks', tasks);
+  }
+
+  getStudyExams(): StudyExam[] | null {
+    return this.get<StudyExam[]>('study_exams');
+  }
+  setStudyExams(exams: StudyExam[]): void {
+    this.set('study_exams', exams);
+  }
+
+  getAuditLogs(): AuditLogEntry[] | null {
+    return this.get<AuditLogEntry[]>('audit_logs', 60 * 1000);
+  }
+  setAuditLogs(logs: AuditLogEntry[]): void {
+    this.set('audit_logs', logs);
   }
 
   getFocusStats(): FocusStatsData | null {

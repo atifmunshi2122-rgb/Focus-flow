@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import {
+  AuditLogEntry,
   Bill,
   DashboardData,
   DashboardLayoutConfig,
@@ -12,29 +13,68 @@ import {
   FocusSession,
   Habit,
   SavingsGoal,
-  Task,
-  StudyTopic,
-  StudyRevision,
+  StudyExam,
   StudyMistake,
-  StudySubject,
   StudyPlanTask,
+  StudyRevision,
+  StudySubject,
+  StudyTopic,
+  Task,
+  TimeBlock,
 } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
-import { clientDataCache } from '../../lib/dataCache.ts';
-import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
-import { GamificationCard } from './GamificationCard.tsx';
-import { ProductivityScoreCard } from '../focus/ProductivityScoreCard.tsx';
-import { AnalogClockDial } from '../focus/AnalogClockDial.tsx';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import {
+  computeHabitStreak,
   computeProductivityScore,
   isHabitScheduledOnDate,
 } from '../../lib/productivityIntelligence.ts';
-import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
+import {
+  buildExamPrepSnapshot,
+  buildRecentActivityFeed,
+  buildTodaysPriorities,
+  computeDashboardGridSpans,
+  DASHBOARD_LAYOUT_PRESETS,
+  DASHBOARD_WIDGET_LABELS,
+  normalizeDashboardLayout,
+} from '../../lib/dashboardIntelligence.ts';
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CheckCircle2,
+  CheckSquare,
+  Clock,
+  CreditCard,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  FileSpreadsheet,
+  Flame,
+  GripVertical,
+  Loader2,
+  Play,
+  Plus,
+  RotateCcw,
+  Scale,
+  SlidersHorizontal,
+  Sparkles,
+  Target,
+  Timer,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
+import { GamificationCard } from './GamificationCard.tsx';
+import { TodaysPrioritiesCard } from './TodaysPrioritiesCard.tsx';
+import { ExamPrepCard } from './ExamPrepCard.tsx';
+import { RecentActivityCard } from './RecentActivityCard.tsx';
+import { ProductivityScoreCard } from '../focus/ProductivityScoreCard.tsx';
+import { AnalogClockDial } from '../focus/AnalogClockDial.tsx';
+import { ThemeBadge, ThemeButton, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import {
   AnimatedNumber,
   AnimatedProgressBar,
-  EmptyStateIllustration,
-  InteractiveSurface3D,
   MotionStaggerGrid,
   MotionStaggerItem,
   RollingTimerDigits,
@@ -42,131 +82,16 @@ import {
   SkeletonDashboard,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
-import { getSpringTransition } from '../../theme/motionTokens.ts';
-import {
-  CheckCircle2,
-  Flame,
-  TrendingUp,
-  TrendingDown,
-  Scale,
-  CreditCard,
-  Play,
-  ArrowRight,
-  Clock,
-  Sparkles,
-  FileSpreadsheet,
-  ExternalLink,
-  SlidersHorizontal,
-  GripVertical,
-  Eye,
-  EyeOff,
-  ArrowUp,
-  ArrowDown,
-  Target,
-  CheckSquare,
-  GraduationCap,
-  RotateCcw,
-  AlertTriangle,
-} from 'lucide-react';
+import { clientDataCache } from '../../lib/dataCache.ts';
 
 interface UnifiedDashboardProps {
   onOpenQuickAction: () => void;
 }
 
-const DEFAULT_ORDER: DashboardWidgetId[] = [
-  'clock_greeting',
-  'hero',
-  'study_pulse',
-  'focus_kpis',
-  'finance_kpis',
-  'productivity_goals',
-  'gamification',
-  'upcoming_bills',
-  'recent_transactions',
-];
-
-const WIDGET_LABELS: Record<DashboardWidgetId, string> = {
-  clock_greeting: 'Greeting & Live Clock',
-  hero: 'Hero Command Banner',
-  study_pulse: 'Study & Academic Pulse',
-  focus_kpis: 'Focus & Task KPIs',
-  finance_kpis: 'Finance Standing KPIs',
-  productivity_goals: 'Daily & Weekly Goals',
-  gamification: 'XP, Streaks & Badges',
-  upcoming_bills: 'Upcoming Bills',
-  recent_transactions: 'Recent Transactions',
-};
-
-const LAYOUT_PRESETS: Record<DashboardLayoutPreset, { label: string; config: DashboardLayoutConfig }> = {
-  executive: {
-    label: 'Executive Balanced',
-    config: {
-      preset: 'executive',
-      widgetOrder: DEFAULT_ORDER,
-      hiddenWidgets: [],
-      widgetSizes: {
-        study_pulse: 'compact',
-        productivity_goals: 'compact',
-        gamification: 'compact',
-        upcoming_bills: 'compact',
-        recent_transactions: 'compact',
-      },
-    },
-  },
-  focus_first: {
-    label: 'Focus First',
-    config: {
-      preset: 'focus_first',
-      widgetOrder: [
-        'clock_greeting',
-        'focus_kpis',
-        'study_pulse',
-        'productivity_goals',
-        'gamification',
-        'hero',
-        'finance_kpis',
-      ],
-      hiddenWidgets: ['upcoming_bills', 'recent_transactions'],
-      widgetSizes: { focus_kpis: 'wide', productivity_goals: 'wide', study_pulse: 'wide' },
-    },
-  },
-  finance_pulse: {
-    label: 'Finance Pulse',
-    config: {
-      preset: 'finance_pulse',
-      widgetOrder: [
-        'clock_greeting',
-        'finance_kpis',
-        'upcoming_bills',
-        'recent_transactions',
-        'hero',
-        'focus_kpis',
-      ],
-      hiddenWidgets: ['study_pulse', 'gamification', 'productivity_goals'],
-      widgetSizes: { finance_kpis: 'wide', upcoming_bills: 'wide', recent_transactions: 'wide' },
-    },
-  },
-  minimal: {
-    label: 'Minimal Brief',
-    config: {
-      preset: 'minimal',
-      widgetOrder: ['clock_greeting', 'focus_kpis', 'finance_kpis'],
-      hiddenWidgets: [
-        'hero',
-        'study_pulse',
-        'gamification',
-        'recent_transactions',
-        'upcoming_bills',
-        'productivity_goals',
-      ],
-      widgetSizes: {},
-    },
-  },
-};
-
 export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickAction }) => {
   const {
     user,
+    firebaseUser,
     settings,
     updateSettings,
     currency,
@@ -182,40 +107,93 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     timerEngine,
     googleSpreadsheetId,
     createOrConnectSpreadsheet,
+    syncStatus,
   } = useApp();
 
-  const { intensity, isDisabled, profile } = useMotionPreferences();
+  const { profile } = useMotionPreferences();
   const cachedDash = clientDataCache.getDashboardData();
   const [data, setData] = useState<DashboardData | null>(cachedDash);
 
-  const isPaused = !isRunning && (
-    timerEngine === 'stopwatch'
+  const isPaused =
+    !isRunning &&
+    (timerEngine === 'stopwatch'
       ? stopwatchElapsed > 0
-      : timeLeft < totalDuration && timeLeft > 0
-  );
-  const [sessions, setSessions] = useState<FocusSession[]>(() => clientDataCache.getFocusSessions() || []);
-  const [tasks, setTasks] = useState<Task[]>(() => clientDataCache.getTasks() || []);
-  const [habits, setHabits] = useState<Habit[]>(() => clientDataCache.getHabits() || []);
-  const [bills, setBills] = useState<Bill[]>(() => clientDataCache.getBills() || []);
-  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(() => clientDataCache.getSavingsGoals() || []);
-  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>(() => clientDataCache.getStudyTopics() || []);
-  const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>(() => clientDataCache.getStudyRevisions() || []);
-  const [studyMistakes, setStudyMistakes] = useState<StudyMistake[]>(() => clientDataCache.getStudyMistakes() || []);
-  const [studySubjects, setStudySubjects] = useState<StudySubject[]>(() => clientDataCache.getStudySubjects() || []);
-  const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>(() => clientDataCache.getStudyPlanTasks() || []);
-  const [loading, setLoading] = useState(!cachedDash);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [isStale, setIsStale] = useState<boolean>(false);
+      : timeLeft < totalDuration && timeLeft > 0);
 
   const todayStr = useMemo(
     () => getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE),
     [settings?.timezone]
   );
 
+  const [sessions, setSessions] = useState<FocusSession[]>(
+    () => clientDataCache.getFocusSessions() || []
+  );
+  const [tasks, setTasks] = useState<Task[]>(() => clientDataCache.getTasks() || []);
+  const [habits, setHabits] = useState<Habit[]>(() => clientDataCache.getHabits() || []);
+  const [bills, setBills] = useState<Bill[]>(() => clientDataCache.getBills() || []);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(
+    () => clientDataCache.getSavingsGoals() || []
+  );
+  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>(
+    () => clientDataCache.getTimeBlocks(todayStr) || []
+  );
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(
+    () => clientDataCache.getAuditLogs() || []
+  );
+  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>(
+    () => clientDataCache.getStudyTopics() || []
+  );
+  const [studyRevisions, setStudyRevisions] = useState<StudyRevision[]>(
+    () => clientDataCache.getStudyRevisions() || []
+  );
+  const [studyMistakes, setStudyMistakes] = useState<StudyMistake[]>(
+    () => clientDataCache.getStudyMistakes() || []
+  );
+  const [studySubjects, setStudySubjects] = useState<StudySubject[]>(
+    () => clientDataCache.getStudySubjects() || []
+  );
+  const [studyPlanTasks, setStudyPlanTasks] = useState<StudyPlanTask[]>(
+    () => clientDataCache.getStudyPlanTasks() || []
+  );
+  const [studyExams, setStudyExams] = useState<StudyExam[]>(
+    () => clientDataCache.getStudyExams() || []
+  );
+
+  const [loading, setLoading] = useState(!cachedDash);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [togglingBlockId, setTogglingBlockId] = useState<string | null>(null);
+  const [initializingSheets, setInitializingSheets] = useState(false);
+
   const [nowClock, setNowClock] = useState<Date>(() => new Date());
   const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [customizeMode, setCustomizeMode] = useState(false);
   const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
+  const studyFetchedForRefreshRef = useRef<number>(-1);
+
+  const layoutConfig = useMemo<DashboardLayoutConfig>(
+    () => normalizeDashboardLayout(settings?.dashboardLayout),
+    [settings?.dashboardLayout]
+  );
+
+  const needsStudyData = useMemo(
+    () =>
+      !layoutConfig.hiddenWidgets.includes('study_pulse') ||
+      !layoutConfig.hiddenWidgets.includes('todays_priorities') ||
+      !layoutConfig.hiddenWidgets.includes('productivity_goals'),
+    [layoutConfig.hiddenWidgets]
+  );
+
+  const visibleWidgets = useMemo(
+    () => layoutConfig.widgetOrder.filter((id) => !layoutConfig.hiddenWidgets.includes(id)),
+    [layoutConfig.widgetOrder, layoutConfig.hiddenWidgets]
+  );
+
+  const gridSpans = useMemo(
+    () => computeDashboardGridSpans(visibleWidgets, layoutConfig.widgetSizes),
+    [visibleWidgets, layoutConfig.widgetSizes]
+  );
 
   const daysInMonth = useMemo(() => {
     return new Date(nowClock.getFullYear(), nowClock.getMonth() + 1, 0).getDate();
@@ -226,7 +204,8 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const monthlyCapPaise = settings?.monthlyBudgetPaise || 0;
   const spentMonthPaise = data?.monthlyExpensesPaise || 0;
   const remainingBudgetPaise = Math.max(0, monthlyCapPaise - spentMonthPaise);
-  const dailySafeLimitPaise = monthlyCapPaise > 0 ? Math.round(remainingBudgetPaise / daysRemaining) : 0;
+  const dailySafeLimitPaise =
+    monthlyCapPaise > 0 ? Math.round(remainingBudgetPaise / daysRemaining) : 0;
   const todaySpentPaise = data?.todayExpensesPaise || 0;
   const isOverDailyLimit = dailySafeLimitPaise > 0 && todaySpentPaise > dailySafeLimitPaise;
 
@@ -235,7 +214,30 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     return () => clearInterval(id);
   }, []);
 
-  const loadDashboardData = () => {
+  const fetchStudyBundle = useCallback(async () => {
+    const [st, sr, sm, ssub, spt, sexams] = await Promise.all([
+      api.getStudyTopics().catch(() => [] as StudyTopic[]),
+      api.getStudyRevisions().catch(() => [] as StudyRevision[]),
+      api.getStudyMistakes().catch(() => [] as StudyMistake[]),
+      api.getStudySubjects().catch(() => [] as StudySubject[]),
+      api.getStudyPlanTasks().catch(() => [] as StudyPlanTask[]),
+      api.getStudyExams().catch(() => [] as StudyExam[]),
+    ]);
+    clientDataCache.setStudyTopics(st);
+    clientDataCache.setStudyRevisions(sr);
+    clientDataCache.setStudyMistakes(sm);
+    clientDataCache.setStudySubjects(ssub);
+    clientDataCache.setStudyPlanTasks(spt);
+    clientDataCache.setStudyExams(sexams);
+    setStudyTopics(st);
+    setStudyRevisions(sr);
+    setStudyMistakes(sm);
+    setStudySubjects(ssub);
+    setStudyPlanTasks(spt);
+    setStudyExams(sexams);
+  }, []);
+
+  const loadDashboardData = useCallback(() => {
     if (!clientDataCache.getDashboardData()) {
       setLoading(true);
     }
@@ -245,7 +247,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       setIsStale(staleCheck.isStale);
     }
 
-    const skipStudy = layoutConfig.hiddenWidgets.includes('study_pulse');
+    const shouldLoadStudy = needsStudyData;
     Promise.all([
       api.getDashboard(),
       api.getFocusSessions().catch(() => [] as FocusSession[]),
@@ -253,25 +255,44 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       api.getBills().catch(() => [] as Bill[]),
       api.getSavingsGoals().catch(() => [] as SavingsGoal[]),
       api.getHabits().catch(() => [] as Habit[]),
-      skipStudy ? Promise.resolve(clientDataCache.getStudyTopics() || []) : api.getStudyTopics().catch(() => [] as StudyTopic[]),
-      skipStudy ? Promise.resolve(clientDataCache.getStudyRevisions() || []) : api.getStudyRevisions().catch(() => [] as StudyRevision[]),
-      skipStudy ? Promise.resolve(clientDataCache.getStudyMistakes() || []) : api.getStudyMistakes().catch(() => [] as StudyMistake[]),
-      skipStudy ? Promise.resolve(clientDataCache.getStudySubjects() || []) : api.getStudySubjects().catch(() => [] as StudySubject[]),
-      skipStudy ? Promise.resolve(clientDataCache.getStudyPlanTasks() || []) : api.getStudyPlanTasks().catch(() => [] as StudyPlanTask[]),
+      api.getTimeBlocks(todayStr).catch(() => [] as TimeBlock[]),
+      api.getAuditLogs(15).catch(() => [] as AuditLogEntry[]),
+      shouldLoadStudy
+        ? api.getStudyTopics().catch(() => [] as StudyTopic[])
+        : Promise.resolve(clientDataCache.getStudyTopics() || []),
+      shouldLoadStudy
+        ? api.getStudyRevisions().catch(() => [] as StudyRevision[])
+        : Promise.resolve(clientDataCache.getStudyRevisions() || []),
+      shouldLoadStudy
+        ? api.getStudyMistakes().catch(() => [] as StudyMistake[])
+        : Promise.resolve(clientDataCache.getStudyMistakes() || []),
+      shouldLoadStudy
+        ? api.getStudySubjects().catch(() => [] as StudySubject[])
+        : Promise.resolve(clientDataCache.getStudySubjects() || []),
+      shouldLoadStudy
+        ? api.getStudyPlanTasks().catch(() => [] as StudyPlanTask[])
+        : Promise.resolve(clientDataCache.getStudyPlanTasks() || []),
+      shouldLoadStudy
+        ? api.getStudyExams().catch(() => [] as StudyExam[])
+        : Promise.resolve(clientDataCache.getStudyExams() || []),
     ])
-      .then(([dash, sess, tsk, b, sg, hab, st, sr, sm, ssub, spt]) => {
+      .then(([dash, sess, tsk, b, sg, hab, blocks, logs, st, sr, sm, ssub, spt, sexams]) => {
         clientDataCache.setDashboardData(dash);
         clientDataCache.setFocusSessions(sess);
         clientDataCache.setTasks(tsk);
         clientDataCache.setBills(b);
         clientDataCache.setHabits(hab);
         clientDataCache.setSavingsGoals(sg);
-        if (!skipStudy) {
+        clientDataCache.setTimeBlocks(blocks, todayStr);
+        clientDataCache.setAuditLogs(logs);
+        if (shouldLoadStudy) {
+          studyFetchedForRefreshRef.current = refreshKey;
           clientDataCache.setStudyTopics(st);
           clientDataCache.setStudyRevisions(sr);
           clientDataCache.setStudyMistakes(sm);
           clientDataCache.setStudySubjects(ssub);
           clientDataCache.setStudyPlanTasks(spt);
+          clientDataCache.setStudyExams(sexams);
         }
         setData(dash);
         setSessions(sess);
@@ -279,11 +300,14 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
         setBills(b);
         setSavingsGoals(sg);
         setHabits(hab);
+        setTimeBlocks(blocks);
+        setAuditLogs(logs);
         setStudyTopics(st);
         setStudyRevisions(sr);
         setStudyMistakes(sm);
         setStudySubjects(ssub);
         setStudyPlanTasks(spt);
+        setStudyExams(sexams);
         setIsStale(false);
       })
       .catch((err) => {
@@ -295,12 +319,21 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
         }
       })
       .finally(() => setLoading(false));
-  };
+  }, [needsStudyData, refreshKey, todayStr]);
 
   useEffect(() => {
     loadDashboardData();
-  }, [refreshKey]);
+  }, [refreshKey, todayStr]);
 
+  // If the user switches presets or un-hides study_pulse after initial load skipped study, fetch it immediately.
+  useEffect(() => {
+    if (needsStudyData && studyFetchedForRefreshRef.current !== refreshKey) {
+      studyFetchedForRefreshRef.current = refreshKey;
+      void fetchStudyBundle();
+    }
+  }, [needsStudyData, refreshKey, fetchStudyBundle]);
+
+  // Exact existing productivity score formula (unchanged)
   const productivityScore = useMemo(() => {
     return computeProductivityScore({
       tasks,
@@ -315,24 +348,44 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     });
   }, [tasks, sessions, habits, settings, studySubjects, studyRevisions, studyPlanTasks, todayStr]);
 
-  const studyStats = useMemo(() => {
-    const activeTopics = studyTopics.filter((t) => !t.deletedAt);
-    const total = activeTopics.length;
-    const completed = activeTopics.filter((t) => t.theory && t.practice).length;
-    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const prioritiesSnapshot = useMemo(
+    () =>
+      buildTodaysPriorities({
+        tasks,
+        timeBlocks,
+        bills,
+        exams: studyExams,
+        revisions: studyRevisions,
+        todayStr,
+      }),
+    [tasks, timeBlocks, bills, studyExams, studyRevisions, todayStr]
+  );
 
-    const due = studyRevisions.filter(
-      (r) => !r.deletedAt && r.status !== 'mastered' && r.nextRevisionAt <= todayStr
-    ).length;
-    const overdue = studyRevisions.filter(
-      (r) => !r.deletedAt && r.status !== 'mastered' && r.nextRevisionAt < todayStr
-    ).length;
-    const highTraps = studyMistakes.filter(
-      (m) => !m.deletedAt && !m.resolved && m.severity === 'High'
-    ).length;
+  const examPrepSnapshot = useMemo(
+    () =>
+      buildExamPrepSnapshot({
+        exams: studyExams,
+        subjects: studySubjects,
+        topics: studyTopics,
+        revisions: studyRevisions,
+        mistakes: studyMistakes,
+        focusSessions: sessions,
+        todayStr,
+        timezone: settings?.timezone || DEFAULT_TIMEZONE,
+      }),
+    [studyExams, studySubjects, studyTopics, studyRevisions, studyMistakes, sessions, todayStr, settings?.timezone]
+  );
 
-    return { total, completed, pct, due, overdue, highTraps };
-  }, [studyTopics, studyRevisions, studyMistakes, todayStr]);
+  const recentActivity = useMemo(
+    () =>
+      buildRecentActivityFeed({
+        auditLogs,
+        focusSessions: sessions,
+        tasks,
+        limit: 5,
+      }),
+    [auditLogs, sessions, tasks]
+  );
 
   const handleToggleHabitFromDashboard = async (habitId: string) => {
     setHabits((prev) =>
@@ -355,21 +408,56 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     }
   };
 
-  const layoutConfig = useMemo<DashboardLayoutConfig>(() => {
-    const saved = settings?.dashboardLayout;
-    if (!saved) return LAYOUT_PRESETS.executive.config;
-    const validSet = new Set(DEFAULT_ORDER);
-    const ordered = (saved.widgetOrder || []).filter((id) => validSet.has(id));
-    for (const id of DEFAULT_ORDER) {
-      if (!ordered.includes(id)) ordered.push(id);
+  const handleQuickCompleteTask = async (task: Task) => {
+    if (completingTaskId) return;
+    setCompletingTaskId(task.id);
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id
+          ? { ...t, status: 'completed', updatedAt: new Date().toISOString() }
+          : t
+      )
+    );
+    try {
+      await api.updateTask(task.id, { status: 'completed' });
+      triggerRefresh();
+    } catch (err) {
+      console.error('Failed to complete task from dashboard:', err);
+      // Rollback on failure
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
+    } finally {
+      setCompletingTaskId(null);
     }
-    return {
-      preset: saved.preset || 'executive',
-      widgetOrder: ordered,
-      hiddenWidgets: (saved.hiddenWidgets || []).filter((id) => validSet.has(id)),
-      widgetSizes: saved.widgetSizes || {},
-    };
-  }, [settings?.dashboardLayout]);
+  };
+
+  const handleToggleTimeBlockFromDashboard = async (block: TimeBlock) => {
+    if (togglingBlockId) return;
+    setTogglingBlockId(block.id);
+    const nextCompleted = !block.completed;
+    setTimeBlocks((prev) =>
+      prev.map((tb) => (tb.id === block.id ? { ...tb, completed: nextCompleted } : tb))
+    );
+    try {
+      await api.updateTimeBlock(block.id, { completed: nextCompleted });
+      triggerRefresh();
+    } catch (err) {
+      console.error('Failed to toggle time block from dashboard:', err);
+      setTimeBlocks((prev) => prev.map((tb) => (tb.id === block.id ? block : tb)));
+    } finally {
+      setTogglingBlockId(null);
+    }
+  };
+
+  const handleInitSheets = async () => {
+    if (initializingSheets || syncStatus === 'syncing') return;
+    setInitializingSheets(true);
+    try {
+      await createOrConnectSpreadsheet();
+    } finally {
+      setInitializingSheets(false);
+    }
+  };
 
   const persistLayout = (next: DashboardLayoutConfig) => {
     void updateSettings({ dashboardLayout: next });
@@ -389,7 +477,10 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     });
   };
 
-  const moveWidget = (fromId: DashboardWidgetId, directionOrTarget: 'up' | 'down' | DashboardWidgetId) => {
+  const moveWidget = (
+    fromId: DashboardWidgetId,
+    directionOrTarget: 'up' | 'down' | DashboardWidgetId
+  ) => {
     const nextOrder = [...layoutConfig.widgetOrder];
     const fromIdx = nextOrder.indexOf(fromId);
     if (fromIdx === -1) return;
@@ -406,6 +497,15 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   };
 
   const handleStartQuickFocus = () => {
+    if (isRunning) {
+      setCurrentTab('focus');
+      return;
+    }
+    if (isPaused) {
+      startTimer();
+      setCurrentTab('focus');
+      return;
+    }
     switchTimerMode('work');
     startTimer();
     setCurrentTab('focus');
@@ -416,58 +516,87 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
   const dailyGoalMin = Math.max(15, settings?.dailyFocusGoalMinutes || 100);
   const weeklyGoalMin = Math.max(30, settings?.weeklyFocusGoalMinutes || 500);
-  const dailyGoalPct = Math.min(100, Math.round(((data?.todayFocusMinutes || 0) / dailyGoalMin) * 100));
-  const weeklyGoalPct = Math.min(100, Math.round(((data?.weeklyFocusMinutes || 0) / weeklyGoalMin) * 100));
+  const dailyGoalPct = Math.min(
+    100,
+    Math.round(((data?.todayFocusMinutes || 0) / dailyGoalMin) * 100)
+  );
+  const weeklyGoalPct = Math.min(
+    100,
+    Math.round(((data?.weeklyFocusMinutes || 0) / weeklyGoalMin) * 100)
+  );
+
+  const totalTasksCount = (data?.completedTasksCount || 0) + (data?.pendingTasksCount || 0);
+  const taskCompletionPct =
+    totalTasksCount > 0
+      ? Math.min(100, Math.round(((data?.completedTasksCount || 0) / totalTasksCount) * 100))
+      : 0;
+
+  const periodNetCashflowPaise =
+    timeframe === 'daily'
+      ? (data?.todayIncomePaise || 0) - (data?.todayExpensesPaise || 0)
+      : timeframe === 'weekly'
+      ? Math.round(((data?.monthlyIncomePaise || 0) - (data?.monthlyExpensesPaise || 0)) / 4.33)
+      : data?.remainingBalancePaise || 0;
+
+  const periodFocusMinutes =
+    timeframe === 'daily'
+      ? data?.todayFocusMinutes || 0
+      : timeframe === 'weekly'
+      ? data?.weeklyFocusMinutes || 0
+      : Math.round((data?.weeklyFocusMinutes || 0) * 4.33);
+
+  const todaysScheduledHabits = useMemo(
+    () => habits.filter((h) => !h.deletedAt && isHabitScheduledOnDate(h, todayStr)),
+    [habits, todayStr]
+  );
 
   const isInitialLoading = loading && !data;
 
-  const sizeClassFor = (id: DashboardWidgetId) => {
-    const customSize = layoutConfig.widgetSizes[id];
-    if (customSize === 'compact') return 'lg:col-span-6';
-    if (customSize === 'wide') return 'lg:col-span-12';
-    // Adaptive multi-column layout for balanced dashboard experience on full screen
-    if (
-      id === 'study_pulse' ||
-      id === 'productivity_goals' ||
-      id === 'gamification' ||
-      id === 'upcoming_bills' ||
-      id === 'recent_transactions'
-    ) {
-      return 'lg:col-span-6';
-    }
-    return 'lg:col-span-12';
-  };
-
   const renderWidgetBody = (id: DashboardWidgetId) => {
-    const size = layoutConfig.widgetSizes[id] || 'standard';
+    const resolvedSpan = gridSpans[id] || 'lg:col-span-12';
+    const isWide = resolvedSpan === 'lg:col-span-12';
 
     switch (id) {
+      /* ================================================================
+       * A. COMPACT COMMAND HEADER
+       * ================================================================ */
       case 'clock_greeting':
         return (
-          <ThemeCard className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-xs font-bold uppercase tracking-wider text-[var(--ff-accent-text)]">
-                {nowClock.toLocaleDateString(undefined, {
-                  weekday: 'long',
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-              </p>
-              <h2 className="ff-heading text-xl sm:text-2xl font-extrabold text-[var(--ff-text-primary)]">
-                {greetingText}, {user?.name || 'Atif Munshi'}
-              </h2>
+          <ThemeCard className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 py-4">
+            <div className="space-y-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ff-accent-text)]">
+                  {nowClock.toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </span>
+                {isRunning && (
+                  <ThemeBadge tone="success">Focus Active</ThemeBadge>
+                )}
+              </div>
+              <h1 className="ff-heading text-xl sm:text-2xl font-extrabold text-[var(--ff-text-primary)] tracking-tight leading-tight break-words">
+                {greetingText}
+                {firebaseUser?.displayName
+                  ? `, ${firebaseUser.displayName}`
+                  : user?.name && user.name !== 'Guest Workspace'
+                  ? `, ${user.name}`
+                  : ''}
+              </h1>
               <p className="text-xs text-[var(--ff-text-muted)]">
-                {data?.pendingTasksCount || 0} pending tasks ·{' '}
-                {data?.completedTasksCount || 0} completed ·{' '}
-                Today Cashflow: +{formatCurrency(data?.todayIncomePaise || 0, currency, { compact: true })} / -
-                {formatCurrency(data?.todayExpensesPaise || 0, currency, { compact: true })}
+                {data?.pendingTasksCount || 0} open tasks ·{' '}
+                {data?.todayFocusMinutes || 0}m focused today ·{' '}
+                {prioritiesSnapshot.overdueItems.length > 0
+                  ? `${prioritiesSnapshot.overdueItems.length} overdue items`
+                  : 'All deadlines on track'}
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               <div
-                className="flex items-center gap-2.5 px-3.5 py-2 border font-mono text-lg font-extrabold tabular-nums text-[var(--ff-text-primary)]"
+                className="flex items-center gap-2 px-3 py-1.5 border font-mono text-base font-extrabold tabular-nums text-[var(--ff-text-primary)]"
                 style={{
                   borderRadius: 'var(--ff-radius-button)',
                   borderColor: 'var(--ff-border-color)',
@@ -481,7 +610,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                   sweep={false}
                   showNumerals={false}
                   showDateWindow={false}
-                  sizeClassName="w-8 h-8 shrink-0"
+                  sizeClassName="w-6 h-6 shrink-0"
                 />
                 <RollingTimerDigits
                   value={nowClock.toLocaleTimeString([], {
@@ -491,221 +620,128 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                   })}
                 />
               </div>
+
               <ThemeButton variant="secondary" size="sm" onClick={() => setCurrentTab('clock')}>
                 <Clock className="w-3.5 h-3.5" />
                 <span>Real Clock</span>
               </ThemeButton>
+
               <ThemeButton variant="primary" size="sm" onClick={handleStartQuickFocus}>
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Start Focus</span>
+                <span>
+                  {isRunning ? 'Active Timer' : isPaused ? 'Resume Focus' : 'Start Focus'}
+                </span>
               </ThemeButton>
+
               <ThemeButton variant="secondary" size="sm" onClick={onOpenQuickAction}>
+                <Plus className="w-3.5 h-3.5" />
                 <span>Quick Add</span>
               </ThemeButton>
             </div>
           </ThemeCard>
         );
 
+      /* ================================================================
+       * COMPACT WORKSPACE ACTION & SYNC STRIP (Replaces oversized hero)
+       * ================================================================ */
       case 'hero':
         return (
-          <InteractiveSurface3D maxTilt={4}>
-            <ThemeCard variant="hero" className="relative overflow-hidden">
-              {/* Subtle floating 3D decorative elements */}
-              {!isDisabled && (
-                <>
-                  <motion.div
-                    aria-hidden="true"
-                    animate={{
-                      y: [-6, 6, -6],
-                      x: [-4, 4, -4],
-                      scale: [1, 1.08, 1],
-                      opacity: [0.22, 0.45, 0.22],
-                    }}
-                    transition={{
-                      duration: 6,
-                      repeat: Infinity,
-                      ease: 'easeInOut',
-                    }}
-                    className="absolute -top-12 -right-12 w-48 h-48 rounded-full pointer-events-none blur-3xl"
-                    style={{ background: 'var(--ff-accent)' }}
-                  />
-                  <motion.div
-                    aria-hidden="true"
-                    animate={{
-                      y: [8, -8, 8],
-                      x: [5, -5, 5],
-                      opacity: [0.16, 0.35, 0.16],
-                    }}
-                    transition={{
-                      duration: 7.5,
-                      repeat: Infinity,
-                      ease: 'easeInOut',
-                      delay: 0.8,
-                    }}
-                    className="absolute -bottom-10 right-36 w-40 h-40 rounded-full pointer-events-none blur-3xl"
-                    style={{ background: 'var(--ff-accent-secondary)' }}
-                  />
-                </>
-              )}
-              <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="space-y-2 max-w-xl">
-                  <div
-                    className="flex items-center gap-2 text-xs font-semibold"
-                    style={{ color: 'var(--ff-hero-muted)' }}
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>Unified Command Center</span>
+          <ThemeCard
+            className="py-3.5 px-4 sm:px-5 border-l-2"
+            style={{
+              borderLeftColor: 'var(--ff-accent)',
+            }}
+          >
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-3 min-w-0">
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border"
+                  style={{
+                    background: 'var(--ff-accent-soft)',
+                    borderColor: 'var(--ff-accent-border)',
+                    color: 'var(--ff-accent-text)',
+                  }}
+                >
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                      Focus Deeply. Manage Wealth Intelligently.
+                    </h2>
+                    <ThemeBadge tone="accent">Command Center</ThemeBadge>
                   </div>
-                  <h1
-                    className="ff-heading text-2xl sm:text-3xl font-extrabold text-balance"
-                    style={{ color: 'var(--ff-hero-text)' }}
-                  >
-                    Focus Deeply. Manage Wealth Intelligently.
-                  </h1>
-                  <p
-                    className="text-xs sm:text-sm leading-relaxed"
-                    style={{ color: 'var(--ff-hero-muted)' }}
-                  >
-                    Your personal productivity engine and financial ledger synchronized in real time.
+                  <p className="text-xs text-[var(--ff-text-muted)] whitespace-normal break-words leading-relaxed">
+                    Personal productivity engine, exam prep, and financial ledger synced in real time.
                   </p>
                 </div>
+              </div>
 
-                <div className="flex flex-wrap items-center gap-3 shrink-0">
-                  {googleSpreadsheetId ? (
-                    <a
-                      href={`https://docs.google.com/spreadsheets/d/${googleSpreadsheetId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ff-btn px-3.5 py-2.5 text-xs backdrop-blur-md border"
-                      style={{
-                        background: 'rgba(16, 185, 129, 0.22)',
-                        borderColor: 'rgba(16, 185, 129, 0.45)',
-                        color: 'var(--ff-hero-text)',
-                      }}
-                    >
-                      <FileSpreadsheet className="w-4 h-4" />
-                      <span>Open Master Sheets</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  ) : (
-                    <ThemeButton variant="success" size="md" onClick={() => void createOrConnectSpreadsheet()}>
-                      <FileSpreadsheet className="w-4 h-4" />
-                      <span>Initialize 23 Master Sheets</span>
-                    </ThemeButton>
-                  )}
-
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {googleSpreadsheetId ? (
+                  <a
+                    href={`https://docs.google.com/spreadsheets/d/${googleSpreadsheetId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ff-btn px-3 py-1.5 text-xs font-semibold border transition-colors"
+                    style={{
+                      borderRadius: 'var(--ff-radius-button)',
+                      background: 'var(--ff-success-soft)',
+                      borderColor: 'color-mix(in oklab, var(--ff-success) 35%, transparent)',
+                      color: 'var(--ff-success)',
+                    }}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Open Master Sheets</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : (
                   <ThemeButton
                     variant="secondary"
-                    size="md"
-                    onClick={handleStartQuickFocus}
-                    className="bg-white text-slate-900 font-bold hover:bg-slate-100 shadow-md border-transparent"
+                    size="sm"
+                    disabled={initializingSheets || syncStatus === 'syncing'}
+                    onClick={() => void handleInitSheets()}
                   >
-                    <Play className="w-4 h-4 fill-slate-900 ml-0.5" />
-                    <span>{isRunning ? 'View Active Timer' : isPaused ? 'Resume Focus Session' : 'Launch 25m Focus'}</span>
+                    {initializingSheets || syncStatus === 'syncing' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--ff-accent-text)]" />
+                    ) : (
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-[var(--ff-success)]" />
+                    )}
+                    <span>
+                      {initializingSheets || syncStatus === 'syncing'
+                        ? 'Initializing Sheets...'
+                        : 'Initialize 23 Master Sheets'}
+                    </span>
                   </ThemeButton>
-                </div>
-              </div>
-            </ThemeCard>
-          </InteractiveSurface3D>
-        );
+                )}
 
-      case 'study_pulse':
-        return (
-          <ThemeCard variant="3d" className="flex flex-col justify-between space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-                  <GraduationCap className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                    Study OS &amp; Academic Pulse
-                  </h3>
-                  <p className="text-xs text-[var(--ff-text-muted)]">
-                    Syllabus retention and cognitive recall status
-                  </p>
-                </div>
-              </div>
-              <ThemeButton
-                variant="ghost"
-                size="sm"
-                onClick={() => setCurrentTab('study')}
-                className="text-xs text-[var(--ff-accent-text)] flex items-center gap-1"
-              >
-                <span>Open Study OS</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </ThemeButton>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="font-semibold text-[var(--ff-text-secondary)]">Syllabus Completion</span>
-                  <span className="font-mono font-bold text-[var(--ff-text-primary)]">
-                    {studyStats.completed} / {studyStats.total} topics ({studyStats.pct}%)
+                <ThemeButton variant="primary" size="sm" onClick={handleStartQuickFocus}>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>
+                    {isRunning
+                      ? 'View Active Timer'
+                      : isPaused
+                      ? 'Resume Focus Session'
+                      : 'Launch 25m Focus'}
                   </span>
-                </div>
-                <AnimatedProgressBar
-                  value={studyStats.pct}
-                  showShimmer={true}
-                  tone={studyStats.pct >= 80 ? 'success' : 'accent'}
-                  heightClass="h-2.5"
-                  ariaLabel="Syllabus Completion"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[var(--ff-border-color)]">
-                <div
-                  onClick={() => setCurrentTab('study')}
-                  className="cursor-pointer p-2.5 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] hover:border-amber-500/40 transition-colors"
-                >
-                  <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-                    <span className="flex items-center gap-1">
-                      <RotateCcw className="w-3.5 h-3.5 text-amber-400" /> Due Revisions
-                    </span>
-                    <span className="font-mono font-bold text-[var(--ff-text-primary)] text-sm">
-                      {studyStats.due}
-                    </span>
-                  </div>
-                  {studyStats.overdue > 0 ? (
-                    <span className="text-[10px] text-rose-400 font-medium">
-                      ⚠️ {studyStats.overdue} overdue!
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-emerald-400 font-medium">
-                      ✓ Memory refreshed
-                    </span>
-                  )}
-                </div>
-
-                <div
-                  onClick={() => setCurrentTab('study')}
-                  className="cursor-pointer p-2.5 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] hover:border-rose-500/40 transition-colors"
-                >
-                  <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-                    <span className="flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5 text-rose-400" /> High Traps
-                    </span>
-                    <span className="font-mono font-bold text-rose-400 text-sm">
-                      {studyStats.highTraps}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-[var(--ff-text-muted)]">
-                    Unresolved root causes
-                  </span>
-                </div>
+                </ThemeButton>
               </div>
             </div>
           </ThemeCard>
         );
 
+      /* ================================================================
+       * B. DAILY SNAPSHOT (4 Uniform Command KPIs)
+       * ================================================================ */
       case 'focus_kpis':
         return (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                Focus, Tasks &amp; Consistency ({timeframe === 'daily' ? 'Daily' : timeframe === 'weekly' ? 'Weekly' : 'Monthly'})
-              </h2>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                  Daily Snapshot · {timeframe === 'daily' ? 'Today' : timeframe === 'weekly' ? 'Weekly Pace' : 'Monthly View'}
+                </h2>
+              </div>
               <button
                 type="button"
                 onClick={() => setCurrentTab('focus')}
@@ -718,148 +754,257 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
             </div>
 
             <MotionStaggerGrid
-              className={`grid grid-cols-1 ${size === 'compact' ? 'sm:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-4'}`}
-              style={{ gap: 'var(--ff-grid-gap)' }}
+              className={`grid grid-cols-1 ${
+                !isWide ? 'sm:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-4'
+              } gap-4 items-stretch`}
             >
-              <MotionStaggerItem>
-                <ThemeCard variant="3d" className="flex items-center justify-between h-full">
-                  <div>
-                    <span className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">
-                      {timeframe === 'daily'
-                        ? "Today's Focus Time"
-                        : timeframe === 'weekly'
-                        ? 'Weekly Focus Time'
-                        : 'Monthly Deep Focus'}
-                    </span>
-                    <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-                      <AnimatedNumber
-                        value={
-                          timeframe === 'daily'
-                            ? (data?.todayFocusMinutes || 0)
-                            : timeframe === 'weekly'
-                            ? (data?.weeklyFocusMinutes || (data?.todayFocusMinutes || 0) * 3)
-                            : Math.round(((data?.weeklyFocusMinutes || 0) * 4.33) || (data?.todayFocusMinutes || 0) * 20)
-                        }
-                        format={(mins) => `${Math.floor(mins / 60)}h ${Math.round(mins) % 60}m`}
-                      />
+              {/* 1. Focus Time */}
+              <MotionStaggerItem className="min-w-0 h-full">
+                <ThemeCard className="h-full min-h-[138px] p-4 sm:p-5 flex flex-col justify-between gap-3.5 min-w-0">
+                  <div className="flex items-start justify-between gap-2.5 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-medium text-[var(--ff-text-muted)] block leading-snug break-words">
+                        {timeframe === 'daily'
+                          ? 'Focus Time Today'
+                          : timeframe === 'weekly'
+                          ? 'Weekly Focus Time'
+                          : 'Monthly Focus Pace'}
+                      </span>
+                      <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)] mt-1.5 leading-tight break-words">
+                        <AnimatedNumber
+                          value={periodFocusMinutes}
+                          format={(mins) => `${Math.floor(mins / 60)}h ${Math.round(mins) % 60}m`}
+                        />
+                      </div>
                     </div>
-                    <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-                      {timeframe === 'daily'
-                        ? `${data?.todayFocusMinutes || 0} / ${dailyGoalMin}m daily goal`
-                        : timeframe === 'weekly'
-                        ? `${data?.weeklyFocusMinutes || 0} / ${weeklyGoalMin}m weekly goal`
-                        : 'Cumulative focus hours this month'}
-                    </span>
-                  </div>
-                  <div
-                    className="w-11 h-11 flex items-center justify-center shrink-0"
-                    style={{
-                      borderRadius: 'var(--ff-radius-button)',
-                      background: 'var(--ff-accent-soft)',
-                      color: 'var(--ff-accent-text)',
-                    }}
-                  >
-                    <Clock className="w-5 h-5" />
-                  </div>
-                </ThemeCard>
-              </MotionStaggerItem>
-
-              <MotionStaggerItem>
-                <ThemeCard variant="3d" className="flex items-center justify-between h-full">
-                  <div>
-                    <span className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">
-                      {timeframe === 'daily'
-                        ? 'Completed Pomodoros'
-                        : timeframe === 'weekly'
-                        ? 'Weekly Focus Cycles'
-                        : 'Monthly Focus Cycles'}
-                    </span>
-                    <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-                      <AnimatedNumber
-                        value={
-                          timeframe === 'daily'
-                            ? (data?.completedPomodoroSessions || 0)
-                            : timeframe === 'weekly'
-                            ? Math.max(data?.completedPomodoroSessions || 0, Math.round((data?.weeklyFocusMinutes || 0) / 25))
-                            : Math.max(data?.completedPomodoroSessions || 0, Math.round(((data?.weeklyFocusMinutes || 0) * 4.33) / 25))
-                        }
-                      />
+                    <div
+                      className="w-9 h-9 flex items-center justify-center shrink-0 border"
+                      style={{
+                        borderRadius: 'var(--ff-radius-button)',
+                        background: 'var(--ff-accent-soft)',
+                        borderColor: 'var(--ff-accent-border)',
+                        color: 'var(--ff-accent-text)',
+                      }}
+                    >
+                      <Timer className="w-4 h-4" />
                     </div>
-                    <span className="text-[11px] font-semibold mt-1 block" style={{ color: 'var(--ff-success)' }}>
-                      {timeframe === 'daily'
-                        ? 'Deep focus cycles today'
-                        : timeframe === 'weekly'
-                        ? 'Sessions completed this week'
-                        : 'Deep work sessions this month'}
-                    </span>
                   </div>
-                  <div
-                    className="w-11 h-11 flex items-center justify-center shrink-0"
-                    style={{
-                      borderRadius: 'var(--ff-radius-button)',
-                      background: 'var(--ff-success-soft)',
-                      color: 'var(--ff-success)',
-                    }}
-                  >
-                    <CheckCircle2 className="w-5 h-5" />
-                  </div>
-                </ThemeCard>
-              </MotionStaggerItem>
-
-              <MotionStaggerItem>
-                <ThemeCard variant="3d" className="flex items-center justify-between h-full">
-                  <div>
-                    <span className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">
-                      Tasks Execution
-                    </span>
-                    <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-                      <AnimatedNumber value={data?.completedTasksCount || 0} />
-                      <span className="text-sm font-normal text-[var(--ff-text-muted)]">
-                        {' '}/ {(data?.completedTasksCount || 0) + (data?.pendingTasksCount || 0)}
+                  <div className="space-y-1.5 min-w-0">
+                    <div className="flex items-start justify-between gap-2 text-[11px] leading-snug text-[var(--ff-text-muted)] min-w-0">
+                      <span className="min-w-0 whitespace-normal break-words">
+                        {timeframe === 'daily'
+                          ? `${data?.todayFocusMinutes || 0} / ${dailyGoalMin}m goal`
+                          : timeframe === 'weekly'
+                          ? `${data?.weeklyFocusMinutes || 0} / ${weeklyGoalMin}m goal`
+                          : `${data?.completedPomodoroSessions || 0} sessions today`}
+                      </span>
+                      <span className="font-mono font-semibold text-[var(--ff-accent-text)] shrink-0 whitespace-nowrap">
+                        {timeframe === 'weekly' ? `${weeklyGoalPct}%` : `${dailyGoalPct}%`}
                       </span>
                     </div>
-                    <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-                      {data?.pendingTasksCount || 0} open pending tasks
-                    </span>
-                  </div>
-                  <div
-                    className="w-11 h-11 flex items-center justify-center shrink-0"
-                    style={{
-                      borderRadius: 'var(--ff-radius-button)',
-                      background: 'var(--ff-accent-soft)',
-                      color: 'var(--ff-accent-text)',
-                    }}
-                  >
-                    <CheckSquare className="w-5 h-5" />
+                    <AnimatedProgressBar
+                      value={timeframe === 'weekly' ? weeklyGoalPct : dailyGoalPct}
+                      max={100}
+                      heightClass="h-1.5"
+                      tone={(timeframe === 'weekly' ? weeklyGoalPct : dailyGoalPct) >= 100 ? 'success' : 'accent'}
+                      ariaLabel="Focus goal completion"
+                    />
                   </div>
                 </ThemeCard>
               </MotionStaggerItem>
 
-              <MotionStaggerItem>
-                <ThemeCard variant="3d" className="flex items-center justify-between h-full">
-                  <div>
-                    <span className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">
-                      Focus Streak
-                    </span>
-                    <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-                      <AnimatedNumber
-                        value={data?.focusStreakDays || 0}
-                        format={(d) => `${Math.round(d)} Days`}
-                      />
+              {/* 2. Task Completion */}
+              <MotionStaggerItem className="min-w-0 h-full">
+                <ThemeCard className="h-full min-h-[138px] p-4 sm:p-5 flex flex-col justify-between gap-3.5 min-w-0">
+                  <div className="flex items-start justify-between gap-2.5 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-medium text-[var(--ff-text-muted)] block leading-snug break-words">
+                        Task Completion
+                      </span>
+                      <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)] mt-1.5 leading-tight break-words">
+                        <AnimatedNumber value={data?.completedTasksCount || 0} />
+                        <span className="text-sm font-normal text-[var(--ff-text-muted)]">
+                          {' '}/ {totalTasksCount}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-[11px] font-semibold mt-1 block" style={{ color: 'var(--ff-warning)' }}>
-                      Personal best: {data?.bestStreakDays || 0} days
-                    </span>
+                    <div
+                      className="w-9 h-9 flex items-center justify-center shrink-0 border"
+                      style={{
+                        borderRadius: 'var(--ff-radius-button)',
+                        background: 'var(--ff-success-soft)',
+                        borderColor: 'color-mix(in oklab, var(--ff-success) 30%, transparent)',
+                        color: 'var(--ff-success)',
+                      }}
+                    >
+                      <CheckSquare className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div
-                    className="w-11 h-11 flex items-center justify-center shrink-0"
-                    style={{
-                      borderRadius: 'var(--ff-radius-button)',
-                      background: 'var(--ff-warning-soft)',
-                      color: 'var(--ff-warning)',
-                    }}
-                  >
-                    <Flame className="w-5 h-5" />
+                  <div className="space-y-1.5 min-w-0">
+                    <div className="flex items-start justify-between gap-2 text-[11px] leading-snug text-[var(--ff-text-muted)] min-w-0">
+                      <span className="min-w-0 whitespace-normal break-words">
+                        {data?.pendingTasksCount || 0} pending
+                      </span>
+                      <span className="font-mono font-semibold text-[var(--ff-success)] shrink-0 whitespace-nowrap">
+                        {taskCompletionPct}%
+                      </span>
+                    </div>
+                    <AnimatedProgressBar
+                      value={taskCompletionPct}
+                      max={100}
+                      heightClass="h-1.5"
+                      tone="success"
+                      ariaLabel="Task completion percentage"
+                    />
+                  </div>
+                </ThemeCard>
+              </MotionStaggerItem>
+
+              {/* 3. Net Cashflow */}
+              <MotionStaggerItem className="min-w-0 h-full">
+                <ThemeCard className="h-full min-h-[138px] p-4 sm:p-5 flex flex-col justify-between gap-3.5 min-w-0">
+                  <div className="flex items-start justify-between gap-2.5 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-medium text-[var(--ff-text-muted)] block leading-snug break-words">
+                        {timeframe === 'daily'
+                          ? "Today's Net Cashflow"
+                          : timeframe === 'weekly'
+                          ? 'Weekly Net Cashflow'
+                          : 'Remaining Balance'}
+                      </span>
+                      <div
+                        className="text-xl sm:text-2xl font-bold font-mono tabular-nums mt-1.5 leading-tight break-words"
+                        style={{
+                          color:
+                            periodNetCashflowPaise >= 0
+                              ? 'var(--ff-text-primary)'
+                              : 'var(--ff-danger)',
+                        }}
+                      >
+                        <AnimatedNumber
+                          value={periodNetCashflowPaise}
+                          format={(paise) => formatCurrency(Math.round(paise), currency)}
+                        />
+                      </div>
+                    </div>
+                    <div
+                      className="w-9 h-9 flex items-center justify-center shrink-0 border"
+                      style={{
+                        borderRadius: 'var(--ff-radius-button)',
+                        background:
+                          periodNetCashflowPaise >= 0
+                            ? 'var(--ff-accent-soft)'
+                            : 'var(--ff-danger-soft)',
+                        borderColor:
+                          periodNetCashflowPaise >= 0
+                            ? 'var(--ff-accent-border)'
+                            : 'color-mix(in oklab, var(--ff-danger) 30%, transparent)',
+                        color:
+                          periodNetCashflowPaise >= 0
+                            ? 'var(--ff-accent-text)'
+                            : 'var(--ff-danger)',
+                      }}
+                    >
+                      <Scale className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] leading-relaxed text-[var(--ff-text-muted)] min-w-0">
+                    <span className="min-w-0 whitespace-normal break-words line-clamp-2">
+                      +{formatCurrency(data?.todayIncomePaise || 0, currency, { compact: true })} / -
+                      {formatCurrency(data?.todayExpensesPaise || 0, currency, { compact: true })} today
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentTab('finance')}
+                      className="font-semibold text-[var(--ff-accent-text)] hover:underline shrink-0"
+                    >
+                      Ledger
+                    </button>
+                  </div>
+                </ThemeCard>
+              </MotionStaggerItem>
+
+              {/* 4. Daily Safe-to-Spend */}
+              <MotionStaggerItem className="min-w-0 h-full">
+                <ThemeCard className="h-full min-h-[138px] p-4 sm:p-5 flex flex-col justify-between gap-3.5 min-w-0">
+                  <div className="flex items-start justify-between gap-2.5 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-medium text-[var(--ff-text-muted)] block leading-snug break-words">
+                        {monthlyCapPaise > 0 ? 'Daily Safe-to-Spend' : 'Bills Pending'}
+                      </span>
+                      <div
+                        className="text-xl sm:text-2xl font-bold font-mono tabular-nums mt-1.5 leading-tight break-words"
+                        style={{
+                          color:
+                            monthlyCapPaise > 0 && isOverDailyLimit
+                              ? 'var(--ff-danger)'
+                              : 'var(--ff-text-primary)',
+                        }}
+                      >
+                        <AnimatedNumber
+                          value={
+                            monthlyCapPaise > 0
+                              ? dailySafeLimitPaise
+                              : data?.totalUnpaidAmountPaise || 0
+                          }
+                          format={(paise) => formatCurrency(Math.round(paise), currency)}
+                        />
+                      </div>
+                    </div>
+                    <div
+                      className="w-9 h-9 flex items-center justify-center shrink-0 border"
+                      style={{
+                        borderRadius: 'var(--ff-radius-button)',
+                        background:
+                          monthlyCapPaise > 0 && isOverDailyLimit
+                            ? 'var(--ff-danger-soft)'
+                            : 'var(--ff-warning-soft)',
+                        borderColor:
+                          monthlyCapPaise > 0 && isOverDailyLimit
+                            ? 'color-mix(in oklab, var(--ff-danger) 30%, transparent)'
+                            : 'color-mix(in oklab, var(--ff-warning) 30%, transparent)',
+                        color:
+                          monthlyCapPaise > 0 && isOverDailyLimit
+                            ? 'var(--ff-danger)'
+                            : 'var(--ff-warning)',
+                      }}
+                    >
+                      {monthlyCapPaise > 0 ? (
+                        <Target className="w-4 h-4" />
+                      ) : (
+                        <CreditCard className="w-4 h-4" />
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] leading-relaxed min-w-0">
+                    {monthlyCapPaise > 0 ? (
+                      <>
+                        <span
+                          className="font-semibold whitespace-normal break-words"
+                          style={{
+                            color: isOverDailyLimit ? 'var(--ff-danger)' : 'var(--ff-success)',
+                          }}
+                        >
+                          {isOverDailyLimit ? 'Over daily guardrail' : 'Within daily guardrail'}
+                        </span>
+                        <span className="text-[var(--ff-text-muted)] font-mono shrink-0">
+                          {daysRemaining}d left
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-[var(--ff-warning)] whitespace-normal">
+                          {data?.unpaidBillsCount || 0} unpaid
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentTab('finance')}
+                          className="font-semibold text-[var(--ff-accent-text)] hover:underline shrink-0"
+                        >
+                          Set budget
+                        </button>
+                      </>
+                    )}
                   </div>
                 </ThemeCard>
               </MotionStaggerItem>
@@ -867,145 +1012,403 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
           </div>
         );
 
-      case 'finance_kpis':
+      /* ================================================================
+       * C. TODAY'S PRIORITIES
+       * ================================================================ */
+      case 'todays_priorities':
         return (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                Financial Standing ({timeframe === 'daily' ? 'Daily Flow & Guardrail' : timeframe === 'weekly' ? 'Weekly Normalized Pace' : 'Monthly Standing & Reserves'})
+          <TodaysPrioritiesCard
+            snapshot={prioritiesSnapshot}
+            todayStr={todayStr}
+            completingTaskId={completingTaskId}
+            togglingBlockId={togglingBlockId}
+            onQuickCompleteTask={(task) => void handleQuickCompleteTask(task)}
+            onToggleTimeBlock={(block) => void handleToggleTimeBlockFromDashboard(block)}
+            onNavigate={(tab) => setCurrentTab(tab)}
+            isWide={isWide}
+          />
+        );
+
+      /* ================================================================
+       * D. EXAM PREPARATION & SYLLABUS
+       * ================================================================ */
+      case 'study_pulse':
+        return (
+          <ExamPrepCard
+            snapshot={examPrepSnapshot}
+            onOpenStudyOS={() => setCurrentTab('study')}
+            isWide={isWide}
+          />
+        );
+
+      /* ================================================================
+       * E. FOCUS & PRODUCTIVITY (Balanced 12-Col Split: Score + Goals/Habits)
+       * ================================================================ */
+      case 'productivity_goals':
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                Focus &amp; Productivity
               </h2>
               <button
                 type="button"
-                onClick={() => setCurrentTab('finance')}
-                className="flex items-center gap-1 text-xs font-semibold hover:underline"
-                style={{ color: 'var(--ff-accent-text)' }}
+                onClick={() => setCurrentTab('settings')}
+                className="text-xs font-semibold text-[var(--ff-accent-text)] hover:underline"
               >
-                <span>Open Finance Command</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                Adjust Targets
               </button>
             </div>
 
-            <MotionStaggerGrid
-              className={`grid grid-cols-1 ${size === 'compact' ? 'sm:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-4'}`}
-              style={{ gap: 'var(--ff-grid-gap)' }}
+            <div
+              className={`grid grid-cols-1 ${
+                isWide ? 'lg:grid-cols-12' : ''
+              } gap-4 items-stretch`}
             >
-              <MotionStaggerItem>
-                <ThemeCard variant="3d" className="h-full">
-                  <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                    <span className="text-xs font-medium">
-                      {timeframe === 'daily' ? "Today's Inflow" : timeframe === 'weekly' ? 'Weekly Inflow Pace' : 'Monthly Inflow'}
-                    </span>
-                    <TrendingUp className="w-4 h-4" style={{ color: 'var(--ff-success)' }} />
+              {/* Left: Deterministic Daily Productivity Score */}
+              <div className={isWide ? 'lg:col-span-5' : ''}>
+                <ProductivityScoreCard scoreData={productivityScore} className="h-full" />
+              </div>
+
+              {/* Right: Focus Goals, Weekly Metrics & Habits/Streaks */}
+              <div className={isWide ? 'lg:col-span-7' : ''}>
+                <ThemeCard className="h-full flex flex-col justify-between gap-4">
+                  {/* Top Metric Pills */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-2 pb-3 border-b border-[var(--ff-border-color)]">
+                      <div className="flex items-center gap-2">
+                        <Target className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                        <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                          Focus Goals &amp; Consistency
+                        </h3>
+                      </div>
+                      <ThemeBadge tone="accent">
+                        {data?.focusStreakDays || 0}d streak
+                      </ThemeBadge>
+                    </div>
+
+                    {/* 3 Compact KPI Chips */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div className="ff-surface-subtle px-3 py-2.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                          Weekly Focus
+                        </span>
+                        <p className="text-base font-black font-mono text-[var(--ff-text-primary)] mt-0.5">
+                          {Math.floor((data?.weeklyFocusMinutes || 0) / 60)}h{' '}
+                          {(data?.weeklyFocusMinutes || 0) % 60}m
+                        </p>
+                      </div>
+
+                      <div className="ff-surface-subtle px-3 py-2.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                          Pomodoros Done
+                        </span>
+                        <p className="text-base font-black font-mono text-[var(--ff-success)] mt-0.5">
+                          {data?.completedPomodoroSessions || 0}
+                          <span className="text-[11px] font-normal text-[var(--ff-text-muted)] ml-1">
+                            today
+                          </span>
+                        </p>
+                      </div>
+
+                      <div className="ff-surface-subtle px-3 py-2.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                          Best Streak
+                        </span>
+                        <p className="text-base font-black font-mono text-[var(--ff-warning)] mt-0.5">
+                          {data?.bestStreakDays || 0} days
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Daily & Weekly Goal Progress Bars */}
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-start justify-between gap-2 text-xs mb-1.5 min-w-0">
+                          <span className="font-semibold text-[var(--ff-text-secondary)] leading-snug break-words min-w-0">
+                            Daily Focus Goal
+                          </span>
+                          <span className="font-mono font-bold text-[var(--ff-text-primary)] shrink-0 whitespace-nowrap tabular-nums">
+                            {data?.todayFocusMinutes || 0}/{dailyGoalMin}m ({dailyGoalPct}%)
+                          </span>
+                        </div>
+                        <AnimatedProgressBar
+                          value={dailyGoalPct}
+                          showShimmer={true}
+                          tone={dailyGoalPct >= 100 ? 'success' : 'accent'}
+                          heightClass="h-2"
+                          ariaLabel="Daily Focus Goal"
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-start justify-between gap-2 text-xs mb-1.5 min-w-0">
+                          <span className="font-semibold text-[var(--ff-text-secondary)] leading-snug break-words min-w-0">
+                            Weekly Deep Work Goal
+                          </span>
+                          <span className="font-mono font-bold text-[var(--ff-text-primary)] shrink-0 whitespace-nowrap tabular-nums">
+                            {data?.weeklyFocusMinutes || 0}/{weeklyGoalMin}m ({weeklyGoalPct}%)
+                          </span>
+                        </div>
+                        <AnimatedProgressBar
+                          value={weeklyGoalPct}
+                          showShimmer={true}
+                          tone={weeklyGoalPct >= 100 ? 'success' : 'accent'}
+                          heightClass="h-2"
+                          ariaLabel="Weekly Deep Work Goal"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+
+                  {/* Today's Habits & Quick Check-off */}
+                  <div className="pt-3 border-t border-[var(--ff-border-color)]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
+                        <Flame className="w-3.5 h-3.5 text-[var(--ff-warning)]" /> Today&apos;s Habits &amp; Streaks
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentTab('habits')}
+                        className="text-xs font-semibold text-[var(--ff-accent-text)] hover:underline"
+                      >
+                        Manage Habits
+                      </button>
+                    </div>
+
+                    {todaysScheduledHabits.length === 0 ? (
+                      <div className="ff-surface-subtle px-3 py-2 flex items-center justify-between gap-2 text-xs text-[var(--ff-text-muted)]">
+                        <span>No habits scheduled for today.</span>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentTab('habits')}
+                          className="text-[11px] font-bold text-[var(--ff-accent-text)] hover:underline shrink-0"
+                        >
+                          + Add Habit
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {todaysScheduledHabits.map((h) => {
+                          const isDone = (h.completedDates || []).includes(todayStr);
+                          const streak = computeHabitStreak(h, todayStr).currentStreak;
+                          return (
+                            <button
+                              key={h.id}
+                              type="button"
+                              onClick={() => void handleToggleHabitFromDashboard(h.id)}
+                              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                                isDone
+                                  ? 'bg-emerald-500/15 border-emerald-500/45 text-emerald-500 dark:text-emerald-400'
+                                  : 'bg-[var(--ff-surface-subtle)] border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:border-[var(--ff-accent-border)]'
+                              }`}
+                            >
+                              <span
+                                className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
+                                  isDone
+                                    ? 'bg-emerald-500 border-emerald-500 text-white'
+                                    : 'border-current opacity-45'
+                                }`}
+                              >
+                                {isDone && <CheckCircle2 className="w-3 h-3" />}
+                              </span>
+                              <span className={isDone ? 'line-through opacity-80' : ''}>
+                                {h.title}
+                              </span>
+                              {streak > 0 && (
+                                <span
+                                  className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[var(--ff-warning-soft)] text-[var(--ff-warning)]"
+                                  title={`${streak}-day habit streak`}
+                                >
+                                  {streak}d
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </ThemeCard>
+              </div>
+            </div>
+          </div>
+        );
+
+      /* ================================================================
+       * F1. FINANCE OVERVIEW KPIs
+       * ================================================================ */
+      case 'finance_kpis':
+        return (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                Finance Overview ·{' '}
+                {timeframe === 'daily'
+                  ? 'Today & Guardrail'
+                  : timeframe === 'weekly'
+                  ? 'Weekly Normalized Pace'
+                  : 'Monthly Standing'}
+              </h2>
+              <div className="flex items-center gap-3 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('transactions')}
+                  className="text-[var(--ff-text-secondary)] hover:text-[var(--ff-accent-text)] transition-colors"
+                >
+                  Transactions
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('bills')}
+                  className="text-[var(--ff-text-secondary)] hover:text-[var(--ff-accent-text)] transition-colors"
+                >
+                  Bills
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('finance')}
+                  className="flex items-center gap-1 hover:underline"
+                  style={{ color: 'var(--ff-accent-text)' }}
+                >
+                  <span>Finance Command</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <MotionStaggerGrid
+              className={`grid grid-cols-1 ${
+                !isWide ? 'sm:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-4'
+              } gap-4 items-stretch`}
+            >
+              {/* 1. Today's Inflow */}
+              <MotionStaggerItem className="min-w-0 h-full">
+                <ThemeCard className="h-full min-h-[138px] p-4 sm:p-5 flex flex-col justify-between gap-3 min-w-0">
+                  <div className="flex items-start justify-between gap-2 text-[var(--ff-text-muted)] min-w-0">
+                    <span className="text-xs font-medium leading-snug break-words min-w-0">
+                      {timeframe === 'daily'
+                        ? "Today's Inflow"
+                        : timeframe === 'weekly'
+                        ? 'Weekly Inflow Pace'
+                        : 'Monthly Inflow'}
+                    </span>
+                    <TrendingUp className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--ff-success)' }} />
+                  </div>
+                  <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)] leading-tight break-words">
                     <AnimatedNumber
                       value={
                         timeframe === 'daily'
-                          ? (data?.todayIncomePaise || 0)
+                          ? data?.todayIncomePaise || 0
                           : timeframe === 'weekly'
                           ? Math.round((data?.monthlyIncomePaise || 0) / 4.33)
-                          : (data?.monthlyIncomePaise || 0)
+                          : data?.monthlyIncomePaise || 0
                       }
                       format={(paise) => formatCurrency(Math.round(paise), currency)}
                     />
                   </div>
-                  <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
+                  <p className="text-[11px] leading-relaxed text-[var(--ff-text-muted)] whitespace-normal break-words line-clamp-2">
                     {timeframe === 'daily'
-                      ? 'Direct revenue received today'
+                      ? `Direct revenue today · Month: ${formatCurrency(data?.monthlyIncomePaise || 0, currency, { compact: true })}`
                       : timeframe === 'weekly'
                       ? '7-day normalized revenue pace'
                       : `Today: +${formatCurrency(data?.todayIncomePaise || 0, currency, { compact: true })}`}
-                  </span>
+                  </p>
                 </ThemeCard>
               </MotionStaggerItem>
 
-              <MotionStaggerItem>
-                <ThemeCard variant="3d" className="h-full">
-                  <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                    <span className="text-xs font-medium">
-                      {timeframe === 'daily' ? "Today's Outflow" : timeframe === 'weekly' ? 'Weekly Outflow Pace' : 'Monthly Outflow'}
+              {/* 2. Today's Outflow */}
+              <MotionStaggerItem className="min-w-0 h-full">
+                <ThemeCard className="h-full min-h-[138px] p-4 sm:p-5 flex flex-col justify-between gap-3 min-w-0">
+                  <div className="flex items-start justify-between gap-2 text-[var(--ff-text-muted)] min-w-0">
+                    <span className="text-xs font-medium leading-snug break-words min-w-0">
+                      {timeframe === 'daily'
+                        ? "Today's Outflow"
+                        : timeframe === 'weekly'
+                        ? 'Weekly Outflow Pace'
+                        : 'Monthly Outflow'}
                     </span>
-                    <TrendingDown className="w-4 h-4" style={{ color: 'var(--ff-danger)' }} />
+                    <TrendingDown className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--ff-danger)' }} />
                   </div>
-                  <div className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
+                  <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)] leading-tight break-words">
                     <AnimatedNumber
                       value={
                         timeframe === 'daily'
-                          ? (data?.todayExpensesPaise || 0)
+                          ? data?.todayExpensesPaise || 0
                           : timeframe === 'weekly'
                           ? Math.round((data?.monthlyExpensesPaise || 0) / 4.33)
-                          : (data?.monthlyExpensesPaise || 0)
+                          : data?.monthlyExpensesPaise || 0
                       }
                       format={(paise) => formatCurrency(Math.round(paise), currency)}
                     />
                   </div>
-                  <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
+                  <p className="text-[11px] leading-relaxed text-[var(--ff-text-muted)] whitespace-normal break-words line-clamp-2">
                     {timeframe === 'daily'
-                      ? 'Expenses recorded today'
+                      ? `Expenses recorded today · Month: ${formatCurrency(data?.monthlyExpensesPaise || 0, currency, { compact: true })}`
                       : timeframe === 'weekly'
                       ? '7-day normalized expenditure burn'
                       : `Fixed: ${formatCurrency(data?.fixedExpensesPaise || 0, currency, { compact: true })} · Var: ${formatCurrency(data?.variableExpensesPaise || 0, currency, { compact: true })}`}
-                  </span>
+                  </p>
                 </ThemeCard>
               </MotionStaggerItem>
 
-              <MotionStaggerItem>
-                <ThemeCard variant="3d" className="h-full">
-                  <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                    <span className="text-xs font-medium">
-                      {timeframe === 'daily' ? "Today's Net Cashflow" : timeframe === 'weekly' ? 'Weekly Net Balance' : 'Remaining Balance'}
+              {/* 3. Today's Net Cashflow */}
+              <MotionStaggerItem className="min-w-0 h-full">
+                <ThemeCard className="h-full min-h-[138px] p-4 sm:p-5 flex flex-col justify-between gap-3 min-w-0">
+                  <div className="flex items-start justify-between gap-2 text-[var(--ff-text-muted)] min-w-0">
+                    <span className="text-xs font-medium leading-snug break-words min-w-0">
+                      {timeframe === 'daily'
+                        ? "Today's Net Cashflow"
+                        : timeframe === 'weekly'
+                        ? 'Weekly Net Balance'
+                        : 'Remaining Balance'}
                     </span>
-                    <Scale className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
+                    <Scale className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--ff-accent-text)' }} />
                   </div>
                   <div
-                    className="text-2xl font-bold font-mono tabular-nums"
+                    className="text-xl sm:text-2xl font-bold font-mono tabular-nums leading-tight break-words"
                     style={{
                       color:
-                        (timeframe === 'daily'
-                          ? (data?.todayIncomePaise || 0) - (data?.todayExpensesPaise || 0)
-                          : (data?.remainingBalancePaise || 0)) >= 0
+                        periodNetCashflowPaise >= 0
                           ? 'var(--ff-text-primary)'
                           : 'var(--ff-danger)',
                     }}
                   >
                     <AnimatedNumber
-                      value={
-                        timeframe === 'daily'
-                          ? (data?.todayIncomePaise || 0) - (data?.todayExpensesPaise || 0)
-                          : timeframe === 'weekly'
-                          ? Math.round(((data?.monthlyIncomePaise || 0) - (data?.monthlyExpensesPaise || 0)) / 4.33)
-                          : (data?.remainingBalancePaise || 0)
-                      }
+                      value={periodNetCashflowPaise}
                       format={(paise) => formatCurrency(Math.round(paise), currency)}
                     />
                   </div>
-                  <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
+                  <p className="text-[11px] leading-relaxed text-[var(--ff-text-muted)] whitespace-normal break-words line-clamp-2">
                     {timeframe === 'daily'
-                      ? 'Net savings after today’s spend'
+                      ? 'Net position after today’s spend'
                       : timeframe === 'weekly'
-                      ? 'Estimated 7-day retained capital'
+                      ? '7-day retained capital pace'
                       : 'Net accumulated savings balance'}
-                  </span>
+                  </p>
                 </ThemeCard>
               </MotionStaggerItem>
 
-              <MotionStaggerItem>
-                <ThemeCard variant="3d" className="h-full">
-                  <div className="flex items-center justify-between text-[var(--ff-text-muted)] mb-2">
-                    <span className="text-xs font-medium">
+              {/* 4. Daily Safe-to-Spend / Bills Pending */}
+              <MotionStaggerItem className="min-w-0 h-full">
+                <ThemeCard className="h-full min-h-[138px] p-4 sm:p-5 flex flex-col justify-between gap-3 min-w-0">
+                  <div className="flex items-start justify-between gap-2 text-[var(--ff-text-muted)] min-w-0">
+                    <span className="text-xs font-medium leading-snug break-words min-w-0">
                       {monthlyCapPaise > 0 ? 'Daily Safe-to-Spend' : 'Bills Pending'}
                     </span>
                     {monthlyCapPaise > 0 ? (
                       <Target
-                        className="w-4 h-4"
-                        style={{ color: isOverDailyLimit ? 'var(--ff-danger)' : 'var(--ff-success)' }}
+                        className="w-4 h-4 shrink-0 mt-0.5"
+                        style={{
+                          color: isOverDailyLimit ? 'var(--ff-danger)' : 'var(--ff-success)',
+                        }}
                       />
                     ) : (
-                      <CreditCard className="w-4 h-4" style={{ color: 'var(--ff-warning)' }} />
+                      <CreditCard className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--ff-warning)' }} />
                     )}
                   </div>
                   <div
-                    className="text-2xl font-bold font-mono tabular-nums"
+                    className="text-xl sm:text-2xl font-bold font-mono tabular-nums leading-tight break-words"
                     style={{
                       color:
                         monthlyCapPaise > 0 && isOverDailyLimit
@@ -1017,12 +1420,12 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                       value={
                         monthlyCapPaise > 0
                           ? dailySafeLimitPaise
-                          : (data?.totalUnpaidAmountPaise || 0)
+                          : data?.totalUnpaidAmountPaise || 0
                       }
                       format={(paise) => formatCurrency(Math.round(paise), currency)}
                     />
                   </div>
-                  <div className="flex items-center gap-1.5 mt-1 text-[11px]">
+                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-relaxed">
                     {monthlyCapPaise > 0 ? (
                       <>
                         <span
@@ -1054,139 +1457,27 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
           </div>
         );
 
-      case 'productivity_goals':
-        return (
-          <div className="space-y-4">
-            <ProductivityScoreCard scoreData={productivityScore} />
-
-            <ThemeCard className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Target className="w-4 h-4 text-[var(--ff-accent-text)]" />
-                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                    Daily Productivity Goal &amp; Weekly Progress
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('settings')}
-                  className="text-xs font-semibold text-[var(--ff-accent-text)] hover:underline"
-                >
-                  Adjust Targets
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <div className="flex items-center justify-between text-xs mb-1.5">
-                    <span className="font-semibold text-[var(--ff-text-secondary)]">Daily Focus Target</span>
-                    <span className="font-mono font-bold text-[var(--ff-text-primary)]">
-                      {data?.todayFocusMinutes || 0} / {dailyGoalMin} min ({dailyGoalPct}%)
-                    </span>
-                  </div>
-                  <AnimatedProgressBar
-                    value={dailyGoalPct}
-                    showShimmer={true}
-                    tone={dailyGoalPct >= 100 ? 'success' : 'accent'}
-                    heightClass="h-2.5"
-                    ariaLabel="Daily Focus Target"
-                  />
-                </div>
-                <div>
-                  <div className="flex items-center justify-between text-xs mb-1.5">
-                    <span className="font-semibold text-[var(--ff-text-secondary)]">Weekly Deep Work Goal</span>
-                    <span className="font-mono font-bold text-[var(--ff-text-primary)]">
-                      {data?.weeklyFocusMinutes || 0} / {weeklyGoalMin} min ({weeklyGoalPct}%)
-                    </span>
-                  </div>
-                  <AnimatedProgressBar
-                    value={weeklyGoalPct}
-                    showShimmer={true}
-                    tone={weeklyGoalPct >= 100 ? 'success' : 'accent'}
-                    heightClass="h-2.5"
-                    ariaLabel="Weekly Deep Work Goal"
-                  />
-                </div>
-              </div>
-
-              {/* Today's Habits Quick Check-off */}
-              {habits.length > 0 && (
-                <div className="pt-3 border-t border-[var(--ff-border-color)]">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)] flex items-center gap-1.5">
-                      <Flame className="w-3.5 h-3.5 text-amber-500" /> Today's Scheduled Habits
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentTab('habits')}
-                      className="text-xs font-semibold text-[var(--ff-accent-text)] hover:underline"
-                    >
-                      View All Habits
-                    </button>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {habits
-                      .filter((h) => !h.deletedAt && isHabitScheduledOnDate(h, todayStr))
-                      .map((h) => {
-                        const isDone = (h.completedDates || []).includes(todayStr);
-                        return (
-                          <button
-                            key={h.id}
-                            type="button"
-                            onClick={() => handleToggleHabitFromDashboard(h.id)}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
-                              isDone
-                                ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-600 dark:text-emerald-400'
-                                : 'bg-[var(--ff-surface-subtle)] border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:border-emerald-400'
-                            }`}
-                          >
-                            <div
-                              className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
-                                isDone ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-current opacity-40'
-                              }`}
-                            >
-                              {isDone && <CheckCircle2 className="w-3.5 h-3.5" />}
-                            </div>
-                            <span className={isDone ? 'line-through opacity-80' : ''}>{h.title}</span>
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-            </ThemeCard>
-          </div>
-        );
-
-      case 'gamification':
-        return (
-          <GamificationCard
-            sessions={sessions}
-            tasks={tasks}
-            bills={bills}
-            savingsGoals={savingsGoals}
-            focusStreakDays={data?.focusStreakDays || 0}
-            bestStreakDays={data?.bestStreakDays}
-            dailyFocusGoalMinutes={settings?.dailyFocusGoalMinutes}
-            compact={size === 'compact'}
-          />
-        );
-
+      /* ================================================================
+       * F2. UPCOMING BILLS (Compact Empty State + Equal Height)
+       * ================================================================ */
       case 'upcoming_bills':
         return (
           <ThemeCard className="flex flex-col justify-between h-full">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <CreditCard className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
-                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                    Upcoming Bill Obligations
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between pb-3 border-b border-[var(--ff-border-color)]">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CreditCard className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-accent-text)' }} />
+                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
+                    Upcoming Bills
                   </h3>
+                  {(data?.unpaidBillsCount || 0) > 0 && (
+                    <ThemeBadge tone="warning">{data?.unpaidBillsCount} due</ThemeBadge>
+                  )}
                 </div>
                 <button
                   type="button"
                   onClick={() => setCurrentTab('bills')}
-                  className="text-xs font-semibold hover:underline"
+                  className="text-xs font-semibold hover:underline shrink-0"
                   style={{ color: 'var(--ff-accent-text)' }}
                 >
                   Manage Bills
@@ -1194,23 +1485,40 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
               </div>
 
               {!data?.upcomingPayments || data.upcomingPayments.length === 0 ? (
-                <EmptyStateIllustration
-                  icon={<CreditCard className="w-6 h-6" />}
-                  title="All bills settled"
-                  description="All bills for this period are completely paid! Great financial discipline."
-                />
+                <div className="ff-surface-subtle px-3.5 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    <CheckCircle2 className="w-4 h-4 text-[var(--ff-success)] shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-[var(--ff-text-primary)] leading-snug">All bills settled</p>
+                      <p className="text-[11px] text-[var(--ff-text-muted)] whitespace-normal break-words leading-relaxed mt-0.5">
+                        No unpaid obligations scheduled for this cycle.
+                      </p>
+                    </div>
+                  </div>
+                  <ThemeButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setCurrentTab('bills')}
+                    className="text-xs px-2.5 py-1 shrink-0"
+                  >
+                    + Add Bill
+                  </ThemeButton>
+                </div>
               ) : (
                 <div className="divide-y ff-divider">
-                  {data.upcomingPayments.map((bill) => (
+                  {data.upcomingPayments.slice(0, 5).map((bill) => (
                     <div
                       key={bill.id}
-                      className="py-3 flex items-center justify-between gap-3 text-xs"
+                      className="py-2.5 flex items-start justify-between gap-3 text-xs min-w-0"
                     >
-                      <div className="min-w-0">
-                        <p className="font-semibold text-[var(--ff-text-primary)] truncate">
+                      <div className="min-w-0 flex-1">
+                        <p
+                          title={bill.name}
+                          className="font-semibold text-[var(--ff-text-primary)] whitespace-normal break-words leading-snug line-clamp-2"
+                        >
                           {bill.name}
                         </p>
-                        <div className="flex items-center gap-1.5 text-[var(--ff-text-muted)] text-[11px] mt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[var(--ff-text-muted)] text-[11px] mt-0.5">
                           <span className="font-mono">Due {bill.dueDate}</span>
                           {bill.status === 'OVERDUE' && (
                             <ThemeBadge tone="danger">Overdue</ThemeBadge>
@@ -1218,7 +1526,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <span className="font-mono tabular-nums font-bold text-[var(--ff-text-primary)] block">
+                        <span className="font-mono tabular-nums font-bold text-[var(--ff-text-primary)] block whitespace-nowrap">
                           {formatCurrency(bill.amountPaise, currency)}
                         </span>
                         <button
@@ -1238,21 +1546,24 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
           </ThemeCard>
         );
 
+      /* ================================================================
+       * F3. RECENT TRANSACTIONS (Compact Empty State + Equal Height)
+       * ================================================================ */
       case 'recent_transactions':
         return (
           <ThemeCard className="flex flex-col justify-between h-full">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Scale className="w-4 h-4" style={{ color: 'var(--ff-success)' }} />
-                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                    Recent Financial Flow
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between pb-3 border-b border-[var(--ff-border-color)]">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Scale className="w-4 h-4 shrink-0" style={{ color: 'var(--ff-success)' }} />
+                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)] truncate">
+                    Recent Transactions
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setCurrentTab('transactions')}
-                  className="text-xs font-semibold hover:underline"
+                  className="text-xs font-semibold hover:underline shrink-0"
                   style={{ color: 'var(--ff-accent-text)' }}
                 >
                   View Ledger
@@ -1260,33 +1571,52 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
               </div>
 
               {!data?.recentTransactions || data.recentTransactions.length === 0 ? (
-                <EmptyStateIllustration
-                  icon={<Scale className="w-6 h-6" />}
-                  title="No recent transactions"
-                  description="Log an expense or income entry to see your live financial flow here."
-                />
+                <div className="ff-surface-subtle px-3.5 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    <Scale className="w-4 h-4 text-[var(--ff-text-muted)] shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-[var(--ff-text-primary)] leading-snug">
+                        No recent transactions
+                      </p>
+                      <p className="text-[11px] text-[var(--ff-text-muted)] whitespace-normal break-words leading-relaxed mt-0.5">
+                        Log an expense or income entry to see live cashflow.
+                      </p>
+                    </div>
+                  </div>
+                  <ThemeButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={onOpenQuickAction}
+                    className="text-xs px-2.5 py-1 shrink-0"
+                  >
+                    + Log Entry
+                  </ThemeButton>
+                </div>
               ) : (
-                <div className="divide-y divide-[var(--ff-border-color)] overflow-hidden">
-                  {data.recentTransactions.map((tx) => {
+                <div className="divide-y divide-[var(--ff-border-color)]">
+                  {data.recentTransactions.slice(0, 5).map((tx) => {
                     const isIncome = tx.type === 'income';
                     return (
                       <div
                         key={tx.id}
-                        className="py-3 flex items-center justify-between gap-3 text-xs last:border-b-0"
+                        className="py-2.5 flex items-start justify-between gap-3 text-xs last:border-b-0 min-w-0"
                       >
-                        <div className="min-w-0">
-                          <p className="font-semibold text-[var(--ff-text-primary)] truncate">
+                        <div className="min-w-0 flex-1">
+                          <p
+                            title={tx.name}
+                            className="font-semibold text-[var(--ff-text-primary)] whitespace-normal break-words leading-snug line-clamp-2"
+                          >
                             {tx.name}
                           </p>
-                          <div className="flex items-center gap-1.5 text-[var(--ff-text-muted)] text-[11px] mt-0.5">
-                            <span>{tx.category}</span>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[var(--ff-text-muted)] text-[11px] mt-0.5">
+                            <span className="break-words">{tx.category}</span>
                             <span aria-hidden="true">·</span>
-                            <span className="font-mono">{tx.date}</span>
+                            <span className="font-mono shrink-0">{tx.date}</span>
                           </div>
                         </div>
                         <div className="text-right shrink-0">
                           <span
-                            className="font-mono tabular-nums font-bold"
+                            className="font-mono tabular-nums font-bold whitespace-nowrap"
                             style={{
                               color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
                             }}
@@ -1306,15 +1636,64 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
             </div>
           </ThemeCard>
         );
+
+      /* ================================================================
+       * G. ACTIVITY & PROGRESS (Level/Achievements + Real Activity Feed)
+       * ================================================================ */
+      case 'gamification':
+        if (!isWide) {
+          return (
+            <GamificationCard
+              sessions={sessions}
+              tasks={tasks}
+              bills={bills}
+              savingsGoals={savingsGoals}
+              focusStreakDays={data?.focusStreakDays || 0}
+              bestStreakDays={data?.bestStreakDays}
+              dailyFocusGoalMinutes={settings?.dailyFocusGoalMinutes}
+              compact={true}
+            />
+          );
+        }
+        return (
+          <div className="space-y-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+              Activity &amp; Progress
+            </h2>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+              <div className="lg:col-span-7">
+                <GamificationCard
+                  sessions={sessions}
+                  tasks={tasks}
+                  bills={bills}
+                  savingsGoals={savingsGoals}
+                  focusStreakDays={data?.focusStreakDays || 0}
+                  bestStreakDays={data?.bestStreakDays}
+                  dailyFocusGoalMinutes={settings?.dailyFocusGoalMinutes}
+                />
+              </div>
+              <div className="lg:col-span-5">
+                <RecentActivityCard
+                  items={recentActivity}
+                  weeklyFocusMinutes={data?.weeklyFocusMinutes || 0}
+                  weeklyGoalMinutes={weeklyGoalMin}
+                  completedPomodorosCount={data?.completedPomodoroSessions || 0}
+                />
+              </div>
+            </div>
+          </div>
+        );
     }
   };
 
   if (loadError && !data) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[360px] p-8 text-center space-y-4 rounded-2xl border border-red-500/30 bg-red-500/10">
+      <div className="flex flex-col items-center justify-center min-h-[320px] p-8 text-center space-y-4 rounded-2xl border border-red-500/30 bg-red-500/10">
         <AlertTriangle className="w-10 h-10 text-red-400" />
         <div className="space-y-1">
-          <h3 className="text-base font-semibold text-[var(--ff-text-primary)]">Unable to Load Dashboard</h3>
+          <h3 className="text-base font-semibold text-[var(--ff-text-primary)]">
+            Unable to Load Dashboard
+          </h3>
           <p className="text-xs text-[var(--ff-text-muted)] max-w-sm">{loadError}</p>
         </div>
         <ThemeButton variant="primary" size="sm" onClick={loadDashboardData}>
@@ -1331,180 +1710,205 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       skeleton={<SkeletonDashboard />}
       contentKey="dashboard-ready"
     >
-    <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
-      {isStale && (
-        <div className="flex items-center justify-between p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>Cached metrics: Displaying previously saved records while network reconnects.</span>
-          </div>
-          <button
-            type="button"
-            onClick={loadDashboardData}
-            className="text-xs font-semibold underline hover:text-amber-200"
-          >
-            Refresh
-          </button>
-        </div>
-      )}
-
-      {/* Customize & Timeframe Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)]">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Timeframe Filter Pills */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] select-none">
-              Horizon:
-            </span>
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
-              {(['daily', 'weekly', 'monthly'] as const).map((tf) => {
-                const active = timeframe === tf;
-                return (
-                  <button
-                    key={tf}
-                    type="button"
-                    onClick={() => setTimeframe(tf)}
-                    className="relative px-3 py-1 text-xs font-semibold rounded-lg capitalize transition-colors"
-                    style={{
-                      color: active ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
-                    }}
-                  >
-                    {active && (
-                      <motion.div
-                        layoutId="dashboard-timeframe-pill"
-                        className="absolute inset-0 rounded-lg pointer-events-none"
-                        style={{ background: 'var(--ff-accent)' }}
-                        transition={profile.spring}
-                      />
-                    )}
-                    <span className="relative z-10">{tf}</span>
-                  </button>
-                );
-              })}
+      <div className="flex flex-col gap-5">
+        {isStale && (
+          <div className="flex items-center justify-between p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span className="truncate">
+                Cached metrics: Displaying previously saved records while network reconnects.
+              </span>
             </div>
+            <button
+              type="button"
+              onClick={loadDashboardData}
+              className="text-xs font-semibold underline hover:text-amber-200 shrink-0 ml-2"
+            >
+              Refresh
+            </button>
           </div>
+        )}
 
-          <div className="h-4 w-px bg-[var(--ff-border-color)] hidden sm:block" />
-
-          {/* Preset Layout Buttons */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] select-none">
-              Layout:
-            </span>
-            <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
-              {(Object.keys(LAYOUT_PRESETS) as DashboardLayoutPreset[]).map((presetKey) => {
-                const active = layoutConfig.preset === presetKey;
-                return (
-                  <button
-                    key={presetKey}
-                    type="button"
-                    onClick={() => persistLayout(LAYOUT_PRESETS[presetKey].config)}
-                    className={`relative px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                      active
-                        ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-xs font-bold'
-                        : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-                    }`}
-                  >
-                    {LAYOUT_PRESETS[presetKey].label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <ThemeButton
-          variant={customizeMode ? 'primary' : 'secondary'}
-          size="sm"
-          onClick={() => setCustomizeMode((v) => !v)}
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>{customizeMode ? 'Done Customizing' : 'Customize Widgets'}</span>
-        </ThemeButton>
-      </div>
-
-      {/* Customize Drawer */}
-      {customizeMode && (
-        <ThemeCard className="space-y-3 border-[var(--ff-accent-border)]">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
-                Drag, Resize &amp; Toggle Dashboard Widgets
-              </h3>
-              <p className="text-xs text-[var(--ff-text-muted)]">
-                Drag widgets directly below or toggle visibility &amp; card span here. Changes save automatically.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {layoutConfig.widgetOrder.map((id, index) => {
-              const hidden = layoutConfig.hiddenWidgets.includes(id);
-              const size = layoutConfig.widgetSizes[id] || 'standard';
-              return (
-                <div
-                  key={id}
-                  className="ff-surface-subtle p-2.5 flex flex-col gap-2"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-[var(--ff-text-primary)] truncate">
-                      {index + 1}. {WIDGET_LABELS[id]}
-                    </span>
+        {/* Customize, Horizon & Layout Presets Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)]">
+          <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+            {/* Timeframe Filter Pills */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] select-none hidden sm:inline">
+                Horizon
+              </span>
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
+                {(['daily', 'weekly', 'monthly'] as const).map((tf) => {
+                  const active = timeframe === tf;
+                  return (
                     <button
+                      key={tf}
                       type="button"
-                      onClick={() => toggleWidgetVisibility(id)}
-                      className="p-1 rounded hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-muted)]"
-                      title={hidden ? 'Show widget' : 'Hide widget'}
+                      onClick={() => setTimeframe(tf)}
+                      className="relative px-2.5 py-1 text-xs font-semibold rounded-lg capitalize transition-colors"
+                      style={{
+                        color: active ? 'var(--ff-accent-contrast)' : 'var(--ff-text-secondary)',
+                      }}
                     >
-                      {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />}
+                      {active && (
+                        <motion.div
+                          layoutId="dashboard-timeframe-pill"
+                          className="absolute inset-0 rounded-lg pointer-events-none"
+                          style={{ background: 'var(--ff-accent)' }}
+                          transition={profile.spring}
+                        />
+                      )}
+                      <span className="relative z-10">{tf}</span>
                     </button>
-                  </div>
-                  <div className="flex items-center justify-between gap-1">
-                    <div className="flex items-center gap-1">
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="h-4 w-px bg-[var(--ff-border-color)] hidden md:block" />
+
+            {/* Preset Layout Buttons */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)] select-none hidden sm:inline">
+                Layout
+              </span>
+              <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
+                {(Object.keys(DASHBOARD_LAYOUT_PRESETS) as DashboardLayoutPreset[]).map(
+                  (presetKey) => {
+                    const active = layoutConfig.preset === presetKey;
+                    return (
+                      <button
+                        key={presetKey}
+                        type="button"
+                        onClick={() => persistLayout(DASHBOARD_LAYOUT_PRESETS[presetKey].config)}
+                        title={DASHBOARD_LAYOUT_PRESETS[presetKey].description}
+                        className={`relative px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                          active
+                            ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] font-bold'
+                            : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+                        }`}
+                      >
+                        {DASHBOARD_LAYOUT_PRESETS[presetKey].label}
+                      </button>
+                    );
+                  }
+                )}
+              </div>
+            </div>
+          </div>
+
+          <ThemeButton
+            variant={customizeMode ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => setCustomizeMode((v) => !v)}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>{customizeMode ? 'Done Customizing' : 'Customize Widgets'}</span>
+          </ThemeButton>
+        </div>
+
+        {/* Customize Drawer */}
+        {customizeMode && (
+          <ThemeCard className="space-y-3 border-[var(--ff-accent-border)]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+                  Customize Dashboard Layout
+                </h3>
+                <p className="text-xs text-[var(--ff-text-muted)]">
+                  Drag cards below, reorder, toggle visibility, or adjust card width. Changes save automatically.
+                </p>
+              </div>
+              <ThemeButton
+                variant="ghost"
+                size="sm"
+                onClick={() => persistLayout(DASHBOARD_LAYOUT_PRESETS.executive.config)}
+              >
+                Reset Default
+              </ThemeButton>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {layoutConfig.widgetOrder.map((id, index) => {
+                const hidden = layoutConfig.hiddenWidgets.includes(id);
+                const size = layoutConfig.widgetSizes[id] || 'standard';
+                return (
+                  <div
+                    key={id}
+                    className="ff-surface-subtle p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <GripVertical className="w-3.5 h-3.5 text-[var(--ff-text-muted)] shrink-0" />
+                      <span
+                        className={`font-semibold truncate ${
+                          hidden
+                            ? 'line-through text-[var(--ff-text-muted)]'
+                            : 'text-[var(--ff-text-primary)]'
+                        }`}
+                      >
+                        {DASHBOARD_WIDGET_LABELS[id]}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <select
+                        value={size}
+                        onChange={(e) => setWidgetSize(id, e.target.value as DashboardWidgetSize)}
+                        className="ff-input px-1.5 py-1 text-[11px]"
+                        aria-label={`Width for ${DASHBOARD_WIDGET_LABELS[id]}`}
+                      >
+                        <option value="compact">Half</option>
+                        <option value="standard">Auto</option>
+                        <option value="wide">Full</option>
+                      </select>
                       <button
                         type="button"
                         onClick={() => moveWidget(id, 'up')}
-                        className="p-1 rounded border border-[var(--ff-border-color)] hover:bg-[var(--ff-surface-hover)]"
-                        aria-label={`Move ${WIDGET_LABELS[id]} up`}
+                        disabled={index === 0}
+                        className="p-1 rounded hover:bg-[var(--ff-surface-hover)] disabled:opacity-30"
+                        title="Move up"
+                        aria-label={`Move ${DASHBOARD_WIDGET_LABELS[id]} up`}
                       >
-                        <ArrowUp className="w-3 h-3" />
+                        <ArrowUp className="w-3.5 h-3.5" />
                       </button>
                       <button
                         type="button"
                         onClick={() => moveWidget(id, 'down')}
-                        className="p-1 rounded border border-[var(--ff-border-color)] hover:bg-[var(--ff-surface-hover)]"
-                        aria-label={`Move ${WIDGET_LABELS[id]} down`}
+                        disabled={index === layoutConfig.widgetOrder.length - 1}
+                        className="p-1 rounded hover:bg-[var(--ff-surface-hover)] disabled:opacity-30"
+                        title="Move down"
+                        aria-label={`Move ${DASHBOARD_WIDGET_LABELS[id]} down`}
                       >
-                        <ArrowDown className="w-3 h-3" />
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleWidgetVisibility(id)}
+                        className="p-1 rounded hover:bg-[var(--ff-surface-hover)]"
+                        title={hidden ? 'Show widget' : 'Hide widget'}
+                        aria-label={
+                          hidden
+                            ? `Show ${DASHBOARD_WIDGET_LABELS[id]}`
+                            : `Hide ${DASHBOARD_WIDGET_LABELS[id]}`
+                        }
+                      >
+                        {hidden ? (
+                          <EyeOff className="w-3.5 h-3.5 text-[var(--ff-text-muted)]" />
+                        ) : (
+                          <Eye className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                        )}
                       </button>
                     </div>
-                    <select
-                      value={size}
-                      onChange={(e) => setWidgetSize(id, e.target.value as DashboardWidgetSize)}
-                      className="ff-input px-2 py-1 text-[11px]"
-                      aria-label={`${WIDGET_LABELS[id]} size`}
-                    >
-                      <option value="compact">Half Width</option>
-                      <option value="standard">Standard</option>
-                      <option value="wide">Wide</option>
-                    </select>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </ThemeCard>
-      )}
+                );
+              })}
+            </div>
+          </ThemeCard>
+        )}
 
-      {/* Draggable Modular Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12" style={{ gap: 'var(--ff-grid-gap)' }}>
-        {layoutConfig.widgetOrder
-          .filter((id) => !layoutConfig.hiddenWidgets.includes(id))
-          .map((id) => (
-            <motion.div
+        {/* Balanced 12-Column Responsive Widget Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+          {visibleWidgets.map((id) => (
+            <div
               key={id}
-              layout={isDisabled ? false : 'position'}
-              transition={profile.listLayout}
               draggable={customizeMode}
               onDragStart={() => setDraggedWidget(id)}
               onDragOver={(e) => {
@@ -1516,20 +1920,17 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                 }
                 setDraggedWidget(null);
               }}
-              className={`${sizeClassFor(id)} ${customizeMode ? 'ring-1 ring-dashed ring-[var(--ff-accent-border)] rounded-2xl p-1 relative' : ''}`}
+              className={`${gridSpans[id] || 'lg:col-span-12'} min-w-0 ${
+                customizeMode
+                  ? 'ring-1 ring-dashed ring-[var(--ff-accent-border)] rounded-2xl p-1 cursor-grab'
+                  : ''
+              }`}
             >
-              {customizeMode && (
-                <div className="flex items-center justify-between px-2 py-1 text-[11px] font-bold text-[var(--ff-accent-text)] cursor-grab">
-                  <span className="inline-flex items-center gap-1">
-                    <GripVertical className="w-3.5 h-3.5" /> Drag: {WIDGET_LABELS[id]}
-                  </span>
-                </div>
-              )}
               {renderWidgetBody(id)}
-            </motion.div>
+            </div>
           ))}
+        </div>
       </div>
-    </div>
     </SkeletonCrossfade>
   );
 };

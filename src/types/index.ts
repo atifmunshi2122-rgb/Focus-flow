@@ -15,12 +15,13 @@ export type DashboardWidgetId =
   | 'hero'
   | 'clock_greeting'
   | 'focus_kpis'
-  | 'finance_kpis'
+  | 'todays_priorities'
   | 'study_pulse'
   | 'productivity_goals'
-  | 'gamification'
+  | 'finance_kpis'
   | 'upcoming_bills'
-  | 'recent_transactions';
+  | 'recent_transactions'
+  | 'gamification';
 
 export type DashboardWidgetSize = 'compact' | 'standard' | 'wide';
 export type DashboardLayoutPreset = 'executive' | 'focus_first' | 'finance_pulse' | 'minimal';
