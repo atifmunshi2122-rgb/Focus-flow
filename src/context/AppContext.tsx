@@ -82,7 +82,8 @@ export type NavTab =
   | 'analytics'
   | 'exports'
   | 'recovery'
-  | 'settings';
+  | 'settings'
+  | 'sheet_hub';
 
 export const VALID_NAV_TABS: readonly NavTab[] = [
   'dashboard',
@@ -103,6 +104,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'exports',
   'recovery',
   'settings',
+  'sheet_hub',
 ] as const;
 
 function readInitialTabFromHash(): NavTab {
@@ -2793,6 +2795,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       exports: 'Export Center',
       recovery: 'Data Recovery Center',
       settings: 'Settings & Preferences',
+      sheet_hub: 'Universal Sheet Sync Hub',
     };
     const routeTitle = tabTitles[currentTab] || 'Executive OS';
 

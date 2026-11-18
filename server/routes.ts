@@ -54,6 +54,11 @@ import {
   historicalResync,
   flushQueueOperations,
 } from './sheetsWorker.js';
+import {
+  inspectSpreadsheet,
+  pullSpreadsheetTabs,
+  SheetHubWorkerError,
+} from './universalSheetsWorker.ts';
 import type { SheetsSnapshotPayload } from '../src/lib/sheetsSpec.js';
 
 export const apiRouter = Router();
@@ -3422,6 +3427,166 @@ apiRouter.post('/sheets/flush-queue', async (req: Request, res: Response) => {
     res.json(summary);
   } catch (err) {
     sendSheetsError(res, err, 'Queue flush failed.');
+  }
+});
+
+// ----------------------------------------------------
+// UNIVERSAL SHEET SYNC HUB — PHASE 1 READ-ONLY ENDPOINTS
+// ----------------------------------------------------
+function sendSheetHubError(res: Response, err: unknown, fallbackMessage: string): void {
+  if (err instanceof SheetHubWorkerError) {
+    res.status(err.status).json({ error: err.message, code: err.code });
+    return;
+  }
+  sendSheetsError(res, err, fallbackMessage);
+}
+
+apiRouter.post('/sheet-hub/inspect', async (req: Request, res: Response) => {
+  const authCtx = getAuth(req);
+  if (!authCtx || authCtx.isGuest) {
+    res.status(401).json({
+      error: 'Signed-in FocusFlow authentication is required for Universal Sheet Sync Hub.',
+      code: 'AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({
+      error: 'Google authorization token header is required.',
+      code: 'SHEETS_AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const spreadsheetId =
+    typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : undefined;
+  const spreadsheetUrl =
+    typeof req.body?.spreadsheetUrl === 'string' ? req.body.spreadsheetUrl.trim() : undefined;
+  const previewRows =
+    typeof req.body?.previewRows === 'number' && Number.isFinite(req.body.previewRows)
+      ? req.body.previewRows
+      : undefined;
+
+  if (!spreadsheetId && !spreadsheetUrl) {
+    res.status(400).json({
+      error: 'spreadsheetId or spreadsheetUrl is required.',
+      code: 'INVALID_SPREADSHEET_ID',
+    });
+    return;
+  }
+
+  try {
+    const inspected = await inspectSpreadsheet(
+      { spreadsheetId, spreadsheetUrl, previewRows },
+      accessToken
+    );
+    res.json(inspected);
+  } catch (err) {
+    sendSheetHubError(res, err, 'Spreadsheet inspection failed.');
+  }
+});
+
+apiRouter.post('/sheet-hub/pull', async (req: Request, res: Response) => {
+  const authCtx = getAuth(req);
+  if (!authCtx || authCtx.isGuest) {
+    res.status(401).json({
+      error: 'Signed-in FocusFlow authentication is required for Universal Sheet Sync Hub.',
+      code: 'AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({
+      error: 'Google authorization token header is required.',
+      code: 'SHEETS_AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const spreadsheetId =
+    typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
+  const tabs = Array.isArray(req.body?.tabs) ? req.body.tabs : [];
+
+  if (!spreadsheetId) {
+    res.status(400).json({
+      error: 'spreadsheetId is required.',
+      code: 'INVALID_SPREADSHEET_ID',
+    });
+    return;
+  }
+  if (tabs.length === 0) {
+    res.status(400).json({
+      error: 'At least one tab selection is required.',
+      code: 'INVALID_PULL_REQUEST',
+    });
+    return;
+  }
+
+  try {
+    const pulled = await pullSpreadsheetTabs({ spreadsheetId, tabs }, accessToken);
+    res.json(pulled);
+  } catch (err) {
+    sendSheetHubError(res, err, 'Spreadsheet pull failed.');
+  }
+});
+
+apiRouter.get('/sheet-hub/sample-semester3', async (_req: Request, res: Response) => {
+  try {
+    const { parseLocalXlsxFixture } = await import('./localXlsxParser.js');
+    const { detectWorkbookSchema } = await import('../src/lib/sheetHub/schemaDetector.js');
+    const fixturePath = '/Users/munshimdatif/Downloads/Semester 3 - Syllabus & Topic Tracker.xlsx';
+    const parsedTabs = parseLocalXlsxFixture(fixturePath);
+    const inspectedWorkbook = detectWorkbookSchema(parsedTabs);
+    const inspectedTabs = inspectedWorkbook.tabs;
+
+    const pullTabs = parsedTabs.map((pt) => {
+      const detected = inspectedTabs.find((it) => it.sheetId === pt.sheetId);
+      const headerRowIndex = detected?.headerRowIndex || 1;
+      const headers = (detected?.columns || []).map((c) => c.headerName);
+      const rows = (pt.rows || []).slice(headerRowIndex).map((cellArr, rIdx) => {
+        const values: any[] = [];
+        const formulaColumns: number[] = [];
+        for (let c = 0; c < cellArr.length; c++) {
+          values.push(cellArr[c]?.value ?? null);
+          if (cellArr[c]?.formula) formulaColumns.push(c);
+        }
+        return {
+          sheetRowNumber: (detected?.dataStartRow || 2) + rIdx,
+          values,
+          formulaColumns,
+        };
+      });
+      return {
+        sheetTitle: pt.sheetTitle,
+        sheetId: pt.sheetId,
+        range: `'${pt.sheetTitle}'!A1:Z1000`,
+        headers,
+        headerRowIndex,
+        rows,
+        totalRows: rows.length,
+      };
+    });
+
+    res.json({
+      inspect: {
+        spreadsheetId: 'sem3-syllabus-sample',
+        spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/sem3-syllabus-sample/edit',
+        title: 'Semester 3 - Syllabus & Topic Tracker',
+        tabs: inspectedTabs,
+      },
+      pull: {
+        spreadsheetId: 'sem3-syllabus-sample',
+        title: 'Semester 3 - Syllabus & Topic Tracker',
+        tabs: pullTabs,
+        pulledAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err), code: 'FIXTURE_LOAD_ERROR' });
   }
 });
 

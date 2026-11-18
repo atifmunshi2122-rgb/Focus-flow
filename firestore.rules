@@ -870,6 +870,255 @@ service cloud.firestore {
           && isNonEmptyString(request.resource.data.name, 128);
         allow delete: if isOwner(userId);
       }
+
+      // ==========================================
+      // UNIVERSAL SHEET SYNC HUB (PHASE 1)
+      // ==========================================
+      // Assumed Data Models (User-Owned, Strictly Isolated):
+      //   1. sheet_connections/{connectionId} - Connected Google Spreadsheet metadata (NO OAuth tokens)
+      //   2. sheet_tabs/{tabId}               - Detected/confirmed tab schema & column mappings
+      //   3. sheet_row_chunks/{chunkId}       - Byte-safe packed row chunks (<= 200 rows, <= 850 KB)
+      //   4. sheet_sync_queue/{opId}          - Outbound cell mutation queue & retry state
+      //   5. sheet_conflicts/{conflictId}     - 3-way merge conflict records & resolutions
+
+      function isBoundedIsoDate(val) {
+        return isIsoDate(val) && val.size() <= 64;
+      }
+
+      function isOptionalBoundedIsoDate(val) {
+        return val == null || isBoundedIsoDate(val);
+      }
+
+      function isValidSheetScalar(val) {
+        return val == null
+          || val is bool
+          || val is int
+          || val is float
+          || (val is string && val.size() <= 50000);
+      }
+
+      // 1. Sheet connections subcollection (Universal Sheet Sync Hub)
+      match /sheet_connections/{connectionId} {
+        function isValidSheetConnection(data, docId, uid) {
+          return data.keys().hasOnly([
+              'id', 'userId', 'spreadsheetId', 'spreadsheetUrl', 'title',
+              'templateHint', 'syncMode', 'pollIntervalSec', 'syncOnOpen',
+              'status', 'lastSyncedAt', 'lastSuccessfulPullAt', 'lastSuccessfulPushAt',
+              'lastError', 'pendingChangesCount', 'conflictCount', 'tabOrder',
+              'createdAt', 'updatedAt', 'deletedAt'
+            ])
+            && !('accessToken' in data)
+            && !('refreshToken' in data)
+            && data.id == docId
+            && data.userId == uid
+            && isNonEmptyString(data.spreadsheetId, 128)
+            && isNonEmptyString(data.spreadsheetUrl, 1024)
+            && (data.spreadsheetUrl.matches('^https://.*') || data.spreadsheetUrl.matches('^http://.*'))
+            && isNonEmptyString(data.title, 256)
+            && (
+              data.get('templateHint', null) == null ||
+              data.templateHint in ['checklist', 'tracker', 'table', 'custom']
+            )
+            && data.syncMode in ['two_way', 'sheet_to_app', 'manual_only']
+            && (
+              data.get('pollIntervalSec', null) == null ||
+              isBoundedInt(data.pollIntervalSec, 0, 86400)
+            )
+            && data.syncOnOpen is bool
+            && data.status in ['active', 'paused', 'auth_required', 'error']
+            && isOptionalBoundedIsoDate(data.get('lastSyncedAt', null))
+            && isOptionalBoundedIsoDate(data.get('lastSuccessfulPullAt', null))
+            && isOptionalBoundedIsoDate(data.get('lastSuccessfulPushAt', null))
+            && isOptionalString(data.get('lastError', null), 2048)
+            && isBoundedInt(data.pendingChangesCount, 0, 100000)
+            && isBoundedInt(data.conflictCount, 0, 100000)
+            && data.tabOrder is list
+            && data.tabOrder.size() <= 100
+            && isBoundedIsoDate(data.createdAt)
+            && isBoundedIsoDate(data.updatedAt)
+            && isOptionalBoundedIsoDate(data.get('deletedAt', null));
+        }
+
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(connectionId)
+          && isValidSheetConnection(request.resource.data, connectionId, userId);
+        allow update: if isOwner(userId)
+          && isValidSheetConnection(request.resource.data, connectionId, userId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.spreadsheetId == resource.data.spreadsheetId
+          && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      // 2. Sheet tabs subcollection (Universal Sheet Sync Hub)
+      match /sheet_tabs/{tabId} {
+        function isValidSheetTab(data, docId, uid) {
+          return data.keys().hasOnly([
+              'id', 'connectionId', 'userId', 'sheetId', 'sheetTitle', 'role',
+              'headerRowIndex', 'dataStartRow', 'dataEndColumn', 'identityStrategy',
+              'identityColumns', 'metadataIdColumn', 'columns', 'defaultView',
+              'groupByColumnId', 'lastPullHash', 'rowCount', 'chunkCount', 'updatedAt'
+            ])
+            && data.id == docId
+            && data.userId == uid
+            && isValidId(data.connectionId)
+            && isBoundedInt(data.sheetId, 0, 2147483647)
+            && isNonEmptyString(data.sheetTitle, 256)
+            && data.role in ['data', 'overview', 'ignored']
+            && isBoundedInt(data.headerRowIndex, 0, 100)
+            && isBoundedInt(data.dataStartRow, 1, 1000)
+            && isOptionalString(data.get('dataEndColumn', null), 16)
+            && data.identityStrategy in ['column_key', 'composite_key', 'metadata_column']
+            && data.identityColumns is list
+            && data.identityColumns.size() <= 10
+            && isOptionalString(data.get('metadataIdColumn', null), 64)
+            && data.columns is list
+            && data.columns.size() <= 100
+            && data.defaultView in ['checklist', 'table', 'grouped_list']
+            && isOptionalString(data.get('groupByColumnId', null), 128)
+            && isOptionalString(data.get('lastPullHash', null), 128)
+            && isBoundedInt(data.rowCount, 0, 100000)
+            && (
+              data.get('chunkCount', null) == null ||
+              isBoundedInt(data.chunkCount, 0, 10000)
+            )
+            && isBoundedIsoDate(data.updatedAt);
+        }
+
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(tabId)
+          && isValidSheetTab(request.resource.data, tabId, userId);
+        allow update: if isOwner(userId)
+          && isValidSheetTab(request.resource.data, tabId, userId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.connectionId == resource.data.connectionId
+          && request.resource.data.sheetId == resource.data.sheetId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 3. Sheet row chunks subcollection (Universal Sheet Sync Hub)
+      match /sheet_row_chunks/{chunkId} {
+        function isValidSheetRowChunk(data, docId, uid) {
+          return data.keys().hasOnly([
+              'id', 'connectionId', 'tabId', 'userId', 'chunkIndex',
+              'rowCount', 'byteSize', 'rows', 'updatedAt'
+            ])
+            && data.id == docId
+            && data.userId == uid
+            && isValidId(data.connectionId)
+            && isValidId(data.tabId)
+            && isBoundedInt(data.chunkIndex, 0, 10000)
+            && isBoundedInt(data.rowCount, 0, 200)
+            && isBoundedInt(data.byteSize, 0, 850000)
+            && data.rows is map
+            && data.rows.size() <= 200
+            && isBoundedIsoDate(data.updatedAt);
+        }
+
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(chunkId)
+          && isValidSheetRowChunk(request.resource.data, chunkId, userId);
+        allow update: if isOwner(userId)
+          && isValidSheetRowChunk(request.resource.data, chunkId, userId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.connectionId == resource.data.connectionId
+          && request.resource.data.tabId == resource.data.tabId
+          && request.resource.data.chunkIndex == resource.data.chunkIndex;
+        allow delete: if isOwner(userId);
+      }
+
+      // 4. Sheet sync queue subcollection (Universal Sheet Sync Hub)
+      match /sheet_sync_queue/{opId} {
+        function isValidSheetSyncOp(data, docId, uid) {
+          return data.keys().hasOnly([
+              'id', 'connectionId', 'tabId', 'userId', 'rowUid', 'colLetter',
+              'fieldKey', 'baseValue', 'nextValue', 'dedupeKey', 'status',
+              'attempts', 'nextRetryAt', 'errorMessage', 'createdAt', 'lastAttemptAt'
+            ])
+            && data.id == docId
+            && data.userId == uid
+            && isValidId(data.connectionId)
+            && isValidId(data.tabId)
+            && isNonEmptyString(data.rowUid, 128)
+            && isOptionalString(data.get('colLetter', null), 16)
+            && isOptionalString(data.get('fieldKey', null), 128)
+            && isValidSheetScalar(data.get('baseValue', null))
+            && isValidSheetScalar(data.get('nextValue', null))
+            && isNonEmptyString(data.dedupeKey, 256)
+            && data.status in ['pending', 'syncing', 'completed', 'failed', 'conflict']
+            && isBoundedInt(data.attempts, 0, 20)
+            && (
+              data.get('nextRetryAt', null) == null ||
+              isBoundedInt(data.nextRetryAt, 0, 4102444800000)
+            )
+            && isOptionalString(data.get('errorMessage', null), 2048)
+            && isBoundedIsoDate(data.createdAt)
+            && isOptionalBoundedIsoDate(data.get('lastAttemptAt', null));
+        }
+
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(opId)
+          && isValidSheetSyncOp(request.resource.data, opId, userId);
+        allow update: if isOwner(userId)
+          && isValidSheetSyncOp(request.resource.data, opId, userId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.connectionId == resource.data.connectionId
+          && request.resource.data.tabId == resource.data.tabId
+          && request.resource.data.rowUid == resource.data.rowUid
+          && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      // 5. Sheet conflicts subcollection (Universal Sheet Sync Hub)
+      match /sheet_conflicts/{conflictId} {
+        function isValidSheetConflict(data, docId, uid) {
+          return data.keys().hasOnly([
+              'id', 'connectionId', 'tabId', 'userId', 'rowUid', 'fieldKey',
+              'fieldLabel', 'baseValue', 'localValue', 'remoteValue', 'status',
+              'resolution', 'detectedAt', 'resolvedAt'
+            ])
+            && data.id == docId
+            && data.userId == uid
+            && isValidId(data.connectionId)
+            && isValidId(data.tabId)
+            && isNonEmptyString(data.rowUid, 128)
+            && isNonEmptyString(data.fieldKey, 128)
+            && isOptionalString(data.get('fieldLabel', null), 256)
+            && isValidSheetScalar(data.get('baseValue', null))
+            && isValidSheetScalar(data.get('localValue', null))
+            && isValidSheetScalar(data.get('remoteValue', null))
+            && data.status in ['open', 'resolved']
+            && (
+              data.get('resolution', null) == null ||
+              data.resolution in ['keep_app', 'keep_sheet', 'custom']
+            )
+            && isBoundedIsoDate(data.detectedAt)
+            && isOptionalBoundedIsoDate(data.get('resolvedAt', null));
+        }
+
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(conflictId)
+          && isValidSheetConflict(request.resource.data, conflictId, userId);
+        allow update: if isOwner(userId)
+          && isValidSheetConflict(request.resource.data, conflictId, userId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.connectionId == resource.data.connectionId
+          && request.resource.data.tabId == resource.data.tabId
+          && request.resource.data.rowUid == resource.data.rowUid
+          && request.resource.data.fieldKey == resource.data.fieldKey
+          && request.resource.data.detectedAt == resource.data.detectedAt;
+        allow delete: if isOwner(userId);
+      }
     }
 
     // ==========================================

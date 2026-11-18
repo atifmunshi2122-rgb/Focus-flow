@@ -1,0 +1,301 @@
+/**
+ * Universal Sheet Sync Hub — Phase 1 Foundation TypeScript Models
+ * Independent, reusable models for dynamically connecting and syncing arbitrary Google Spreadsheets.
+ * Strictly isolated from Study OS, Finance, Calendar, Tasks, and the legacy 23-tab sheetsSpec.
+ */
+
+export type SheetFieldType =
+  | 'text'
+  | 'long_text'
+  | 'boolean'
+  | 'checkbox'
+  | 'number'
+  | 'currency'
+  | 'date'
+  | 'url'
+  | 'status'
+  | 'priority'
+  | 'formula';
+
+export type SheetSemanticRole =
+  | 'id'
+  | 'group'
+  | 'subgroup'
+  | 'title'
+  | 'done'
+  | 'notes'
+  | 'status'
+  | 'priority'
+  | 'due_date'
+  | 'link'
+  | 'metric'
+  | 'custom';
+
+export type SheetSyncStatus =
+  | 'active'
+  | 'paused'
+  | 'auth_required'
+  | 'error';
+
+export type SheetIdentityStrategy =
+  | 'column_key'
+  | 'composite_key'
+  | 'metadata_column';
+
+export type SheetTabRole = 'data' | 'overview' | 'ignored';
+export type SheetConfidence = 'high' | 'medium' | 'low';
+export type SheetDefaultView = 'checklist' | 'table' | 'grouped_list';
+export type SheetSyncMode = 'two_way' | 'sheet_to_app' | 'manual_only';
+export type SheetTemplateHint = 'checklist' | 'tracker' | 'table' | 'custom';
+export type SheetRowSyncState = 'synced' | 'pending_push' | 'conflict' | 'missing_in_sheet';
+export type SheetSyncOrigin = 'sheet' | 'app';
+
+export type SheetCellScalar = string | number | boolean | null;
+
+export interface SheetConnection {
+  id: string;
+  userId: string;
+  spreadsheetId: string;
+  spreadsheetUrl: string;
+  title: string;
+  templateHint: SheetTemplateHint;
+  syncMode: SheetSyncMode;
+  pollIntervalSec: number | null;
+  syncOnOpen: boolean;
+  status: SheetSyncStatus;
+  lastSyncedAt: string | null;
+  lastSuccessfulPullAt: string | null;
+  lastSuccessfulPushAt: string | null;
+  lastError: string | null;
+  pendingChangesCount: number;
+  conflictCount: number;
+  tabOrder: string[];
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface SheetColumnMapping {
+  colIndex: number;
+  colLetter: string;
+  fieldKey: string;
+  headerName: string;
+  displayName: string;
+  inferredType: SheetFieldType;
+  confirmedType: SheetFieldType;
+  semanticRole: SheetSemanticRole;
+  confidence: SheetConfidence;
+  editable: boolean;
+  readOnlyReason?: string | null;
+  requiresConfirmation: boolean;
+  enumOptions?: string[];
+}
+
+export interface SheetTabSchema {
+  id: string;
+  connectionId: string;
+  userId: string;
+  sheetId: number;
+  sheetTitle: string;
+  role: SheetTabRole;
+  headerRowIndex: number; // 1-based; 0 if empty tab
+  dataStartRow: number;   // 1-based first data row
+  dataEndColumn: string;  // e.g. "E"
+  identityStrategy: SheetIdentityStrategy;
+  identityColumns: string[];
+  metadataIdColumn: string | null;
+  columns: SheetColumnMapping[];
+  defaultView: SheetDefaultView;
+  groupByColumnId: string | null;
+  lastPullHash: string;
+  rowCount: number;
+  chunkCount: number;
+  updatedAt: string;
+}
+
+export interface SheetSyncedRow {
+  rowUid: string;
+  lastKnownSheetRow: number; // 1-based physical row cache (NEVER used as permanent ID)
+  values: Record<string, SheetCellScalar>;
+  baseValues: Record<string, SheetCellScalar>;
+  rowHash: string;
+  version: number;
+  lastSyncOrigin: SheetSyncOrigin;
+  dirtyFields: string[];
+  localUpdatedAt: string | null;
+  sheetSyncedAt: string;
+  status: SheetRowSyncState;
+}
+
+export interface SheetRowChunk {
+  id: string;
+  connectionId: string;
+  tabId: string;
+  userId: string;
+  chunkIndex: number;
+  rowCount: number;
+  byteSize: number;
+  rows: Record<string, SheetSyncedRow>;
+  updatedAt: string;
+}
+
+export interface SheetSyncOperation {
+  id: string;
+  connectionId: string;
+  tabId: string;
+  userId: string;
+  rowUid: string;
+  colLetter: string;
+  fieldKey: string;
+  baseValue: SheetCellScalar;
+  nextValue: SheetCellScalar;
+  dedupeKey: string;
+  status: 'pending' | 'syncing' | 'completed' | 'failed' | 'conflict';
+  attempts: number;
+  nextRetryAt: number | null;
+  errorMessage: string | null;
+  createdAt: string;
+  lastAttemptAt: string | null;
+}
+
+export interface SheetConflict {
+  id: string;
+  connectionId: string;
+  tabId: string;
+  userId: string;
+  rowUid: string;
+  fieldKey: string;
+  fieldLabel: string;
+  baseValue: SheetCellScalar;
+  localValue: SheetCellScalar;
+  remoteValue: SheetCellScalar;
+  status: 'open' | 'resolved';
+  resolution: 'keep_app' | 'keep_sheet' | 'custom' | null;
+  detectedAt: string;
+  resolvedAt: string | null;
+}
+
+// ============================================================================
+// INSPECTION, DETECTION & PULL DTOs (PHASE 1 READ-ONLY PIPELINE)
+// ============================================================================
+
+export interface SheetInspectCellMeta {
+  value: SheetCellScalar;
+  formattedValue?: string | null;
+  formula?: string | null;
+  numberFormatType?: string | null; // e.g. 'DATE' | 'DATE_TIME' | 'CURRENCY' | 'NUMBER' | 'PERCENT'
+  dataValidationType?: string | null; // e.g. 'BOOLEAN' | 'ONE_OF_LIST'
+  dataValidationValues?: string[];
+  isBooleanCell?: boolean;
+}
+
+export interface SheetTabInspectionInput {
+  sheetId: number;
+  sheetTitle: string;
+  rowCount?: number;
+  columnCount?: number;
+  rows: SheetInspectCellMeta[][]; // Preview or full grid rows starting from row 1
+}
+
+export interface DetectedTabSchema {
+  sheetId: number;
+  sheetTitle: string;
+  role: SheetTabRole;
+  roleConfidence: SheetConfidence;
+  roleReason: string;
+  headerRowIndex: number;
+  dataStartRow: number;
+  dataEndColumn: string;
+  columns: SheetColumnMapping[];
+  suggestedIdentityStrategy: SheetIdentityStrategy;
+  suggestedIdentityColumns: string[];
+  suggestedDefaultView: SheetDefaultView;
+  suggestedGroupByFieldKey: string | null;
+  requiresMappingConfirmation: boolean;
+  sampleRowCount: number;
+  formulaCellCount: number;
+  sampleRows: Array<Record<string, SheetCellScalar>>;
+}
+
+export interface DetectedWorkbookSchema {
+  tabs: DetectedTabSchema[];
+  dataTabCount: number;
+  overviewTabCount: number;
+  emptyTabCount: number;
+  requiresUserConfirmation: boolean;
+}
+
+export interface SheetInspectResponse {
+  spreadsheetId: string;
+  title: string;
+  canonicalUrl: string;
+  tabs: DetectedTabSchema[];
+  summary: {
+    totalTabs: number;
+    dataTabs: number;
+    overviewTabs: number;
+    emptyTabs: number;
+    requiresUserConfirmation: boolean;
+  };
+  inspectedAt: string;
+}
+
+export interface SheetPullTabRequest {
+  sheetTitle: string;
+  sheetId?: number;
+  range?: string; // Optional A1 sub-range; defaults to full tab
+  headerRowIndex?: number;
+}
+
+export interface SheetPullTabResult {
+  sheetTitle: string;
+  sheetId: number | null;
+  range: string;
+  headers: string[];
+  headerRowIndex: number;
+  rows: Array<{
+    sheetRowNumber: number; // 1-based physical row index from pull
+    values: SheetCellScalar[];
+    formulaColumns: number[]; // 0-based column indices containing formulas
+  }>;
+  formulaColumnIndices: number[];
+  totalRows: number;
+}
+
+export interface SheetPullResponse {
+  spreadsheetId: string;
+  title: string;
+  tabs: SheetPullTabResult[];
+  pulledAt: string;
+}
+
+export interface SheetIdentityDuplicateEntry {
+  keySignature: string;
+  rowNumbers: number[];
+}
+
+export interface SheetIdentityAuditResult {
+  strategy: SheetIdentityStrategy;
+  keyColumns: string[];
+  totalRows: number;
+  uniqueCount: number;
+  isUnique: boolean;
+  missingKeyRowNumbers: number[];
+  duplicates: SheetIdentityDuplicateEntry[];
+  resolvedRows: Array<{
+    sheetRowNumber: number;
+    rowUid: string;
+    keySignature: string;
+    isDuplicate: boolean;
+    hasMissingKey: boolean;
+    values: Record<string, SheetCellScalar>;
+  }>;
+}
+
+export interface SheetChunkPackResult {
+  chunks: SheetRowChunk[];
+  totalRows: number;
+  maxChunkBytes: number;
+  oversizedRowUids: string[];
+}
+

@@ -42,6 +42,7 @@ const ProductivityCalendar = lazy(() => import('./components/calendar/Productivi
 const DailyTimeBlockPlanner = lazy(() => import('./components/focus/DailyTimeBlockPlanner.tsx').then((m) => ({ default: m.DailyTimeBlockPlanner })));
 const SettingsView = lazy(() => import('./components/settings/SettingsView.tsx').then((m) => ({ default: m.SettingsView })));
 const DataRecoveryCenter = lazy(() => import('./components/settings/DataRecoveryCenter.tsx').then((m) => ({ default: m.DataRecoveryCenter })));
+const SheetHubView = lazy(() => import('./components/sheets-hub/SheetHubView.tsx').then((m) => ({ default: m.SheetHubView })));
 import {
   Check,
   Eye,
@@ -418,6 +419,8 @@ const MainContent: React.FC = () => {
                   {currentTab === 'recovery' && <DataRecoveryCenter />}
 
                   {currentTab === 'settings' && <SettingsView />}
+
+                  {currentTab === 'sheet_hub' && <SheetHubView />}
                 </MotionPage>
               </AnimatePresence>
             </Suspense>

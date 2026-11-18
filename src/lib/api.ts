@@ -57,6 +57,11 @@ import { offlineOutbox } from './offlineOutbox.ts';
 import { clientDataCache } from './dataCache.ts';
 import { handleGuestLocalFallback } from './guestLocalStore.ts';
 import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
+import type {
+  SheetInspectResponse,
+  SheetPullResponse,
+  SheetPullTabRequest,
+} from '../types/sheetHub.ts';
 
 const BASE_URL = import.meta.env?.VITE_API_URL || '/api';
 const GUEST_SESSION_KEY = 'ff_guest_session_id';
@@ -1789,6 +1794,32 @@ export const api = {
       method: 'POST',
       headers: { 'x-google-access-token': googleAccessToken },
       body: JSON.stringify({ spreadsheetId, operations }),
+    }),
+
+  // Universal Sheet Sync Hub Endpoints
+  sheetHubInspect: (
+    payload: { spreadsheetId?: string; spreadsheetUrl?: string; previewRows?: number },
+    googleAccessToken?: string | null
+  ) =>
+    request<SheetInspectResponse>('/sheet-hub/inspect', {
+      method: 'POST',
+      headers: googleAccessToken ? { 'x-google-access-token': googleAccessToken } : {},
+      body: JSON.stringify(payload),
+    }),
+
+  sheetHubPull: (
+    payload: { spreadsheetId: string; tabs: SheetPullTabRequest[] },
+    googleAccessToken?: string | null
+  ) =>
+    request<SheetPullResponse>('/sheet-hub/pull', {
+      method: 'POST',
+      headers: googleAccessToken ? { 'x-google-access-token': googleAccessToken } : {},
+      body: JSON.stringify(payload),
+    }),
+
+  sheetHubSampleSemester3: () =>
+    request<{ inspect: SheetInspectResponse; pull: SheetPullResponse }>('/sheet-hub/sample-semester3', {
+      method: 'GET',
     }),
 
   // Backups & Data Recovery

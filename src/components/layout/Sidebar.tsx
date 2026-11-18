@@ -32,6 +32,7 @@ import {
   Star,
   GraduationCap,
   Download,
+  FileSpreadsheet,
   X,
 } from 'lucide-react';
 
@@ -111,6 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'exports', label: 'Export Center', icon: Download, section: 'System & Intelligence' },
     { id: 'recovery', label: 'Data Recovery', icon: ShieldAlert, section: 'System & Intelligence' },
     { id: 'settings', label: 'Settings', icon: Settings, section: 'System & Intelligence' },
+    { id: 'sheet_hub', label: 'Sheet Sync Hub', icon: FileSpreadsheet, section: 'Data & Integrations', tag: 'New' },
   ];
 
   const handleNavClick = (tab: NavTab) => {

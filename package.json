@@ -13,7 +13,7 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --import ./test/test_bootstrap.ts --test test/**/*.test.ts",
-    "test:rules": "firebase emulators:exec --only firestore \"node --import tsx --test test/firestore_emulator_rules.test.ts\"",
+    "test:rules": "firebase emulators:exec --only firestore \"node --import tsx --test test/firestore_emulator_rules.test.ts test/joint_vault_keyless_emulator.test.ts test/sheet_hub_rules_emulator.test.ts\"",
     "validate": "npm run typecheck && npm test",
     "build:prod": "npm run clean && tsc --noEmit && vite build"
   },
