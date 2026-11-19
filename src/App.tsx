@@ -23,6 +23,7 @@ import { ThemeButton } from './components/ui/ThemePrimitives.tsx';
 import { MotionPage } from './components/ui/MotionPrimitives.tsx';
 import { MOTION_EASING, MOTION_DURATION, getIntensityFactor, getThemeMotionProfile } from './theme/motionTokens.ts';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
+import { Analytics } from '@vercel/analytics/react';
 
 // Lazy-loaded tab components (loaded on-demand to optimize initial bundle size)
 const RealClock = lazy(() => import('./components/focus/RealClock.tsx').then((m) => ({ default: m.RealClock })));
@@ -783,6 +784,9 @@ const MainContent: React.FC = () => {
 
       {/* Notification Toast Container */}
       <ToastContainer />
+
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
     </MotionConfig>
   );
