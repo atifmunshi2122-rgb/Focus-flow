@@ -31,6 +31,7 @@ import type {
   SheetSyncedRow,
   SheetTabSchema,
   SheetCellScalar,
+  SheetSyncMode,
 } from '../../types/sheetHub.ts';
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeModal, ThemeInput } from '../ui/ThemePrimitives.tsx';
 import { AnimatedNumber } from '../ui/MotionPrimitives.tsx';
@@ -233,10 +234,36 @@ export const SheetHubView: React.FC = () => {
     [firebaseUser, authorizeSheetHubWrite, showToast]
   );
 
-  // Toggle sync mode between Instant Two-Way Sync (confirm & push on click) and Batch Push (local first)
+  // Toggle sync mode between Read-Only (sheet_to_app), Batch Push (manual_only), and Two-Way Sync (two_way)
   const handleToggleSyncMode = useCallback(async () => {
     if (!activeConnection || activeConnection.spreadsheetId === 'sem3-syllabus-sample') return;
-    const nextMode = activeConnection.syncMode === 'manual_only' ? 'two_way' : 'manual_only';
+
+    let nextMode: SheetSyncMode;
+    if (activeConnection.syncMode === 'sheet_to_app') {
+      // Transition from Read-Only to Batch Push (local-first edits)
+      nextMode = 'manual_only';
+    } else if (activeConnection.syncMode === 'manual_only') {
+      // Transition from Batch Push to Two-Way Sync: verify Google write authorization first
+      const hasWriteAuth = await getSheetHubWriteAccessToken();
+      if (!hasWriteAuth) {
+        showToast('Google write authorization required for Two-Way Sync. Requesting permission...', 'info');
+        try {
+          const authRes = await authorizeSheetHubWrite();
+          if (!authRes) {
+            showToast('Write authorization was not granted. Remaining in Batch Push mode.', 'info');
+            return;
+          }
+        } catch {
+          showToast('Could not obtain Google Sheets write access. Remaining in Batch Push mode.', 'error');
+          return;
+        }
+      }
+      nextMode = 'two_way';
+    } else {
+      // Transition from Two-Way Sync back to Read-Only
+      nextMode = 'sheet_to_app';
+    }
+
     const updatedConn: SheetConnection = {
       ...activeConnection,
       syncMode: nextMode,
@@ -247,10 +274,12 @@ export const SheetHubView: React.FC = () => {
     showToast(
       nextMode === 'two_way'
         ? 'Two-Way Sync enabled: marking/unmarking checkboxes will sync directly to Google Sheet.'
-        : 'Batch Push mode enabled: mark multiple items locally, then click "Push Changes" to sync at once.',
+        : nextMode === 'manual_only'
+        ? 'Batch Push mode enabled: mark multiple items locally, then click "Push Changes" to sync at once.'
+        : 'Read-Only mode enabled: changes in Google Sheet will be pulled into the app.',
       'info'
     );
-  }, [activeConnection, activeUserId, showToast]);
+  }, [activeConnection, activeUserId, authorizeSheetHubWrite, showToast]);
 
   // Interactive Mark / Unmark handler (FocusFlow <-> Google Sheets)
   const handleToggleCell = useCallback(

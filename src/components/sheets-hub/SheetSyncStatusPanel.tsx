@@ -113,23 +113,47 @@ export const SheetSyncStatusPanel: React.FC<SheetSyncStatusPanelProps> = ({
             type="button"
             onClick={onToggleSyncMode}
             className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border transition-colors cursor-pointer ${
-              isManualBatchMode
+              connection.syncMode === 'sheet_to_app'
+                ? 'bg-blue-500/10 text-blue-500 border-blue-500/30 hover:bg-blue-500/20'
+                : isManualBatchMode
                 ? 'bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20'
                 : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20'
             }`}
             title={
-              isManualBatchMode
+              connection.syncMode === 'sheet_to_app'
+                ? 'Read-Only Mode: Pulls changes from Google Sheet. Click to configure edit sync.'
+                : isManualBatchMode
                 ? 'Batch Mode: Mark items locally, then click Push Changes. Click to switch to Instant Two-Way Sync.'
                 : 'Two-Way Sync: Marking/unmarking a checkbox syncs immediately to Google Sheet (with confirmation). Click to switch to Batch Mode.'
             }
           >
             <ArrowLeftRight className="w-3 h-3" />
-            <span>{isManualBatchMode ? 'Batch Push (Local → Sheet)' : 'Two-Way Sync (App ↔ Sheet)'}</span>
+            <span>
+              {connection.syncMode === 'sheet_to_app'
+                ? 'Read-Only (Sheet → App)'
+                : isManualBatchMode
+                ? 'Batch Push (Local → Sheet)'
+                : 'Two-Way Sync (App ↔ Sheet)'}
+            </span>
           </button>
         ) : (
-          <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 border border-emerald-500/25">
+          <div
+            className={`hidden sm:flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md border ${
+              connection.syncMode === 'sheet_to_app'
+                ? 'bg-blue-500/10 text-blue-500 border-blue-500/25'
+                : isManualBatchMode
+                ? 'bg-amber-500/10 text-amber-500 border-amber-500/25'
+                : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+            }`}
+          >
             <ArrowLeftRight className="w-3 h-3" />
-            <span>Two-Way Sync (App ↔ Sheet)</span>
+            <span>
+              {connection.syncMode === 'sheet_to_app'
+                ? 'Read-Only (Sheet → App)'
+                : isManualBatchMode
+                ? 'Batch Push (Local → Sheet)'
+                : 'Two-Way Sync (App ↔ Sheet)'}
+            </span>
           </div>
         )}
       </div>

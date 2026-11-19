@@ -86,6 +86,10 @@ describe('Real Authentication, Persistence & Account Isolation Suite', () => {
     assert.equal(body.code, 'AUTH_REQUIRED');
   });
 
+  let sheetAId = '';
+  let sheetATabId = '';
+  let sheetBId = '';
+
   it('4. User A creates private spreadsheet in application store; isolated by owner UID', async () => {
     clientDataCache.setActiveUser(userA);
     const created = await sheetHubStore.createNativeSpreadsheet(userA, {
@@ -93,6 +97,9 @@ describe('Real Authentication, Persistence & Account Isolation Suite', () => {
       description: 'Private research and budget notes',
       templateHint: 'table',
     });
+
+    sheetAId = created.sheet.id;
+    sheetATabId = created.tab.id;
 
     assert.ok(created.sheet.id.startsWith('sheet_nat_'));
     assert.equal(created.sheet.userId, userA);
@@ -102,23 +109,88 @@ describe('Real Authentication, Persistence & Account Isolation Suite', () => {
     // Verify User A can list and retrieve their sheet
     const aliceSheets = await sheetHubStore.listConnections(userA);
     assert.ok(aliceSheets.some((s) => s.id === created.sheet.id));
+  });
 
-    // Verify User B cannot see User A's private sheet
+  it('5. User A reads and edits their private sheet successfully', async () => {
+    clientDataCache.setActiveUser(userA);
+    const sheetA = await sheetHubStore.getConnection(userA, sheetAId);
+    assert.ok(sheetA, 'User A must be able to read their own sheet');
+    assert.equal(sheetA.id, sheetAId);
+
+    // User A updates title
+    const updated = await sheetHubStore.saveConnection(userA, {
+      ...sheetA,
+      title: 'Alice Confidential Research 2026 (Updated)',
+      updatedAt: new Date().toISOString(),
+    });
+    assert.equal(updated.title, 'Alice Confidential Research 2026 (Updated)');
+  });
+
+  it('6. User B creates their own separate private spreadsheet', async () => {
+    clientDataCache.setActiveUser(userB);
+    const createdB = await sheetHubStore.createNativeSpreadsheet(userB, {
+      title: 'Bob Financial Ledger 2026',
+      description: 'Personal budget notes',
+      templateHint: 'table',
+    });
+
+    sheetBId = createdB.sheet.id;
+    assert.ok(createdB.sheet.id.startsWith('sheet_nat_'));
+    assert.equal(createdB.sheet.userId, userB);
+    assert.equal(createdB.sheet.ownerUid, userB);
+  });
+
+  it('7. Cross-User Isolation: User B cannot read, edit, or delete User A sheet', async () => {
     clientDataCache.setActiveUser(userB);
     const bobSheets = await sheetHubStore.listConnections(userB);
-    assert.ok(!bobSheets.some((s) => s.id === created.sheet.id), "User B must not see User A's sheets");
+    assert.ok(!bobSheets.some((s) => s.id === sheetAId), "User B list must not include User A's sheet");
 
-    // Verify User B cannot read User A's spreadsheet directly
-    const directRead = await sheetHubStore.getConnection(userB, created.sheet.id);
+    const directRead = await sheetHubStore.getConnection(userB, sheetAId);
     assert.equal(directRead, null, "User B must receive null when querying User A's sheet");
 
-    // Verify User B cannot mutate User A's tab
+    // User B cannot edit User A's sheet
     await assert.rejects(async () => {
-      await sheetHubStore.deleteNativeTab(userB, created.sheet.id, created.tab.id);
+      await sheetHubStore.saveConnection(userB, {
+        id: sheetAId,
+        userId: userA,
+        title: 'Hacked by Bob',
+        syncMode: 'manual_only',
+        status: 'active',
+        isNative: true,
+        templateHint: 'table',
+        spreadsheetId: sheetAId,
+        spreadsheetUrl: '',
+        pollIntervalSec: null,
+        syncOnOpen: true,
+        lastSyncedAt: null,
+        lastSuccessfulPullAt: null,
+        lastSuccessfulPushAt: null,
+        lastError: null,
+        pendingChangesCount: 0,
+        conflictCount: 0,
+        deletedAt: null,
+        tabOrder: [sheetATabId],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }, /Cross-user ownership mutation forbidden/);
+
+    // User B cannot delete User A's tab
+    await assert.rejects(async () => {
+      await sheetHubStore.deleteNativeTab(userB, sheetAId, sheetATabId);
     }, /not found|Unauthorized/);
   });
 
-  it('5. Account switching & cache isolation: User A cache wipe does not contaminate User B', async () => {
+  it('8. Cross-User Isolation: User A cannot read or access User B sheet', async () => {
+    clientDataCache.setActiveUser(userA);
+    const aliceSheets = await sheetHubStore.listConnections(userA);
+    assert.ok(!aliceSheets.some((s) => s.id === sheetBId), "User A list must not include User B's sheet");
+
+    const directReadB = await sheetHubStore.getConnection(userA, sheetBId);
+    assert.equal(directReadB, null, "User A must receive null when querying User B's sheet");
+  });
+
+  it('9. Account switching & cache isolation: User A cache wipe does not contaminate User B', async () => {
     // User A caches data
     clientDataCache.setActiveUser(userA);
     const connA = await sheetHubStore.getConnection(userA, 'test_conn_cached');
