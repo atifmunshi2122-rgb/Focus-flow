@@ -175,7 +175,18 @@ describe('Vercel Environment Precedence & Safe Staging Isolation Matrix', () => 
     assert.equal(result.config.tier, 'development');
     assert.equal(result.config.projectId, 'seismic-codex-m01dl');
     assert.equal(result.config.firestoreDatabaseId, 'local-dev-db');
-    assert.equal(result.config.isStagingIsolated, true);
+    assert.equal(result.config.isStagingIsolated, false);
+
+    // When local development configures a separate non-production project:
+    const localIsolatedEnv = {
+      VERCEL: '',
+      VERCEL_ENV: '',
+      VITE_FIREBASE_PROJECT_ID: 'focusflow-isolated-dev',
+      VITE_FIREBASE_DATABASE_ID: 'local-dev-db',
+      NODE_ENV: 'development',
+    };
+    const resultIsolated = resolveFirebaseConfiguration(localIsolatedEnv);
+    assert.equal(resultIsolated.config?.isStagingIsolated, true);
 
     // If local development has NO explicit settings, it fails closed to prevent silent production fallback
     const localEmptyEnv = {

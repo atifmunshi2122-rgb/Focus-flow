@@ -19,7 +19,7 @@ const GOOGLE_CERTS_URL =
   'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
 const GUEST_ID_REGEX = /^gst_[a-zA-Z0-9_-]{8,64}$/;
 
-export const PRODUCTION_PROJECT_ID = 'gen-lang-client-0390447756';
+export const PRODUCTION_PROJECT_ID = 'seismic-codex-m01dl';
 
 let cachedProjectId: string | null = null;
 let certCache: { certs: Record<string, string>; expiresAt: number } = {
@@ -81,9 +81,13 @@ export function resolveServerFirebaseProjectId(): string {
           '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
         );
       }
-      if (explicitProjId === PRODUCTION_PROJECT_ID) {
+      if (
+        explicitProjId === PRODUCTION_PROJECT_ID ||
+        explicitProjId === 'seismic-codex-m01dl' ||
+        explicitProjId === 'gen-lang-client-0390447756'
+      ) {
         throw new Error(
-          `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${PRODUCTION_PROJECT_ID}). Preview must use a dedicated Staging Firebase Project.`
+          `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${explicitProjId}). Preview must use a dedicated Staging Firebase Project.`
         );
       }
       return explicitProjId;
@@ -107,9 +111,13 @@ export function resolveServerFirebaseProjectId(): string {
         '[PREVIEW_STAGING_CONFIG_MISSING] Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
       );
     }
-    if (explicitProjId === PRODUCTION_PROJECT_ID) {
+    if (
+      explicitProjId === PRODUCTION_PROJECT_ID ||
+      explicitProjId === 'seismic-codex-m01dl' ||
+      explicitProjId === 'gen-lang-client-0390447756'
+    ) {
       throw new Error(
-        `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${PRODUCTION_PROJECT_ID}). Preview must use a dedicated Staging Firebase Project.`
+        `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${explicitProjId}). Preview must use a dedicated Staging Firebase Project.`
       );
     }
     return explicitProjId;
@@ -229,7 +237,6 @@ export async function verifyFirebaseIdToken(token: string): Promise<AuthContext>
       projectId,
       'test-rules-project',
       'seismic-codex-m01dl',
-      'gen-lang-client-0390447756',
     ]);
     if (payload.aud && !validAuds.has(payload.aud)) {
       throw new Error('Token audience mismatch');

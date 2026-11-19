@@ -30,7 +30,7 @@ export interface EnvironmentDetectionParams {
   prodFlag?: boolean;
 }
 
-export const PRODUCTION_PROJECT_ID = 'gen-lang-client-0390447756';
+export const PRODUCTION_PROJECT_ID = 'seismic-codex-m01dl';
 export const PRODUCTION_DATABASE_ID = 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
 
 /**
@@ -286,11 +286,15 @@ export function resolveFirebaseConfiguration(
     }
 
     // Safety Gate: Ensure Preview does NOT point to the Production project or database
-    if (projectId === PRODUCTION_PROJECT_ID) {
+    if (
+      projectId === PRODUCTION_PROJECT_ID ||
+      projectId === 'seismic-codex-m01dl' ||
+      projectId === 'gen-lang-client-0390447756'
+    ) {
       return {
         config: null,
         error: new Error(
-          `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use the Production Firebase Project (${PRODUCTION_PROJECT_ID}). Preview must use a dedicated Staging Firebase Project.`
+          `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${projectId}). Preview must use a dedicated Staging Firebase Project.`
         ),
         tier: 'preview',
       };

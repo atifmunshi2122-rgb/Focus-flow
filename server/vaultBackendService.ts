@@ -135,7 +135,7 @@ export function resolveServiceAccount(): ServiceAccountConfig | null {
   return null;
 }
 
-export const PRODUCTION_PROJECT_ID = 'gen-lang-client-0390447756';
+export const PRODUCTION_PROJECT_ID = 'seismic-codex-m01dl';
 export const PRODUCTION_DATABASE_ID = 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
 
 function resolveFirebaseProjectIdFallback(): string {
@@ -186,9 +186,13 @@ function resolveFirebaseProjectIdFallback(): string {
           '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
         );
       }
-      if (explicitProjId === PRODUCTION_PROJECT_ID) {
+      if (
+        explicitProjId === PRODUCTION_PROJECT_ID ||
+        explicitProjId === 'seismic-codex-m01dl' ||
+        explicitProjId === 'gen-lang-client-0390447756'
+      ) {
         throw new Error(
-          `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${PRODUCTION_PROJECT_ID}). Preview must use a dedicated Staging Firebase Project.`
+          `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${explicitProjId}). Preview must use a dedicated Staging Firebase Project.`
         );
       }
       return explicitProjId;
@@ -210,9 +214,13 @@ function resolveFirebaseProjectIdFallback(): string {
         '[PREVIEW_STAGING_CONFIG_MISSING] Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
       );
     }
-    if (explicitProjId === PRODUCTION_PROJECT_ID) {
+    if (
+      explicitProjId === PRODUCTION_PROJECT_ID ||
+      explicitProjId === 'seismic-codex-m01dl' ||
+      explicitProjId === 'gen-lang-client-0390447756'
+    ) {
       throw new Error(
-        `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${PRODUCTION_PROJECT_ID}). Preview must use a dedicated Staging Firebase Project.`
+        `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${explicitProjId}). Preview must use a dedicated Staging Firebase Project.`
       );
     }
     return explicitProjId;
