@@ -16,6 +16,8 @@ import { AuthRecoveryModal } from './components/common/AuthRecoveryModal.tsx';
 import { KeyboardShortcutsModal } from './components/common/KeyboardShortcutsModal.tsx';
 import { TabLoadingFallback } from './components/common/TabLoadingFallback.tsx';
 import { LazyChunkErrorBoundary } from './components/common/LazyChunkErrorBoundary.tsx';
+import { StagingConfigurationFallback } from './components/common/StagingConfigurationFallback.tsx';
+import { configurationError } from './lib/firebase.ts';
 import { UnifiedDashboard } from './components/dashboard/UnifiedDashboard.tsx';
 import { PomodoroTimer } from './components/focus/PomodoroTimer.tsx';
 import { getStyleDefinition } from './theme/stylesRegistry.ts';
@@ -806,6 +808,10 @@ const MainContent: React.FC = () => {
 };
 
 export default function App() {
+  if (configurationError) {
+    return <StagingConfigurationFallback error={configurationError} />;
+  }
+
   return (
     <AppProvider>
       <MainContent />

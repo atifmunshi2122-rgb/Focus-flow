@@ -135,9 +135,41 @@ export function resolveServiceAccount(): ServiceAccountConfig | null {
   return null;
 }
 
+export const PRODUCTION_PROJECT_ID = 'gen-lang-client-0390447756';
+export const PRODUCTION_DATABASE_ID = 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
+
 function resolveFirebaseProjectIdFallback(): string {
-  if (process.env.FIREBASE_PROJECT_ID) return process.env.FIREBASE_PROJECT_ID;
-  if (process.env.VITE_FIREBASE_PROJECT_ID) return process.env.VITE_FIREBASE_PROJECT_ID;
+  const vercelEnv = process.env.VERCEL_ENV || '';
+  const appEnv = process.env.APP_ENV || '';
+  const isPreview = vercelEnv === 'preview' || appEnv === 'preview';
+
+  const backendProjId = process.env.FIREBASE_PROJECT_ID;
+  const frontendProjId = process.env.VITE_FIREBASE_PROJECT_ID;
+
+  if (backendProjId && frontendProjId && backendProjId !== frontendProjId) {
+    throw new Error(
+      `[CONFIG_DISAGREEMENT] Backend FIREBASE_PROJECT_ID (${backendProjId}) does not match frontend VITE_FIREBASE_PROJECT_ID (${frontendProjId})`
+    );
+  }
+
+  const explicitProjId = backendProjId || frontendProjId;
+
+  if (isPreview) {
+    if (!explicitProjId) {
+      throw new Error(
+        '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
+      );
+    }
+    if (explicitProjId === PRODUCTION_PROJECT_ID) {
+      throw new Error(
+        `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${PRODUCTION_PROJECT_ID}). Preview must use a dedicated Staging Firebase Project.`
+      );
+    }
+    return explicitProjId;
+  }
+
+  if (explicitProjId) return explicitProjId;
+
   try {
     const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(cfgPath)) {
@@ -147,13 +179,34 @@ function resolveFirebaseProjectIdFallback(): string {
   } catch {
     // fallback below
   }
-  return 'gen-lang-client-0390447756';
+  return PRODUCTION_PROJECT_ID;
 }
 
 export function resolveFirestoreDatabaseId(): string {
-  if (process.env.VITE_FIREBASE_DATABASE_ID) {
-    return process.env.VITE_FIREBASE_DATABASE_ID;
+  const vercelEnv = process.env.VERCEL_ENV || '';
+  const appEnv = process.env.APP_ENV || '';
+  const isPreview = vercelEnv === 'preview' || appEnv === 'preview';
+
+  const explicitDb = process.env.VITE_FIREBASE_DATABASE_ID || process.env.FIREBASE_DATABASE_ID;
+
+  if (isPreview) {
+    if (!explicitDb) {
+      throw new Error(
+        '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging VITE_FIREBASE_DATABASE_ID. Automatic fallback to Production Firestore Database is blocked.'
+      );
+    }
+    if (explicitDb === PRODUCTION_DATABASE_ID) {
+      throw new Error(
+        `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firestore Database (${PRODUCTION_DATABASE_ID}). Preview must use a dedicated Staging Firestore Database.`
+      );
+    }
+    return explicitDb;
   }
+
+  if (explicitDb) {
+    return explicitDb;
+  }
+
   try {
     const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(cfgPath)) {
@@ -163,7 +216,7 @@ export function resolveFirestoreDatabaseId(): string {
   } catch {
     // fallback below
   }
-  return 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
+  return PRODUCTION_DATABASE_ID;
 }
 
 export function resolveProjectId(serviceAccount?: ServiceAccountConfig | null): string {

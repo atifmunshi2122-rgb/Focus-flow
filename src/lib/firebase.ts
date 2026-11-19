@@ -14,18 +14,26 @@ import {
   getDocFromServer,
   Firestore,
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import {
+  resolveFirebaseConfiguration,
+  ConfigurationResolutionResult,
+} from './firebaseConfigResolver.ts';
 import { createSingleFlightRunner } from './authDiagnostics.ts';
 
-// Support production runtime overrides via Vite environment variables
-export const activeFirebaseConfig = {
-  apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
-  authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
-  projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
-  storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
-  messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
-  appId: import.meta.env?.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
-  firestoreDatabaseId: import.meta.env?.VITE_FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId || 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8',
+// Resolve environment-aware Firebase configuration with Preview Staging Safety Gate
+export const configResolution: ConfigurationResolutionResult = resolveFirebaseConfiguration();
+export const configurationError: Error | null = configResolution.error;
+
+export const activeFirebaseConfig = configResolution.config || {
+  apiKey: 'preview-staging-blocked',
+  authDomain: 'preview-staging-blocked.firebaseapp.com',
+  projectId: 'preview-staging-blocked',
+  storageBucket: 'preview-staging-blocked.firebasestorage.app',
+  messagingSenderId: '',
+  appId: '',
+  firestoreDatabaseId: 'preview-staging-blocked',
+  tier: configResolution.tier,
+  isStagingIsolated: true,
 };
 
 // Initialize Firebase App
@@ -183,6 +191,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Test Firestore connection on app start
 export async function testConnection(): Promise<boolean> {
+  if (configurationError) {
+    console.warn('[firebase] Connection test skipped: Staging configuration required');
+    return false;
+  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
@@ -197,6 +209,9 @@ export async function testConnection(): Promise<boolean> {
 // Sign in with Google Popup (basic profile/email identity only — no Sheets/Drive scopes upfront)
 export const signInWithGoogle = createSingleFlightRunner(
   async (): Promise<{ user: User; accessToken: string }> => {
+    if (configurationError) {
+      throw configurationError;
+    }
     const previousUid = auth.currentUser?.uid || null;
     try {
       isSigningIn = true;

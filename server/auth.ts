@@ -19,32 +19,75 @@ const GOOGLE_CERTS_URL =
   'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
 const GUEST_ID_REGEX = /^gst_[a-zA-Z0-9_-]{8,64}$/;
 
+export const PRODUCTION_PROJECT_ID = 'gen-lang-client-0390447756';
+
 let cachedProjectId: string | null = null;
 let certCache: { certs: Record<string, string>; expiresAt: number } = {
   certs: {},
   expiresAt: 0,
 };
 
-function resolveFirebaseProjectId(): string {
-  if (cachedProjectId) return cachedProjectId;
-  if (process.env.FIREBASE_PROJECT_ID) {
-    cachedProjectId = process.env.FIREBASE_PROJECT_ID;
-    return cachedProjectId;
+export function resetCachedProjectIdForTests(): void {
+  cachedProjectId = null;
+}
+
+export function resolveServerFirebaseProjectId(): string {
+  const vercelEnv = process.env.VERCEL_ENV || '';
+  const appEnv = process.env.APP_ENV || '';
+  const isPreview = vercelEnv === 'preview' || appEnv === 'preview';
+
+  const backendProjId = process.env.FIREBASE_PROJECT_ID;
+  const frontendProjId = process.env.VITE_FIREBASE_PROJECT_ID;
+
+  // Enforce agreement between backend and frontend env vars if both provided
+  if (backendProjId && frontendProjId && backendProjId !== frontendProjId) {
+    throw new Error(
+      `[CONFIG_DISAGREEMENT] Backend FIREBASE_PROJECT_ID (${backendProjId}) does not match frontend VITE_FIREBASE_PROJECT_ID (${frontendProjId})`
+    );
   }
+
+  const explicitProjId = backendProjId || frontendProjId;
+
+  // Staging isolation gate for Preview
+  if (isPreview) {
+    if (!explicitProjId) {
+      throw new Error(
+        '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
+      );
+    }
+    if (explicitProjId === PRODUCTION_PROJECT_ID) {
+      throw new Error(
+        `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${PRODUCTION_PROJECT_ID}). Preview must use a dedicated Staging Firebase Project.`
+      );
+    }
+    return explicitProjId;
+  }
+
+  if (explicitProjId) {
+    return explicitProjId;
+  }
+
   try {
     const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(cfgPath)) {
       const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as { projectId?: string };
       if (parsed.projectId) {
-        cachedProjectId = parsed.projectId;
-        return cachedProjectId;
+        return parsed.projectId;
       }
     }
   } catch {
     // fallback handled below
   }
-  cachedProjectId = 'gen-lang-client-0390447756';
-  return cachedProjectId;
+  return PRODUCTION_PROJECT_ID;
+}
+
+function resolveFirebaseProjectId(): string {
+  if (cachedProjectId && process.env.NODE_ENV !== 'test') return cachedProjectId;
+  const resolved = resolveServerFirebaseProjectId();
+  if (process.env.NODE_ENV !== 'test') {
+    cachedProjectId = resolved;
+  }
+  return resolved;
 }
 
 async function getGooglePublicCerts(forceRefresh = false): Promise<Record<string, string>> {

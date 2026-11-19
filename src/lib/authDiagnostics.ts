@@ -1,4 +1,5 @@
 import firebaseConfig from '../../firebase-applet-config.json';
+import { PRODUCTION_PROJECT_ID } from './firebaseConfigResolver.ts';
 
 export type AuthScopeMode = 'basic' | 'sheets' | 'sheet_hub_readonly';
 
@@ -77,7 +78,12 @@ export function classifyFirebaseAuthError(
   const isSheetHub = options.scopeMode === 'sheet_hub_readonly';
   const isSheets = options.scopeMode === 'sheets' || isSheetHub;
   const matchedProject = rawMessage.match(/([a-z0-9-]+)\.firebaseapp\.com/i)?.[1];
-  const activeProjectId = options.projectId || matchedProject || firebaseConfig.projectId || 'gen-lang-client-0390447756';
+  const activeProjectId =
+    options.projectId ||
+    matchedProject ||
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID) ||
+    firebaseConfig.projectId ||
+    PRODUCTION_PROJECT_ID;
 
   if (code === 'auth/popup-blocked') {
     return {
