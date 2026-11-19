@@ -39,6 +39,7 @@ import type {
   SheetTemplateHint,
 } from '../../types/sheetHub.ts';
 import { packRowsIntoChunks } from './rowIdentity.ts';
+import { columnIndexToLetter } from './columnUtils.ts';
 
 export const SHEET_HUB_COLLECTIONS = {
   sheets: 'sheets',
@@ -48,6 +49,78 @@ export const SHEET_HUB_COLLECTIONS = {
   syncQueue: 'sheet_sync_queue',
   conflicts: 'sheet_conflicts',
 } as const;
+
+export class SheetHubPersistenceError extends Error {
+  public readonly code: string;
+  public readonly connectionId?: string;
+  public readonly tabId?: string;
+
+  constructor(message: string, code = 'FIRESTORE_WRITE_FAILED', connectionId?: string, tabId?: string) {
+    super(message);
+    this.name = 'SheetHubPersistenceError';
+    this.code = code;
+    this.connectionId = connectionId;
+    this.tabId = tabId;
+  }
+}
+
+export interface PendingSheetOperation {
+  id: string;
+  type: 'connection' | 'tab' | 'rows' | 'index_sync';
+  userId: string;
+  connectionId: string;
+  tabId?: string;
+  payload: any;
+  error?: string;
+  createdAt: string;
+  attempts: number;
+}
+
+function getPendingQueueKey(userId: string): string {
+  return `ff_sheethub_pending_queue_${userId}`;
+}
+
+function enqueuePendingOp(
+  userId: string,
+  op: Omit<PendingSheetOperation, 'id' | 'createdAt' | 'attempts'>
+): void {
+  const queue = readLocalFallback<PendingSheetOperation[]>(getPendingQueueKey(userId), []);
+  const existingIdx = queue.findIndex(
+    (o) => o.connectionId === op.connectionId && o.tabId === op.tabId && o.type === op.type
+  );
+  if (existingIdx !== -1) {
+    queue[existingIdx] = {
+      ...queue[existingIdx],
+      payload: op.payload,
+      error: op.error,
+      attempts: queue[existingIdx].attempts + 1,
+    };
+  } else {
+    queue.push({
+      ...op,
+      id: `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      attempts: 1,
+    });
+  }
+  writeLocalFallback(getPendingQueueKey(userId), queue);
+}
+
+function dequeuePendingOp(
+  userId: string,
+  connectionId: string,
+  tabId?: string,
+  type?: 'connection' | 'tab' | 'rows' | 'index_sync'
+): void {
+  const queue = readLocalFallback<PendingSheetOperation[]>(getPendingQueueKey(userId), []);
+  const filtered = queue.filter((o) => {
+    if (o.connectionId !== connectionId) return true;
+    if (tabId && o.tabId !== tabId) return true;
+    if (type && o.type !== type) return true;
+    return false;
+  });
+  writeLocalFallback(getPendingQueueKey(userId), filtered);
+}
 
 function assertValidUserId(userId: string): void {
   if (!userId || typeof userId !== 'string' || !userId.trim()) {
@@ -194,16 +267,23 @@ export const sheetHubStore = {
     try {
       const mergedById = new Map<string, SheetConnection>();
 
-      // Primary collection: users/{userId}/sheet_connections
-      const connSnap = await getDocs(
-        collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections))
-      );
-      for (const d of connSnap.docs) {
-        const item = d.data() as SheetConnection;
-        if (!item.deletedAt) mergedById.set(item.id, item);
+      // 1. Primary query index: users/{userId}/sheet_connections
+      try {
+        const connSnap = await getDocs(
+          collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections))
+        );
+        for (const d of connSnap.docs) {
+          const item = d.data() as SheetConnection;
+          if (!item.deletedAt) mergedById.set(item.id, item);
+        }
+      } catch (connErr) {
+        if (isSignedInAs(userId)) {
+          console.warn('[SheetHub] Primary index sheet_connections fetch failed:', connErr);
+        }
       }
 
-      // Secondary canonical collection: users/{userId}/sheets (merge any docs present only there)
+      // 2. Authoritative canonical storage: users/{userId}/sheets (merge any docs present only there)
+      const missingInIndex: SheetConnection[] = [];
       try {
         const sheetsSnap = await getDocs(
           collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets))
@@ -212,12 +292,38 @@ export const sheetHubStore = {
           const item = d.data() as SheetConnection;
           if (item.deletedAt) continue;
           const existing = mergedById.get(item.id);
-          if (!existing || (item.updatedAt || '') > (existing.updatedAt || '')) {
+          if (!existing) {
             mergedById.set(item.id, item);
+            missingInIndex.push(item);
+          } else if ((item.updatedAt || '') > (existing.updatedAt || '')) {
+            mergedById.set(item.id, item);
+            missingInIndex.push(item);
           }
         }
-      } catch {
-        // Optional mirror read failure should not block primary connections
+      } catch (sheetsErr) {
+        if (isSignedInAs(userId)) {
+          console.warn('[SheetHub] Canonical sheets fetch warning:', sheetsErr);
+        }
+      }
+
+      // 3. Safe reconciliation and missing-index repair: backfill canonical records into sheet_connections
+      if (isSignedInAs(userId) && missingInIndex.length > 0) {
+        for (const item of missingInIndex) {
+          setDoc(
+            doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), item.id),
+            normalizeConnectionForFirestore(userId, item)
+          ).catch((e) => console.warn('[SheetHub] Safe index repair deferred:', e));
+        }
+      }
+
+      // If Firestore read did not find records or in offline mode, merge local fallback records
+      if (mergedById.size === 0) {
+        const local = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
+        for (const c of local) {
+          if (!c.deletedAt && !mergedById.has(c.id)) {
+            mergedById.set(c.id, c);
+          }
+        }
       }
 
       // Automatic Local-to-Cloud reconciliation for signed-in users:
@@ -303,21 +409,72 @@ export const sheetHubStore = {
       await waitForInitialAuth().catch(() => null);
     }
     try {
+      // 1. Check canonical document first (authoritative source of truth)
+      const canonicalSnap = await getDoc(
+        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId)
+      );
+      if (canonicalSnap.exists()) {
+        const canonical = canonicalSnap.data() as SheetConnection;
+        return canonical;
+      }
+
+      // 2. Fallback check secondary query index: users/{userId}/sheet_connections
       const snap = await getDoc(
         doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId)
       );
-      if (snap.exists()) return snap.data() as SheetConnection;
+      if (snap.exists()) {
+        const item = snap.data() as SheetConnection;
+        if (isSignedInAs(userId)) {
+          setDoc(
+            doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId),
+            normalizeConnectionForFirestore(userId, item)
+          ).catch(() => {});
+        }
+        return item;
+      }
     } catch {}
     const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
     return conns.find((c) => c.id === connectionId) || null;
   },
 
-  async saveConnection(userId: string, connection: SheetConnection): Promise<SheetConnection> {
+  async saveConnection(
+    userId: string,
+    connection: SheetConnection,
+    options?: { force?: boolean }
+  ): Promise<SheetConnection> {
     assertValidUserId(userId);
     if (connection.userId && connection.userId !== userId) {
       throw new Error(`Cross-user ownership mutation forbidden. Cannot save connection for userId "${connection.userId}" under user "${userId}".`);
     }
     const sanitized = normalizeConnectionForFirestore(userId, connection);
+
+    // Conflict detection: If existing document has strictly newer updatedAt, prevent silent last-write-wins
+    if (!options?.force) {
+      let existingDoc: SheetConnection | null = null;
+      if (isSignedInAs(userId)) {
+        try {
+          const cloudSnap = await getDoc(
+            doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connection.id)
+          );
+          if (cloudSnap.exists()) {
+            existingDoc = cloudSnap.data() as SheetConnection;
+          }
+        } catch (err) {
+          if (err instanceof SheetHubPersistenceError) throw err;
+        }
+      }
+      if (!existingDoc) {
+        const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
+        existingDoc = conns.find((c) => c.id === connection.id) || null;
+      }
+      if (existingDoc && existingDoc.updatedAt && sanitized.updatedAt && existingDoc.updatedAt > sanitized.updatedAt) {
+        throw new SheetHubPersistenceError(
+          `Concurrent modification conflict: Cloud version (${existingDoc.updatedAt}) is newer than local edit (${sanitized.updatedAt}).`,
+          'CONCURRENT_MODIFICATION_CONFLICT',
+          connection.id
+        );
+      }
+    }
 
     // Update local mirror immediately
     const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
@@ -325,78 +482,114 @@ export const sheetHubStore = {
     filtered.unshift(sanitized);
     writeLocalFallback(`ff_sheethub_conns_${userId}`, filtered);
 
-    // 1. Primary isolated storage in sheet_connections (must not be blocked by mirror errors)
-    let primarySaved = false;
-    try {
-      await setDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connection.id),
-        sanitized
-      );
-      primarySaved = true;
-    } catch (err) {
-      if (isSignedInAs(userId)) {
-        console.error('[SheetHub] Primary Firestore saveConnection failed:', err);
-      }
-    }
+    let canonicalSaved = false;
+    let indexSaved = false;
+    let canonicalError: Error | null = null;
+    let indexError: Error | null = null;
 
-    // 2. Independent dual-mirror in canonical per-user private sheets collection
+    // 1. Authoritative canonical persistence: users/{userId}/sheets/{connection.id}
     try {
       await setDoc(
         doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connection.id),
         sanitized
       );
-      primarySaved = true;
+      canonicalSaved = true;
     } catch (err) {
+      canonicalError = err instanceof Error ? err : new Error(String(err));
       if (isSignedInAs(userId)) {
-        console.warn('[SheetHub] Mirror Firestore sheets write warning:', err);
+        console.error('[SheetHub] Authoritative canonical Firestore saveConnection failed:', err);
+      }
+    }
+
+    // 2. Query index mirror: users/{userId}/sheet_connections/{connection.id}
+    try {
+      await setDoc(
+        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connection.id),
+        sanitized
+      );
+      indexSaved = true;
+    } catch (err) {
+      indexError = err instanceof Error ? err : new Error(String(err));
+      if (isSignedInAs(userId)) {
+        console.warn('[SheetHub] Secondary index sheet_connections write warning:', err);
       }
     }
 
     clientDataCache.invalidate(`sheet_hub_conns_${userId}`);
     clientDataCache.invalidate(`sheet_hub_private_sheets_${userId}`);
 
-    if (!primarySaved && isSignedInAs(userId)) {
-      console.error('[SheetHub] Connection saved locally only; cloud Firestore write failed for:', connection.id);
+    // If canonical authoritative persistence failed, fail closed!
+    // A mirror success must NEVER be treated as canonical persistence success.
+    if (!canonicalSaved && isSignedInAs(userId)) {
+      enqueuePendingOp(userId, {
+        type: 'connection',
+        userId,
+        connectionId: connection.id,
+        payload: sanitized,
+        error: canonicalError?.message || 'Authoritative canonical Firestore saveConnection failed',
+      });
+      throw new SheetHubPersistenceError(
+        `Failed to save spreadsheet connection to Cloud Firestore: ${canonicalError?.message || 'Unknown canonical error'}`,
+        'CANONICAL_WRITE_FAILED',
+        connection.id
+      );
     }
+
+    // If canonical succeeded but secondary index failed, enqueue recoverable index sync
+    if (canonicalSaved && !indexSaved && isSignedInAs(userId)) {
+      enqueuePendingOp(userId, {
+        type: 'index_sync',
+        userId,
+        connectionId: connection.id,
+        payload: sanitized,
+        error: indexError?.message || 'Secondary index write failed',
+      });
+    }
+
+    if (canonicalSaved && indexSaved) {
+      dequeuePendingOp(userId, connection.id, undefined, 'connection');
+      dequeuePendingOp(userId, connection.id, undefined, 'index_sync');
+    }
+
     return sanitized;
   },
 
   async deleteConnection(userId: string, connectionId: string, purgeData = true): Promise<void> {
     assertValidUserId(userId);
+    const existing = await this.getConnection(userId, connectionId);
+    if (existing && existing.userId !== userId) {
+      throw new Error(`Cross-user ownership mutation forbidden. Cannot delete connection for userId "${existing.userId}" under user "${userId}".`);
+    }
+
     const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
     writeLocalFallback(
       `ff_sheethub_conns_${userId}`,
       conns.filter((c) => c.id !== connectionId)
     );
 
-    if (purgeData) {
-      let tabs: SheetTabSchema[] = [];
-      try {
-        tabs = await this.listTabsForConnection(userId, connectionId);
-      } catch {}
-      const tabIds = new Set(tabs.map((t) => t.id));
+    let tabs: SheetTabSchema[] = [];
+    try {
+      tabs = await this.listTabsForConnection(userId, connectionId);
+    } catch {}
+    const tabIds = new Set(tabs.map((t) => t.id));
+    if (existing && Array.isArray(existing.tabOrder)) {
+      for (const tId of existing.tabOrder) tabIds.add(tId);
+    }
 
+    if (purgeData) {
       if (typeof window !== 'undefined' && window.localStorage) {
-        // Remove any tab and row caches for this connection
         const keysToRemove: string[] = [];
         for (let i = 0; i < window.localStorage.length; i++) {
           const k = window.localStorage.key(i);
-          if (k) {
-            if (k.includes(connectionId)) keysToRemove.push(k);
-            for (const tId of tabIds) {
-              if (k.includes(tId)) keysToRemove.push(k);
-            }
+          if (k && (k.includes(connectionId) || Array.from(tabIds).some((tId) => k.includes(tId)))) {
+            keysToRemove.push(k);
           }
         }
         for (const k of keysToRemove) window.localStorage.removeItem(k);
       }
       for (const k of inMemoryFallbackStore.keys()) {
-        if (k.includes(connectionId)) {
+        if (k.includes(connectionId) || Array.from(tabIds).some((tId) => k.includes(tId))) {
           inMemoryFallbackStore.delete(k);
-        } else {
-          for (const tId of tabIds) {
-            if (k.includes(tId)) inMemoryFallbackStore.delete(k);
-          }
         }
       }
       for (const tId of tabIds) {
@@ -404,18 +597,111 @@ export const sheetHubStore = {
       }
     }
 
-    try {
-      await deleteDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId)
-      );
-      await deleteDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId)
-      );
-    } catch {}
     clientDataCache.invalidate(`sheet_hub_conns_${userId}`);
     clientDataCache.invalidate(`sheet_hub_private_sheets_${userId}`);
     clientDataCache.invalidate(`sheet_hub_tabs_${userId}_${connectionId}`);
     clientDataCache.invalidate('sheet_hub_rows_');
+
+    dequeuePendingOp(userId, connectionId);
+
+    if (isSignedInAs(userId)) {
+      // Discover any additional tabs in Firestore across flat and nested paths
+      try {
+        const qTabs = await getDocs(
+          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs)), where('connectionId', '==', connectionId))
+        );
+        for (const d of qTabs.docs) tabIds.add(d.id);
+      } catch {}
+
+      try {
+        const nestedTabsSnap = await getDocs(
+          collection(db, `users/${userId}/sheets/${connectionId}/tabs`)
+        );
+        for (const d of nestedTabsSnap.docs) tabIds.add(d.id);
+      } catch {}
+
+      const childRefsToDelete: any[] = [];
+
+      // 1. Tabs and row chunks for all associated tabs
+      for (const tId of tabIds) {
+        childRefsToDelete.push(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tId));
+        childRefsToDelete.push(doc(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}`));
+
+        try {
+          const chunksSnap = await getDocs(
+            query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('tabId', '==', tId))
+          );
+          for (const d of chunksSnap.docs) childRefsToDelete.push(d.ref);
+        } catch {}
+
+        try {
+          const nestedChunksSnap = await getDocs(
+            collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/row_chunks`)
+          );
+          for (const d of nestedChunksSnap.docs) childRefsToDelete.push(d.ref);
+        } catch {}
+
+        try {
+          const nestedRowsSnap = await getDocs(
+            collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/rows`)
+          );
+          for (const d of nestedRowsSnap.docs) childRefsToDelete.push(d.ref);
+        } catch {}
+      }
+
+      // 2. Direct chunks referencing connectionId
+      try {
+        const connChunksSnap = await getDocs(
+          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('connectionId', '==', connectionId))
+        );
+        for (const d of connChunksSnap.docs) childRefsToDelete.push(d.ref);
+      } catch {}
+
+      // 3. Associated sync queue items
+      try {
+        const queueSnap = await getDocs(
+          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.syncQueue)), where('connectionId', '==', connectionId))
+        );
+        for (const d of queueSnap.docs) childRefsToDelete.push(d.ref);
+      } catch {}
+
+      // 4. Associated conflict items
+      try {
+        const conflictSnap = await getDocs(
+          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts)), where('connectionId', '==', connectionId))
+        );
+        for (const d of conflictSnap.docs) childRefsToDelete.push(d.ref);
+      } catch {}
+
+      // Delete child records FIRST in batches of <= 400
+      for (let i = 0; i < childRefsToDelete.length; i += 400) {
+        const slice = childRefsToDelete.slice(i, i + 400);
+        const batch = writeBatch(db);
+        for (const ref of slice) batch.delete(ref);
+        await batch.commit();
+      }
+
+      // Delete parent documents LAST to ensure idempotency and resumability
+      const parentBatch = writeBatch(db);
+      parentBatch.delete(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId));
+      parentBatch.delete(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId));
+      await parentBatch.commit();
+
+      // Post-deletion verification check: verify parent documents are gone
+      const verifyConnSnap = await getDoc(
+        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId)
+      );
+      const verifySheetSnap = await getDoc(
+        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId)
+      );
+      if (verifyConnSnap.exists() || verifySheetSnap.exists()) {
+        throw new SheetHubPersistenceError(
+          'Cascade deletion incomplete: parent spreadsheet records still exist.',
+          'DELETION_INCOMPLETE',
+          connectionId
+        );
+      }
+    }
   },
 
   async listTabsForConnection(userId: string, connectionId: string): Promise<SheetTabSchema[]> {
@@ -480,17 +766,25 @@ export const sheetHubStore = {
     filtered.push(sanitized);
     writeLocalFallback(`ff_sheethub_tabs_${userId}_${tab.connectionId}`, filtered);
 
-    // Primary write isolated from secondary mirror
+    let authoritativeSaved = false;
+    let mirrorSaved = false;
+    let cloudError: Error | null = null;
+
+    // Primary write in sheet_tabs
     try {
       await setDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tab.id), sanitized);
+      authoritativeSaved = true;
     } catch (err) {
+      cloudError = err instanceof Error ? err : new Error(String(err));
       if (isSignedInAs(userId)) {
         console.error('[SheetHub] Primary Firestore saveTabSchema failed:', err);
       }
     }
 
+    // Mirror write in canonical nested tabs
     try {
       await setDoc(doc(db, `users/${userId}/sheets/${tab.connectionId}/tabs/${tab.id}`), sanitized);
+      mirrorSaved = true;
     } catch (err) {
       if (isSignedInAs(userId)) {
         console.warn('[SheetHub] Mirror Firestore nested tab write warning:', err);
@@ -498,10 +792,32 @@ export const sheetHubStore = {
     }
 
     clientDataCache.invalidate(`sheet_hub_tabs_${userId}_${tab.connectionId}`);
+
+    if (!authoritativeSaved && isSignedInAs(userId)) {
+      enqueuePendingOp(userId, {
+        type: 'tab',
+        userId,
+        connectionId: tab.connectionId,
+        tabId: tab.id,
+        payload: sanitized,
+        error: cloudError?.message || 'Primary Firestore saveTabSchema failed',
+      });
+      throw new SheetHubPersistenceError(
+        `Failed to save tab schema to Cloud Firestore: ${cloudError?.message || 'Unknown error'}`,
+        'FIRESTORE_TAB_WRITE_FAILED',
+        tab.connectionId,
+        tab.id
+      );
+    }
+
+    if (authoritativeSaved) {
+      dequeuePendingOp(userId, tab.connectionId, tab.id, 'tab');
+    }
+
     return sanitized;
   },
 
-  async loadTabRows(userId: string, tabId: string): Promise<SheetSyncedRow[]> {
+  async loadTabRows(userId: string, tabId: string, sheetId?: string): Promise<SheetSyncedRow[]> {
     assertValidUserId(userId);
     const cacheKey = `sheet_hub_rows_${userId}_${tabId}`;
     const cached = clientDataCache.get<SheetSyncedRow[]>(cacheKey, undefined, userId);
@@ -521,16 +837,47 @@ export const sheetHubStore = {
         .map((d) => d.data() as SheetRowChunk)
         .sort((a, b) => a.chunkIndex - b.chunkIndex);
 
-      const rows: SheetSyncedRow[] = [];
+      const rowMap = new Map<string, SheetSyncedRow>();
       for (const chunk of chunks) {
         for (const row of Object.values(chunk.rows || {})) {
-          rows.push(row);
+          if (row && row.rowUid) {
+            rowMap.set(row.rowUid, row);
+          }
         }
       }
-      rows.sort((a, b) => a.lastKnownSheetRow - b.lastKnownSheetRow);
-      clientDataCache.set(cacheKey, rows, userId);
-      writeLocalFallback(`ff_sheethub_rows_${userId}_${tabId}`, rows);
-      return rows;
+
+      // Check canonical nested path if primary chunks were empty
+      if (rowMap.size === 0 && sheetId) {
+        try {
+          const nestedSnap = await getDocs(
+            collection(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}/row_chunks`)
+          );
+          const nestedChunks = nestedSnap.docs
+            .map((d) => d.data() as SheetRowChunk)
+            .sort((a, b) => a.chunkIndex - b.chunkIndex);
+          for (const chunk of nestedChunks) {
+            for (const row of Object.values(chunk.rows || {})) {
+              if (row && row.rowUid) {
+                rowMap.set(row.rowUid, row);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      if (rowMap.size > 0) {
+        const rows = Array.from(rowMap.values()).sort(
+          (a, b) => (a.lastKnownSheetRow ?? a.rowIndex ?? 0) - (b.lastKnownSheetRow ?? b.rowIndex ?? 0)
+        );
+        clientDataCache.set(cacheKey, rows, userId);
+        writeLocalFallback(`ff_sheethub_rows_${userId}_${tabId}`, rows);
+        return rows;
+      }
+
+      // Fallback to local store if firestore had no records
+      const local = readLocalFallback<SheetSyncedRow[]>(`ff_sheethub_rows_${userId}_${tabId}`, []);
+      clientDataCache.set(cacheKey, local, userId);
+      return local;
     } catch (err) {
       if (isSignedInAs(userId)) {
         console.error('[SheetHub] Firestore loadTabRows failed:', err);
@@ -545,8 +892,7 @@ export const sheetHubStore = {
 
   /**
    * Saves chunked rows with byte-size and row-count safety guarantees.
-   * Uses isolated Firestore writeBatch commits for primary chunks so optional
-   * mirror writes can NEVER roll back primary cloud persistence.
+   * Uses isolated Firestore writeBatch commits for primary chunks.
    */
   async saveTabRowsChunked(input: {
     userId: string;
@@ -572,6 +918,9 @@ export const sheetHubStore = {
     // Mirror full rows locally
     writeLocalFallback(`ff_sheethub_rows_${input.userId}_${input.tabId}`, cleanedRows);
 
+    let authoritativeSaved = false;
+    let cloudError: Error | null = null;
+
     // 1. Primary cloud write: users/{userId}/sheet_row_chunks/{chunk.id}
     if (packed.chunks.length > 0) {
       try {
@@ -584,7 +933,9 @@ export const sheetHubStore = {
           }
           await primaryBatch.commit();
         }
+        authoritativeSaved = true;
       } catch (err) {
+        cloudError = err instanceof Error ? err : new Error(String(err));
         if (isSignedInAs(input.userId)) {
           console.error('[SheetHub] Primary Firestore saveTabRowsChunked failed:', err);
         }
@@ -609,9 +960,32 @@ export const sheetHubStore = {
           console.warn('[SheetHub] Mirror Firestore nested row_chunks warning:', err);
         }
       }
+    } else {
+      authoritativeSaved = true;
     }
 
     clientDataCache.invalidate(`sheet_hub_rows_${input.userId}_${input.tabId}`);
+
+    if (!authoritativeSaved && isSignedInAs(input.userId)) {
+      enqueuePendingOp(input.userId, {
+        type: 'rows',
+        userId: input.userId,
+        connectionId: input.connectionId,
+        tabId: input.tabId,
+        payload: cleanedRows,
+        error: cloudError?.message || 'Primary Firestore row chunks write failed',
+      });
+      throw new SheetHubPersistenceError(
+        `Failed to save row chunks to Cloud Firestore: ${cloudError?.message || 'Unknown error'}`,
+        'FIRESTORE_ROWS_WRITE_FAILED',
+        input.connectionId,
+        input.tabId
+      );
+    }
+
+    if (authoritativeSaved) {
+      dequeuePendingOp(input.userId, input.connectionId, input.tabId, 'rows');
+    }
 
     return {
       chunkCount: packed.chunks.length,
@@ -813,9 +1187,37 @@ export const sheetHubStore = {
       updatedAt: now,
     };
 
-    await this.saveConnection(userId, sheet);
-    await this.saveTabSchema(userId, tab);
-    await this.saveTabRowsChunked({ userId, connectionId: sheetId, tabId, rows });
+    let sheetSaved = false;
+    let tabSaved = false;
+
+    try {
+      await this.saveConnection(userId, sheet);
+      sheetSaved = true;
+      await this.saveTabSchema(userId, tab);
+      tabSaved = true;
+      await this.saveTabRowsChunked({ userId, connectionId: sheetId, tabId, rows });
+    } catch (err: any) {
+      if (isSignedInAs(userId)) {
+        try {
+          if (tabSaved) {
+            await deleteDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tabId));
+            await deleteDoc(doc(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}`));
+          }
+          if (sheetSaved) {
+            await deleteDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), sheetId));
+            await deleteDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), sheetId));
+          }
+        } catch {
+          // Ignore compensating cleanup errors
+        }
+      }
+      throw new SheetHubPersistenceError(
+        `Failed to create spreadsheet in Cloud Firestore: ${err?.message || 'Persistence error'}`,
+        err?.code || 'FIRESTORE_WRITE_FAILED',
+        sheetId,
+        tabId
+      );
+    }
 
     return { sheet, tab, rows };
   },
@@ -916,11 +1318,29 @@ export const sheetHubStore = {
       };
     });
 
-    await this.saveTabSchema(userId, tab);
-    await this.saveTabRowsChunked({ userId, connectionId: sheetId, tabId, rows: initialRows });
-
-    const updatedTabOrder = [...existingSheet.tabOrder, tabId];
-    await this.saveConnection(userId, { ...existingSheet, tabOrder: updatedTabOrder, updatedAt: now });
+    let tabSaved = false;
+    try {
+      await this.saveTabSchema(userId, tab);
+      tabSaved = true;
+      await this.saveTabRowsChunked({ userId, connectionId: sheetId, tabId, rows: initialRows });
+      const updatedTabOrder = [...existingSheet.tabOrder, tabId];
+      await this.saveConnection(userId, { ...existingSheet, tabOrder: updatedTabOrder, updatedAt: now });
+    } catch (err: any) {
+      if (isSignedInAs(userId)) {
+        try {
+          if (tabSaved) {
+            await deleteDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tabId));
+            await deleteDoc(doc(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}`));
+          }
+        } catch {}
+      }
+      throw new SheetHubPersistenceError(
+        `Failed to create tab in Cloud Firestore: ${err?.message || 'Persistence error'}`,
+        err?.code || 'FIRESTORE_WRITE_FAILED',
+        sheetId,
+        tabId
+      );
+    }
 
     return tab;
   },
@@ -944,7 +1364,7 @@ export const sheetHubStore = {
   },
 
   /**
-   * Deletes a tab from a native spreadsheet.
+   * Deletes a tab from a native spreadsheet, fully cleaning up its row chunks.
    */
   async deleteNativeTab(userId: string, sheetId: string, tabId: string): Promise<void> {
     assertValidUserId(userId);
@@ -957,15 +1377,48 @@ export const sheetHubStore = {
       throw new Error('Cannot delete the only tab in a spreadsheet.');
     }
 
-    try {
-      await deleteDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tabId));
-      await deleteDoc(doc(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}`));
-    } catch {}
-
     const nextTabs = tabs.filter((t) => t.id !== tabId);
     writeLocalFallback(`ff_sheethub_tabs_${userId}_${sheetId}`, nextTabs);
     clientDataCache.invalidate(`sheet_hub_tabs_${userId}_${sheetId}`);
     clientDataCache.invalidate(`sheet_hub_rows_${userId}_${tabId}`);
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(`ff_sheethub_rows_${userId}_${tabId}`);
+    }
+    inMemoryFallbackStore.delete(`ff_sheethub_rows_${userId}_${tabId}`);
+
+    if (isSignedInAs(userId)) {
+      const refsToDelete: any[] = [];
+      refsToDelete.push(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tabId));
+      refsToDelete.push(doc(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}`));
+
+      try {
+        const chunksSnap = await getDocs(
+          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('tabId', '==', tabId))
+        );
+        for (const d of chunksSnap.docs) {
+          refsToDelete.push(d.ref);
+        }
+      } catch {}
+
+      try {
+        const nestedChunksSnap = await getDocs(
+          collection(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}/row_chunks`)
+        );
+        for (const d of nestedChunksSnap.docs) {
+          refsToDelete.push(d.ref);
+        }
+      } catch {}
+
+      for (let i = 0; i < refsToDelete.length; i += 400) {
+        const slice = refsToDelete.slice(i, i + 400);
+        const batch = writeBatch(db);
+        for (const ref of slice) {
+          batch.delete(ref);
+        }
+        await batch.commit();
+      }
+    }
 
     const nextOrder = existingSheet.tabOrder.filter((id) => id !== tabId);
     await this.saveConnection(userId, {
@@ -993,7 +1446,7 @@ export const sheetHubStore = {
   },
 
   /**
-   * Adds a column to a tab in a native spreadsheet.
+   * Adds a column to a tab in a native spreadsheet with Excel-style column labels.
    */
   async addNativeColumn(
     userId: string,
@@ -1009,7 +1462,7 @@ export const sheetHubStore = {
     if (tab.userId !== userId) throw new Error('Unauthorized.');
 
     const colIndex = tab.columns.length;
-    const colLetter = String.fromCharCode(65 + (colIndex % 26));
+    const colLetter = columnIndexToLetter(colIndex);
     const fieldKey = `col_${Date.now()}_${colIndex}`;
 
     const newCol: SheetColumnMapping = {
@@ -1033,7 +1486,7 @@ export const sheetHubStore = {
       updatedAt: new Date().toISOString(),
     };
 
-    const existingRows = await this.loadTabRows(userId, tabId);
+    const existingRows = await this.loadTabRows(userId, tabId, sheetId);
     const updatedRows = existingRows.map((r) => ({
       ...r,
       values: {
@@ -1215,6 +1668,90 @@ export const sheetHubStore = {
       tabId,
       rows,
     });
+  },
+
+  /**
+   * Enqueues an operation into the offline pending queue.
+   */
+  enqueuePendingOperation(
+    userId: string,
+    op: Omit<PendingSheetOperation, 'id' | 'createdAt' | 'attempts'>
+  ): void {
+    assertValidUserId(userId);
+    enqueuePendingOp(userId, op);
+  },
+
+  /**
+   * Returns all pending operations for a user (offline queue).
+   */
+  getPendingOperations(userId: string): PendingSheetOperation[] {
+    assertValidUserId(userId);
+    return readLocalFallback<PendingSheetOperation[]>(getPendingQueueKey(userId), []);
+  },
+
+  /**
+   * Retries all pending operations queued during offline or failed cloud persistence.
+   * Prevents silent last-write-wins data loss by verifying remote revision before overwriting.
+   */
+  async retryPendingOperations(userId: string): Promise<{ retried: number; succeeded: number; failed: number; conflicts: number }> {
+    assertValidUserId(userId);
+    const queue = readLocalFallback<PendingSheetOperation[]>(getPendingQueueKey(userId), []);
+    if (queue.length === 0) return { retried: 0, succeeded: 0, failed: 0, conflicts: 0 };
+
+    let succeeded = 0;
+    let failed = 0;
+    let conflicts = 0;
+    const remaining: PendingSheetOperation[] = [];
+
+    for (const op of queue) {
+      try {
+        if (op.type === 'connection') {
+          // Check for concurrent newer cloud document before overwriting
+          const cloudDoc = await this.getConnection(userId, op.connectionId);
+          const pendingConn = op.payload as SheetConnection;
+          if (cloudDoc && cloudDoc.updatedAt && pendingConn.updatedAt && cloudDoc.updatedAt > pendingConn.updatedAt) {
+            conflicts++;
+            remaining.push({
+              ...op,
+              attempts: op.attempts + 1,
+              error: 'Conflict: cloud spreadsheet was updated more recently on another device',
+            });
+            continue;
+          }
+          await this.saveConnection(userId, pendingConn);
+        } else if (op.type === 'index_sync') {
+          // Recoverable index repair: update local fallback and attempt Firestore write if signed in
+          const normalized = normalizeConnectionForFirestore(userId, op.payload as SheetConnection);
+          const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
+          const filtered = conns.filter((c) => c.id !== op.connectionId);
+          filtered.unshift(normalized);
+          writeLocalFallback(`ff_sheethub_conns_${userId}`, filtered);
+
+          if (isSignedInAs(userId)) {
+            await setDoc(
+              doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), op.connectionId),
+              normalized
+            );
+          }
+        } else if (op.type === 'tab') {
+          await this.saveTabSchema(userId, op.payload as SheetTabSchema);
+        } else if (op.type === 'rows') {
+          await this.saveTabRowsChunked({
+            userId,
+            connectionId: op.connectionId,
+            tabId: op.tabId!,
+            rows: op.payload as SheetSyncedRow[],
+          });
+        }
+        succeeded++;
+      } catch (err: any) {
+        failed++;
+        remaining.push({ ...op, attempts: op.attempts + 1, error: err?.message || 'Retry failed' });
+      }
+    }
+
+    writeLocalFallback(getPendingQueueKey(userId), remaining);
+    return { retried: queue.length, succeeded, failed, conflicts };
   },
 
   /**

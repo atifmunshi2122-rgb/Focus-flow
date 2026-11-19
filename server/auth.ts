@@ -109,6 +109,41 @@ export async function verifyFirebaseIdToken(token: string): Promise<AuthContext>
   const header = decodeBase64UrlJson<FirebaseJwtHeader>(headerB64);
   const payload = decodeBase64UrlJson<FirebaseJwtPayload>(payloadB64);
 
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isEmulatorEnv =
+    Boolean(process.env.FIRESTORE_EMULATOR_HOST) ||
+    Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST) ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.ALLOW_EMULATOR_AUTH === 'true';
+
+  // Support Firebase Auth emulator 'none' algorithm tokens strictly in test/emulator environments
+  if (header.alg === 'none' && !sigB64) {
+    if (isProduction) {
+      throw new Error('Unsigned tokens are strictly forbidden in production');
+    }
+    if (!isEmulatorEnv) {
+      throw new Error('Emulator tokens are only permitted when Firebase emulator host is configured');
+    }
+    const projectId = resolveFirebaseProjectId();
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (payload.aud !== projectId && payload.aud !== 'test-rules-project') {
+      throw new Error('Token audience mismatch');
+    }
+    if (!payload.sub || typeof payload.sub !== 'string' || payload.sub.length > 128) {
+      throw new Error('Invalid token subject');
+    }
+    if (typeof payload.exp === 'number' && payload.exp <= nowSec - 30) {
+      throw new Error('Token expired');
+    }
+    return {
+      userId: payload.sub,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
+      name: typeof payload.name === 'string' ? payload.name : undefined,
+      avatarUrl: typeof payload.picture === 'string' ? payload.picture : undefined,
+      isGuest: payload.sub.startsWith('gst_') || Boolean((payload as any).isGuest),
+    };
+  }
+
   if (header.alg !== 'RS256' || !header.kid) {
     throw new Error('Unsupported JWT algorithm or missing key ID');
   }
@@ -164,7 +199,8 @@ export async function verifyFirebaseIdToken(token: string): Promise<AuthContext>
  * Express authentication & tenant isolation middleware.
  * - Verifies `Authorization: Bearer <firebase-id-token>` cryptographically whenever sent.
  * - Rejects malformed/expired Bearer tokens cleanly with 401.
- * - When `REQUIRE_AUTH=true`, requires a valid Bearer token for every API route.
+ * - In production: fails closed; unverified tokens can NEVER authenticate requests.
+ * - When `REQUIRE_AUTH=true` or in production, requires an authenticated session.
  * - Otherwise scopes unauthenticated sessions cleanly by validated `x-demo-session` token
  *   instead of relying on a hardcoded spoofable `x-user-id` header.
  */
@@ -177,7 +213,10 @@ export async function requireUserContext(
     next();
     return;
   }
+
+  const isProduction = process.env.NODE_ENV === 'production';
   const authHeader = req.headers.authorization;
+
   if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice('Bearer '.length).trim();
     if (!token) {
@@ -188,37 +227,23 @@ export async function requireUserContext(
     try {
       const verified = await verifyFirebaseIdToken(token);
       (req as AuthenticatedRequest).auth = verified;
+      const claimedUid = req.headers['x-user-id'];
+      if (typeof claimedUid === 'string' && claimedUid.trim() && claimedUid.trim() !== verified.userId) {
+        res.status(403).json({ error: 'Tenant isolation violation: x-user-id does not match verified token subject' });
+        return;
+      }
       next();
       return;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unauthorized';
-      if (process.env.NODE_ENV !== 'production' && process.env.REQUIRE_AUTH !== 'true') {
-        try {
-          const parts = token.split('.');
-          if (parts.length === 3) {
-            const payload = decodeBase64UrlJson<FirebaseJwtPayload>(parts[1]);
-            if (payload.sub && typeof payload.sub === 'string') {
-              (req as AuthenticatedRequest).auth = {
-                userId: payload.sub,
-                email: typeof payload.email === 'string' ? payload.email : undefined,
-                name: typeof payload.name === 'string' ? payload.name : undefined,
-                avatarUrl: typeof payload.picture === 'string' ? payload.picture : undefined,
-                isGuest: payload.sub.startsWith('gst_') || Boolean((payload as any).isGuest),
-              };
-              next();
-              return;
-            }
-          }
-        } catch {
-          // pass through to 401 below
-        }
-      }
+      // Production MUST fail closed: unverified tokens are never accepted
       res.status(401).json({ error: `Authentication failed: ${message}` });
       return;
     }
   }
 
-  if (process.env.REQUIRE_AUTH === 'true' || (process.env.NODE_ENV === 'production' && process.env.ALLOW_GUEST !== 'true')) {
+  // Enforce authentication: in production, or when explicitly requested
+  if (process.env.REQUIRE_AUTH === 'true' || (isProduction && process.env.ALLOW_GUEST !== 'true')) {
     res.status(401).json({ error: 'Authentication required' });
     return;
   }
@@ -228,7 +253,8 @@ export async function requireUserContext(
 
   if (typeof demoSessionHeader === 'string' && GUEST_ID_REGEX.test(demoSessionHeader.trim())) {
     demoSessionId = demoSessionHeader.trim();
-  } else if (process.env.DEMO_MODE === 'shared') {
+  } else if (!isProduction && process.env.DEMO_MODE === 'shared') {
+    // Shared demo mode strictly forbidden in production deployments
     demoSessionId = 'usr_atif_default';
   } else {
     // Generate an isolated guest ID keyed to client characteristics

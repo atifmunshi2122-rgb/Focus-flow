@@ -1,7 +1,9 @@
 import './test_bootstrap.ts';
-import test, { describe, it } from 'node:test';
+import test, { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { terminate } from 'firebase/firestore';
+import { db } from '../src/lib/firebase.ts';
 import { sheetHubStore } from '../src/lib/sheetHub/sheetHubStore.ts';
 import { clientDataCache } from '../src/lib/dataCache.ts';
 import type { SheetConnection, SheetSyncedRow, SheetTabSchema } from '../src/types/sheetHub.ts';
@@ -367,5 +369,15 @@ describe('FocusFlow Native Private Spreadsheet System — Multi-User Isolation M
     // User A's memory cache is completely purged
     const aliceCached = clientDataCache.get(`sheet_hub_conns_${userA}`, undefined, userA);
     assert.equal(aliceCached, null, "User A's memory cache must be purged upon clearing cache");
+  });
+
+  after(async () => {
+    if (db) {
+      try {
+        await terminate(db);
+      } catch {
+        // Ignore if already terminated
+      }
+    }
   });
 });

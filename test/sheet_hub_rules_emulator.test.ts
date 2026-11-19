@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 
 const PROJECT_ID = 'test-rules-project';
 const HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
-const DB_PATH = `projects/${PROJECT_ID}/databases/(default)/documents`;
+const DATABASE_ID =
+  process.env.FIRESTORE_DATABASE_ID ||
+  'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
+const DB_PATH = `projects/${PROJECT_ID}/databases/${DATABASE_ID}/documents`;
+const DEFAULT_DB_PATH = `projects/${PROJECT_ID}/databases/(default)/documents`;
 const BASE_URL = `http://${HOST}/v1/${DB_PATH}`;
 
 const isEmulatorRunning = Boolean(process.env.FIRESTORE_EMULATOR_HOST);

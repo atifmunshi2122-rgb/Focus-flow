@@ -240,6 +240,25 @@ export const NativeSpreadsheetEditor: React.FC<NativeSpreadsheetEditorProps> = (
     }
   };
 
+  // Retry saving pending operations
+  const handleRetryPendingSave = async () => {
+    setSaveState('saving');
+    try {
+      const res = await sheetHubStore.retryPendingOperations(userId);
+      if (res.failed === 0) {
+        setSaveState('saved');
+        setLastSavedTime(new Date().toLocaleTimeString());
+        showToast('All pending changes successfully saved to Cloud Firestore.', 'success');
+      } else {
+        setSaveState('error');
+        showToast(`Retry finished: ${res.succeeded} saved, ${res.failed} still failing.`, 'error');
+      }
+    } catch (err: any) {
+      setSaveState('error');
+      showToast(err?.message || 'Failed to retry saving.', 'error');
+    }
+  };
+
   // Delete row
   const handleDeleteRow = async (rowUid: string) => {
     if (!activeTab) return;
@@ -514,10 +533,15 @@ export const NativeSpreadsheetEditor: React.FC<NativeSpreadsheetEditorProps> = (
               </>
             )}
             {saveState === 'error' && (
-              <>
+              <button
+                type="button"
+                onClick={handleRetryPendingSave}
+                className="flex items-center gap-1.5 text-rose-500 hover:text-rose-600 font-medium cursor-pointer transition-colors"
+                title="Click to retry saving pending operations to Cloud Firestore"
+              >
                 <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
-                <span className="text-rose-500 font-medium">Save error</span>
-              </>
+                <span>Save error (Click to Retry)</span>
+              </button>
             )}
           </div>
 

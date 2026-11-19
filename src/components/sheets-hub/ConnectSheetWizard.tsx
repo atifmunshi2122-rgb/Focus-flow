@@ -1076,31 +1076,33 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {[
-              {
-                id: 'checklist',
-                label: 'Hierarchical Checklist',
-                desc: 'Nested modules & topics with completion status. Best for study trackers and syllabi.',
-              },
-              {
-                id: 'table',
-                label: 'Data Table',
-                desc: 'Classic spreadsheet grid with sortable columns, formulas, and high-density view.',
-              },
-              {
-                id: 'cards',
-                label: 'Cards Grid',
-                desc: 'Responsive cards for content-rich records, book summaries, or video trackers.',
-              },
-              {
-                id: 'grouped_list',
-                label: 'Grouped List',
-                desc: 'Grouped sections by categories or priority levels.',
-              },
-            ].map((v) => (
+            {(
+              [
+                {
+                  id: 'checklist',
+                  label: 'Hierarchical Checklist',
+                  desc: 'Nested modules & topics with completion status. Best for study trackers and syllabi.',
+                },
+                {
+                  id: 'table',
+                  label: 'Data Table',
+                  desc: 'Classic spreadsheet grid with sortable columns, formulas, and high-density view.',
+                },
+                {
+                  id: 'cards',
+                  label: 'Cards Grid',
+                  desc: 'Responsive cards for content-rich records, book summaries, or video trackers.',
+                },
+                {
+                  id: 'grouped_list',
+                  label: 'Grouped List',
+                  desc: 'Grouped sections by categories or priority levels.',
+                },
+              ] as const
+            ).map((v) => (
               <div
                 key={v.id}
-                onClick={() => setPreferredView(v.id as any)}
+                onClick={() => setPreferredView(v.id)}
                 className={`p-4 rounded-xl border cursor-pointer select-none transition-all ${
                   preferredView === v.id
                     ? 'border-[var(--ff-accent)] bg-[var(--ff-surface)] shadow-md'
