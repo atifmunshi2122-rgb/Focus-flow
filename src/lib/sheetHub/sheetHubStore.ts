@@ -605,20 +605,26 @@ export const sheetHubStore = {
     dequeuePendingOp(userId, connectionId);
 
     if (isSignedInAs(userId)) {
+      let discoveryError: Error | null = null;
+
       // Discover any additional tabs in Firestore across flat and nested paths
       try {
         const qTabs = await getDocs(
           query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs)), where('connectionId', '==', connectionId))
         );
         for (const d of qTabs.docs) tabIds.add(d.id);
-      } catch {}
+      } catch (err: any) {
+        discoveryError = discoveryError || err;
+      }
 
       try {
         const nestedTabsSnap = await getDocs(
           collection(db, `users/${userId}/sheets/${connectionId}/tabs`)
         );
         for (const d of nestedTabsSnap.docs) tabIds.add(d.id);
-      } catch {}
+      } catch (err: any) {
+        discoveryError = discoveryError || err;
+      }
 
       const childRefsToDelete: any[] = [];
 
@@ -632,21 +638,27 @@ export const sheetHubStore = {
             query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('tabId', '==', tId))
           );
           for (const d of chunksSnap.docs) childRefsToDelete.push(d.ref);
-        } catch {}
+        } catch (err: any) {
+          discoveryError = discoveryError || err;
+        }
 
         try {
           const nestedChunksSnap = await getDocs(
             collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/row_chunks`)
           );
           for (const d of nestedChunksSnap.docs) childRefsToDelete.push(d.ref);
-        } catch {}
+        } catch (err: any) {
+          discoveryError = discoveryError || err;
+        }
 
         try {
           const nestedRowsSnap = await getDocs(
             collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/rows`)
           );
           for (const d of nestedRowsSnap.docs) childRefsToDelete.push(d.ref);
-        } catch {}
+        } catch (err: any) {
+          discoveryError = discoveryError || err;
+        }
       }
 
       // 2. Direct chunks referencing connectionId
@@ -655,7 +667,9 @@ export const sheetHubStore = {
           query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('connectionId', '==', connectionId))
         );
         for (const d of connChunksSnap.docs) childRefsToDelete.push(d.ref);
-      } catch {}
+      } catch (err: any) {
+        discoveryError = discoveryError || err;
+      }
 
       // 3. Associated sync queue items
       try {
@@ -663,7 +677,9 @@ export const sheetHubStore = {
           query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.syncQueue)), where('connectionId', '==', connectionId))
         );
         for (const d of queueSnap.docs) childRefsToDelete.push(d.ref);
-      } catch {}
+      } catch (err: any) {
+        discoveryError = discoveryError || err;
+      }
 
       // 4. Associated conflict items
       try {
@@ -671,7 +687,17 @@ export const sheetHubStore = {
           query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts)), where('connectionId', '==', connectionId))
         );
         for (const d of conflictSnap.docs) childRefsToDelete.push(d.ref);
-      } catch {}
+      } catch (err: any) {
+        discoveryError = discoveryError || err;
+      }
+
+      if (discoveryError) {
+        throw new SheetHubPersistenceError(
+          `Cascade deletion aborted: could not query all child records: ${(discoveryError as Error).message}`,
+          'DELETION_INCOMPLETE',
+          connectionId
+        );
+      }
 
       // Delete child records FIRST in batches of <= 400
       for (let i = 0; i < childRefsToDelete.length; i += 400) {
@@ -1388,6 +1414,7 @@ export const sheetHubStore = {
     inMemoryFallbackStore.delete(`ff_sheethub_rows_${userId}_${tabId}`);
 
     if (isSignedInAs(userId)) {
+      let discoveryError: Error | null = null;
       const refsToDelete: any[] = [];
       refsToDelete.push(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tabId));
       refsToDelete.push(doc(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}`));
@@ -1399,7 +1426,9 @@ export const sheetHubStore = {
         for (const d of chunksSnap.docs) {
           refsToDelete.push(d.ref);
         }
-      } catch {}
+      } catch (err: any) {
+        discoveryError = discoveryError || err;
+      }
 
       try {
         const nestedChunksSnap = await getDocs(
@@ -1408,7 +1437,28 @@ export const sheetHubStore = {
         for (const d of nestedChunksSnap.docs) {
           refsToDelete.push(d.ref);
         }
-      } catch {}
+      } catch (err: any) {
+        discoveryError = discoveryError || err;
+      }
+
+      try {
+        const nestedRowsSnap = await getDocs(
+          collection(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}/rows`)
+        );
+        for (const d of nestedRowsSnap.docs) {
+          refsToDelete.push(d.ref);
+        }
+      } catch (err: any) {
+        discoveryError = discoveryError || err;
+      }
+
+      if (discoveryError) {
+        throw new SheetHubPersistenceError(
+          `Cascade tab deletion aborted: could not query child row records: ${(discoveryError as Error).message}`,
+          'DELETION_INCOMPLETE',
+          tabId
+        );
+      }
 
       for (let i = 0; i < refsToDelete.length; i += 400) {
         const slice = refsToDelete.slice(i, i + 400);

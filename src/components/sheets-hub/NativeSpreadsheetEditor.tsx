@@ -43,7 +43,7 @@ interface NativeSpreadsheetEditorProps {
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-type SaveState = 'saved' | 'saving' | 'unsaved' | 'error';
+type SaveState = 'saved' | 'saving' | 'unsaved' | 'error' | 'conflict';
 
 export const NativeSpreadsheetEditor: React.FC<NativeSpreadsheetEditorProps> = ({
   sheet,
@@ -245,7 +245,13 @@ export const NativeSpreadsheetEditor: React.FC<NativeSpreadsheetEditorProps> = (
     setSaveState('saving');
     try {
       const res = await sheetHubStore.retryPendingOperations(userId);
-      if (res.failed === 0) {
+      if (res.conflicts > 0) {
+        setSaveState('conflict');
+        showToast(
+          `Conflict detected: ${res.conflicts} operation(s) conflict with newer cloud changes. Please reload to review.`,
+          'error'
+        );
+      } else if (res.failed === 0) {
         setSaveState('saved');
         setLastSavedTime(new Date().toLocaleTimeString());
         showToast('All pending changes successfully saved to Cloud Firestore.', 'success');
@@ -541,6 +547,17 @@ export const NativeSpreadsheetEditor: React.FC<NativeSpreadsheetEditorProps> = (
               >
                 <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
                 <span>Save error (Click to Retry)</span>
+              </button>
+            )}
+            {saveState === 'conflict' && (
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="flex items-center gap-1.5 text-amber-500 hover:text-amber-600 font-medium cursor-pointer transition-colors"
+                title="Remote spreadsheet has newer changes. Click to reload and view latest cloud data."
+              >
+                <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                <span>Version Conflict (Click to Reload)</span>
               </button>
             )}
           </div>

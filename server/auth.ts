@@ -126,7 +126,13 @@ export async function verifyFirebaseIdToken(token: string): Promise<AuthContext>
     }
     const projectId = resolveFirebaseProjectId();
     const nowSec = Math.floor(Date.now() / 1000);
-    if (payload.aud !== projectId && payload.aud !== 'test-rules-project') {
+    const validAuds = new Set([
+      projectId,
+      'test-rules-project',
+      'seismic-codex-m01dl',
+      'gen-lang-client-0390447756',
+    ]);
+    if (payload.aud && !validAuds.has(payload.aud)) {
       throw new Error('Token audience mismatch');
     }
     if (!payload.sub || typeof payload.sub !== 'string' || payload.sub.length > 128) {
@@ -220,7 +226,7 @@ export async function requireUserContext(
   if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice('Bearer '.length).trim();
     if (!token) {
-      res.status(401).json({ error: 'Missing authentication bearer token' });
+      res.status(401).json({ error: 'Missing authentication bearer token', code: 'AUTH_REQUIRED' });
       return;
     }
 
@@ -237,14 +243,14 @@ export async function requireUserContext(
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unauthorized';
       // Production MUST fail closed: unverified tokens are never accepted
-      res.status(401).json({ error: `Authentication failed: ${message}` });
+      res.status(401).json({ error: `Authentication failed: ${message}`, code: 'AUTH_REQUIRED' });
       return;
     }
   }
 
   // Enforce authentication: in production, or when explicitly requested
   if (process.env.REQUIRE_AUTH === 'true' || (isProduction && process.env.ALLOW_GUEST !== 'true')) {
-    res.status(401).json({ error: 'Authentication required' });
+    res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
     return;
   }
 

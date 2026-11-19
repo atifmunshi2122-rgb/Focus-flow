@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Enforce test environment
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+
 // Generate an isolated temporary directory for this test process/worker
 const uniqueId = `focusflow-test-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const tempDir = path.resolve(os.tmpdir(), uniqueId);
