@@ -1,3 +1,5 @@
+import firebaseConfig from '../../firebase-applet-config.json';
+
 export type AuthScopeMode = 'basic' | 'sheets' | 'sheet_hub_readonly';
 
 export interface AuthDiagnostic {
@@ -65,6 +67,7 @@ export function classifyFirebaseAuthError(
     isIframe?: boolean;
     hostname?: string;
     userEmail?: string | null;
+    projectId?: string | null;
   }
 ): AuthDiagnostic {
   const code = extractFirebaseAuthCode(error);
@@ -73,6 +76,8 @@ export function classifyFirebaseAuthError(
   const hostname = options.hostname ?? getCurrentHostname();
   const isSheetHub = options.scopeMode === 'sheet_hub_readonly';
   const isSheets = options.scopeMode === 'sheets' || isSheetHub;
+  const matchedProject = rawMessage.match(/([a-z0-9-]+)\.firebaseapp\.com/i)?.[1];
+  const activeProjectId = options.projectId || matchedProject || firebaseConfig.projectId || 'gen-lang-client-0390447756';
 
   if (code === 'auth/popup-blocked') {
     return {
@@ -224,14 +229,14 @@ export function classifyFirebaseAuthError(
         ? 'Google Sheets Permissions Declined'
         : 'Google Sign-In Consent Declined',
       summary: isTestingMode
-        ? 'Google blocked access because this app is currently in "Testing" mode on Google Cloud (seismic-codex-m01dl) and only developer-approved test users can authorize sensitive Google Sheets scopes (Error 403: access_denied). Your basic sign-in remains active.'
+        ? `Google blocked access because this app is currently in "Testing" mode on Google Cloud (${activeProjectId}) and only developer-approved test users can authorize sensitive Google Sheets scopes (Error 403: access_denied). Your basic sign-in remains active.`
         : isSheetHub
         ? 'Google Sheets read-only access was declined by the user. FocusFlow only requested read access (spreadsheets.readonly) to inspect and import your spreadsheet. Your basic sign-in remains active.'
         : isSheets
         ? 'Google Sheets & Drive access was not granted. Your basic Firebase account sign-in remains active.'
         : 'Google sign-in permissions were not granted.',
       resolutionHint: isTestingMode
-        ? 'To authorize live Google Sheets, add your Google account to Test Users in Google Cloud Console (APIs & Services → OAuth consent screen → Audience / Test users → + ADD USERS), or load our zero-auth demo fixture.'
+        ? 'To authorize live Google Sheets, add your Google account to Test Users in Google Cloud Console (APIs & Services → OAuth consent screen → Audience / Test users → + ADD USERS), or use Public Link mode for publicly viewable spreadsheets.'
         : isSheetHub
         ? 'Click Retry and approve Google Sheets read-only permissions when prompted.'
         : isSheets
@@ -246,7 +251,7 @@ export function classifyFirebaseAuthError(
       rawMessage,
       isTestingModeBlock: isTestingMode,
       testUsersGuideHint: isTestingMode
-        ? 'Google Cloud Console (seismic-codex-m01dl) → APIs & Services → OAuth consent screen → Audience / Test users → + ADD USERS'
+        ? `Google Cloud Console (${activeProjectId}) → APIs & Services → OAuth consent screen → Audience / Test users → + ADD USERS`
         : undefined,
     };
   }

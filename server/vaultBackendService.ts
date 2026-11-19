@@ -147,7 +147,7 @@ function resolveFirebaseProjectIdFallback(): string {
   } catch {
     // fallback below
   }
-  return 'seismic-codex-m01dl';
+  return 'gen-lang-client-0390447756';
 }
 
 export function resolveFirestoreDatabaseId(): string {

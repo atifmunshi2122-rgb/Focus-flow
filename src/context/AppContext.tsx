@@ -1418,7 +1418,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const { user: fbUser, accessToken } = await fbAuthorizeSheetHubReadOnly(firebaseUser?.email);
       setFirebaseUser(fbUser);
-      setGoogleAccessToken(accessToken);
       showToast('Google Sheets read-only permissions granted!', 'success');
       triggerRefresh();
       return accessToken;
@@ -1483,6 +1482,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Google Sheets Workbook Management
   const createOrConnectSpreadsheet = async (): Promise<string> => {
+    const confirmed = await confirmAction({
+      title: 'Create 23-Tab Master Google Sheet',
+      message:
+        'This will create a new "FocusFlow & Finance" spreadsheet in your Google Drive with 23 formatted worksheets, live formulas, and charts, then sync your current FocusFlow records into it.',
+      confirmLabel: 'Create & Sync Workbook',
+      cancelLabel: 'Cancel',
+      tone: 'primary',
+    });
+    if (!confirmed) {
+      return '';
+    }
+
     let token: string | null = googleAccessToken;
     if (!token) {
       token = await getAccessToken();
@@ -1495,6 +1506,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setSyncStatus('syncing');
+    setSyncLastError(null);
     try {
       showToast('Creating executive master workbook with 23 styled worksheets, charts & live formulas...', 'info');
       const spreadsheetId = await googleSheetsService.createMasterWorkbook(token);
@@ -1519,6 +1531,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const syncNowToGoogleSheets = async (targetSheetId?: string, overrideToken?: string) => {
     const sId = targetSheetId || googleSpreadsheetId;
+    if (!sId) {
+      showToast('Please initialize your Google Sheets master workbook first', 'info');
+      return;
+    }
+
+    if (!overrideToken) {
+      const confirmed = await confirmAction({
+        title: 'Sync Data to Google Sheets',
+        message:
+          'This will update synced data ranges across all 23 worksheets in your connected Google Spreadsheet using your latest FocusFlow & Finance records.',
+        itemLabel: `Spreadsheet ID: ${sId}`,
+        confirmLabel: 'Sync Now',
+        cancelLabel: 'Cancel',
+        tone: 'primary',
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+
     let token: string | null = overrideToken || googleAccessToken;
 
     if (!token) {
@@ -1530,12 +1562,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!token) {
       return;
     }
-    if (!sId) {
-      showToast('Please initialize your Google Sheets master workbook first', 'info');
-      return;
-    }
 
     setSyncStatus('syncing');
+    setSyncLastError(null);
     try {
       const [
         sessions,
@@ -1697,6 +1726,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast('Please initialize your Google Sheets master workbook first', 'info');
       return;
     }
+    const confirmed = await confirmAction({
+      title: 'Re-apply Google Sheet Formatting',
+      message:
+        'This will update header styles, number formats, filters, conditional formatting, and column widths across your connected 23-tab Google Spreadsheet.',
+      itemLabel: `Spreadsheet ID: ${googleSpreadsheetId}`,
+      confirmLabel: 'Apply Formatting',
+      cancelLabel: 'Cancel',
+      tone: 'warning',
+    });
+    if (!confirmed) {
+      return;
+    }
+
     let token: string | null = googleAccessToken;
     if (!token) {
       token = await getAccessToken();
@@ -1708,6 +1750,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
     setSyncStatus('syncing');
+    setSyncLastError(null);
     try {
       await googleSheetsService.applyFormatting(googleSpreadsheetId, token, true);
       setSyncStatus('synced');

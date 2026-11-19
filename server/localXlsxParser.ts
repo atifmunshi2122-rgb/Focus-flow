@@ -68,11 +68,15 @@ function colRefToIndex0(colLetters: string): number {
   return idx - 1;
 }
 
-export function parseLocalXlsxFixture(filePath: string): SheetTabInspectionInput[] {
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`File not found: ${filePath}`);
+export function isZipBuffer(buf: Buffer): boolean {
+  return Buffer.isBuffer(buf) && buf.length >= 4 && buf.readUInt32LE(0) === 0x04034b50;
+}
+
+export function parseXlsxBuffer(buf: Buffer): SheetTabInspectionInput[] {
+  if (!isZipBuffer(buf)) {
+    throw new Error('Invalid XLSX archive: expected ZIP signature');
   }
-  const entries = extractZipEntries(fs.readFileSync(filePath));
+  const entries = extractZipEntries(buf);
 
   // Shared strings
   const sharedStrings: string[] = [];
@@ -151,7 +155,15 @@ export function parseLocalXlsxFixture(filePath: string): SheetTabInspectionInput
         let value: SheetCellScalar = null;
         let isBooleanCell = false;
 
-        if (cellType === 'b') {
+        if (cellType === 'inlineStr') {
+          const inlineParts: string[] = [];
+          const tRegex = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+          let tm: RegExpExecArray | null;
+          while ((tm = tRegex.exec(cXml)) !== null) {
+            inlineParts.push(decodeXmlEntities(tm[1]));
+          }
+          value = inlineParts.join('');
+        } else if (cellType === 'b') {
           value = rawVal === '1' || rawVal.toLowerCase() === 'true';
           isBooleanCell = true;
         } else if (cellType === 's') {
@@ -199,5 +211,12 @@ export function parseLocalXlsxFixture(filePath: string): SheetTabInspectionInput
   }
 
   return result;
+}
+
+export function parseLocalXlsxFixture(filePath: string): SheetTabInspectionInput[] {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`File not found: ${filePath}`);
+  }
+  return parseXlsxBuffer(fs.readFileSync(filePath));
 }
 

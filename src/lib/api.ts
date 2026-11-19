@@ -1798,7 +1798,7 @@ export const api = {
 
   // Universal Sheet Sync Hub Endpoints
   sheetHubInspect: (
-    payload: { spreadsheetId?: string; spreadsheetUrl?: string; previewRows?: number },
+    payload: { spreadsheetId?: string; spreadsheetUrl?: string; previewRows?: number; publicAccess?: boolean },
     googleAccessToken?: string | null
   ) =>
     request<SheetInspectResponse>('/sheet-hub/inspect', {
@@ -1808,7 +1808,7 @@ export const api = {
     }),
 
   sheetHubPull: (
-    payload: { spreadsheetId: string; tabs: SheetPullTabRequest[] },
+    payload: { spreadsheetId: string; tabs: SheetPullTabRequest[]; publicAccess?: boolean },
     googleAccessToken?: string | null
   ) =>
     request<SheetPullResponse>('/sheet-hub/pull', {

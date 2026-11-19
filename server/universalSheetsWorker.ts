@@ -27,8 +27,10 @@ import {
   parseGoogleSheetUrl,
 } from '../src/lib/sheetHub/urlParser.ts';
 import { detectWorkbookSchema } from '../src/lib/sheetHub/schemaDetector.ts';
+import { isZipBuffer, parseXlsxBuffer } from './localXlsxParser.ts';
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
+const PUBLIC_EXPORT_BASE = 'https://docs.google.com/spreadsheets/d';
 const MAX_INSPECT_TABS = 25;
 const MAX_PULL_TABS = 25;
 const DEFAULT_PREVIEW_ROWS = 50;
@@ -628,6 +630,246 @@ export async function pullSpreadsheetTabs(
     spreadsheetId,
     title: metaJson.properties?.title || 'Untitled Spreadsheet',
     tabs,
+    pulledAt: new Date().toISOString(),
+  };
+}
+
+function extractTitleFromContentDisposition(header: string | null): string {
+  if (!header) return 'Public Google Spreadsheet';
+  const utf8Match = header.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      const decoded = decodeURIComponent(utf8Match[1].trim().replace(/^["']|["']$/g, ''));
+      return decoded.replace(/\.xlsx$/i, '').trim() || 'Public Google Spreadsheet';
+    } catch {
+      // fall through
+    }
+  }
+  const basicMatch = header.match(/filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;]+)/i);
+  const rawName = (basicMatch?.[1] || basicMatch?.[2] || '').trim().replace(/^["']|["']$/g, '');
+  return rawName.replace(/\.xlsx$/i, '').trim() || 'Public Google Spreadsheet';
+}
+
+async function fetchPublicSpreadsheetXlsx(
+  spreadsheetId: string,
+  fetchImpl: FetchLike = fetch
+): Promise<{ title: string; tabs: SheetTabInspectionInput[] }> {
+  const exportUrl = `${PUBLIC_EXPORT_BASE}/${encodeURIComponent(spreadsheetId)}/export?format=xlsx`;
+  const res = await fetchImpl(exportUrl, {
+    method: 'GET',
+    redirect: 'follow',
+    headers: {
+      Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*',
+    },
+  });
+
+  if (res.status === 404) {
+    throw new SheetHubWorkerError(
+      'Google Spreadsheet not found. Verify the spreadsheet URL or ID.',
+      404,
+      'SPREADSHEET_NOT_FOUND'
+    );
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    throw new SheetHubWorkerError(
+      'This Google Spreadsheet is private or restricted. Either change sharing to "Anyone with the link (Viewer)" or authorize with Google.',
+      403,
+      'SHEET_PRIVATE_AUTH_REQUIRED'
+    );
+  }
+
+  if (!res.ok) {
+    const errMsg = await readGoogleError(res);
+    throw new SheetHubWorkerError(
+      `Unable to read public spreadsheet (HTTP ${res.status}): ${errMsg}`,
+      res.status >= 400 && res.status < 500 ? res.status : 502,
+      'SHEETS_UPSTREAM_ERROR'
+    );
+  }
+
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  const arrayBuf = await res.arrayBuffer();
+  const buffer = Buffer.from(arrayBuf);
+
+  if (contentType.includes('text/html') || !isZipBuffer(buffer)) {
+    throw new SheetHubWorkerError(
+      'This Google Spreadsheet requires sign-in (it is not shared publicly). Set sharing to "Anyone with the link → Viewer" to import without sign-in, or click Authorize with Google.',
+      403,
+      'SHEET_PRIVATE_AUTH_REQUIRED'
+    );
+  }
+
+  let parsedTabs: SheetTabInspectionInput[];
+  try {
+    parsedTabs = parseXlsxBuffer(buffer);
+  } catch (err) {
+    throw new SheetHubWorkerError(
+      `Failed to parse exported spreadsheet workbook: ${err instanceof Error ? err.message : String(err)}`,
+      502,
+      'MALFORMED_SHEETS_RESPONSE'
+    );
+  }
+
+  const title = extractTitleFromContentDisposition(res.headers.get('content-disposition'));
+  return { title, tabs: parsedTabs.slice(0, MAX_INSPECT_TABS) };
+}
+
+/**
+ * Zero-OAuth Public Link Inspect:
+ * Reads spreadsheets shared as "Anyone with the link can view" via OpenXML export,
+ * detects private login redirects cleanly, and runs the exact same schema detector.
+ */
+export async function inspectPublicSpreadsheet(
+  input: {
+    spreadsheetId?: string;
+    spreadsheetUrl?: string;
+    previewRows?: number;
+  },
+  fetchImpl: FetchLike = fetch
+): Promise<SheetInspectResponse> {
+  const { spreadsheetId, canonicalUrl } = resolveSpreadsheetIdInput(input);
+  const previewRows = Math.max(
+    10,
+    Math.min(MAX_PREVIEW_ROWS, Math.floor(input.previewRows || DEFAULT_PREVIEW_ROWS))
+  );
+
+  const { title, tabs: rawTabs } = await fetchPublicSpreadsheetXlsx(spreadsheetId, fetchImpl);
+  const boundedInputs: SheetTabInspectionInput[] = rawTabs.map((tab) => ({
+    sheetId: tab.sheetId,
+    sheetTitle: tab.sheetTitle,
+    rowCount: tab.rows.length,
+    columnCount: tab.rows.reduce((max, r) => Math.max(max, r.length), 0),
+    rows: tab.rows.slice(0, previewRows),
+  }));
+
+  const workbookSchema = detectWorkbookSchema(boundedInputs);
+
+  return {
+    spreadsheetId,
+    title,
+    canonicalUrl,
+    tabs: workbookSchema.tabs,
+    summary: {
+      totalTabs: workbookSchema.tabs.length,
+      dataTabs: workbookSchema.dataTabCount,
+      overviewTabs: workbookSchema.overviewTabCount,
+      emptyTabs: workbookSchema.emptyTabCount,
+      requiresUserConfirmation: workbookSchema.requiresUserConfirmation,
+    },
+    inspectedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Zero-OAuth Public Link Pull:
+ * Pulls full rows from selected tabs of a publicly viewable Google Spreadsheet.
+ */
+export async function pullPublicSpreadsheetTabs(
+  input: {
+    spreadsheetId: string;
+    tabs: SheetPullTabRequest[];
+  },
+  fetchImpl: FetchLike = fetch
+): Promise<SheetPullResponse> {
+  const { spreadsheetId } = resolveSpreadsheetIdInput({ spreadsheetId: input.spreadsheetId });
+
+  if (!Array.isArray(input.tabs) || input.tabs.length === 0) {
+    throw new SheetHubWorkerError(
+      'At least one tab must be specified to pull data.',
+      400,
+      'INVALID_PULL_REQUEST'
+    );
+  }
+
+  const requestedTabs = input.tabs.slice(0, MAX_PULL_TABS);
+  const { title, tabs: parsedTabs } = await fetchPublicSpreadsheetXlsx(spreadsheetId, fetchImpl);
+  const detectedSchema = detectWorkbookSchema(
+    parsedTabs.map((t) => ({ ...t, rows: t.rows.slice(0, DEFAULT_PREVIEW_ROWS) }))
+  );
+
+  const pulledTabs: SheetPullTabResult[] = requestedTabs.map((reqTab) => {
+    const normalizedReqTitle = (reqTab.sheetTitle || '').trim().toLowerCase();
+    const matchedTab =
+      parsedTabs.find((pt) => pt.sheetTitle.trim().toLowerCase() === normalizedReqTitle) ||
+      (typeof reqTab.sheetId === 'number'
+        ? parsedTabs.find((pt) => pt.sheetId === reqTab.sheetId)
+        : undefined);
+
+    if (!matchedTab) {
+      return {
+        sheetTitle: reqTab.sheetTitle.trim(),
+        sheetId: reqTab.sheetId ?? null,
+        range: `${escapeSheetTitleForA1(reqTab.sheetTitle.trim())}!A1:Z1000`,
+        headers: [],
+        headerRowIndex: reqTab.headerRowIndex || 1,
+        rows: [],
+        formulaColumnIndices: [],
+        totalRows: 0,
+      };
+    }
+
+    const detectedTab = detectedSchema.tabs.find((dt) => dt.sheetId === matchedTab.sheetId);
+    const headerRowIndex = Math.max(1, Math.floor(reqTab.headerRowIndex || detectedTab?.headerRowIndex || 1));
+    const headerRow0 = headerRowIndex - 1;
+    const headerCells = matchedTab.rows[headerRow0] || [];
+    const headers = headerCells.map((cell) =>
+      cell?.value === null || cell?.value === undefined ? '' : String(cell.value).trim()
+    );
+
+    const formulaColCounts = new Map<number, number>();
+    const normalizedRows: SheetPullTabResult['rows'] = [];
+
+    for (let r = headerRow0 + 1; r < matchedTab.rows.length; r++) {
+      const cellRow = matchedTab.rows[r] || [];
+      const colLen = Math.max(headers.length, cellRow.length);
+      const scalars: SheetCellScalar[] = [];
+      const formulaCols: number[] = [];
+      let hasAnyValue = false;
+
+      for (let c = 0; c < colLen; c++) {
+        const cell = cellRow[c];
+        const val = normalizeBatchScalar(cell?.value ?? null);
+        if (cell?.formula) {
+          formulaCols.push(c);
+          formulaColCounts.set(c, (formulaColCounts.get(c) || 0) + 1);
+        }
+        if (val !== null && (typeof val !== 'string' || val.trim() !== '')) {
+          hasAnyValue = true;
+        }
+        scalars.push(val);
+      }
+
+      if (hasAnyValue || formulaCols.length > 0) {
+        normalizedRows.push({
+          sheetRowNumber: r + 1,
+          values: scalars,
+          formulaColumns: formulaCols,
+        });
+      }
+    }
+
+    const formulaColumnIndices = Array.from(formulaColCounts.entries())
+      .filter(([, count]) => count > 0)
+      .map(([colIdx]) => colIdx)
+      .sort((a, b) => a - b);
+
+    return {
+      sheetTitle: matchedTab.sheetTitle,
+      sheetId: matchedTab.sheetId,
+      range: `${escapeSheetTitleForA1(matchedTab.sheetTitle)}!A1:Z${Math.max(1, matchedTab.rows.length)}`,
+      headers,
+      headerRowIndex,
+      rows: normalizedRows,
+      formulaColumnIndices,
+      totalRows: normalizedRows.length,
+    };
+  });
+
+  return {
+    spreadsheetId,
+    title,
+    tabs: pulledTabs,
     pulledAt: new Date().toISOString(),
   };
 }

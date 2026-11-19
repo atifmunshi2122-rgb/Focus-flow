@@ -257,7 +257,7 @@ export const authorizeSheetHubReadOnly = createSingleFlightRunner(
 );
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedLegacyAccessToken || cachedSheetHubAccessToken;
+  return cachedLegacyAccessToken;
 };
 
 export const setAccessToken = (token: string | null) => {

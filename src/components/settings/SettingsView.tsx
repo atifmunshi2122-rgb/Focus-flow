@@ -256,6 +256,7 @@ export const SettingsView: React.FC = () => {
     googleSpreadsheetId,
     syncStatus,
     syncQueueCount,
+    syncLastError,
     lastSyncedAt,
     createOrConnectSpreadsheet,
     syncNowToGoogleSheets,
@@ -1322,6 +1323,31 @@ export const SettingsView: React.FC = () => {
                         <span>Create Master Workbook</span>
                       </ThemeButton>
                     </ThemeCard>
+                  )}
+
+                  {syncLastError && (
+                    <div
+                      className="p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                      style={{
+                        background: 'var(--ff-danger-soft)',
+                        borderColor: 'color-mix(in oklab, var(--ff-danger) 35%, transparent)',
+                        color: 'var(--ff-danger)',
+                      }}
+                    >
+                      <div className="space-y-0.5 min-w-0">
+                        <span className="font-bold block">Google Sheets Sync Notice</span>
+                        <span className="text-[11px] block leading-relaxed opacity-95">{syncLastError}</span>
+                      </div>
+                      <ThemeButton
+                        type="button"
+                        variant="secondary"
+                        size="xs"
+                        onClick={() => void authorizeGoogleSheets()}
+                        className="shrink-0"
+                      >
+                        Re-authorize Sheets
+                      </ThemeButton>
+                    </div>
                   )}
 
                   {/* 23 Worksheets Catalog Grid */}

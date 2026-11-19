@@ -9,6 +9,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { AuthDiagnostic, getCurrentAppUrl } from '../../lib/authDiagnostics.ts';
+import { activeFirebaseConfig } from '../../lib/firebase.ts';
 import { ThemeBadge, ThemeButton, ThemeModal } from '../ui/ThemePrimitives.tsx';
 
 interface AuthRecoveryModalProps {
@@ -114,13 +115,13 @@ export const AuthRecoveryModal: React.FC<AuthRecoveryModalProps> = ({
             >
               <div className="flex items-center gap-1.5 font-semibold text-amber-500">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>Google Cloud OAuth Test User Setup (Project: seismic-codex-m01dl)</span>
+                <span>Google Cloud OAuth Test User Setup (Project: {activeFirebaseConfig.projectId})</span>
               </div>
               <p className="text-[var(--ff-text-secondary)] leading-relaxed">
                 When an OAuth app is in <strong>Testing</strong> mode with sensitive scopes, Google blocks all accounts not listed under Test Users (Error 403: access_denied).
               </p>
               <ol className="list-decimal list-inside space-y-1 text-[var(--ff-text-secondary)] pl-0.5">
-                <li>Open Google Cloud Console for project <strong className="font-mono text-[var(--ff-text-primary)]">seismic-codex-m01dl</strong></li>
+                <li>Open Google Cloud Console for project <strong className="font-mono text-[var(--ff-text-primary)]">{activeFirebaseConfig.projectId}</strong></li>
                 <li>Navigate to <strong className="text-[var(--ff-text-primary)]">APIs &amp; Services → OAuth consent screen</strong></li>
                 <li>Under the <strong className="text-[var(--ff-text-primary)]">Test users</strong> section, click <strong className="text-[var(--ff-text-primary)]">+ ADD USERS</strong></li>
                 <li>Enter your Google email address and click <strong className="text-[var(--ff-text-primary)]">Save</strong></li>
@@ -128,7 +129,7 @@ export const AuthRecoveryModal: React.FC<AuthRecoveryModalProps> = ({
               </ol>
               <div className="pt-1">
                 <a
-                  href="https://console.cloud.google.com/apis/credentials/consent?project=seismic-codex-m01dl"
+                  href={`https://console.cloud.google.com/apis/credentials/consent?project=${encodeURIComponent(activeFirebaseConfig.projectId)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-[var(--ff-accent)] hover:underline font-semibold"

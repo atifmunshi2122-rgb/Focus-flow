@@ -56,7 +56,9 @@ import {
 } from './sheetsWorker.js';
 import {
   inspectSpreadsheet,
+  inspectPublicSpreadsheet,
   pullSpreadsheetTabs,
+  pullPublicSpreadsheetTabs,
   SheetHubWorkerError,
 } from './universalSheetsWorker.ts';
 import type { SheetsSnapshotPayload } from '../src/lib/sheetsSpec.js';
@@ -3442,22 +3444,26 @@ function sendSheetHubError(res: Response, err: unknown, fallbackMessage: string)
 }
 
 apiRouter.post('/sheet-hub/inspect', async (req: Request, res: Response) => {
+  const publicAccess = req.body?.publicAccess === true;
   const authCtx = getAuth(req);
-  if (!authCtx || authCtx.isGuest) {
-    res.status(401).json({
-      error: 'Signed-in FocusFlow authentication is required for Universal Sheet Sync Hub.',
-      code: 'AUTH_REQUIRED',
-    });
-    return;
-  }
-
   const accessToken = extractGoogleAccessToken(req);
-  if (!accessToken) {
-    res.status(401).json({
-      error: 'Google authorization token header is required.',
-      code: 'SHEETS_AUTH_REQUIRED',
-    });
-    return;
+
+  if (!publicAccess) {
+    if (!authCtx || authCtx.isGuest) {
+      res.status(401).json({
+        error: 'Signed-in FocusFlow authentication is required for private Google Sheets.',
+        code: 'AUTH_REQUIRED',
+      });
+      return;
+    }
+
+    if (!accessToken) {
+      res.status(401).json({
+        error: 'Google authorization token header is required.',
+        code: 'SHEETS_AUTH_REQUIRED',
+      });
+      return;
+    }
   }
 
   const spreadsheetId =
@@ -3478,10 +3484,12 @@ apiRouter.post('/sheet-hub/inspect', async (req: Request, res: Response) => {
   }
 
   try {
-    const inspected = await inspectSpreadsheet(
-      { spreadsheetId, spreadsheetUrl, previewRows },
-      accessToken
-    );
+    const inspected = publicAccess
+      ? await inspectPublicSpreadsheet({ spreadsheetId, spreadsheetUrl, previewRows })
+      : await inspectSpreadsheet(
+          { spreadsheetId, spreadsheetUrl, previewRows },
+          accessToken!
+        );
     res.json(inspected);
   } catch (err) {
     sendSheetHubError(res, err, 'Spreadsheet inspection failed.');
@@ -3489,22 +3497,26 @@ apiRouter.post('/sheet-hub/inspect', async (req: Request, res: Response) => {
 });
 
 apiRouter.post('/sheet-hub/pull', async (req: Request, res: Response) => {
+  const publicAccess = req.body?.publicAccess === true;
   const authCtx = getAuth(req);
-  if (!authCtx || authCtx.isGuest) {
-    res.status(401).json({
-      error: 'Signed-in FocusFlow authentication is required for Universal Sheet Sync Hub.',
-      code: 'AUTH_REQUIRED',
-    });
-    return;
-  }
-
   const accessToken = extractGoogleAccessToken(req);
-  if (!accessToken) {
-    res.status(401).json({
-      error: 'Google authorization token header is required.',
-      code: 'SHEETS_AUTH_REQUIRED',
-    });
-    return;
+
+  if (!publicAccess) {
+    if (!authCtx || authCtx.isGuest) {
+      res.status(401).json({
+        error: 'Signed-in FocusFlow authentication is required for private Google Sheets.',
+        code: 'AUTH_REQUIRED',
+      });
+      return;
+    }
+
+    if (!accessToken) {
+      res.status(401).json({
+        error: 'Google authorization token header is required.',
+        code: 'SHEETS_AUTH_REQUIRED',
+      });
+      return;
+    }
   }
 
   const spreadsheetId =
@@ -3527,7 +3539,9 @@ apiRouter.post('/sheet-hub/pull', async (req: Request, res: Response) => {
   }
 
   try {
-    const pulled = await pullSpreadsheetTabs({ spreadsheetId, tabs }, accessToken);
+    const pulled = publicAccess
+      ? await pullPublicSpreadsheetTabs({ spreadsheetId, tabs })
+      : await pullSpreadsheetTabs({ spreadsheetId, tabs }, accessToken!);
     res.json(pulled);
   } catch (err) {
     sendSheetHubError(res, err, 'Spreadsheet pull failed.');

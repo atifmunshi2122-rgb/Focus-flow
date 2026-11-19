@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { activeFirebaseConfig, getSheetHubAccessToken } from '../../lib/firebase.ts';
+import { detectEmbeddedIframe, getCurrentAppUrl } from '../../lib/authDiagnostics.ts';
 import { parseGoogleSheetUrl } from '../../lib/sheetHub/urlParser.ts';
 import { evaluateRowIdentities } from '../../lib/sheetHub/rowIdentity.ts';
 import { sheetHubStore } from '../../lib/sheetHub/sheetHubStore.ts';
@@ -69,13 +71,14 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   onCancel,
   onSuccess,
 }) => {
-  const { user, firebaseUser, signInWithGoogle, authorizeSheetHubReadOnly, showToast } = useApp();
+  const { user, firebaseUser, authorizeSheetHubReadOnly, showToast } = useApp();
 
   const [currentStep, setCurrentStep] = useState<WizardStep>('url');
   const [urlInput, setUrlInput] = useState('');
   const [urlError, setUrlError] = useState<string | null>(null);
   const [spreadsheetId, setSpreadsheetId] = useState<string>('');
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [isPublicLinkMode, setIsPublicLinkMode] = useState(false);
 
   // Auth state
   const [oauthToken, setOauthToken] = useState<string | null>(null);
@@ -86,6 +89,19 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   const [isInspecting, setIsInspecting] = useState(false);
   const [inspectData, setInspectData] = useState<SheetInspectResponse | null>(null);
   const [inspectError, setInspectError] = useState<string | null>(null);
+  const [inspectErrorCode, setInspectErrorCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    void getSheetHubAccessToken().then((cached) => {
+      if (mounted && cached) {
+        setOauthToken(cached);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Tab selections
   const [selectedTabIds, setSelectedTabIds] = useState<number[]>([]);
@@ -169,39 +185,92 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     }
   };
 
-  // Step 2: Request Google Read-Only Authorization
+  // Step 2A: Connect Publicly Viewable Google Sheet (Zero OAuth)
+  const handleInspectPublicLink = async (overrideSpreadsheetId?: string, overrideUrl?: string) => {
+    setIsDemoMode(false);
+    setIsPublicLinkMode(true);
+    setAuthLocalError(null);
+    setInspectError(null);
+    setInspectErrorCode(null);
+    await runInspection(null, true, overrideSpreadsheetId, overrideUrl);
+  };
+
+  // Step 2B: Request Google Read-Only Authorization
   const handleAuthorizeGoogle = async () => {
     setIsAuthorizing(true);
+    setIsDemoMode(false);
+    setIsPublicLinkMode(false);
     setAuthLocalError(null);
+    setInspectError(null);
+    setInspectErrorCode(null);
     try {
       const res = await authorizeSheetHubReadOnly();
       if (res) {
         setOauthToken(res);
         showToast('Google Sheets read-only access authorized successfully!', 'success');
-        runInspection(res);
+        await runInspection(res, false);
       } else {
         setAuthLocalError(
-          'Google Sheets authorization was not completed. In Testing mode (Project: seismic-codex-m01dl), Google blocks accounts that are not registered on the Test Users list (Error 403: access_denied). Add your email in Google Cloud Console or use the zero-auth demo fixture below.'
+          `Google Sheets authorization did not finish. If Google showed "Access blocked (Error 403)" or the popup closed inside an embedded preview, use "Import Public Link (Zero Auth)" above or open the app in a new browser tab.`
         );
       }
     } catch (err) {
-      setAuthLocalError('Google authorization failed. Please check popup permissions and try again.');
+      setAuthLocalError(
+        err instanceof Error
+          ? err.message
+          : 'Google authorization failed. Please check popup permissions or try Public Link mode.'
+      );
     } finally {
       setIsAuthorizing(false);
     }
   };
 
+  // Step 2C: Continue with Existing In-Memory Auth Token
+  const handleContinueWithExistingAuth = async () => {
+    setAuthLocalError(null);
+    setInspectError(null);
+    setInspectErrorCode(null);
+    const cachedToken = oauthToken || (await getSheetHubAccessToken());
+    if (!cachedToken) {
+      setAuthLocalError(
+        'No active Google Sheets authorization token found in this session. Choose "Import Public Link (Zero Auth)" for publicly shared sheets, or click "Authorize Read-Only Sheets Access" for private sheets.'
+      );
+      return;
+    }
+    setOauthToken(cachedToken);
+    setIsPublicLinkMode(false);
+    await runInspection(cachedToken, false);
+  };
+
   // Step 3: Run Inspection via API
-  const runInspection = async (token?: string | null) => {
+  const runInspection = async (
+    token?: string | null,
+    usePublicAccess = false,
+    overrideSpreadsheetId?: string,
+    overrideUrl?: string
+  ) => {
     setIsInspecting(true);
     setInspectError(null);
+    setInspectErrorCode(null);
     setCurrentStep('inspect');
+
+    const targetId = overrideSpreadsheetId ?? spreadsheetId;
+    const targetUrl = overrideUrl ?? urlInput;
+    const resolvedToken = usePublicAccess
+      ? null
+      : token || oauthToken || (await getSheetHubAccessToken());
 
     try {
       const res = await api.sheetHubInspect(
-        { spreadsheetId: spreadsheetId || undefined, spreadsheetUrl: urlInput || undefined, previewRows: 40 },
-        token || oauthToken
+        {
+          spreadsheetId: targetId || undefined,
+          spreadsheetUrl: targetUrl || undefined,
+          previewRows: 40,
+          publicAccess: usePublicAccess ? true : undefined,
+        },
+        resolvedToken
       );
+      setIsPublicLinkMode(usePublicAccess);
       setInspectData(res);
 
       const initialTabIds: number[] = [];
@@ -235,12 +304,20 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
       setCurrentStep('tabs');
     } catch (err: any) {
-      const msg = err?.message || 'Inspection failed.';
+      const msg = err?.message || 'Inspection failed. Please verify the Google Sheet link and permissions.';
+      const code = typeof err?.code === 'string' ? err.code : null;
       setInspectError(msg);
-      if (msg.includes('AUTH_REQUIRED') || msg.includes('authorization')) {
-        setCurrentStep('auth');
-      } else {
+      setInspectErrorCode(code);
+      showToast(msg, 'error');
+
+      if (
+        code === 'INVALID_SPREADSHEET_ID' ||
+        code === 'UNSUPPORTED_HOST' ||
+        code === 'SPREADSHEET_NOT_FOUND'
+      ) {
         setCurrentStep('url');
+      } else {
+        setCurrentStep('auth');
       }
     } finally {
       setIsInspecting(false);
@@ -316,11 +393,22 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       } else {
         const tabsToPull = selectedTabIds.map((id) => {
           const tab = inspectData.tabs.find((t) => t.sheetId === id);
-          return { sheetId: id, sheetTitle: tab?.sheetTitle || '' };
+          return {
+            sheetId: id,
+            sheetTitle: tab?.sheetTitle || '',
+            headerRowIndex: tab?.headerRowIndex || 1,
+          };
         });
+        const pullToken = isPublicLinkMode
+          ? null
+          : oauthToken || (await getSheetHubAccessToken());
         pullResult = await api.sheetHubPull(
-          { spreadsheetId, tabs: tabsToPull },
-          oauthToken
+          {
+            spreadsheetId,
+            tabs: tabsToPull,
+            publicAccess: isPublicLinkMode ? true : undefined,
+          },
+          pullToken
         );
       }
 
@@ -486,17 +574,28 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
               onChange={(e) => {
                 setUrlInput(e.target.value);
                 setUrlError(null);
+                setInspectError(null);
+                setInspectErrorCode(null);
               }}
             />
             {urlError && <p className="text-xs text-rose-500 font-medium">{urlError}</p>}
+            {inspectError && (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold">Unable to inspect spreadsheet</p>
+                  <p className="leading-relaxed opacity-95">{inspectError}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500 space-y-1">
             <span className="font-semibold block flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 shrink-0" /> Read-Only &amp; Safe
+              <ShieldCheck className="w-4 h-4 shrink-0" /> Read-Only &amp; Safe — Public Link or Google Auth
             </span>
             <p className="text-[11px] opacity-90">
-              FocusFlow imports spreadsheet data securely into your personal workspace without modifying your Google Sheets or requesting unnecessary Drive permissions.
+              For sheets shared as &ldquo;Anyone with the link → Viewer&rdquo;, click <strong>Connect Public Link</strong> to import instantly without a Google sign-in popup. For private sheets, continue to read-only Google authorization.
             </p>
           </div>
 
@@ -515,36 +614,106 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             </ThemeButton>
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--ff-border-color)]">
+          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-4 border-t border-[var(--ff-border-color)]">
+            <ThemeButton
+              variant="secondary"
+              onClick={() => {
+                const raw = urlInput.trim();
+                if (!handleValidateUrl(raw)) return;
+                const parsed = parseGoogleSheetUrl(raw);
+                if (parsed.ok) {
+                  void handleInspectPublicLink(parsed.spreadsheetId, raw);
+                }
+              }}
+            >
+              <ExternalLink className="w-4 h-4 inline mr-1.5" />
+              Connect Public Link (No Sign-In)
+            </ThemeButton>
+
             <ThemeButton
               variant="primary"
               onClick={() => {
                 if (handleValidateUrl()) {
+                  setInspectError(null);
+                  setInspectErrorCode(null);
+                  setAuthLocalError(null);
                   setCurrentStep('auth');
                 }
               }}
             >
-              Continue to Authorization <ArrowRight className="w-4 h-4 inline ml-1" />
+              Continue to Access Options <ArrowRight className="w-4 h-4 inline ml-1" />
             </ThemeButton>
           </div>
         </ThemeCard>
       )}
 
-      {/* STEP 2: Google Authorization */}
+      {/* STEP 2: Access Method & Google Authorization */}
       {currentStep === 'auth' && (
         <ThemeCard variant="elevated" className="p-6 border border-[var(--ff-border-color)] space-y-5">
           <div>
             <h3 className="font-semibold text-base text-[var(--ff-text-primary)] mb-1">
-              Step 2: Google Sheets Read-Only Authorization
+              Step 2: Choose How to Access Your Google Sheet
             </h3>
             <p className="text-xs text-[var(--ff-text-secondary)]">
-              Authorize FocusFlow to inspect and read your spreadsheet using Google OAuth with least-privilege read-only permissions (<code className="font-mono">spreadsheets.readonly</code>).
+              Import instantly via a public viewer link (zero OAuth sign-in), or authorize private read-only access via Google (<code className="font-mono">spreadsheets.readonly</code>).
             </p>
           </div>
 
+          {inspectError && (
+            <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-xs text-rose-500 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold">
+                    {inspectErrorCode === 'SHEET_PRIVATE_AUTH_REQUIRED'
+                      ? 'This Spreadsheet Is Private'
+                      : 'Spreadsheet Inspection Error'}
+                  </p>
+                  <p className="leading-relaxed">{inspectError}</p>
+                  {inspectErrorCode === 'SHEET_PRIVATE_AUTH_REQUIRED' && (
+                    <p className="text-[11px] opacity-90">
+                      Tip: In Google Sheets, click <strong>Share → General access → Anyone with the link (Viewer)</strong> and click <strong>Import Public Link</strong> below, or click <strong>Authorize Read-Only Sheets Access</strong> to read it privately.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Option A: Instant Public Link Mode */}
+          <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-500 shrink-0" />
+                Option A: Public Viewer Link (Recommended — Zero OAuth)
+              </span>
+              <ThemeBadge tone="success" className="text-[10px]">
+                No 403 Block
+              </ThemeBadge>
+            </div>
+            <p className="text-xs text-[var(--ff-text-secondary)] leading-relaxed">
+              Works immediately for any Google Sheet shared as <strong>&ldquo;Anyone with the link → Viewer&rdquo;</strong> — imports all tabs, headers, formulas, and checkboxes without triggering Google OAuth consent screens or popup blockers.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <ThemeButton
+                variant="success"
+                onClick={() => void handleInspectPublicLink()}
+                disabled={isInspecting}
+                className="w-full sm:w-auto"
+              >
+                <ExternalLink className="w-4 h-4 mr-1.5" />
+                <span>Import Public Link (Zero Auth)</span>
+              </ThemeButton>
+            </div>
+          </div>
+
+          {/* Option B: Private Sheet via Google OAuth */}
           <div className="p-4 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-[var(--ff-text-primary)]">Google Account Status</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-[var(--ff-accent)] shrink-0" />
+                Option B: Private Sheet via Google Sign-In
+              </span>
               {firebaseUser ? (
                 <ThemeBadge tone="success" className="text-xs flex items-center gap-1">
                   <Check className="w-3 h-3" /> Signed in as {firebaseUser.email}
@@ -557,7 +726,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             </div>
 
             <p className="text-xs text-[var(--ff-text-muted)]">
-              FocusFlow uses strict least-privilege OAuth for Universal Sheet Hub. We only request read-only access (https://www.googleapis.com/auth/spreadsheets.readonly) and never request write access or Google Drive file permissions.
+              Uses least-privilege read-only Google Sheets access (<code className="font-mono">spreadsheets.readonly</code>) for private spreadsheets. Never modifies your sheet or requests Drive permissions.
             </p>
 
             {authLocalError && (
@@ -569,33 +738,56 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
               </div>
             )}
 
-            {/* Google Cloud Testing Mode Guidance */}
+            {detectEmbeddedIframe() && (
+              <div
+                className="p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                style={{
+                  background: 'rgba(234, 179, 8, 0.08)',
+                  borderColor: 'rgba(234, 179, 8, 0.25)',
+                }}
+              >
+                <span className="text-[11px] text-[var(--ff-text-secondary)]">
+                  Running inside an embedded preview frame. If Google Sign-In popups close automatically, open the app in a full browser tab or use <strong>Option A (Public Link)</strong> above.
+                </span>
+                <a
+                  href={getCurrentAppUrl() || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ff-btn ff-btn-secondary px-3 py-1.5 text-xs inline-flex items-center gap-1.5 shrink-0"
+                >
+                  <span>Open in New Tab</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+
+            {/* Google Cloud Testing Mode Guidance (Dynamic Project ID) */}
             <div
-              className="p-3.5 rounded-lg border space-y-2 text-xs"
+              className="p-3.5 rounded-lg border space-y-1.5 text-xs"
               style={{
-                background: 'rgba(234, 179, 8, 0.08)',
-                borderColor: 'rgba(234, 179, 8, 0.25)',
+                background: 'rgba(234, 179, 8, 0.06)',
+                borderColor: 'rgba(234, 179, 8, 0.2)',
               }}
             >
               <div className="flex items-center gap-1.5 font-semibold text-amber-500">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>Google OAuth Testing Mode (Project: seismic-codex-m01dl)</span>
+                <span>Troubleshooting Error 403 (Project: {activeFirebaseConfig.projectId})</span>
               </div>
               <p className="text-[11px] text-[var(--ff-text-secondary)] leading-relaxed">
-                If Google displayed <em>"Access blocked: seismic-codex-m01dl.firebaseapp.com has not completed the Google verification process (Error 403: access_denied)"</em>, your Google account must be registered in the project&apos;s Test Users list.
+                If Google displays <em>&ldquo;Access blocked (Error 403: access_denied)&rdquo;</em> for private sheets, add your email ({firebaseUser?.email || 'your Google account'}) under{' '}
+                <a
+                  href={`https://console.cloud.google.com/apis/credentials/consent?project=${encodeURIComponent(activeFirebaseConfig.projectId)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--ff-accent)] underline font-medium inline-flex items-center gap-0.5"
+                >
+                  Google Cloud OAuth Consent Screen → Test users <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+                , or use <strong>Option A (Public Link)</strong> above with zero OAuth setup.
               </p>
-              <div className="text-[11px] text-[var(--ff-text-secondary)] space-y-1">
-                <div className="font-semibold text-[var(--ff-text-primary)]">Quick Resolution Steps:</div>
-                <ol className="list-decimal list-inside space-y-0.5 pl-0.5">
-                  <li>Open <a href="https://console.cloud.google.com/apis/credentials/consent?project=seismic-codex-m01dl" target="_blank" rel="noopener noreferrer" className="text-[var(--ff-accent)] underline font-medium inline-flex items-center gap-0.5">Google Cloud OAuth consent screen <ExternalLink className="w-2.5 h-2.5" /></a></li>
-                  <li>Scroll to <strong>Test users</strong> and click <strong>+ ADD USERS</strong></li>
-                  <li>Enter your Google email address ({firebaseUser?.email || 'your email'}) and click <strong>Save</strong></li>
-                  <li>Return here and click <strong>Authorize Read-Only Sheets Access</strong> below</li>
-                </ol>
-              </div>
             </div>
 
-            <div className="pt-2 flex flex-wrap items-center gap-2">
+            <div className="pt-1 flex flex-wrap items-center gap-2">
               <ThemeButton
                 variant="primary"
                 onClick={handleAuthorizeGoogle}
@@ -613,22 +805,22 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                 className="w-full sm:w-auto"
               >
                 <Sparkles className="w-4 h-4 mr-1.5 text-amber-500" />
-                <span>Load Demo Fixture (Zero Auth)</span>
+                <span>Load Demo Fixture</span>
               </ThemeButton>
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-4 border-t border-[var(--ff-border-color)]">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-[var(--ff-border-color)]">
             <ThemeButton variant="secondary" onClick={() => setCurrentStep('url')}>
               <ArrowLeft className="w-4 h-4 inline mr-1" /> Back
             </ThemeButton>
 
             <ThemeButton
               variant="secondary"
-              onClick={() => runInspection()}
-              title="Continue if already authorized"
+              onClick={() => void handleContinueWithExistingAuth()}
+              title="Continue using an active Google Sheets token already granted in this session"
             >
-              Skip / Continue with Existing Auth <ArrowRight className="w-4 h-4 inline ml-1" />
+              Continue with Existing Auth <ArrowRight className="w-4 h-4 inline ml-1" />
             </ThemeButton>
           </div>
         </ThemeCard>

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { getSheetHubAccessToken } from '../../lib/firebase.ts';
 import { sheetHubStore } from '../../lib/sheetHub/sheetHubStore.ts';
 import type {
   SheetConnection,
@@ -219,14 +220,67 @@ export const SheetHubView: React.FC = () => {
 
         showToast(`Successfully pulled ${totalPulled.toLocaleString()} records!`, 'success');
       } else {
-        // Live Google Sheets pull
+        // Live Google Sheets pull: reuse active OAuth token if present; otherwise try public link first, then prompt OAuth for private sheets
         const loadedTabs = await sheetHubStore.listTabsForConnection(activeUserId, connId);
-        const tabsPayload = loadedTabs.map((t) => ({ sheetId: t.sheetId, sheetTitle: t.sheetTitle }));
+        const tabsPayload = loadedTabs.map((t) => ({
+          sheetId: t.sheetId,
+          sheetTitle: t.sheetTitle,
+          headerRowIndex: t.headerRowIndex || 1,
+        }));
 
-        const res = await api.sheetHubPull(
-          { spreadsheetId: conn.spreadsheetId, tabs: tabsPayload },
-          null
-        );
+        let activeToken = await getSheetHubAccessToken();
+        let res;
+
+        if (activeToken) {
+          try {
+            res = await api.sheetHubPull(
+              { spreadsheetId: conn.spreadsheetId, tabs: tabsPayload },
+              activeToken
+            );
+          } catch (oauthErr: any) {
+            const oauthCode = oauthErr?.code;
+            if (oauthCode === 'SHEETS_AUTH_REQUIRED' || oauthErr?.status === 401) {
+              // Fallback to public link pull before re-prompting OAuth
+              try {
+                res = await api.sheetHubPull(
+                  { spreadsheetId: conn.spreadsheetId, tabs: tabsPayload, publicAccess: true },
+                  null
+                );
+              } catch {
+                activeToken = await authorizeSheetHubReadOnly();
+                if (!activeToken) {
+                  throw new Error('Google Sheets authorization is required to refresh this private spreadsheet.');
+                }
+                res = await api.sheetHubPull(
+                  { spreadsheetId: conn.spreadsheetId, tabs: tabsPayload },
+                  activeToken
+                );
+              }
+            } else {
+              throw oauthErr;
+            }
+          }
+        } else {
+          try {
+            res = await api.sheetHubPull(
+              { spreadsheetId: conn.spreadsheetId, tabs: tabsPayload, publicAccess: true },
+              null
+            );
+          } catch (publicErr: any) {
+            if (publicErr?.code === 'SHEET_PRIVATE_AUTH_REQUIRED') {
+              activeToken = await authorizeSheetHubReadOnly();
+              if (!activeToken) {
+                throw new Error('This spreadsheet is private. Authorize Google Sheets read-only access or share as "Anyone with the link (Viewer)".');
+              }
+              res = await api.sheetHubPull(
+                { spreadsheetId: conn.spreadsheetId, tabs: tabsPayload },
+                activeToken
+              );
+            } else {
+              throw publicErr;
+            }
+          }
+        }
 
         const nowIso = new Date().toISOString();
         let totalPulled = 0;

@@ -43,7 +43,7 @@ function resolveFirebaseProjectId(): string {
   } catch {
     // fallback handled below
   }
-  cachedProjectId = 'seismic-codex-m01dl';
+  cachedProjectId = 'gen-lang-client-0390447756';
   return cachedProjectId;
 }
 
