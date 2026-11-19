@@ -109,6 +109,7 @@ const MainContent: React.FC = () => {
     isSigningIn,
     signInWithGoogle,
     authorizeGoogleSheets,
+    authorizeSheetHubReadOnly,
     isRunning,
     startTimer,
     pauseTimer,
@@ -772,7 +773,9 @@ const MainContent: React.FC = () => {
         diagnostic={authError}
         isRetrying={isSigningIn}
         onRetry={() => {
-          if (authError?.scopeMode === 'sheets') {
+          if (authError?.scopeMode === 'sheet_hub_readonly') {
+            void authorizeSheetHubReadOnly();
+          } else if (authError?.scopeMode === 'sheets') {
             void authorizeGoogleSheets();
           } else {
             void signInWithGoogle();

@@ -75,8 +75,10 @@ export const AuthRecoveryModal: React.FC<AuthRecoveryModalProps> = ({
                 {diagnostic.code}
               </ThemeBadge>
               <ThemeBadge tone="neutral">
-                {diagnostic.scopeMode === 'sheets'
-                  ? 'Google Sheets & Drive OAuth'
+                {diagnostic.scopeMode === 'sheet_hub_readonly'
+                  ? 'Google Sheets Read-Only OAuth'
+                  : diagnostic.scopeMode === 'sheets'
+                  ? 'Google Sheets Executive Sync (Read/Write)'
                   : 'Basic Google Sign-In'}
               </ThemeBadge>
               <ThemeBadge tone={diagnostic.isIframe ? 'warning' : 'neutral'}>
@@ -101,6 +103,43 @@ export const AuthRecoveryModal: React.FC<AuthRecoveryModalProps> = ({
           <p className="text-[var(--ff-text-secondary)] leading-relaxed">
             {diagnostic.resolutionHint}
           </p>
+
+          {diagnostic.isTestingModeBlock && (
+            <div
+              className="mt-2.5 p-3 rounded-lg border space-y-2 text-[11px]"
+              style={{
+                background: 'rgba(234, 179, 8, 0.08)',
+                borderColor: 'rgba(234, 179, 8, 0.3)',
+              }}
+            >
+              <div className="flex items-center gap-1.5 font-semibold text-amber-500">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>Google Cloud OAuth Test User Setup (Project: seismic-codex-m01dl)</span>
+              </div>
+              <p className="text-[var(--ff-text-secondary)] leading-relaxed">
+                When an OAuth app is in <strong>Testing</strong> mode with sensitive scopes, Google blocks all accounts not listed under Test Users (Error 403: access_denied).
+              </p>
+              <ol className="list-decimal list-inside space-y-1 text-[var(--ff-text-secondary)] pl-0.5">
+                <li>Open Google Cloud Console for project <strong className="font-mono text-[var(--ff-text-primary)]">seismic-codex-m01dl</strong></li>
+                <li>Navigate to <strong className="text-[var(--ff-text-primary)]">APIs &amp; Services → OAuth consent screen</strong></li>
+                <li>Under the <strong className="text-[var(--ff-text-primary)]">Test users</strong> section, click <strong className="text-[var(--ff-text-primary)]">+ ADD USERS</strong></li>
+                <li>Enter your Google email address and click <strong className="text-[var(--ff-text-primary)]">Save</strong></li>
+                <li>Return here and click <strong className="text-[var(--ff-text-primary)]">Retry Sheets Access</strong></li>
+              </ol>
+              <div className="pt-1">
+                <a
+                  href="https://console.cloud.google.com/apis/credentials/consent?project=seismic-codex-m01dl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[var(--ff-accent)] hover:underline font-semibold"
+                >
+                  <span>Open OAuth Consent Screen in Google Cloud</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+          )}
+
           {diagnostic.hostname && (
             <div className="pt-1.5 border-t border-[var(--ff-border-color)] flex items-center justify-between gap-2 text-[11px]">
               <span className="inline-flex items-center gap-1.5 text-[var(--ff-text-muted)] truncate">
@@ -148,7 +187,11 @@ export const AuthRecoveryModal: React.FC<AuthRecoveryModalProps> = ({
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>
-                {diagnostic.scopeMode === 'sheets' ? 'Retry Sheets Access' : 'Retry Sign-In'}
+                {diagnostic.scopeMode === 'sheet_hub_readonly'
+                  ? 'Retry Read-Only Access'
+                  : diagnostic.scopeMode === 'sheets'
+                  ? 'Retry Sheets Access'
+                  : 'Retry Sign-In'}
               </span>
             </ThemeButton>
           )}

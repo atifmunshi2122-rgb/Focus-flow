@@ -55,9 +55,14 @@ export type SheetCellScalar = string | number | boolean | null;
 export interface SheetConnection {
   id: string;
   userId: string;
+  ownerUid?: string;
   spreadsheetId: string;
   spreadsheetUrl: string;
   title: string;
+  description?: string | null;
+  schemaVersion?: number;
+  sortOrder?: number;
+  isNative?: boolean;
   templateHint: SheetTemplateHint;
   syncMode: SheetSyncMode;
   pollIntervalSec: number | null;
@@ -94,9 +99,12 @@ export interface SheetColumnMapping {
 export interface SheetTabSchema {
   id: string;
   connectionId: string;
+  sheetDocId?: string;
   userId: string;
+  ownerUid?: string;
   sheetId: number;
   sheetTitle: string;
+  position?: number;
   role: SheetTabRole;
   headerRowIndex: number; // 1-based; 0 if empty tab
   dataStartRow: number;   // 1-based first data row
@@ -110,12 +118,20 @@ export interface SheetTabSchema {
   lastPullHash: string;
   rowCount: number;
   chunkCount: number;
+  createdAt?: string;
   updatedAt: string;
 }
 
 export interface SheetSyncedRow {
   rowUid: string;
+  id?: string;
+  tabId?: string;
+  sheetDocId?: string;
+  userId?: string;
+  ownerUid?: string;
+  rowIndex?: number;
   lastKnownSheetRow: number; // 1-based physical row cache (NEVER used as permanent ID)
+  cells?: Record<string, SheetCellScalar>;
   values: Record<string, SheetCellScalar>;
   baseValues: Record<string, SheetCellScalar>;
   rowHash: string;
@@ -125,6 +141,8 @@ export interface SheetSyncedRow {
   localUpdatedAt: string | null;
   sheetSyncedAt: string;
   status: SheetRowSyncState;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface SheetRowChunk {

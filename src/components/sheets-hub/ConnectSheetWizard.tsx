@@ -69,7 +69,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   onCancel,
   onSuccess,
 }) => {
-  const { user, firebaseUser, signInWithGoogle, authorizeGoogleSheets, showToast } = useApp();
+  const { user, firebaseUser, signInWithGoogle, authorizeSheetHubReadOnly, showToast } = useApp();
 
   const [currentStep, setCurrentStep] = useState<WizardStep>('url');
   const [urlInput, setUrlInput] = useState('');
@@ -80,6 +80,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   // Auth state
   const [oauthToken, setOauthToken] = useState<string | null>(null);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
+  const [authLocalError, setAuthLocalError] = useState<string | null>(null);
 
   // Inspection state
   const [isInspecting, setIsInspecting] = useState(false);
@@ -168,18 +169,23 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     }
   };
 
-  // Step 2: Request Google Authorization
+  // Step 2: Request Google Read-Only Authorization
   const handleAuthorizeGoogle = async () => {
     setIsAuthorizing(true);
+    setAuthLocalError(null);
     try {
-      const res = await authorizeGoogleSheets();
+      const res = await authorizeSheetHubReadOnly();
       if (res) {
         setOauthToken(res);
-        showToast('Google Sheets authorized successfully!', 'success');
+        showToast('Google Sheets read-only access authorized successfully!', 'success');
         runInspection(res);
+      } else {
+        setAuthLocalError(
+          'Google Sheets authorization was not completed. In Testing mode (Project: seismic-codex-m01dl), Google blocks accounts that are not registered on the Test Users list (Error 403: access_denied). Add your email in Google Cloud Console or use the zero-auth demo fixture below.'
+        );
       }
     } catch (err) {
-      showToast('Google authorization failed. Please retry.', 'error');
+      setAuthLocalError('Google authorization failed. Please check popup permissions and try again.');
     } finally {
       setIsAuthorizing(false);
     }
@@ -529,10 +535,10 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         <ThemeCard variant="elevated" className="p-6 border border-[var(--ff-border-color)] space-y-5">
           <div>
             <h3 className="font-semibold text-base text-[var(--ff-text-primary)] mb-1">
-              Step 2: Google Sheets Authorization
+              Step 2: Google Sheets Read-Only Authorization
             </h3>
             <p className="text-xs text-[var(--ff-text-secondary)]">
-              Authorize FocusFlow to inspect and read your spreadsheet using Google OAuth.
+              Authorize FocusFlow to inspect and read your spreadsheet using Google OAuth with least-privilege read-only permissions (<code className="font-mono">spreadsheets.readonly</code>).
             </p>
           </div>
 
@@ -551,10 +557,45 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             </div>
 
             <p className="text-xs text-[var(--ff-text-muted)]">
-              FocusFlow uses incremental Google OAuth for Google Sheets access. We never request broad Google Drive permissions.
+              FocusFlow uses strict least-privilege OAuth for Universal Sheet Hub. We only request read-only access (https://www.googleapis.com/auth/spreadsheets.readonly) and never request write access or Google Drive file permissions.
             </p>
 
-            <div className="pt-2">
+            {authLocalError && (
+              <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-500 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p className="leading-relaxed font-medium">{authLocalError}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Google Cloud Testing Mode Guidance */}
+            <div
+              className="p-3.5 rounded-lg border space-y-2 text-xs"
+              style={{
+                background: 'rgba(234, 179, 8, 0.08)',
+                borderColor: 'rgba(234, 179, 8, 0.25)',
+              }}
+            >
+              <div className="flex items-center gap-1.5 font-semibold text-amber-500">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>Google OAuth Testing Mode (Project: seismic-codex-m01dl)</span>
+              </div>
+              <p className="text-[11px] text-[var(--ff-text-secondary)] leading-relaxed">
+                If Google displayed <em>"Access blocked: seismic-codex-m01dl.firebaseapp.com has not completed the Google verification process (Error 403: access_denied)"</em>, your Google account must be registered in the project&apos;s Test Users list.
+              </p>
+              <div className="text-[11px] text-[var(--ff-text-secondary)] space-y-1">
+                <div className="font-semibold text-[var(--ff-text-primary)]">Quick Resolution Steps:</div>
+                <ol className="list-decimal list-inside space-y-0.5 pl-0.5">
+                  <li>Open <a href="https://console.cloud.google.com/apis/credentials/consent?project=seismic-codex-m01dl" target="_blank" rel="noopener noreferrer" className="text-[var(--ff-accent)] underline font-medium inline-flex items-center gap-0.5">Google Cloud OAuth consent screen <ExternalLink className="w-2.5 h-2.5" /></a></li>
+                  <li>Scroll to <strong>Test users</strong> and click <strong>+ ADD USERS</strong></li>
+                  <li>Enter your Google email address ({firebaseUser?.email || 'your email'}) and click <strong>Save</strong></li>
+                  <li>Return here and click <strong>Authorize Read-Only Sheets Access</strong> below</li>
+                </ol>
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-wrap items-center gap-2">
               <ThemeButton
                 variant="primary"
                 onClick={handleAuthorizeGoogle}
@@ -562,7 +603,17 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                 className="w-full sm:w-auto"
               >
                 <ShieldCheck className="w-4 h-4 mr-1.5" />
-                <span>{isAuthorizing ? 'Authorizing with Google...' : 'Authorize Google Sheets Access'}</span>
+                <span>{isAuthorizing ? 'Authorizing with Google...' : 'Authorize Read-Only Sheets Access'}</span>
+              </ThemeButton>
+
+              <ThemeButton
+                variant="secondary"
+                onClick={handleLoadSemester3Demo}
+                title="Use local demo fixture without Google OAuth"
+                className="w-full sm:w-auto"
+              >
+                <Sparkles className="w-4 h-4 mr-1.5 text-amber-500" />
+                <span>Load Demo Fixture (Zero Auth)</span>
               </ThemeButton>
             </div>
           </div>

@@ -36,10 +36,19 @@ export const db: Firestore = getFirestore(app, activeFirebaseConfig.firestoreDat
 
 export const auth = getAuth(app);
 
-export const GOOGLE_SHEETS_SCOPES = [
+// Legacy Executive 23-tab Workbook Sync scopes (Read/Write + file creation)
+export const LEGACY_SHEETS_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.file',
 ] as const;
+
+// Universal Sheet Sync Hub scopes (Strictly Read-Only, zero Drive permissions)
+export const SHEET_HUB_READONLY_SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
+] as const;
+
+// Backward-compatible alias for existing tests and legacy references
+export const GOOGLE_SHEETS_SCOPES = LEGACY_SHEETS_SCOPES;
 
 // Basic Google Auth Provider (identity only — Workspace scopes requested separately on demand)
 export const basicGoogleProvider = new GoogleAuthProvider();
@@ -48,9 +57,12 @@ basicGoogleProvider.setCustomParameters({ prompt: 'select_account' });
 // Backward-compatible alias for basic identity provider
 export const googleProvider = basicGoogleProvider;
 
+/**
+ * Creates provider for Legacy Executive Sheets Sync (Read/Write).
+ */
 export function createSheetsGoogleProvider(loginHint?: string | null): GoogleAuthProvider {
   const provider = new GoogleAuthProvider();
-  for (const scope of GOOGLE_SHEETS_SCOPES) {
+  for (const scope of LEGACY_SHEETS_SCOPES) {
     provider.addScope(scope);
   }
   const params: Record<string, string> = {
@@ -63,8 +75,30 @@ export function createSheetsGoogleProvider(loginHint?: string | null): GoogleAut
   return provider;
 }
 
-// In-memory access token cache (Sheets/Drive OAuth access token only)
-let cachedAccessToken: string | null = null;
+/**
+ * Creates provider for Universal Sheet Sync Hub (Strictly Read-Only).
+ * Never requests spreadsheet write permissions or Google Drive file access.
+ */
+export function createSheetHubReadOnlyProvider(loginHint?: string | null): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  for (const scope of SHEET_HUB_READONLY_SCOPES) {
+    provider.addScope(scope);
+  }
+  const params: Record<string, string> = {
+    prompt: loginHint ? 'consent' : 'select_account consent',
+  };
+  if (loginHint) {
+    params.login_hint = loginHint;
+  }
+  provider.setCustomParameters(params);
+  return provider;
+}
+
+// In-memory access token caches:
+// - cachedLegacyAccessToken: Read/Write token for 23-tab executive workbook sync
+// - cachedSheetHubAccessToken: Strictly Read-Only token for Universal Sheet Hub
+let cachedLegacyAccessToken: string | null = null;
+let cachedSheetHubAccessToken: string | null = null;
 let isSigningIn = false;
 
 export enum OperationType {
@@ -143,14 +177,12 @@ export const signInWithGoogle = createSingleFlightRunner(
       isSigningIn = true;
       const result = await signInWithPopup(auth, basicGoogleProvider);
       if (previousUid && result.user.uid !== previousUid) {
-        cachedAccessToken = null;
+        cachedLegacyAccessToken = null;
+        cachedSheetHubAccessToken = null;
       }
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const accessToken = credential?.accessToken || '';
-      if (accessToken) {
-        cachedAccessToken = accessToken;
-      }
-      return { user: result.user, accessToken: cachedAccessToken || '' };
+      return { user: result.user, accessToken };
     } catch (error) {
       console.error('Sign in error:', error);
       throw error;
@@ -160,7 +192,7 @@ export const signInWithGoogle = createSingleFlightRunner(
   }
 );
 
-// Incremental Google Sheets & Drive authorization requested only when connecting or syncing Sheets
+// Incremental Google Sheets & Drive authorization for Legacy Executive 23-tab Workbook Sync (Read/Write)
 export const authorizeGoogleSheets = createSingleFlightRunner(
   async (loginHint?: string | null): Promise<{ user: User; accessToken: string }> => {
     try {
@@ -181,7 +213,7 @@ export const authorizeGoogleSheets = createSingleFlightRunner(
         throw err;
       }
 
-      cachedAccessToken = accessToken;
+      cachedLegacyAccessToken = accessToken;
       return { user: result.user, accessToken };
     } catch (error) {
       console.error('Google Sheets authorization error:', error);
@@ -192,17 +224,58 @@ export const authorizeGoogleSheets = createSingleFlightRunner(
   }
 );
 
+// Incremental Google Sheets authorization for Universal Sheet Sync Hub (Strictly Read-Only, zero Drive permissions)
+export const authorizeSheetHubReadOnly = createSingleFlightRunner(
+  async (loginHint?: string | null): Promise<{ user: User; accessToken: string }> => {
+    try {
+      isSigningIn = true;
+      const activeUser = auth.currentUser;
+      const provider = createSheetHubReadOnlyProvider(loginHint || activeUser?.email || null);
+      const result = activeUser
+        ? await reauthenticateWithPopup(activeUser, provider)
+        : await signInWithPopup(auth, provider);
+
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken || '';
+      if (!accessToken) {
+        const err = new Error(
+          'Google did not return an OAuth access token for read-only Sheets. Please retry and approve read-only spreadsheet access.'
+        ) as Error & { code?: string };
+        err.code = 'auth/missing-access-token';
+        throw err;
+      }
+
+      cachedSheetHubAccessToken = accessToken;
+      return { user: result.user, accessToken };
+    } catch (error) {
+      console.error('Google Sheets read-only authorization error:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
+    }
+  }
+);
+
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken;
+  return cachedLegacyAccessToken || cachedSheetHubAccessToken;
 };
 
 export const setAccessToken = (token: string | null) => {
-  cachedAccessToken = token;
+  cachedLegacyAccessToken = token;
+};
+
+export const getSheetHubAccessToken = async (): Promise<string | null> => {
+  return cachedSheetHubAccessToken || cachedLegacyAccessToken;
+};
+
+export const setSheetHubAccessToken = (token: string | null) => {
+  cachedSheetHubAccessToken = token;
 };
 
 export const signOut = async (): Promise<void> => {
   await firebaseSignOut(auth);
-  cachedAccessToken = null;
+  cachedLegacyAccessToken = null;
+  cachedSheetHubAccessToken = null;
   initialAuthPromise = null;
 };
 
@@ -212,9 +285,10 @@ export const initAuthListener = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      onAuthSuccess(user, cachedAccessToken);
+      onAuthSuccess(user, cachedLegacyAccessToken || cachedSheetHubAccessToken);
     } else {
-      cachedAccessToken = null;
+      cachedLegacyAccessToken = null;
+      cachedSheetHubAccessToken = null;
       onAuthFailure();
     }
   });

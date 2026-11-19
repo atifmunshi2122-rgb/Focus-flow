@@ -32,10 +32,13 @@ import {
   auth,
   signInWithGoogle as fbSignInWithGoogle,
   authorizeGoogleSheets as fbAuthorizeGoogleSheets,
+  authorizeSheetHubReadOnly as fbAuthorizeSheetHubReadOnly,
   signOut as fbSignOut,
   initAuthListener,
   getAccessToken,
   setAccessToken as fbSetAccessToken,
+  getSheetHubAccessToken,
+  setSheetHubAccessToken as fbSetSheetHubAccessToken,
   testConnection,
 } from '../lib/firebase.ts';
 import { User as FirebaseUser } from 'firebase/auth';
@@ -248,6 +251,7 @@ interface AppContextType {
   googleAccessToken: string | null;
   signInWithGoogle: () => Promise<void>;
   authorizeGoogleSheets: () => Promise<string | null>;
+  authorizeSheetHubReadOnly: () => Promise<string | null>;
   signOutGoogle: () => Promise<void>;
 
   // Google Sheets Integration
@@ -1398,6 +1402,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error('Google Sheets authorization failed:', err);
       const diagnostic = classifyFirebaseAuthError(err, {
         scopeMode: 'sheets',
+        userEmail: firebaseUser?.email,
+      });
+      setAuthError(diagnostic);
+      showToast(`${diagnostic.title} (${diagnostic.code})`, 'error');
+      return null;
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const authorizeSheetHubReadOnly = async (): Promise<string | null> => {
+    setIsSigningIn(true);
+    setAuthError(null);
+    try {
+      const { user: fbUser, accessToken } = await fbAuthorizeSheetHubReadOnly(firebaseUser?.email);
+      setFirebaseUser(fbUser);
+      setGoogleAccessToken(accessToken);
+      showToast('Google Sheets read-only permissions granted!', 'success');
+      triggerRefresh();
+      return accessToken;
+    } catch (err: unknown) {
+      console.error('Google Sheets read-only authorization failed:', err);
+      const diagnostic = classifyFirebaseAuthError(err, {
+        scopeMode: 'sheet_hub_readonly',
         userEmail: firebaseUser?.email,
       });
       setAuthError(diagnostic);
@@ -2910,6 +2938,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         googleAccessToken,
         signInWithGoogle,
         authorizeGoogleSheets,
+        authorizeSheetHubReadOnly,
         signOutGoogle,
 
         // Google Sheets

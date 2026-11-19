@@ -478,5 +478,206 @@ test('Sheet Hub Rules — Denies cross-user reads/writes, unauthenticated access
     ),
     403
   );
+
+  // ----------------------------------------------------
+  // CANONICAL PRIVATE SHEET HIERARCHY:
+  // match /users/{userId}/sheets/{sheetId}
+  //   -> tabs/{tabId}
+  //   -> rows/{rowId}
+  //   -> row_chunks/{chunkId}
+  // ----------------------------------------------------
+  const validSheet = {
+    id: 'sheet_priv_1',
+    userId: ownerUid,
+    title: 'Multi-User Private Academic Tracker',
+    spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+    spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
+    description: 'Private student academic workbook',
+    templateHint: 'tracker',
+    syncMode: 'two_way',
+    status: 'active',
+    createdAt: NOW_ISO,
+    updatedAt: NOW_ISO,
+    deletedAt: null,
+  };
+
+  // 1. Owner can create canonical sheet
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_1`, validSheet, ownerJwt), 200);
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1`, ownerJwt), 200);
+
+  // Cross-user read/write/delete DENIED
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1`, attackerJwt), 403);
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_1`, { ...validSheet, title: 'Hacked Title' }, attackerJwt), 403);
+  assert.equal(await fsDelete(`users/${ownerUid}/sheets/sheet_priv_1`, attackerJwt), 403);
+
+  // Unauthenticated read/write DENIED
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1`), 403);
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_unauth`, validSheet), 403);
+
+  // UID mismatch on create DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_bad_uid`,
+      { ...validSheet, id: 'sheet_bad_uid', userId: attackerUid },
+      ownerJwt
+    ),
+    403
+  );
+
+  // ID mismatch on create DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_mismatch_id`,
+      { ...validSheet, id: 'different_id' },
+      ownerJwt
+    ),
+    403
+  );
+
+  // UID reassignment on update DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_priv_1`,
+      { ...validSheet, userId: attackerUid },
+      ownerJwt
+    ),
+    403
+  );
+
+  // ID reassignment on update DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_priv_1`,
+      { ...validSheet, id: 'sheet_hacked_id' },
+      ownerJwt
+    ),
+    403
+  );
+
+  // OAuth token persistence (accessToken or refreshToken) MUST BE DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_token_leak`,
+      { ...validSheet, id: 'sheet_token_leak', accessToken: 'ya29.evil_token' },
+      ownerJwt
+    ),
+    403
+  );
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_refresh_leak`,
+      { ...validSheet, id: 'sheet_refresh_leak', refreshToken: '1//refresh_token' },
+      ownerJwt
+    ),
+    403
+  );
+
+  // Arbitrary extra field (schema pollution) MUST BE DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_extra_field`,
+      { ...validSheet, id: 'sheet_extra_field', injectedProp: 'malicious' },
+      ownerJwt
+    ),
+    403
+  );
+
+  // 2. Nested tab: /users/{userId}/sheets/{sheetId}/tabs/{tabId}
+  const validNestedTab = {
+    id: 'tab_math',
+    sheetDocId: 'sheet_priv_1',
+    userId: ownerUid,
+    title: 'Math Syllabus',
+    sheetTitle: 'Math Syllabus',
+    role: 'data',
+    headerRowIndex: 1,
+    dataStartRow: 2,
+    defaultView: 'checklist',
+    rowCount: 25,
+    createdAt: NOW_ISO,
+    updatedAt: NOW_ISO,
+  };
+
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math`, validNestedTab, ownerJwt), 200);
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math`, ownerJwt), 200);
+
+  // Attacker cross-user access to nested tab DENIED
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math`, attackerJwt), 403);
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math`, { ...validNestedTab, title: 'Hacked' }, attackerJwt), 403);
+  assert.equal(await fsDelete(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math`, attackerJwt), 403);
+
+  // Unauthenticated access to nested tab DENIED
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math`), 403);
+
+  // Nested tab UID mismatch DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_bad_uid`,
+      { ...validNestedTab, id: 'tab_bad_uid', userId: attackerUid },
+      ownerJwt
+    ),
+    403
+  );
+
+  // 3. Nested rows: /users/{userId}/sheets/{sheetId}/tabs/{tabId}/rows/{rowId}
+  const validRow = {
+    id: 'row_101',
+    sheetDocId: 'sheet_priv_1',
+    tabId: 'tab_math',
+    userId: ownerUid,
+    rowUid: 'row_101',
+    values: { topic: 'Differential Equations', status: 'done' },
+    status: 'synced',
+    createdAt: NOW_ISO,
+    updatedAt: NOW_ISO,
+  };
+
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math/rows/row_101`, validRow, ownerJwt), 200);
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math/rows/row_101`, ownerJwt), 200);
+
+  // Attacker access to nested row DENIED
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math/rows/row_101`, attackerJwt), 403);
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math/rows/row_101`, { ...validRow, values: { status: 'hacked' } }, attackerJwt), 403);
+
+  // Row UID mismatch DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_priv_1/tabs/tab_math/rows/row_bad_uid`,
+      { ...validRow, id: 'row_bad_uid', userId: attackerUid },
+      ownerJwt
+    ),
+    403
+  );
+
+  // 4. Nested row chunk: /users/{userId}/sheets/{sheetId}/row_chunks/{chunkId}
+  const validNestedChunk = {
+    id: 'chunk_0',
+    sheetDocId: 'sheet_priv_1',
+    tabId: 'tab_math',
+    userId: ownerUid,
+    chunkIndex: 0,
+    rowCount: 1,
+    byteSize: 512,
+    rows: { row_101: { rowUid: 'row_101', lastKnownSheetRow: 2 } },
+    createdAt: NOW_ISO,
+    updatedAt: NOW_ISO,
+  };
+
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_1/row_chunks/chunk_0`, validNestedChunk, ownerJwt), 200);
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1/row_chunks/chunk_0`, ownerJwt), 200);
+
+  // Attacker access to nested chunk DENIED
+  assert.equal(await fsRead(`users/${ownerUid}/sheets/sheet_priv_1/row_chunks/chunk_0`, attackerJwt), 403);
+  assert.equal(await fsWrite(`users/${ownerUid}/sheets/sheet_priv_1/row_chunks/chunk_0`, { ...validNestedChunk, rowCount: 99 }, attackerJwt), 403);
+
+  // Chunk UID mismatch DENIED
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheets/sheet_priv_1/row_chunks/chunk_bad_uid`,
+      { ...validNestedChunk, id: 'chunk_bad_uid', userId: attackerUid },
+      ownerJwt
+    ),
+    403
+  );
 });
 

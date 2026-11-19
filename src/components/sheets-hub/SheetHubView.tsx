@@ -25,7 +25,7 @@ import type {
   SheetTabSchema,
   SheetCellScalar,
 } from '../../types/sheetHub.ts';
-import { ThemeCard, ThemeButton, ThemeBadge, ThemeModal } from '../ui/ThemePrimitives.tsx';
+import { ThemeCard, ThemeButton, ThemeBadge, ThemeModal, ThemeInput } from '../ui/ThemePrimitives.tsx';
 import { AnimatedNumber } from '../ui/MotionPrimitives.tsx';
 import { SheetConnectionCard } from './SheetConnectionCard.tsx';
 import { SheetSyncStatusPanel } from './SheetSyncStatusPanel.tsx';
@@ -33,9 +33,11 @@ import { DynamicSheetRenderer } from './DynamicSheetRenderer.tsx';
 import { DynamicOverviewPanel } from './DynamicOverviewPanel.tsx';
 import { ConnectSheetWizard } from './ConnectSheetWizard.tsx';
 import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
+import { NativeSpreadsheetEditor } from './NativeSpreadsheetEditor.tsx';
+import type { SheetTemplateHint } from '../../types/sheetHub.ts';
 
 export const SheetHubView: React.FC = () => {
-  const { user, firebaseUser, authorizeGoogleSheets, showToast } = useApp();
+  const { user, firebaseUser, authorizeSheetHubReadOnly, showToast } = useApp();
   const activeUserId = user?.id || firebaseUser?.uid || 'usr_guest';
 
   // State
@@ -50,14 +52,32 @@ export const SheetHubView: React.FC = () => {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [schemaModalOpen, setSchemaModalOpen] = useState(false);
 
+  // Native Sheet Creation State
+  const [createSheetModalOpen, setCreateSheetModalOpen] = useState(false);
+  const [newSheetTitle, setNewSheetTitle] = useState('');
+  const [newSheetDesc, setNewSheetDesc] = useState('');
+  const [newSheetTemplate, setNewSheetTemplate] = useState<SheetTemplateHint>('table');
+  const [filterMode, setFilterMode] = useState<'all' | 'native' | 'google'>('all');
+
+  // Reset state when user changes to prevent cross-account data remnants
+  useEffect(() => {
+    setActiveConnectionId(null);
+    setTabs([]);
+    setSelectedTabId(null);
+    setRowsByTabId({});
+  }, [activeUserId]);
+
   // Load connections
   const loadConnections = useCallback(async () => {
     setIsLoading(true);
     try {
       const conns = await sheetHubStore.listConnections(activeUserId);
       setConnections(conns);
-      if (conns.length > 0 && !activeConnectionId) {
-        // check if URL hash or previous selection
+      if (activeConnectionId && !conns.some((c) => c.id === activeConnectionId)) {
+        setActiveConnectionId(null);
+        setTabs([]);
+        setSelectedTabId(null);
+        setRowsByTabId({});
       }
     } catch {
       showToast('Failed to load connections.', 'error');
@@ -282,6 +302,31 @@ export const SheetHubView: React.FC = () => {
     showToast('Spreadsheet connection unlinked cleanly.', 'success');
   };
 
+  const handleCreateNativeSheet = async () => {
+    if (!newSheetTitle.trim()) return;
+    try {
+      const res = await sheetHubStore.createNativeSpreadsheet(activeUserId, {
+        title: newSheetTitle.trim(),
+        description: newSheetDesc.trim() || null,
+        templateHint: newSheetTemplate,
+      });
+      setCreateSheetModalOpen(false);
+      setNewSheetTitle('');
+      setNewSheetDesc('');
+      await loadConnections();
+      setActiveConnectionId(res.sheet.id);
+      showToast(`Spreadsheet "${res.sheet.title}" created successfully!`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to create spreadsheet.', 'error');
+    }
+  };
+
+  const displayedConnections = useMemo(() => {
+    if (filterMode === 'native') return connections.filter((c) => c.isNative);
+    if (filterMode === 'google') return connections.filter((c) => !c.isNative);
+    return connections;
+  }, [connections, filterMode]);
+
   // ----------------------------------------------------
   // RENDER: Guided Connect Wizard
   // ----------------------------------------------------
@@ -304,6 +349,32 @@ export const SheetHubView: React.FC = () => {
   // RENDER: Active Connection Workspace
   // ----------------------------------------------------
   if (activeConnectionId && activeConnection) {
+    if (activeConnection.isNative) {
+      return (
+        <NativeSpreadsheetEditor
+          sheet={activeConnection}
+          tabs={tabs}
+          rowsByTabId={rowsByTabId}
+          userId={activeUserId}
+          onClose={() => setActiveConnectionId(null)}
+          onUpdateSheet={(upd) => {
+            setConnections((prev) => prev.map((c) => (c.id === upd.id ? upd : c)));
+          }}
+          onUpdateTabs={(updTabs) => setTabs(updTabs)}
+          onUpdateRows={(tabId, rows) => {
+            setRowsByTabId((prev) => ({ ...prev, [tabId]: rows }));
+          }}
+          onDeleteSheet={() => {
+            setActiveConnectionId(null);
+            setTabs([]);
+            setRowsByTabId({});
+            loadConnections();
+          }}
+          showToast={showToast}
+        />
+      );
+    }
+
     return (
       <div className="space-y-5">
         {/* Workspace Top Header Bar */}
@@ -359,7 +430,7 @@ export const SheetHubView: React.FC = () => {
           connection={activeConnection}
           isPulling={isPulling}
           onPull={() => handlePullUpdates(activeConnection.id)}
-          onReconnect={() => authorizeGoogleSheets()}
+          onReconnect={() => authorizeSheetHubReadOnly()}
         />
 
         {/* Tabs Navigation Switcher */}
@@ -466,26 +537,35 @@ export const SheetHubView: React.FC = () => {
               Data &amp; Integrations
             </span>
             <ThemeBadge tone="success" className="text-[10px] px-1.5 py-0.2">
-              Phase 2 Active
+              Native Sheets Active
             </ThemeBadge>
           </div>
           <h2 className="text-2xl font-bold text-[var(--ff-text-primary)] mt-0.5 flex items-center gap-2.5">
             <FileSpreadsheet className="w-6 h-6 text-emerald-500" />
-            <span>Universal Sheet Sync Hub</span>
+            <span>Sheet Workspace &amp; Sync Hub</span>
           </h2>
           <p className="text-xs text-[var(--ff-text-secondary)] mt-1">
-            Connect ANY compatible Google Spreadsheet dynamically without writing custom code.
+            Manage your 100% private native spreadsheets or connect external Google Sheets seamlessly.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <ThemeButton
             variant="primary"
-            onClick={() => setWizardOpen(true)}
+            onClick={() => setCreateSheetModalOpen(true)}
             className="flex items-center gap-2 shadow-lg shadow-[var(--ff-accent)]/10"
           >
             <Plus className="w-4 h-4" />
-            <span>Connect New Spreadsheet</span>
+            <span>Create New Sheet</span>
+          </ThemeButton>
+
+          <ThemeButton
+            variant="secondary"
+            onClick={() => setWizardOpen(true)}
+            className="flex items-center gap-2"
+          >
+            <ExternalLink className="w-4 h-4 text-emerald-500" />
+            <span>Connect Google Sheet</span>
           </ThemeButton>
         </div>
       </div>
@@ -494,74 +574,100 @@ export const SheetHubView: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <ThemeCard variant="elevated" className="p-4 border border-[var(--ff-border-color)]">
           <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-            <span className="uppercase font-semibold tracking-wider text-[10px]">Connected Sheets</span>
+            <span className="uppercase font-semibold tracking-wider text-[10px]">Total Spreadsheets</span>
             <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-2xl font-bold text-[var(--ff-text-primary)]">
-            <AnimatedNumber value={hubMetrics.totalConns} />
+            <AnimatedNumber value={connections.length} />
           </div>
-          <p className="text-xs text-[var(--ff-text-muted)] mt-1">Active spreadsheet integrations</p>
+          <p className="text-xs text-[var(--ff-text-muted)] mt-1">Workspace spreadsheets</p>
         </ThemeCard>
 
         <ThemeCard variant="elevated" className="p-4 border border-[var(--ff-border-color)]">
           <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-            <span className="uppercase font-semibold tracking-wider text-[10px]">Imported Tabs</span>
-            <Layers className="w-4 h-4 text-[var(--ff-accent)]" />
+            <span className="uppercase font-semibold tracking-wider text-[10px]">Native Private Sheets</span>
+            <Database className="w-4 h-4 text-[var(--ff-accent)]" />
           </div>
           <div className="text-2xl font-bold text-[var(--ff-accent)]">
-            <AnimatedNumber value={hubMetrics.totalTabs} />
+            <AnimatedNumber value={connections.filter((c) => c.isNative).length} />
           </div>
-          <p className="text-xs text-[var(--ff-text-muted)] mt-1">Syllabi, trackers &amp; grids</p>
+          <p className="text-xs text-[var(--ff-text-muted)] mt-1">Stored in Cloud Firestore</p>
         </ThemeCard>
 
         <ThemeCard variant="elevated" className="p-4 border border-[var(--ff-border-color)]">
           <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-            <span className="uppercase font-semibold tracking-wider text-[10px]">Google Auth Status</span>
-            <ShieldCheck className="w-4 h-4 text-blue-500" />
+            <span className="uppercase font-semibold tracking-wider text-[10px]">Synced Sheets</span>
+            <Layers className="w-4 h-4 text-blue-500" />
           </div>
-          <div className="text-base font-bold text-[var(--ff-text-primary)] flex items-center gap-1.5 mt-1">
-            {firebaseUser ? (
-              <span className="text-emerald-500 flex items-center gap-1 text-sm font-semibold">
-                <CheckCircle2 className="w-4 h-4" /> Authorized
-              </span>
-            ) : (
-              <span className="text-amber-500 text-sm font-semibold">Guest Mode</span>
-            )}
+          <div className="text-2xl font-bold text-[var(--ff-text-primary)]">
+            <AnimatedNumber value={connections.filter((c) => !c.isNative).length} />
           </div>
-          <p className="text-xs text-[var(--ff-text-muted)] mt-1">Incremental Sheets scope</p>
+          <p className="text-xs text-[var(--ff-text-muted)] mt-1">Google Sheets &amp; Demo fixtures</p>
         </ThemeCard>
 
         <ThemeCard variant="elevated" className="p-4 border border-[var(--ff-border-color)]">
           <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-            <span className="uppercase font-semibold tracking-wider text-[10px]">Sync Boundary</span>
+            <span className="uppercase font-semibold tracking-wider text-[10px]">Security Model</span>
             <Lock className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-sm font-bold text-emerald-500 mt-1">
-            Sheet → FocusFlow
+            Multi-Tenant Isolated
           </div>
-          <p className="text-xs text-[var(--ff-text-muted)] mt-1">Phase 2: Read-Only Guaranteed</p>
+          <p className="text-xs text-[var(--ff-text-muted)] mt-1">UID-enforced Firestore Rules</p>
         </ThemeCard>
+      </div>
+
+      {/* Filter Tabs & Search Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[var(--ff-border-color)]">
+        <div className="flex items-center gap-2 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setFilterMode('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+              filterMode === 'all'
+                ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-sm'
+                : 'bg-[var(--ff-surface)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-color)]'
+            }`}
+          >
+            All Sheets ({connections.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterMode('native')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+              filterMode === 'native'
+                ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-sm'
+                : 'bg-[var(--ff-surface)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-color)]'
+            }`}
+          >
+            My Native Sheets ({connections.filter((c) => c.isNative).length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterMode('google')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+              filterMode === 'google'
+                ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-sm'
+                : 'bg-[var(--ff-surface)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-color)]'
+            }`}
+          >
+            Google Sheets Sync ({connections.filter((c) => !c.isNative).length})
+          </button>
+        </div>
+
+        <span className="text-xs text-[var(--ff-text-muted)]">
+          {displayedConnections.length} {displayedConnections.length === 1 ? 'spreadsheet' : 'spreadsheets'} shown
+        </span>
       </div>
 
       {/* Connected Spreadsheets Grid */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-base text-[var(--ff-text-primary)]">
-            Connected Spreadsheets ({connections.length})
-          </h3>
-          {connections.length > 0 && (
-            <span className="text-xs text-[var(--ff-text-muted)]">
-              Click &ldquo;Open&rdquo; to launch interactive workspace
-            </span>
-          )}
-        </div>
-
         {isLoading ? (
           <div className="py-16 text-center text-xs text-[var(--ff-text-muted)]">
             <RotateCcw className="w-6 h-6 animate-spin mx-auto mb-2 text-[var(--ff-accent)]" />
-            <span>Loading spreadsheet connections...</span>
+            <span>Loading spreadsheets...</span>
           </div>
-        ) : connections.length === 0 ? (
+        ) : displayedConnections.length === 0 ? (
           /* Empty State */
           <ThemeCard
             variant="elevated"
@@ -572,22 +678,31 @@ export const SheetHubView: React.FC = () => {
             </div>
 
             <div>
-              <h4 className="font-bold text-base text-[var(--ff-text-primary)]">No Spreadsheets Connected Yet</h4>
+              <h4 className="font-bold text-base text-[var(--ff-text-primary)]">
+                {filterMode === 'native'
+                  ? 'No Native Spreadsheets Created Yet'
+                  : filterMode === 'google'
+                  ? 'No Google Sheets Synced Yet'
+                  : 'No Spreadsheets Found'}
+              </h4>
               <p className="text-xs text-[var(--ff-text-secondary)] mt-1 max-w-sm mx-auto">
-                Connect your study syllabus, project trackers, or reading logs from Google Sheets into your executive FocusFlow dashboard.
+                Create a 100% private native spreadsheet with interactive grid editing, or connect an external Google Sheet.
               </p>
             </div>
 
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <ThemeButton variant="primary" onClick={() => setWizardOpen(true)}>
-                <Plus className="w-4 h-4 mr-1.5" /> Connect New Spreadsheet
+              <ThemeButton variant="primary" onClick={() => setCreateSheetModalOpen(true)}>
+                <Plus className="w-4 h-4 mr-1.5" /> Create New Sheet
+              </ThemeButton>
+              <ThemeButton variant="secondary" onClick={() => setWizardOpen(true)}>
+                <ExternalLink className="w-4 h-4 mr-1.5 text-emerald-500" /> Connect Google Sheet
               </ThemeButton>
             </div>
           </ThemeCard>
         ) : (
           /* Grid of Connection Cards */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {connections.map((conn) => (
+            {displayedConnections.map((conn) => (
               <SheetConnectionCard
                 key={conn.id}
                 connection={conn}
@@ -595,7 +710,7 @@ export const SheetHubView: React.FC = () => {
                 onOpen={(id) => setActiveConnectionId(id)}
                 onRefresh={(id) => handlePullUpdates(id)}
                 onTogglePause={(id) => handleTogglePause(id)}
-                onReconnect={() => authorizeGoogleSheets()}
+                onReconnect={() => authorizeSheetHubReadOnly()}
                 onRemove={(id, purge) => handleRemoveConnection(id, purge)}
                 isPulling={isPulling}
               />
@@ -603,6 +718,115 @@ export const SheetHubView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* CREATE NEW NATIVE SHEET MODAL */}
+      <ThemeModal
+        isOpen={createSheetModalOpen}
+        onClose={() => setCreateSheetModalOpen(false)}
+        title="Create Native Spreadsheet"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-[var(--ff-text-muted)]">
+            Create a fast, 100% private spreadsheet stored securely in Cloud Firestore under your account. Zero Google Drive permissions or OAuth required.
+          </p>
+
+          <div>
+            <label className="text-xs font-semibold text-[var(--ff-text-primary)] block mb-1">
+              Spreadsheet Title *
+            </label>
+            <ThemeInput
+              value={newSheetTitle}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewSheetTitle(e.target.value)}
+              placeholder="e.g. Q4 Budget &amp; Financials, Study Schedule, Habit Matrix"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[var(--ff-text-primary)] block mb-1">
+              Description (Optional)
+            </label>
+            <ThemeInput
+              value={newSheetDesc}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewSheetDesc(e.target.value)}
+              placeholder="Brief description or purpose of this sheet"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[var(--ff-text-primary)] block mb-2">
+              Template Preset
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div
+                onClick={() => setNewSheetTemplate('table')}
+                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                  newSheetTemplate === 'table'
+                    ? 'border-[var(--ff-accent)] bg-[var(--ff-accent)]/10 ring-1 ring-[var(--ff-accent)]'
+                    : 'border-[var(--ff-border-color)] bg-[var(--ff-surface)] hover:bg-[var(--ff-surface-hover)]'
+                }`}
+              >
+                <div className="font-bold text-xs text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                  <TableIcon className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Blank Table</span>
+                </div>
+                <p className="text-[11px] text-[var(--ff-text-muted)] mt-1">
+                  Classic columns (A-E) for general data entry and calculations.
+                </p>
+              </div>
+
+              <div
+                onClick={() => setNewSheetTemplate('checklist')}
+                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                  newSheetTemplate === 'checklist'
+                    ? 'border-[var(--ff-accent)] bg-[var(--ff-accent)]/10 ring-1 ring-[var(--ff-accent)]'
+                    : 'border-[var(--ff-border-color)] bg-[var(--ff-surface)] hover:bg-[var(--ff-surface-hover)]'
+                }`}
+              >
+                <div className="font-bold text-xs text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Task Checklist</span>
+                </div>
+                <p className="text-[11px] text-[var(--ff-text-muted)] mt-1">
+                  Module, Topic, Done checkbox, and Notes for studying &amp; tasks.
+                </p>
+              </div>
+
+              <div
+                onClick={() => setNewSheetTemplate('tracker')}
+                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                  newSheetTemplate === 'tracker'
+                    ? 'border-[var(--ff-accent)] bg-[var(--ff-accent)]/10 ring-1 ring-[var(--ff-accent)]'
+                    : 'border-[var(--ff-border-color)] bg-[var(--ff-surface)] hover:bg-[var(--ff-surface-hover)]'
+                }`}
+              >
+                <div className="font-bold text-xs text-[var(--ff-text-primary)] flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Project Tracker</span>
+                </div>
+                <p className="text-[11px] text-[var(--ff-text-muted)] mt-1">
+                  Task Item, Priority, Status, and Due Date tracking.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-[var(--ff-border-color)]">
+            <ThemeButton variant="secondary" onClick={() => setCreateSheetModalOpen(false)}>
+              Cancel
+            </ThemeButton>
+            <ThemeButton
+              variant="primary"
+              onClick={handleCreateNativeSheet}
+              disabled={!newSheetTitle.trim()}
+              className="flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Spreadsheet</span>
+            </ThemeButton>
+          </div>
+        </div>
+      </ThemeModal>
     </div>
   );
 };

@@ -872,7 +872,7 @@ service cloud.firestore {
       }
 
       // ==========================================
-      // UNIVERSAL SHEET SYNC HUB (PHASE 1)
+      // UNIVERSAL SHEET SYNC HUB & PRIVATE SHEETS
       // ==========================================
       // Assumed Data Models (User-Owned, Strictly Isolated):
       //   1. sheet_connections/{connectionId} - Connected Google Spreadsheet metadata (NO OAuth tokens)
@@ -880,6 +880,17 @@ service cloud.firestore {
       //   3. sheet_row_chunks/{chunkId}       - Byte-safe packed row chunks (<= 200 rows, <= 850 KB)
       //   4. sheet_sync_queue/{opId}          - Outbound cell mutation queue & retry state
       //   5. sheet_conflicts/{conflictId}     - 3-way merge conflict records & resolutions
+      //   6. sheets/{sheetId}                 - Canonical Private Sheet Ownership Architecture
+      //        -> tabs/{tabId}                - Nested tab schema and view definitions
+      //        -> rows/{rowId}                - Granular row records
+      //        -> row_chunks/{chunkId}        - Packed row chunks
+      //
+      // Security Invariants:
+      //   - Strict Default-Deny Architecture: All access requires explicit scoped grant
+      //   - Multi-User Isolation: Scoped strictly to /users/{userId}/ matching authenticated request.auth.uid
+      //   - Immutable Ownership: userId and document id cannot be reassigned or spoofed
+      //   - Field-Level Lockdown: Schema validation with hasOnly and strict type bounds
+      //   - Zero Credential Leakage: OAuth access/refresh tokens are explicitly disallowed
 
       function isBoundedIsoDate(val) {
         return isIsoDate(val) && val.size() <= 64;
@@ -897,11 +908,170 @@ service cloud.firestore {
           || (val is string && val.size() <= 50000);
       }
 
+      function isValidSheetDoc(data, docId, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'title', 'spreadsheetId', 'spreadsheetUrl', 'description',
+            'templateHint', 'syncMode', 'pollIntervalSec', 'syncOnOpen', 'status',
+            'lastSyncedAt', 'lastSuccessfulPullAt', 'lastSuccessfulPushAt', 'lastError',
+            'pendingChangesCount', 'conflictCount', 'tabOrder',
+            'createdAt', 'updatedAt', 'deletedAt',
+            'ownerUid', 'schemaVersion', 'sortOrder', 'isNative'
+          ])
+          && !('accessToken' in data)
+          && !('refreshToken' in data)
+          && data.id == docId
+          && data.userId == uid
+          && (data.get('ownerUid', null) == null || data.ownerUid == uid)
+          && (data.get('schemaVersion', null) == null || isBoundedInt(data.schemaVersion, 1, 100))
+          && (data.get('sortOrder', null) == null || isBoundedInt(data.sortOrder, 0, 100000))
+          && (data.get('isNative', null) == null || data.isNative is bool)
+          && isNonEmptyString(data.title, 256)
+          && (data.get('spreadsheetId', null) == null || isNonEmptyString(data.spreadsheetId, 128))
+          && (
+            data.get('spreadsheetUrl', null) == null ||
+            (
+              isNonEmptyString(data.spreadsheetUrl, 1024)
+              && (data.spreadsheetUrl.matches('^https://.*') || data.spreadsheetUrl.matches('^http://.*'))
+            )
+          )
+          && isOptionalString(data.get('description', null), 2048)
+          && (
+            data.get('templateHint', null) == null ||
+            data.templateHint in ['checklist', 'tracker', 'table', 'custom']
+          )
+          && data.syncMode in ['two_way', 'sheet_to_app', 'manual_only']
+          && (
+            data.get('pollIntervalSec', null) == null ||
+            isBoundedInt(data.pollIntervalSec, 0, 86400)
+          )
+          && (data.get('syncOnOpen', null) == null || data.syncOnOpen is bool)
+          && data.status in ['active', 'paused', 'auth_required', 'error']
+          && isOptionalBoundedIsoDate(data.get('lastSyncedAt', null))
+          && isOptionalBoundedIsoDate(data.get('lastSuccessfulPullAt', null))
+          && isOptionalBoundedIsoDate(data.get('lastSuccessfulPushAt', null))
+          && isOptionalString(data.get('lastError', null), 2048)
+          && (
+            data.get('pendingChangesCount', null) == null ||
+            isBoundedInt(data.pendingChangesCount, 0, 100000)
+          )
+          && (
+            data.get('conflictCount', null) == null ||
+            isBoundedInt(data.conflictCount, 0, 100000)
+          )
+          && (
+            data.get('tabOrder', null) == null ||
+            (data.tabOrder is list && data.tabOrder.size() <= 100)
+          )
+          && isBoundedIsoDate(data.createdAt)
+          && isBoundedIsoDate(data.updatedAt)
+          && isOptionalBoundedIsoDate(data.get('deletedAt', null));
+      }
+
+      function isValidNestedSheetTab(data, docId, uid, sheetDocId) {
+        return data.keys().hasOnly([
+            'id', 'sheetDocId', 'sheetId', 'connectionId', 'userId', 'title', 'sheetTitle',
+            'role', 'headerRowIndex', 'dataStartRow', 'dataEndColumn', 'identityStrategy',
+            'identityColumns', 'metadataIdColumn', 'columns', 'defaultView',
+            'groupByColumnId', 'lastPullHash', 'rowCount', 'chunkCount', 'createdAt', 'updatedAt',
+            'ownerUid', 'position'
+          ])
+          && !('accessToken' in data)
+          && !('refreshToken' in data)
+          && data.id == docId
+          && data.userId == uid
+          && (data.get('ownerUid', null) == null || data.ownerUid == uid)
+          && (data.get('position', null) == null || isBoundedInt(data.position, 0, 1000))
+          && (data.get('sheetDocId', null) == null || data.sheetDocId == sheetDocId)
+          && (data.get('connectionId', null) == null || data.connectionId == sheetDocId || isValidId(data.connectionId))
+          && (data.get('sheetId', null) == null || isBoundedInt(data.sheetId, 0, 2147483647) || isValidId(data.sheetId))
+          && isNonEmptyString(data.get('sheetTitle', data.get('title', '')), 256)
+          && data.role in ['data', 'overview', 'ignored']
+          && (data.get('headerRowIndex', null) == null || isBoundedInt(data.headerRowIndex, 0, 100))
+          && (data.get('dataStartRow', null) == null || isBoundedInt(data.dataStartRow, 1, 1000))
+          && isOptionalString(data.get('dataEndColumn', null), 16)
+          && (data.get('identityStrategy', null) == null || data.identityStrategy in ['column_key', 'composite_key', 'metadata_column'])
+          && (data.get('identityColumns', null) == null || (data.identityColumns is list && data.identityColumns.size() <= 10))
+          && isOptionalString(data.get('metadataIdColumn', null), 64)
+          && (data.get('columns', null) == null || (data.columns is list && data.columns.size() <= 100))
+          && (data.get('defaultView', null) == null || data.defaultView in ['checklist', 'table', 'grouped_list'])
+          && isOptionalString(data.get('groupByColumnId', null), 128)
+          && isOptionalString(data.get('lastPullHash', null), 128)
+          && (data.get('rowCount', null) == null || isBoundedInt(data.rowCount, 0, 100000))
+          && (data.get('chunkCount', null) == null || isBoundedInt(data.chunkCount, 0, 10000))
+          && isBoundedIsoDate(data.updatedAt)
+          && isOptionalBoundedIsoDate(data.get('createdAt', null));
+      }
+
+      function isValidSheetRow(data, docId, uid, sheetDocId, parentTabId) {
+        return data.keys().hasOnly([
+            'id', 'sheetDocId', 'sheetId', 'tabId', 'userId', 'rowUid',
+            'lastKnownSheetRow', 'values', 'baseValues', 'rowHash', 'version',
+            'lastSyncOrigin', 'dirtyFields', 'localUpdatedAt', 'sheetSyncedAt',
+            'status', 'createdAt', 'updatedAt', 'deletedAt',
+            'ownerUid', 'rowIndex', 'cells'
+          ])
+          && !('accessToken' in data)
+          && !('refreshToken' in data)
+          && data.id == docId
+          && data.userId == uid
+          && (data.get('ownerUid', null) == null || data.ownerUid == uid)
+          && (data.get('rowIndex', null) == null || isBoundedInt(data.rowIndex, 0, 100000))
+          && (data.get('cells', null) == null || (data.cells is map && data.cells.size() <= 200))
+          && (data.get('sheetDocId', null) == null || data.sheetDocId == sheetDocId)
+          && (data.get('sheetId', null) == null || data.sheetId == sheetDocId || isValidId(data.sheetId))
+          && (
+            parentTabId == null
+              ? (data.get('tabId', null) == null || isValidId(data.tabId))
+              : (data.get('tabId', null) == null || data.tabId == parentTabId)
+          )
+          && (data.get('rowUid', null) == null || isNonEmptyString(data.rowUid, 128))
+          && (data.get('lastKnownSheetRow', null) == null || isBoundedInt(data.lastKnownSheetRow, 0, 100000))
+          && (data.get('values', null) == null || (data.values is map && data.values.size() <= 200))
+          && (data.get('baseValues', null) == null || (data.baseValues is map && data.baseValues.size() <= 200))
+          && isOptionalString(data.get('rowHash', null), 128)
+          && (data.get('version', null) == null || isBoundedInt(data.version, 0, 1000000))
+          && (data.get('lastSyncOrigin', null) == null || data.lastSyncOrigin in ['sheet', 'app'])
+          && (data.get('dirtyFields', null) == null || (data.dirtyFields is list && data.dirtyFields.size() <= 100))
+          && isOptionalBoundedIsoDate(data.get('localUpdatedAt', null))
+          && isOptionalBoundedIsoDate(data.get('sheetSyncedAt', null))
+          && (data.get('status', null) == null || data.status in ['synced', 'pending_push', 'conflict', 'missing_in_sheet'])
+          && isOptionalBoundedIsoDate(data.get('createdAt', null))
+          && isOptionalBoundedIsoDate(data.get('updatedAt', null))
+          && (('updatedAt' in data) || ('createdAt' in data))
+          && isOptionalBoundedIsoDate(data.get('deletedAt', null));
+      }
+
+      function isValidNestedSheetRowChunk(data, docId, uid, sheetDocId, parentTabId) {
+        return data.keys().hasOnly([
+            'id', 'sheetDocId', 'sheetId', 'connectionId', 'tabId', 'userId',
+            'chunkIndex', 'rowCount', 'byteSize', 'rows', 'createdAt', 'updatedAt'
+          ])
+          && !('accessToken' in data)
+          && !('refreshToken' in data)
+          && data.id == docId
+          && data.userId == uid
+          && (data.get('sheetDocId', null) == null || data.sheetDocId == sheetDocId)
+          && (data.get('sheetId', null) == null || data.sheetId == sheetDocId || isValidId(data.sheetId))
+          && (data.get('connectionId', null) == null || data.connectionId == sheetDocId || isValidId(data.connectionId))
+          && (
+            parentTabId == null
+              ? (data.get('tabId', null) == null || isValidId(data.tabId))
+              : (data.get('tabId', null) == null || data.tabId == parentTabId)
+          )
+          && isBoundedInt(data.chunkIndex, 0, 10000)
+          && isBoundedInt(data.rowCount, 0, 200)
+          && isBoundedInt(data.byteSize, 0, 850000)
+          && data.rows is map
+          && data.rows.size() <= 200
+          && isBoundedIsoDate(data.updatedAt)
+          && isOptionalBoundedIsoDate(data.get('createdAt', null));
+      }
+
       // 1. Sheet connections subcollection (Universal Sheet Sync Hub)
       match /sheet_connections/{connectionId} {
         function isValidSheetConnection(data, docId, uid) {
           return data.keys().hasOnly([
-              'id', 'userId', 'spreadsheetId', 'spreadsheetUrl', 'title',
+              'id', 'userId', 'spreadsheetId', 'spreadsheetUrl', 'title', 'description',
               'templateHint', 'syncMode', 'pollIntervalSec', 'syncOnOpen',
               'status', 'lastSyncedAt', 'lastSuccessfulPullAt', 'lastSuccessfulPushAt',
               'lastError', 'pendingChangesCount', 'conflictCount', 'tabOrder',
@@ -915,6 +1085,7 @@ service cloud.firestore {
             && isNonEmptyString(data.spreadsheetUrl, 1024)
             && (data.spreadsheetUrl.matches('^https://.*') || data.spreadsheetUrl.matches('^http://.*'))
             && isNonEmptyString(data.title, 256)
+            && isOptionalString(data.get('description', null), 2048)
             && (
               data.get('templateHint', null) == null ||
               data.templateHint in ['checklist', 'tracker', 'table', 'custom']
@@ -961,6 +1132,8 @@ service cloud.firestore {
               'identityColumns', 'metadataIdColumn', 'columns', 'defaultView',
               'groupByColumnId', 'lastPullHash', 'rowCount', 'chunkCount', 'updatedAt'
             ])
+            && !('accessToken' in data)
+            && !('refreshToken' in data)
             && data.id == docId
             && data.userId == uid
             && isValidId(data.connectionId)
@@ -1007,6 +1180,8 @@ service cloud.firestore {
               'id', 'connectionId', 'tabId', 'userId', 'chunkIndex',
               'rowCount', 'byteSize', 'rows', 'updatedAt'
             ])
+            && !('accessToken' in data)
+            && !('refreshToken' in data)
             && data.id == docId
             && data.userId == uid
             && isValidId(data.connectionId)
@@ -1041,6 +1216,8 @@ service cloud.firestore {
               'fieldKey', 'baseValue', 'nextValue', 'dedupeKey', 'status',
               'attempts', 'nextRetryAt', 'errorMessage', 'createdAt', 'lastAttemptAt'
             ])
+            && !('accessToken' in data)
+            && !('refreshToken' in data)
             && data.id == docId
             && data.userId == uid
             && isValidId(data.connectionId)
@@ -1085,6 +1262,8 @@ service cloud.firestore {
               'fieldLabel', 'baseValue', 'localValue', 'remoteValue', 'status',
               'resolution', 'detectedAt', 'resolvedAt'
             ])
+            && !('accessToken' in data)
+            && !('refreshToken' in data)
             && data.id == docId
             && data.userId == uid
             && isValidId(data.connectionId)
@@ -1118,6 +1297,122 @@ service cloud.firestore {
           && request.resource.data.fieldKey == resource.data.fieldKey
           && request.resource.data.detectedAt == resource.data.detectedAt;
         allow delete: if isOwner(userId);
+      }
+
+      // 6. Canonical Private Sheet Ownership Architecture
+      // match /users/{userId}/sheets/{sheetId}
+      match /sheets/{sheetId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(sheetId)
+          && request.resource.data.userId == userId
+          && request.resource.data.id == sheetId
+          && isValidSheetDoc(request.resource.data, sheetId, userId);
+        allow update: if isOwner(userId)
+          && isValidSheetDoc(request.resource.data, sheetId, userId)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && (
+            !('spreadsheetId' in resource.data) ||
+            request.resource.data.get('spreadsheetId', null) == resource.data.spreadsheetId
+          );
+        allow delete: if isOwner(userId);
+
+        // Subcollection tabs under sheets/{sheetId}/tabs/{tabId}
+        match /tabs/{tabId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId)
+            && isValidId(tabId)
+            && request.resource.data.id == tabId
+            && request.resource.data.userId == userId
+            && isValidNestedSheetTab(request.resource.data, tabId, userId, sheetId);
+          allow update: if isOwner(userId)
+            && isValidNestedSheetTab(request.resource.data, tabId, userId, sheetId)
+            && request.resource.data.id == resource.data.id
+            && request.resource.data.userId == resource.data.userId
+            && (!('sheetDocId' in resource.data) || request.resource.data.sheetDocId == resource.data.sheetDocId)
+            && (!('connectionId' in resource.data) || request.resource.data.connectionId == resource.data.connectionId)
+            && (!('sheetId' in resource.data) || request.resource.data.sheetId == resource.data.sheetId)
+            && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+          allow delete: if isOwner(userId);
+
+          // Subcollection rows under tab: sheets/{sheetId}/tabs/{tabId}/rows/{rowId}
+          match /rows/{rowId} {
+            allow read: if isOwner(userId);
+            allow create: if isOwner(userId)
+              && isValidId(rowId)
+              && request.resource.data.id == rowId
+              && request.resource.data.userId == userId
+              && isValidSheetRow(request.resource.data, rowId, userId, sheetId, tabId);
+            allow update: if isOwner(userId)
+              && isValidSheetRow(request.resource.data, rowId, userId, sheetId, tabId)
+              && request.resource.data.id == resource.data.id
+              && request.resource.data.userId == resource.data.userId
+              && (!('sheetDocId' in resource.data) || request.resource.data.sheetDocId == resource.data.sheetDocId)
+              && (!('tabId' in resource.data) || request.resource.data.tabId == resource.data.tabId)
+              && (!('rowUid' in resource.data) || request.resource.data.rowUid == resource.data.rowUid)
+              && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+            allow delete: if isOwner(userId);
+          }
+
+          // Subcollection row_chunks under tab: sheets/{sheetId}/tabs/{tabId}/row_chunks/{chunkId}
+          match /row_chunks/{chunkId} {
+            allow read: if isOwner(userId);
+            allow create: if isOwner(userId)
+              && isValidId(chunkId)
+              && request.resource.data.id == chunkId
+              && request.resource.data.userId == userId
+              && isValidNestedSheetRowChunk(request.resource.data, chunkId, userId, sheetId, tabId);
+            allow update: if isOwner(userId)
+              && isValidNestedSheetRowChunk(request.resource.data, chunkId, userId, sheetId, tabId)
+              && request.resource.data.id == resource.data.id
+              && request.resource.data.userId == resource.data.userId
+              && (!('sheetDocId' in resource.data) || request.resource.data.sheetDocId == resource.data.sheetDocId)
+              && request.resource.data.tabId == resource.data.tabId
+              && request.resource.data.chunkIndex == resource.data.chunkIndex
+              && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+            allow delete: if isOwner(userId);
+          }
+        }
+
+        // Subcollection rows directly under sheet: sheets/{sheetId}/rows/{rowId}
+        match /rows/{rowId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId)
+            && isValidId(rowId)
+            && request.resource.data.id == rowId
+            && request.resource.data.userId == userId
+            && isValidSheetRow(request.resource.data, rowId, userId, sheetId, null);
+          allow update: if isOwner(userId)
+            && isValidSheetRow(request.resource.data, rowId, userId, sheetId, null)
+            && request.resource.data.id == resource.data.id
+            && request.resource.data.userId == resource.data.userId
+            && (!('sheetDocId' in resource.data) || request.resource.data.sheetDocId == resource.data.sheetDocId)
+            && (!('tabId' in resource.data) || request.resource.data.tabId == resource.data.tabId)
+            && (!('rowUid' in resource.data) || request.resource.data.rowUid == resource.data.rowUid)
+            && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+          allow delete: if isOwner(userId);
+        }
+
+        // Subcollection row_chunks directly under sheet: sheets/{sheetId}/row_chunks/{chunkId}
+        match /row_chunks/{chunkId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId)
+            && isValidId(chunkId)
+            && request.resource.data.id == chunkId
+            && request.resource.data.userId == userId
+            && isValidNestedSheetRowChunk(request.resource.data, chunkId, userId, sheetId, null);
+          allow update: if isOwner(userId)
+            && isValidNestedSheetRowChunk(request.resource.data, chunkId, userId, sheetId, null)
+            && request.resource.data.id == resource.data.id
+            && request.resource.data.userId == resource.data.userId
+            && (!('sheetDocId' in resource.data) || request.resource.data.sheetDocId == resource.data.sheetDocId)
+            && (!('tabId' in resource.data) || request.resource.data.tabId == resource.data.tabId)
+            && request.resource.data.chunkIndex == resource.data.chunkIndex
+            && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+          allow delete: if isOwner(userId);
+        }
       }
     }
 

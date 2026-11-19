@@ -80,17 +80,24 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
                 >
                   {connection.title}
                 </h3>
-                <a
-                  href={connection.spreadsheetUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] inline-flex items-center gap-1 mt-0.5 truncate max-w-[220px]"
-                  title="Open source in Google Sheets"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <span>Google Sheets</span>
-                  <ExternalLink className="w-3 h-3 shrink-0" />
-                </a>
+                {connection.isNative ? (
+                  <span className="text-xs text-[var(--ff-accent-text)] inline-flex items-center gap-1 mt-0.5 truncate font-medium">
+                    <Database className="w-3 h-3 shrink-0" />
+                    <span>Native Firestore</span>
+                  </span>
+                ) : (
+                  <a
+                    href={connection.spreadsheetUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] inline-flex items-center gap-1 mt-0.5 truncate max-w-[220px]"
+                    title="Open source in Google Sheets"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span>Google Sheets</span>
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                )}
               </div>
             </div>
 
@@ -167,7 +174,17 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
 
           {/* Status Badge */}
           <div className="flex flex-wrap items-center gap-2 mb-4">
-            {connection.status === 'active' && (
+            {connection.isNative && (
+              <ThemeBadge tone="neutral" className="text-xs flex items-center gap-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold">
+                <Database className="w-3 h-3" /> Native Sheet
+              </ThemeBadge>
+            )}
+            {connection.spreadsheetId === 'sem3-syllabus-sample' && (
+              <ThemeBadge tone="neutral" className="text-xs flex items-center gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold">
+                Demo Data
+              </ThemeBadge>
+            )}
+            {connection.status === 'active' && !connection.isNative && (
               <ThemeBadge tone="success" className="text-xs flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" /> Connected
               </ThemeBadge>
@@ -187,9 +204,15 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
                 <AlertTriangle className="w-3 h-3" /> Error
               </ThemeBadge>
             )}
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] border border-[var(--ff-border-color)]">
-              Read-Only
-            </span>
+            {connection.isNative ? (
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                Editable
+              </span>
+            ) : (
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] border border-[var(--ff-border-color)]">
+                Read-Only
+              </span>
+            )}
           </div>
 
           {/* Stats Grid */}
@@ -217,15 +240,17 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <ThemeButton
-              variant="secondary"
-              size="sm"
-              onClick={() => onRefresh(connection.id)}
-              disabled={isPulling || isPaused}
-              title="Pull updates now"
-            >
-              <RotateCcw className={`w-3.5 h-3.5 ${isPulling ? 'animate-spin' : ''}`} />
-            </ThemeButton>
+            {!connection.isNative && (
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                onClick={() => onRefresh(connection.id)}
+                disabled={isPulling || isPaused}
+                title="Pull updates now"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isPulling ? 'animate-spin' : ''}`} />
+              </ThemeButton>
+            )}
 
             <ThemeButton
               variant="primary"
@@ -233,7 +258,7 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
               onClick={() => onOpen(connection.id)}
               className="flex items-center gap-1.5"
             >
-              <span>Open</span>
+              <span>{connection.isNative ? 'Open Sheet' : 'Open'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </ThemeButton>
           </div>
