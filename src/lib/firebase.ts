@@ -47,6 +47,11 @@ export const SHEET_HUB_READONLY_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets.readonly',
 ] as const;
 
+// Universal Sheet Sync Hub Write scope (Least-privilege spreadsheet editing only, zero Drive permissions)
+export const SHEET_HUB_WRITE_SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+] as const;
+
 // Backward-compatible alias for existing tests and legacy references
 export const GOOGLE_SHEETS_SCOPES = LEGACY_SHEETS_SCOPES;
 
@@ -94,11 +99,31 @@ export function createSheetHubReadOnlyProvider(loginHint?: string | null): Googl
   return provider;
 }
 
+/**
+ * Creates provider for Universal Sheet Sync Hub Two-Way Cell Sync (Read/Write Spreadsheets only, zero Drive access).
+ */
+export function createSheetHubWriteProvider(loginHint?: string | null): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  for (const scope of SHEET_HUB_WRITE_SCOPES) {
+    provider.addScope(scope);
+  }
+  const params: Record<string, string> = {
+    prompt: loginHint ? 'consent' : 'select_account consent',
+  };
+  if (loginHint) {
+    params.login_hint = loginHint;
+  }
+  provider.setCustomParameters(params);
+  return provider;
+}
+
 // In-memory access token caches:
 // - cachedLegacyAccessToken: Read/Write token for 23-tab executive workbook sync
 // - cachedSheetHubAccessToken: Strictly Read-Only token for Universal Sheet Hub
+// - cachedSheetHubWriteAccessToken: Least-privilege Spreadsheets write token for Sheet Hub two-way mark/unmark
 let cachedLegacyAccessToken: string | null = null;
 let cachedSheetHubAccessToken: string | null = null;
+let cachedSheetHubWriteAccessToken: string | null = null;
 let isSigningIn = false;
 
 export enum OperationType {
@@ -179,6 +204,7 @@ export const signInWithGoogle = createSingleFlightRunner(
       if (previousUid && result.user.uid !== previousUid) {
         cachedLegacyAccessToken = null;
         cachedSheetHubAccessToken = null;
+        cachedSheetHubWriteAccessToken = null;
       }
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const accessToken = credential?.accessToken || '';
@@ -256,6 +282,38 @@ export const authorizeSheetHubReadOnly = createSingleFlightRunner(
   }
 );
 
+// Incremental Google Sheets write authorization for Universal Sheet Sync Hub two-way mark/unmark
+export const authorizeSheetHubWrite = createSingleFlightRunner(
+  async (loginHint?: string | null): Promise<{ user: User; accessToken: string }> => {
+    try {
+      isSigningIn = true;
+      const activeUser = auth.currentUser;
+      const provider = createSheetHubWriteProvider(loginHint || activeUser?.email || null);
+      const result = activeUser
+        ? await reauthenticateWithPopup(activeUser, provider)
+        : await signInWithPopup(auth, provider);
+
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken || '';
+      if (!accessToken) {
+        const err = new Error(
+          'Google did not return an OAuth access token for editing Sheets. Please retry and approve spreadsheet edit access.'
+        ) as Error & { code?: string };
+        err.code = 'auth/missing-access-token';
+        throw err;
+      }
+
+      cachedSheetHubWriteAccessToken = accessToken;
+      return { user: result.user, accessToken };
+    } catch (error) {
+      console.error('Google Sheets write authorization error:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
+    }
+  }
+);
+
 export const getAccessToken = async (): Promise<string | null> => {
   return cachedLegacyAccessToken;
 };
@@ -265,17 +323,26 @@ export const setAccessToken = (token: string | null) => {
 };
 
 export const getSheetHubAccessToken = async (): Promise<string | null> => {
-  return cachedSheetHubAccessToken || cachedLegacyAccessToken;
+  return cachedSheetHubAccessToken || cachedSheetHubWriteAccessToken || cachedLegacyAccessToken;
 };
 
 export const setSheetHubAccessToken = (token: string | null) => {
   cachedSheetHubAccessToken = token;
 };
 
+export const getSheetHubWriteAccessToken = async (): Promise<string | null> => {
+  return cachedSheetHubWriteAccessToken || cachedLegacyAccessToken;
+};
+
+export const setSheetHubWriteAccessToken = (token: string | null) => {
+  cachedSheetHubWriteAccessToken = token;
+};
+
 export const signOut = async (): Promise<void> => {
   await firebaseSignOut(auth);
   cachedLegacyAccessToken = null;
   cachedSheetHubAccessToken = null;
+  cachedSheetHubWriteAccessToken = null;
   initialAuthPromise = null;
 };
 
@@ -285,10 +352,14 @@ export const initAuthListener = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      onAuthSuccess(user, cachedLegacyAccessToken || cachedSheetHubAccessToken);
+      onAuthSuccess(
+        user,
+        cachedLegacyAccessToken || cachedSheetHubWriteAccessToken || cachedSheetHubAccessToken
+      );
     } else {
       cachedLegacyAccessToken = null;
       cachedSheetHubAccessToken = null;
+      cachedSheetHubWriteAccessToken = null;
       onAuthFailure();
     }
   });

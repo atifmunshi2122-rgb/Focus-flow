@@ -61,6 +61,7 @@ import {
   pullPublicSpreadsheetTabs,
   SheetHubWorkerError,
 } from './universalSheetsWorker.ts';
+import { pushSheetHubCellUpdates } from './sheetHubWriteWorker.ts';
 import type { SheetsSnapshotPayload } from '../src/lib/sheetsSpec.js';
 
 export const apiRouter = Router();
@@ -3545,6 +3546,53 @@ apiRouter.post('/sheet-hub/pull', async (req: Request, res: Response) => {
     res.json(pulled);
   } catch (err) {
     sendSheetHubError(res, err, 'Spreadsheet pull failed.');
+  }
+});
+
+apiRouter.post('/sheet-hub/push-cells', async (req: Request, res: Response) => {
+  const authCtx = getAuth(req);
+  if (!authCtx || authCtx.isGuest) {
+    res.status(401).json({
+      error: 'Signed-in FocusFlow authentication is required to sync changes to Google Sheets.',
+      code: 'AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({
+      error: 'Google Sheets edit authorization token header is required.',
+      code: 'SHEETS_AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const spreadsheetId =
+    typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
+  const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+
+  if (!spreadsheetId) {
+    res.status(400).json({
+      error: 'spreadsheetId is required.',
+      code: 'INVALID_SPREADSHEET_ID',
+    });
+    return;
+  }
+
+  if (updates.length === 0) {
+    res.status(400).json({
+      error: 'At least one cell update is required.',
+      code: 'INVALID_PUSH_REQUEST',
+    });
+    return;
+  }
+
+  try {
+    const result = await pushSheetHubCellUpdates({ spreadsheetId, updates }, accessToken);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    sendSheetHubError(res, err, 'Failed to push cell updates to Google Sheets.');
   }
 });
 

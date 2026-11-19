@@ -14,8 +14,8 @@ interface State {
   retryCount: number;
 }
 
-const MAX_AUTO_RETRIES = 1;
-const RETRY_STORAGE_KEY = 'ff_lazy_chunk_retry_v1';
+const RETRY_STORAGE_KEY = 'ff_lazy_chunk_retry_ts_v2';
+const RETRY_COOLDOWN_MS = 15_000;
 
 export class LazyChunkErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
@@ -25,6 +25,19 @@ export class LazyChunkErrorBoundary extends Component<Props, State> {
       error: null,
       retryCount: 0,
     };
+  }
+
+  componentDidMount(): void {
+    if (!this.state.hasError) {
+      try {
+        const lastTs = Number(sessionStorage.getItem(RETRY_STORAGE_KEY) || '0');
+        if (lastTs > 0 && Date.now() - lastTs > RETRY_COOLDOWN_MS) {
+          sessionStorage.removeItem(RETRY_STORAGE_KEY);
+        }
+      } catch {
+        // Ignore sessionStorage errors
+      }
+    }
   }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
@@ -42,12 +55,10 @@ export class LazyChunkErrorBoundary extends Component<Props, State> {
 
     if (isChunkFailure) {
       try {
-        const lastRetry = sessionStorage.getItem(RETRY_STORAGE_KEY);
-        const retryCount = lastRetry ? parseInt(lastRetry, 10) : 0;
-
-        if (retryCount < MAX_AUTO_RETRIES) {
-          sessionStorage.setItem(RETRY_STORAGE_KEY, String(retryCount + 1));
-          // Perform a one-time automatic page reload to fetch new deployment chunks
+        const lastRetryTs = Number(sessionStorage.getItem(RETRY_STORAGE_KEY) || '0');
+        if (!lastRetryTs || Date.now() - lastRetryTs > RETRY_COOLDOWN_MS) {
+          sessionStorage.setItem(RETRY_STORAGE_KEY, String(Date.now()));
+          // Perform a single automatic page reload to fetch updated chunks cleanly
           window.location.reload();
         }
       } catch {

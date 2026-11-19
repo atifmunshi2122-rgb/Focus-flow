@@ -16,20 +16,30 @@ import {
   Info,
   Maximize2,
   Minimize2,
+  Loader2,
+  CloudUpload,
 } from 'lucide-react';
 import type {
   SheetColumnMapping,
   SheetSyncedRow,
+  SheetSyncMode,
   SheetTabSchema,
 } from '../../types/sheetHub.ts';
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeInput } from '../ui/ThemePrimitives.tsx';
 import { AnimatedProgressBar } from '../ui/MotionPrimitives.tsx';
+
+const isCellDone = (val: unknown): boolean =>
+  val === true || (typeof val === 'string' && val.trim().toLowerCase() === 'true');
 
 interface DynamicSheetRendererProps {
   schema: SheetTabSchema;
   rows: SheetSyncedRow[];
   viewMode?: 'checklist' | 'table' | 'grouped_list' | 'cards';
   onChangeViewMode?: (mode: 'checklist' | 'table' | 'grouped_list' | 'cards') => void;
+  onToggleCell?: (row: SheetSyncedRow, col: SheetColumnMapping, nextValue: boolean) => void | Promise<void>;
+  syncingRowUids?: Record<string, boolean>;
+  syncMode?: SheetSyncMode;
+  isDemoSheet?: boolean;
 }
 
 export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
@@ -37,6 +47,10 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
   rows,
   viewMode = 'checklist',
   onChangeViewMode,
+  onToggleCell,
+  syncingRowUids = {},
+  syncMode = 'two_way',
+  isDemoSheet = false,
 }) => {
   const [activeView, setActiveView] = useState<'checklist' | 'table' | 'grouped_list' | 'cards'>(
     viewMode || schema.defaultView || 'checklist'
@@ -79,7 +93,7 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
     return rows.filter((r) => {
       // Status filter
       if (doneCol && statusFilter !== 'all') {
-        const isDone = r.values[doneCol.fieldKey] === true;
+        const isDone = isCellDone(r.values[doneCol.fieldKey]);
         if (statusFilter === 'completed' && !isDone) return false;
         if (statusFilter === 'pending' && isDone) return false;
       }
@@ -97,7 +111,7 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
     const total = rows.length;
     let completed = 0;
     if (doneCol) {
-      completed = rows.filter((r) => r.values[doneCol.fieldKey] === true).length;
+      completed = rows.filter((r) => isCellDone(r.values[doneCol.fieldKey])).length;
     }
     const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
     return { total, completed, pending: Math.max(0, total - completed), percent };
@@ -139,7 +153,7 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
       for (const [sgName, items] of sgMap.entries()) {
         gTotal += items.length;
         if (doneCol) {
-          gDone += items.filter((r) => r.values[doneCol.fieldKey] === true).length;
+          gDone += items.filter((r) => isCellDone(r.values[doneCol.fieldKey])).length;
         }
         subgroupsArr.push({ subgroupName: sgName, items });
       }
@@ -282,12 +296,16 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
       {/* Progress Header Bar */}
       {doneCol && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-xs">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="font-semibold text-[var(--ff-text-primary)]">
               Completion: {stats.completed} / {stats.total} topics ({stats.percent}%)
             </span>
             <span className="text-[11px] text-[var(--ff-text-muted)] border-l border-[var(--ff-border-color)] pl-3">
-              Phase 2: Read-Only Verification
+              {isDemoSheet
+                ? 'Demo Sheet (Local Interactive Checkboxes)'
+                : syncMode === 'manual_only'
+                ? 'Batch Sync Mode: Mark items locally, then Push to Google Sheet'
+                : 'Two-Way Sync: Click any checkbox to mark/unmark in Google Sheet'}
             </span>
           </div>
 
@@ -367,7 +385,7 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
                         const sgKey = `${group.groupName}::${subgroup.subgroupName}`;
                         const isSubgroupCollapsed = Boolean(collapsedSubgroups[sgKey]);
                         const sgDone = doneCol
-                          ? subgroup.items.filter((r) => r.values[doneCol.fieldKey] === true).length
+                          ? subgroup.items.filter((r) => isCellDone(r.values[doneCol.fieldKey])).length
                           : 0;
 
                         return (
@@ -395,9 +413,18 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
                             {!isSubgroupCollapsed && (
                               <div className="mt-2 space-y-1.5 pl-6">
                                 {subgroup.items.map((row) => {
-                                  const isDone = doneCol ? row.values[doneCol.fieldKey] === true : false;
+                                  const isDone = doneCol ? isCellDone(row.values[doneCol.fieldKey]) : false;
                                   const titleText = titleCol ? String(row.values[titleCol.fieldKey] || '') : 'Untitled';
                                   const notesText = notesCol ? String(row.values[notesCol.fieldKey] || '').trim() : '';
+                                  const isSyncing = Boolean(syncingRowUids[row.rowUid]);
+                                  const isPendingPush = row.status === 'pending_push';
+                                  const canToggle = Boolean(
+                                    onToggleCell &&
+                                      doneCol &&
+                                      doneCol.inferredType !== 'formula' &&
+                                      doneCol.editable !== false &&
+                                      row.lastKnownSheetRow >= 1
+                                  );
 
                                   return (
                                     <div
@@ -405,17 +432,43 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
                                       className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 rounded-lg bg-[var(--ff-surface-muted)]/50 hover:bg-[var(--ff-surface-hover)] border border-transparent hover:border-[var(--ff-border-color)] transition-all"
                                     >
                                       <div className="flex items-start gap-2.5 min-w-0">
-                                        {/* Read-Only Done Checkbox */}
-                                        <div
-                                          className="shrink-0 mt-0.5 cursor-not-allowed"
-                                          title="Read-only checkbox (Google Sheet → FocusFlow)"
-                                        >
-                                          {isDone ? (
-                                            <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-emerald-500/20" />
-                                          ) : (
-                                            <Circle className="w-4 h-4 text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)]" />
-                                          )}
-                                        </div>
+                                        {/* Interactive Two-Way Done Checkbox */}
+                                        {canToggle && doneCol ? (
+                                          <button
+                                            type="button"
+                                            disabled={isSyncing}
+                                            onClick={() => onToggleCell?.(row, doneCol, !isDone)}
+                                            aria-label={isDone ? `Unmark ${titleText}` : `Mark ${titleText} as done`}
+                                            aria-pressed={isDone}
+                                            className="shrink-0 mt-0.5 rounded-full focus:outline-none focus:ring-2 focus:ring-[var(--ff-accent)]/50 transition-transform active:scale-90 disabled:opacity-60 cursor-pointer"
+                                            title={
+                                              isSyncing
+                                                ? 'Syncing with Google Sheet...'
+                                                : isDone
+                                                ? 'Click to unmark (syncs with Google Sheet)'
+                                                : 'Click to mark done (syncs with Google Sheet)'
+                                            }
+                                          >
+                                            {isSyncing ? (
+                                              <Loader2 className="w-4 h-4 text-[var(--ff-accent)] animate-spin" />
+                                            ) : isDone ? (
+                                              <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-emerald-500/20" />
+                                            ) : (
+                                              <Circle className="w-4 h-4 text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)]" />
+                                            )}
+                                          </button>
+                                        ) : (
+                                          <div
+                                            className="shrink-0 mt-0.5 cursor-not-allowed opacity-70"
+                                            title={doneCol?.readOnlyReason || 'Read-only formula column'}
+                                          >
+                                            {isDone ? (
+                                              <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-emerald-500/20" />
+                                            ) : (
+                                              <Circle className="w-4 h-4 text-[var(--ff-text-muted)]" />
+                                            )}
+                                          </div>
+                                        )}
 
                                         <div className="min-w-0">
                                           <span
@@ -438,6 +491,15 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
                                       </div>
 
                                       <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                        {isPendingPush && !isDemoSheet && (
+                                          <span
+                                            className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30"
+                                            title="Saved locally — click Push Changes to sync to Google Sheet"
+                                          >
+                                            <CloudUpload className="w-2.5 h-2.5" />
+                                            Pending Push
+                                          </span>
+                                        )}
                                         {row.lastKnownSheetRow && (
                                           <span className="font-mono text-[10px] text-[var(--ff-text-muted)] px-1.5 py-0.5 rounded bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
                                             Row {row.lastKnownSheetRow}
@@ -487,10 +549,49 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
                   {schema.columns.map((col) => {
                     const val = row.values[col.fieldKey];
 
-                    if (col.inferredType === 'checkbox' || col.inferredType === 'boolean' || typeof val === 'boolean') {
+                    if (
+                      col.inferredType === 'checkbox' ||
+                      col.inferredType === 'boolean' ||
+                      col.semanticRole === 'done' ||
+                      typeof val === 'boolean'
+                    ) {
+                      const checked = isCellDone(val);
+                      const isSyncing = Boolean(syncingRowUids[row.rowUid]);
+                      const isPendingPush = row.status === 'pending_push' && row.dirtyFields?.includes(col.fieldKey);
+                      const canToggle = Boolean(
+                        onToggleCell &&
+                          col.inferredType !== 'formula' &&
+                          col.editable !== false &&
+                          row.lastKnownSheetRow >= 1
+                      );
+
                       return (
                         <td key={col.fieldKey} className="p-2.5">
-                          {val === true ? (
+                          {canToggle ? (
+                            <button
+                              type="button"
+                              disabled={isSyncing}
+                              onClick={() => onToggleCell?.(row, col, !checked)}
+                              className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded font-medium transition-all cursor-pointer disabled:opacity-60 ${
+                                checked
+                                  ? 'text-emerald-500 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/25'
+                                  : 'text-[var(--ff-text-muted)] bg-[var(--ff-surface-muted)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-color)]'
+                              }`}
+                              title={checked ? 'Click to unmark in Google Sheet' : 'Click to mark in Google Sheet'}
+                            >
+                              {isSyncing ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : checked ? (
+                                <CheckCircle2 className="w-3 h-3" />
+                              ) : (
+                                <Circle className="w-3 h-3" />
+                              )}
+                              <span>{checked ? 'Yes' : 'No'}</span>
+                              {isPendingPush && !isDemoSheet && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Pending push to Google Sheet" />
+                              )}
+                            </button>
+                          ) : checked ? (
                             <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded font-medium">
                               <CheckCircle2 className="w-3 h-3" /> Yes
                             </span>
@@ -543,10 +644,19 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
       {activeView === 'cards' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredRows.slice(0, 100).map((row, idx) => {
-            const isDone = doneCol ? row.values[doneCol.fieldKey] === true : false;
+            const isDone = doneCol ? isCellDone(row.values[doneCol.fieldKey]) : false;
             const titleVal = titleCol ? String(row.values[titleCol.fieldKey] || '') : `Row ${idx + 1}`;
             const groupVal = groupCol ? String(row.values[groupCol.fieldKey] || '') : '';
             const notesVal = notesCol ? String(row.values[notesCol.fieldKey] || '') : '';
+            const isSyncing = Boolean(syncingRowUids[row.rowUid]);
+            const isPendingPush = row.status === 'pending_push';
+            const canToggle = Boolean(
+              onToggleCell &&
+                doneCol &&
+                doneCol.inferredType !== 'formula' &&
+                doneCol.editable !== false &&
+                row.lastKnownSheetRow >= 1
+            );
 
             return (
               <ThemeCard key={row.rowUid || idx} variant="elevated" className="p-4 border border-[var(--ff-border-color)] flex flex-col justify-between">
@@ -558,12 +668,35 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
                       </ThemeBadge>
                     )}
                     {doneCol && (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isDone ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
-                        {isDone ? 'Done' : 'Pending'}
-                      </span>
+                      canToggle ? (
+                        <button
+                          type="button"
+                          disabled={isSyncing}
+                          onClick={() => onToggleCell?.(row, doneCol, !isDone)}
+                          className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded transition-colors cursor-pointer disabled:opacity-60 ${
+                            isDone
+                              ? 'bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25'
+                              : 'bg-amber-500/15 text-amber-500 hover:bg-amber-500/25'
+                          }`}
+                          title={isDone ? 'Click to unmark in Google Sheet' : 'Click to mark done in Google Sheet'}
+                        >
+                          {isSyncing ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : isDone ? (
+                            <CheckCircle2 className="w-3 h-3" />
+                          ) : (
+                            <Circle className="w-3 h-3" />
+                          )}
+                          <span>{isDone ? 'Done' : 'Pending'}</span>
+                        </button>
+                      ) : (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isDone ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                          {isDone ? 'Done' : 'Pending'}
+                        </span>
+                      )
                     )}
                   </div>
-                  <h4 className="font-semibold text-xs text-[var(--ff-text-primary)] mb-2 line-clamp-2">
+                  <h4 className={`font-semibold text-xs mb-2 line-clamp-2 ${isDone ? 'text-[var(--ff-text-muted)] line-through' : 'text-[var(--ff-text-primary)]'}`}>
                     {titleVal}
                   </h4>
                   {notesVal && (
@@ -572,8 +705,9 @@ export const DynamicSheetRenderer: React.FC<DynamicSheetRendererProps> = ({
                     </p>
                   )}
                 </div>
-                <div className="mt-3 pt-2 border-t border-[var(--ff-border-color)] text-[10px] text-[var(--ff-text-muted)] font-mono text-right">
-                  Row {row.lastKnownSheetRow || idx + 1}
+                <div className="mt-3 pt-2 border-t border-[var(--ff-border-color)] flex items-center justify-between text-[10px] text-[var(--ff-text-muted)] font-mono">
+                  <span>{isPendingPush && !isDemoSheet ? 'Pending push' : ''}</span>
+                  <span>Row {row.lastKnownSheetRow || idx + 1}</span>
                 </div>
               </ThemeCard>
             );

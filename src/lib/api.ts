@@ -58,6 +58,8 @@ import { clientDataCache } from './dataCache.ts';
 import { handleGuestLocalFallback } from './guestLocalStore.ts';
 import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
 import type {
+  SheetHubCellUpdateRequest,
+  SheetHubPushCellsResponse,
   SheetInspectResponse,
   SheetPullResponse,
   SheetPullTabRequest,
@@ -1814,6 +1816,16 @@ export const api = {
     request<SheetPullResponse>('/sheet-hub/pull', {
       method: 'POST',
       headers: googleAccessToken ? { 'x-google-access-token': googleAccessToken } : {},
+      body: JSON.stringify(payload),
+    }),
+
+  sheetHubPushCells: (
+    payload: { spreadsheetId: string; updates: SheetHubCellUpdateRequest[] },
+    googleAccessToken: string
+  ) =>
+    request<{ success: boolean } & SheetHubPushCellsResponse>('/sheet-hub/push-cells', {
+      method: 'POST',
+      headers: { 'x-google-access-token': googleAccessToken },
       body: JSON.stringify(payload),
     }),
 

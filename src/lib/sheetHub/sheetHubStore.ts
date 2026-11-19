@@ -24,7 +24,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { db } from '../firebase.ts';
+import { auth, db, waitForInitialAuth } from '../firebase.ts';
 import { clientDataCache } from '../dataCache.ts';
 import type {
   SheetCellScalar,
@@ -60,16 +60,88 @@ function userCollectionPath(userId: string, subcollection: string): string {
   return `users/${userId}/${subcollection}`;
 }
 
+function isSignedInAs(userId: string): boolean {
+  return Boolean(auth.currentUser && auth.currentUser.uid === userId);
+}
+
 /**
- * Strips any accidental token fields defensively before Firestore writes.
+ * Recursively strips `undefined` properties and accidental OAuth token fields
+ * before Firestore writes so setDoc/writeBatch never fails on undefined values.
  */
-function stripSensitiveFields<T extends Record<string, unknown>>(obj: T): T {
-  const clone = { ...obj };
-  delete clone.accessToken;
-  delete clone.refreshToken;
-  delete clone.googleAccessToken;
-  delete clone.authorization;
-  return clone;
+function stripSensitiveFields<T>(input: T): T {
+  if (input === null || input === undefined) return input;
+  if (Array.isArray(input)) {
+    return input.map((item) => stripSensitiveFields(item)) as unknown as T;
+  }
+  if (typeof input === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+      if (v === undefined) continue;
+      if (
+        k === 'accessToken' ||
+        k === 'refreshToken' ||
+        k === 'googleAccessToken' ||
+        k === 'authorization'
+      ) {
+        continue;
+      }
+      out[k] = stripSensitiveFields(v);
+    }
+    return out as T;
+  }
+  return input;
+}
+
+function normalizeConnectionForFirestore(userId: string, connection: SheetConnection): SheetConnection {
+  const isNative = Boolean(connection.isNative);
+  const rawUrl = (connection.spreadsheetUrl || '').trim();
+  const safeUrl = isNative
+    ? rawUrl
+    : rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+    ? rawUrl
+    : `https://docs.google.com/spreadsheets/d/${encodeURIComponent(connection.spreadsheetId || connection.id)}/edit`;
+
+  const nowIso = new Date().toISOString();
+  const base: SheetConnection = {
+    ...connection,
+    userId,
+    spreadsheetUrl: safeUrl,
+    syncOnOpen: typeof connection.syncOnOpen === 'boolean' ? connection.syncOnOpen : true,
+    pendingChangesCount: Number.isFinite(connection.pendingChangesCount)
+      ? Math.max(0, Math.round(connection.pendingChangesCount))
+      : 0,
+    conflictCount: Number.isFinite(connection.conflictCount)
+      ? Math.max(0, Math.round(connection.conflictCount))
+      : 0,
+    tabOrder: Array.isArray(connection.tabOrder) ? connection.tabOrder : [],
+    createdAt: connection.createdAt || nowIso,
+    updatedAt: connection.updatedAt || nowIso,
+    deletedAt: connection.deletedAt ?? null,
+  };
+  if (base.ownerUid !== undefined) {
+    base.ownerUid = userId;
+  }
+  return stripSensitiveFields(base);
+}
+
+function normalizeTabForFirestore(userId: string, tab: SheetTabSchema): SheetTabSchema {
+  const nowIso = new Date().toISOString();
+  const base: SheetTabSchema = {
+    ...tab,
+    userId,
+    sheetId: Number.isFinite(tab.sheetId) ? Math.max(0, Math.round(tab.sheetId)) : 0,
+    headerRowIndex: Number.isFinite(tab.headerRowIndex) ? Math.max(0, Math.round(tab.headerRowIndex)) : 1,
+    dataStartRow: Number.isFinite(tab.dataStartRow) ? Math.max(0, Math.round(tab.dataStartRow)) : 1,
+    rowCount: Number.isFinite(tab.rowCount) ? Math.max(0, Math.round(tab.rowCount)) : 0,
+    chunkCount: Number.isFinite(tab.chunkCount) ? Math.max(0, Math.round(tab.chunkCount)) : 0,
+    identityColumns: Array.isArray(tab.identityColumns) ? tab.identityColumns.slice(0, 10) : [],
+    columns: Array.isArray(tab.columns) ? tab.columns.slice(0, 100) : [],
+    updatedAt: tab.updatedAt || nowIso,
+  };
+  if (base.ownerUid !== undefined) {
+    base.ownerUid = userId;
+  }
+  return stripSensitiveFields(base);
 }
 
 const inMemoryFallbackStore = new Map<string, string>();
@@ -103,32 +175,133 @@ function writeLocalFallback<T>(key: string, val: T): void {
 }
 
 export const sheetHubStore = {
-  async listConnections(userId: string): Promise<SheetConnection[]> {
+  async listConnections(
+    userId: string,
+    options?: { forceCloud?: boolean }
+  ): Promise<SheetConnection[]> {
     assertValidUserId(userId);
     const cacheKey = `sheet_hub_conns_${userId}`;
-    const cached = clientDataCache.get<SheetConnection[]>(cacheKey, undefined, userId);
-    if (cached) return cached;
+    if (!options?.forceCloud) {
+      const cached = clientDataCache.get<SheetConnection[]>(cacheKey, undefined, userId);
+      if (cached) return cached;
+    }
+
+    // Ensure Firebase Auth has finished restoring on a newly opened device before querying Firestore
+    if (userId !== 'usr_guest' && userId !== 'usr_1') {
+      await waitForInitialAuth().catch(() => null);
+    }
 
     try {
-      const snap = await getDocs(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections)));
-      const items = snap.docs
-        .map((d) => d.data() as SheetConnection)
+      const mergedById = new Map<string, SheetConnection>();
+
+      // Primary collection: users/{userId}/sheet_connections
+      const connSnap = await getDocs(
+        collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections))
+      );
+      for (const d of connSnap.docs) {
+        const item = d.data() as SheetConnection;
+        if (!item.deletedAt) mergedById.set(item.id, item);
+      }
+
+      // Secondary canonical collection: users/{userId}/sheets (merge any docs present only there)
+      try {
+        const sheetsSnap = await getDocs(
+          collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets))
+        );
+        for (const d of sheetsSnap.docs) {
+          const item = d.data() as SheetConnection;
+          if (item.deletedAt) continue;
+          const existing = mergedById.get(item.id);
+          if (!existing || (item.updatedAt || '') > (existing.updatedAt || '')) {
+            mergedById.set(item.id, item);
+          }
+        }
+      } catch {
+        // Optional mirror read failure should not block primary connections
+      }
+
+      // Automatic Local-to-Cloud reconciliation for signed-in users:
+      // If a sheet was previously saved only to localStorage on this device (e.g. offline, guest, or earlier rule rejection),
+      // upload it + its tabs + row chunks to Firestore so it immediately appears on all other devices logged into this Gmail.
+      if (isSignedInAs(userId)) {
+        const localCandidates: Array<{ sourceUserId: string; conn: SheetConnection }> = [];
+        for (const sourceUid of [userId, 'usr_guest', 'usr_1']) {
+          const localList = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${sourceUid}`, []);
+          for (const c of localList) {
+            if (!c || !c.id || c.deletedAt) continue;
+            if (!mergedById.has(c.id)) {
+              localCandidates.push({ sourceUserId: sourceUid, conn: c });
+            }
+          }
+        }
+
+        for (const { sourceUserId, conn } of localCandidates) {
+          try {
+            const migratedConn = normalizeConnectionForFirestore(userId, {
+              ...conn,
+              userId,
+              ownerUid: conn.ownerUid !== undefined ? userId : undefined,
+            });
+            await this.saveConnection(userId, migratedConn);
+
+            const localTabs = readLocalFallback<SheetTabSchema[]>(
+              `ff_sheethub_tabs_${sourceUserId}_${conn.id}`,
+              []
+            );
+            for (const localTab of localTabs) {
+              const migratedTab = normalizeTabForFirestore(userId, {
+                ...localTab,
+                userId,
+                ownerUid: localTab.ownerUid !== undefined ? userId : undefined,
+              });
+              await this.saveTabSchema(userId, migratedTab);
+
+              const localRows = readLocalFallback<SheetSyncedRow[]>(
+                `ff_sheethub_rows_${sourceUserId}_${localTab.id}`,
+                []
+              );
+              if (localRows.length > 0) {
+                await this.saveTabRowsChunked({
+                  userId,
+                  connectionId: conn.id,
+                  tabId: localTab.id,
+                  rows: localRows,
+                });
+              }
+            }
+
+            mergedById.set(migratedConn.id, migratedConn);
+          } catch (migrateErr) {
+            console.warn('[SheetHub] Deferred local-to-cloud sheet migration:', migrateErr);
+          }
+        }
+      }
+
+      const items = Array.from(mergedById.values())
         .filter((c) => !c.deletedAt)
         .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
       clientDataCache.set(cacheKey, items, userId);
       writeLocalFallback(`ff_sheethub_conns_${userId}`, items);
       return items;
-    } catch {
-      // Local fallback for guest or offline mode
+    } catch (err) {
+      if (isSignedInAs(userId)) {
+        console.error('[SheetHub] Firestore listConnections failed:', err);
+      }
+      // Local fallback for guest or offline mode (do NOT cache empty failure state in clientDataCache)
       const local = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
-      clientDataCache.set(cacheKey, local, userId);
+      if (!isSignedInAs(userId)) {
+        clientDataCache.set(cacheKey, local, userId);
+      }
       return local;
     }
   },
 
   async getConnection(userId: string, connectionId: string): Promise<SheetConnection | null> {
     assertValidUserId(userId);
+    if (userId !== 'usr_guest' && userId !== 'usr_1') {
+      await waitForInitialAuth().catch(() => null);
+    }
     try {
       const snap = await getDoc(
         doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId)
@@ -144,30 +317,47 @@ export const sheetHubStore = {
     if (connection.userId && connection.userId !== userId) {
       throw new Error(`Cross-user ownership mutation forbidden. Cannot save connection for userId "${connection.userId}" under user "${userId}".`);
     }
-    const sanitized = stripSensitiveFields({ ...connection, userId });
-    
-    // Update local mirror
+    const sanitized = normalizeConnectionForFirestore(userId, connection);
+
+    // Update local mirror immediately
     const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
     const filtered = conns.filter((c) => c.id !== connection.id);
     filtered.unshift(sanitized);
     writeLocalFallback(`ff_sheethub_conns_${userId}`, filtered);
 
+    // 1. Primary isolated storage in sheet_connections (must not be blocked by mirror errors)
+    let primarySaved = false;
     try {
-      // 1. Primary isolated storage in sheet_connections
       await setDoc(
         doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connection.id),
         sanitized
       );
-      // 2. Dual-mirror in canonical per-user private sheets collection
+      primarySaved = true;
+    } catch (err) {
+      if (isSignedInAs(userId)) {
+        console.error('[SheetHub] Primary Firestore saveConnection failed:', err);
+      }
+    }
+
+    // 2. Independent dual-mirror in canonical per-user private sheets collection
+    try {
       await setDoc(
         doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connection.id),
         sanitized
       );
-    } catch {
-      // Offline or guest mode continues smoothly
+      primarySaved = true;
+    } catch (err) {
+      if (isSignedInAs(userId)) {
+        console.warn('[SheetHub] Mirror Firestore sheets write warning:', err);
+      }
     }
+
     clientDataCache.invalidate(`sheet_hub_conns_${userId}`);
     clientDataCache.invalidate(`sheet_hub_private_sheets_${userId}`);
+
+    if (!primarySaved && isSignedInAs(userId)) {
+      console.error('[SheetHub] Connection saved locally only; cloud Firestore write failed for:', connection.id);
+    }
     return sanitized;
   },
 
@@ -234,19 +424,47 @@ export const sheetHubStore = {
     const cached = clientDataCache.get<SheetTabSchema[]>(cacheKey, undefined, userId);
     if (cached) return cached;
 
+    if (userId !== 'usr_guest' && userId !== 'usr_1') {
+      await waitForInitialAuth().catch(() => null);
+    }
+
     try {
       const q = query(
         collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs)),
         where('connectionId', '==', connectionId)
       );
       const snap = await getDocs(q);
-      const tabs = snap.docs.map((d) => d.data() as SheetTabSchema);
+      const byId = new Map<string, SheetTabSchema>();
+      for (const d of snap.docs) {
+        const t = d.data() as SheetTabSchema;
+        byId.set(t.id, t);
+      }
+
+      // Also check nested canonical mirror tabs if primary was empty
+      if (byId.size === 0) {
+        try {
+          const nestedSnap = await getDocs(
+            collection(db, `users/${userId}/sheets/${connectionId}/tabs`)
+          );
+          for (const d of nestedSnap.docs) {
+            const t = d.data() as SheetTabSchema;
+            byId.set(t.id, t);
+          }
+        } catch {}
+      }
+
+      const tabs = Array.from(byId.values());
       clientDataCache.set(cacheKey, tabs, userId);
       writeLocalFallback(`ff_sheethub_tabs_${userId}_${connectionId}`, tabs);
       return tabs;
-    } catch {
+    } catch (err) {
+      if (isSignedInAs(userId)) {
+        console.error('[SheetHub] Firestore listTabsForConnection failed:', err);
+      }
       const local = readLocalFallback<SheetTabSchema[]>(`ff_sheethub_tabs_${userId}_${connectionId}`, []);
-      clientDataCache.set(cacheKey, local, userId);
+      if (!isSignedInAs(userId)) {
+        clientDataCache.set(cacheKey, local, userId);
+      }
       return local;
     }
   },
@@ -256,16 +474,29 @@ export const sheetHubStore = {
     if (tab.userId && tab.userId !== userId) {
       throw new Error(`Cross-user ownership mutation forbidden. Cannot save tab schema for userId "${tab.userId}" under user "${userId}".`);
     }
-    const sanitized = stripSensitiveFields({ ...tab, userId });
+    const sanitized = normalizeTabForFirestore(userId, tab);
     const local = readLocalFallback<SheetTabSchema[]>(`ff_sheethub_tabs_${userId}_${tab.connectionId}`, []);
     const filtered = local.filter((t) => t.id !== tab.id);
     filtered.push(sanitized);
     writeLocalFallback(`ff_sheethub_tabs_${userId}_${tab.connectionId}`, filtered);
 
+    // Primary write isolated from secondary mirror
     try {
       await setDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tab.id), sanitized);
+    } catch (err) {
+      if (isSignedInAs(userId)) {
+        console.error('[SheetHub] Primary Firestore saveTabSchema failed:', err);
+      }
+    }
+
+    try {
       await setDoc(doc(db, `users/${userId}/sheets/${tab.connectionId}/tabs/${tab.id}`), sanitized);
-    } catch {}
+    } catch (err) {
+      if (isSignedInAs(userId)) {
+        console.warn('[SheetHub] Mirror Firestore nested tab write warning:', err);
+      }
+    }
+
     clientDataCache.invalidate(`sheet_hub_tabs_${userId}_${tab.connectionId}`);
     return sanitized;
   },
@@ -275,6 +506,10 @@ export const sheetHubStore = {
     const cacheKey = `sheet_hub_rows_${userId}_${tabId}`;
     const cached = clientDataCache.get<SheetSyncedRow[]>(cacheKey, undefined, userId);
     if (cached) return cached;
+
+    if (userId !== 'usr_guest' && userId !== 'usr_1') {
+      await waitForInitialAuth().catch(() => null);
+    }
 
     try {
       const q = query(
@@ -296,16 +531,22 @@ export const sheetHubStore = {
       clientDataCache.set(cacheKey, rows, userId);
       writeLocalFallback(`ff_sheethub_rows_${userId}_${tabId}`, rows);
       return rows;
-    } catch {
+    } catch (err) {
+      if (isSignedInAs(userId)) {
+        console.error('[SheetHub] Firestore loadTabRows failed:', err);
+      }
       const local = readLocalFallback<SheetSyncedRow[]>(`ff_sheethub_rows_${userId}_${tabId}`, []);
-      clientDataCache.set(cacheKey, local, userId);
+      if (!isSignedInAs(userId)) {
+        clientDataCache.set(cacheKey, local, userId);
+      }
       return local;
     }
   },
 
   /**
    * Saves chunked rows with byte-size and row-count safety guarantees.
-   * Uses Firestore writeBatch for atomic multi-chunk persistence with local fallback.
+   * Uses isolated Firestore writeBatch commits for primary chunks so optional
+   * mirror writes can NEVER roll back primary cloud persistence.
    */
   async saveTabRowsChunked(input: {
     userId: string;
@@ -314,11 +555,12 @@ export const sheetHubStore = {
     rows: SheetSyncedRow[];
   }): Promise<{ chunkCount: number; maxChunkBytes: number; oversizedRowUids: string[] }> {
     assertValidUserId(input.userId);
+    const cleanedRows = input.rows.map((r) => stripSensitiveFields(r));
     const packed = packRowsIntoChunks({
       connectionId: input.connectionId,
       tabId: input.tabId,
       userId: input.userId,
-      rows: input.rows,
+      rows: cleanedRows,
     });
 
     if (packed.oversizedRowUids.length > 0) {
@@ -328,45 +570,47 @@ export const sheetHubStore = {
     }
 
     // Mirror full rows locally
-    writeLocalFallback(`ff_sheethub_rows_${input.userId}_${input.tabId}`, input.rows);
+    writeLocalFallback(`ff_sheethub_rows_${input.userId}_${input.tabId}`, cleanedRows);
 
-    try {
-      const batch = writeBatch(db);
-      for (const chunk of packed.chunks) {
-        const ref = doc(db, userCollectionPath(input.userId, SHEET_HUB_COLLECTIONS.rowChunks), chunk.id);
-        batch.set(ref, stripSensitiveFields(chunk as unknown as Record<string, unknown>));
-        const nestedRef = doc(db, `users/${input.userId}/sheets/${input.connectionId}/tabs/${input.tabId}/row_chunks/${chunk.id}`);
-        batch.set(nestedRef, stripSensitiveFields(chunk as unknown as Record<string, unknown>));
+    // 1. Primary cloud write: users/{userId}/sheet_row_chunks/{chunk.id}
+    if (packed.chunks.length > 0) {
+      try {
+        for (let i = 0; i < packed.chunks.length; i += 250) {
+          const slice = packed.chunks.slice(i, i + 250);
+          const primaryBatch = writeBatch(db);
+          for (const chunk of slice) {
+            const ref = doc(db, userCollectionPath(input.userId, SHEET_HUB_COLLECTIONS.rowChunks), chunk.id);
+            primaryBatch.set(ref, stripSensitiveFields(chunk as unknown as Record<string, unknown>));
+          }
+          await primaryBatch.commit();
+        }
+      } catch (err) {
+        if (isSignedInAs(input.userId)) {
+          console.error('[SheetHub] Primary Firestore saveTabRowsChunked failed:', err);
+        }
       }
-      for (const row of input.rows.slice(0, 100)) {
-        const rowRef = doc(db, `users/${input.userId}/sheets/${input.connectionId}/tabs/${input.tabId}/rows/${row.rowUid}`);
-        batch.set(rowRef, stripSensitiveFields({
-          id: row.rowUid,
-          sheetDocId: input.connectionId,
-          tabId: input.tabId,
-          userId: input.userId,
-          ownerUid: input.userId,
-          rowUid: row.rowUid,
-          lastKnownSheetRow: row.lastKnownSheetRow,
-          rowIndex: row.lastKnownSheetRow,
-          values: row.values,
-          cells: row.values,
-          baseValues: row.baseValues || row.values,
-          rowHash: row.rowHash,
-          version: row.version,
-          lastSyncOrigin: row.lastSyncOrigin || 'app',
-          dirtyFields: row.dirtyFields || [],
-          localUpdatedAt: row.localUpdatedAt,
-          sheetSyncedAt: row.sheetSyncedAt || new Date().toISOString(),
-          status: row.status,
-          createdAt: row.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        } as unknown as Record<string, unknown>));
+
+      // 2. Independent best-effort secondary mirror: nested row_chunks under sheets/{connectionId}/tabs/{tabId}
+      try {
+        for (let i = 0; i < packed.chunks.length; i += 250) {
+          const slice = packed.chunks.slice(i, i + 250);
+          const mirrorBatch = writeBatch(db);
+          for (const chunk of slice) {
+            const nestedRef = doc(
+              db,
+              `users/${input.userId}/sheets/${input.connectionId}/tabs/${input.tabId}/row_chunks/${chunk.id}`
+            );
+            mirrorBatch.set(nestedRef, stripSensitiveFields(chunk as unknown as Record<string, unknown>));
+          }
+          await mirrorBatch.commit();
+        }
+      } catch (err) {
+        if (isSignedInAs(input.userId)) {
+          console.warn('[SheetHub] Mirror Firestore nested row_chunks warning:', err);
+        }
       }
-      await batch.commit();
-    } catch {
-      // Local fallback saves data safely
     }
+
     clientDataCache.invalidate(`sheet_hub_rows_${input.userId}_${input.tabId}`);
 
     return {

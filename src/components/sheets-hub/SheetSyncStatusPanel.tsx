@@ -6,7 +6,8 @@ import {
   Clock,
   ShieldCheck,
   PauseCircle,
-  Database,
+  ArrowLeftRight,
+  CloudUpload,
   Lock,
 } from 'lucide-react';
 import type { SheetConnection, SheetSyncStatus } from '../../types/sheetHub.ts';
@@ -15,7 +16,12 @@ import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 interface SheetSyncStatusPanelProps {
   connection: SheetConnection;
   isPulling?: boolean;
+  isPushing?: boolean;
+  pendingCount?: number;
+  isDemoSheet?: boolean;
   onPull?: () => void;
+  onPushPending?: () => void;
+  onToggleSyncMode?: () => void;
   onReconnect?: () => void;
   className?: string;
 }
@@ -23,10 +29,17 @@ interface SheetSyncStatusPanelProps {
 export const SheetSyncStatusPanel: React.FC<SheetSyncStatusPanelProps> = ({
   connection,
   isPulling = false,
+  isPushing = false,
+  pendingCount = 0,
+  isDemoSheet = false,
   onPull,
+  onPushPending,
+  onToggleSyncMode,
   onReconnect,
   className = '',
 }) => {
+  const isManualBatchMode = connection.syncMode === 'manual_only';
+
   const getStatusBadge = (status: SheetSyncStatus) => {
     switch (status) {
       case 'active':
@@ -55,7 +68,7 @@ export const SheetSyncStatusPanel: React.FC<SheetSyncStatusPanelProps> = ({
         return (
           <ThemeBadge tone="danger" className="flex items-center gap-1.5 font-medium px-2.5 py-1">
             <AlertTriangle className="w-3.5 h-3.5" />
-            <span>Import Error</span>
+            <span>Sync Error</span>
           </ThemeBadge>
         );
     }
@@ -83,13 +96,63 @@ export const SheetSyncStatusPanel: React.FC<SheetSyncStatusPanelProps> = ({
           <span>Last pulled: {formatTimestamp(connection.lastSuccessfulPullAt || connection.lastSyncedAt)}</span>
         </div>
 
-        <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-color)]">
-          <Lock className="w-3 h-3 text-[var(--ff-accent)]" />
-          <span>Sheet → FocusFlow (Read-Only)</span>
-        </div>
+        {connection.lastSuccessfulPushAt && !isDemoSheet && (
+          <div className="hidden md:flex items-center gap-1.5 text-xs text-emerald-500">
+            <CloudUpload className="w-3.5 h-3.5" />
+            <span>Last pushed: {formatTimestamp(connection.lastSuccessfulPushAt)}</span>
+          </div>
+        )}
+
+        {isDemoSheet ? (
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-color)]">
+            <Lock className="w-3 h-3 text-[var(--ff-accent)]" />
+            <span>Demo Sheet (Local Only)</span>
+          </div>
+        ) : onToggleSyncMode ? (
+          <button
+            type="button"
+            onClick={onToggleSyncMode}
+            className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border transition-colors cursor-pointer ${
+              isManualBatchMode
+                ? 'bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20'
+                : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20'
+            }`}
+            title={
+              isManualBatchMode
+                ? 'Batch Mode: Mark items locally, then click Push Changes. Click to switch to Instant Two-Way Sync.'
+                : 'Two-Way Sync: Marking/unmarking a checkbox syncs immediately to Google Sheet (with confirmation). Click to switch to Batch Mode.'
+            }
+          >
+            <ArrowLeftRight className="w-3 h-3" />
+            <span>{isManualBatchMode ? 'Batch Push (Local → Sheet)' : 'Two-Way Sync (App ↔ Sheet)'}</span>
+          </button>
+        ) : (
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 border border-emerald-500/25">
+            <ArrowLeftRight className="w-3 h-3" />
+            <span>Two-Way Sync (App ↔ Sheet)</span>
+          </div>
+        )}
       </div>
 
-      <div className="flex items-center gap-2 ml-auto">
+      <div className="flex flex-wrap items-center gap-2 ml-auto">
+        {!isDemoSheet && pendingCount > 0 && onPushPending && (
+          <ThemeButton
+            variant="primary"
+            size="sm"
+            onClick={onPushPending}
+            disabled={isPushing || isPulling || connection.status === 'paused'}
+            className="flex items-center gap-1.5"
+            title="Push all local mark/unmark changes to Google Sheets"
+          >
+            <CloudUpload className={`w-3.5 h-3.5 ${isPushing ? 'animate-pulse' : ''}`} />
+            <span>
+              {isPushing
+                ? 'Pushing...'
+                : `Push ${pendingCount} ${pendingCount === 1 ? 'Change' : 'Changes'} to Sheet`}
+            </span>
+          </ThemeButton>
+        )}
+
         {connection.status === 'auth_required' && onReconnect && (
           <ThemeButton variant="secondary" size="sm" onClick={onReconnect}>
             <ShieldCheck className="w-3.5 h-3.5 text-[var(--ff-accent)]" />
@@ -102,7 +165,7 @@ export const SheetSyncStatusPanel: React.FC<SheetSyncStatusPanelProps> = ({
             variant="secondary"
             size="sm"
             onClick={onPull}
-            disabled={isPulling || connection.status === 'paused'}
+            disabled={isPulling || isPushing || connection.status === 'paused'}
             className="flex items-center gap-1.5"
             title="Pull latest changes from Google Spreadsheet"
           >

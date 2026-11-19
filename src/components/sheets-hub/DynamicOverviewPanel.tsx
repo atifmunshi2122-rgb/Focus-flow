@@ -21,6 +21,9 @@ interface DynamicOverviewPanelProps {
   onSelectTab: (tabId: string) => void;
 }
 
+const isCellDone = (val: unknown): boolean =>
+  val === true || (typeof val === 'string' && val.trim().toLowerCase() === 'true');
+
 export const DynamicOverviewPanel: React.FC<DynamicOverviewPanelProps> = ({
   tabs,
   rowsByTabId,
@@ -44,7 +47,7 @@ export const DynamicOverviewPanel: React.FC<DynamicOverviewPanelProps> = ({
 
       if (doneCol) {
         hasDoneColumn = true;
-        completed = rows.filter((r) => r.values[doneCol.fieldKey] === true).length;
+        completed = rows.filter((r) => isCellDone(r.values[doneCol.fieldKey])).length;
       }
 
       // Group-level progress (e.g. Modules)
@@ -54,7 +57,7 @@ export const DynamicOverviewPanel: React.FC<DynamicOverviewPanelProps> = ({
           const groupName = String(row.values[groupCol.fieldKey] || 'General').trim() || 'General';
           const entry = groupsMap.get(groupName) || { total: 0, completed: 0 };
           entry.total++;
-          if (doneCol && row.values[doneCol.fieldKey] === true) entry.completed++;
+          if (doneCol && isCellDone(row.values[doneCol.fieldKey])) entry.completed++;
           groupsMap.set(groupName, entry);
         }
       }

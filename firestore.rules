@@ -929,6 +929,7 @@ service cloud.firestore {
           && (data.get('spreadsheetId', null) == null || isNonEmptyString(data.spreadsheetId, 128))
           && (
             data.get('spreadsheetUrl', null) == null ||
+            data.spreadsheetUrl == '' ||
             (
               isNonEmptyString(data.spreadsheetUrl, 1024)
               && (data.spreadsheetUrl.matches('^https://.*') || data.spreadsheetUrl.matches('^http://.*'))
@@ -1075,15 +1076,25 @@ service cloud.firestore {
               'templateHint', 'syncMode', 'pollIntervalSec', 'syncOnOpen',
               'status', 'lastSyncedAt', 'lastSuccessfulPullAt', 'lastSuccessfulPushAt',
               'lastError', 'pendingChangesCount', 'conflictCount', 'tabOrder',
-              'createdAt', 'updatedAt', 'deletedAt'
+              'createdAt', 'updatedAt', 'deletedAt',
+              'ownerUid', 'schemaVersion', 'sortOrder', 'isNative'
             ])
             && !('accessToken' in data)
             && !('refreshToken' in data)
             && data.id == docId
             && data.userId == uid
+            && (data.get('ownerUid', null) == null || data.ownerUid == uid)
+            && (data.get('schemaVersion', null) == null || isBoundedInt(data.schemaVersion, 1, 100))
+            && (data.get('sortOrder', null) == null || isBoundedInt(data.sortOrder, 0, 100000))
+            && (data.get('isNative', null) == null || data.isNative is bool)
             && isNonEmptyString(data.spreadsheetId, 128)
-            && isNonEmptyString(data.spreadsheetUrl, 1024)
-            && (data.spreadsheetUrl.matches('^https://.*') || data.spreadsheetUrl.matches('^http://.*'))
+            && (
+              (data.get('isNative', false) == true && (data.get('spreadsheetUrl', null) == null || data.spreadsheetUrl == '')) ||
+              (
+                isNonEmptyString(data.spreadsheetUrl, 1024)
+                && (data.spreadsheetUrl.matches('^https://.*') || data.spreadsheetUrl.matches('^http://.*'))
+              )
+            )
             && isNonEmptyString(data.title, 256)
             && isOptionalString(data.get('description', null), 2048)
             && (
@@ -1127,21 +1138,24 @@ service cloud.firestore {
       match /sheet_tabs/{tabId} {
         function isValidSheetTab(data, docId, uid) {
           return data.keys().hasOnly([
-              'id', 'connectionId', 'userId', 'sheetId', 'sheetTitle', 'role',
-              'headerRowIndex', 'dataStartRow', 'dataEndColumn', 'identityStrategy',
+              'id', 'connectionId', 'sheetDocId', 'userId', 'ownerUid', 'sheetId', 'sheetTitle',
+              'position', 'role', 'headerRowIndex', 'dataStartRow', 'dataEndColumn', 'identityStrategy',
               'identityColumns', 'metadataIdColumn', 'columns', 'defaultView',
-              'groupByColumnId', 'lastPullHash', 'rowCount', 'chunkCount', 'updatedAt'
+              'groupByColumnId', 'lastPullHash', 'rowCount', 'chunkCount', 'createdAt', 'updatedAt'
             ])
             && !('accessToken' in data)
             && !('refreshToken' in data)
             && data.id == docId
             && data.userId == uid
+            && (data.get('ownerUid', null) == null || data.ownerUid == uid)
+            && (data.get('sheetDocId', null) == null || isValidId(data.sheetDocId))
+            && (data.get('position', null) == null || isBoundedInt(data.position, 0, 1000))
             && isValidId(data.connectionId)
             && isBoundedInt(data.sheetId, 0, 2147483647)
             && isNonEmptyString(data.sheetTitle, 256)
             && data.role in ['data', 'overview', 'ignored']
             && isBoundedInt(data.headerRowIndex, 0, 100)
-            && isBoundedInt(data.dataStartRow, 1, 1000)
+            && isBoundedInt(data.dataStartRow, 0, 1000)
             && isOptionalString(data.get('dataEndColumn', null), 16)
             && data.identityStrategy in ['column_key', 'composite_key', 'metadata_column']
             && data.identityColumns is list
@@ -1157,7 +1171,8 @@ service cloud.firestore {
               data.get('chunkCount', null) == null ||
               isBoundedInt(data.chunkCount, 0, 10000)
             )
-            && isBoundedIsoDate(data.updatedAt);
+            && isBoundedIsoDate(data.updatedAt)
+            && isOptionalBoundedIsoDate(data.get('createdAt', null));
         }
 
         allow read: if isOwner(userId);

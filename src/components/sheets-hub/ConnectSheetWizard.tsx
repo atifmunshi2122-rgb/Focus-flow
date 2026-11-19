@@ -348,20 +348,26 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setImportStatusText('Preparing spreadsheet connection metadata...');
     setImportError(null);
 
-    const activeUserId = user?.id || firebaseUser?.uid || 'usr_guest';
+    const activeUserId = firebaseUser?.uid || user?.id || 'usr_guest';
     const connectionId = `conn_${spreadsheetId.slice(0, 24)}_${Date.now().toString(36)}`;
 
     try {
       const nowIso = new Date().toISOString();
       const templateHint: SheetTemplateHint =
         preferredView === 'checklist' ? 'checklist' : preferredView === 'table' ? 'table' : 'custom';
+      const trimmedInput = urlInput.trim();
+      const canonicalSpreadsheetUrl =
+        inspectData.canonicalUrl ||
+        (trimmedInput.startsWith('http://') || trimmedInput.startsWith('https://')
+          ? trimmedInput
+          : `https://docs.google.com/spreadsheets/d/${encodeURIComponent(spreadsheetId)}/edit`);
 
       // 1. Create connection document
       const connectionDoc: SheetConnection = {
         id: connectionId,
         userId: activeUserId,
         spreadsheetId,
-        spreadsheetUrl: urlInput,
+        spreadsheetUrl: canonicalSpreadsheetUrl,
         title: inspectData.title || 'Connected Spreadsheet',
         templateHint,
         syncMode: 'sheet_to_app',

@@ -24,25 +24,39 @@ import { MotionPage } from './components/ui/MotionPrimitives.tsx';
 import { MOTION_EASING, MOTION_DURATION, getIntensityFactor, getThemeMotionProfile } from './theme/motionTokens.ts';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 
+// Resilient lazy loader: retries once after a short backoff on transient chunk/module fetch errors
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  loader: () => Promise<{ default: T }>
+): React.LazyExoticComponent<T> {
+  return lazy(async () => {
+    try {
+      return await loader();
+    } catch (err) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return await loader();
+    }
+  });
+}
+
 // Lazy-loaded tab components (loaded on-demand to optimize initial bundle size)
-const RealClock = lazy(() => import('./components/focus/RealClock.tsx').then((m) => ({ default: m.RealClock })));
-const FocusAnalytics = lazy(() => import('./components/focus/FocusAnalytics.tsx').then((m) => ({ default: m.FocusAnalytics })));
-const TaskManager = lazy(() => import('./components/tasks/TaskManager.tsx').then((m) => ({ default: m.TaskManager })));
-const HabitTrackerView = lazy(() => import('./components/focus/HabitTrackerView.tsx').then((m) => ({ default: m.HabitTrackerView })));
-const FinanceOverview = lazy(() => import('./components/finance/FinanceOverview.tsx').then((m) => ({ default: m.FinanceOverview })));
-const BillsTracker = lazy(() => import('./components/finance/BillsTracker.tsx').then((m) => ({ default: m.BillsTracker })));
-const TransactionsLedger = lazy(() => import('./components/finance/TransactionsLedger.tsx').then((m) => ({ default: m.TransactionsLedger })));
-const EnvelopeBudgetManager = lazy(() => import('./components/finance/EnvelopeBudgetManager.tsx').then((m) => ({ default: m.EnvelopeBudgetManager })));
-const SubscriptionManager = lazy(() => import('./components/finance/SubscriptionManager.tsx').then((m) => ({ default: m.SubscriptionManager })));
-const JointVaultsView = lazy(() => import('./components/finance/JointVaultsView.tsx').then((m) => ({ default: m.JointVaultsView })));
-const StudyView = lazy(() => import('./components/study/StudyView.tsx').then((m) => ({ default: m.StudyView })));
-const AnalyticsReportsView = lazy(() => import('./components/analytics/AnalyticsReportsView.tsx').then((m) => ({ default: m.AnalyticsReportsView })));
-const ExportCenterView = lazy(() => import('./components/export/ExportCenterView.tsx').then((m) => ({ default: m.ExportCenterView })));
-const ProductivityCalendar = lazy(() => import('./components/calendar/ProductivityCalendar.tsx').then((m) => ({ default: m.ProductivityCalendar })));
-const DailyTimeBlockPlanner = lazy(() => import('./components/focus/DailyTimeBlockPlanner.tsx').then((m) => ({ default: m.DailyTimeBlockPlanner })));
-const SettingsView = lazy(() => import('./components/settings/SettingsView.tsx').then((m) => ({ default: m.SettingsView })));
-const DataRecoveryCenter = lazy(() => import('./components/settings/DataRecoveryCenter.tsx').then((m) => ({ default: m.DataRecoveryCenter })));
-const SheetHubView = lazy(() => import('./components/sheets-hub/SheetHubView.tsx').then((m) => ({ default: m.SheetHubView })));
+const RealClock = lazyWithRetry(() => import('./components/focus/RealClock.tsx').then((m) => ({ default: m.RealClock })));
+const FocusAnalytics = lazyWithRetry(() => import('./components/focus/FocusAnalytics.tsx').then((m) => ({ default: m.FocusAnalytics })));
+const TaskManager = lazyWithRetry(() => import('./components/tasks/TaskManager.tsx').then((m) => ({ default: m.TaskManager })));
+const HabitTrackerView = lazyWithRetry(() => import('./components/focus/HabitTrackerView.tsx').then((m) => ({ default: m.HabitTrackerView })));
+const FinanceOverview = lazyWithRetry(() => import('./components/finance/FinanceOverview.tsx').then((m) => ({ default: m.FinanceOverview })));
+const BillsTracker = lazyWithRetry(() => import('./components/finance/BillsTracker.tsx').then((m) => ({ default: m.BillsTracker })));
+const TransactionsLedger = lazyWithRetry(() => import('./components/finance/TransactionsLedger.tsx').then((m) => ({ default: m.TransactionsLedger })));
+const EnvelopeBudgetManager = lazyWithRetry(() => import('./components/finance/EnvelopeBudgetManager.tsx').then((m) => ({ default: m.EnvelopeBudgetManager })));
+const SubscriptionManager = lazyWithRetry(() => import('./components/finance/SubscriptionManager.tsx').then((m) => ({ default: m.SubscriptionManager })));
+const JointVaultsView = lazyWithRetry(() => import('./components/finance/JointVaultsView.tsx').then((m) => ({ default: m.JointVaultsView })));
+const StudyView = lazyWithRetry(() => import('./components/study/StudyView.tsx').then((m) => ({ default: m.StudyView })));
+const AnalyticsReportsView = lazyWithRetry(() => import('./components/analytics/AnalyticsReportsView.tsx').then((m) => ({ default: m.AnalyticsReportsView })));
+const ExportCenterView = lazyWithRetry(() => import('./components/export/ExportCenterView.tsx').then((m) => ({ default: m.ExportCenterView })));
+const ProductivityCalendar = lazyWithRetry(() => import('./components/calendar/ProductivityCalendar.tsx').then((m) => ({ default: m.ProductivityCalendar })));
+const DailyTimeBlockPlanner = lazyWithRetry(() => import('./components/focus/DailyTimeBlockPlanner.tsx').then((m) => ({ default: m.DailyTimeBlockPlanner })));
+const SettingsView = lazyWithRetry(() => import('./components/settings/SettingsView.tsx').then((m) => ({ default: m.SettingsView })));
+const DataRecoveryCenter = lazyWithRetry(() => import('./components/settings/DataRecoveryCenter.tsx').then((m) => ({ default: m.DataRecoveryCenter })));
+const SheetHubView = lazyWithRetry(() => import('./components/sheets-hub/SheetHubView.tsx').then((m) => ({ default: m.SheetHubView })));
 import {
   Check,
   Eye,

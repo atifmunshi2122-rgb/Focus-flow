@@ -18,10 +18,16 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { getSheetHubAccessToken } from '../../lib/firebase.ts';
+import {
+  getSheetHubAccessToken,
+  getSheetHubWriteAccessToken,
+  setSheetHubWriteAccessToken,
+} from '../../lib/firebase.ts';
 import { sheetHubStore } from '../../lib/sheetHub/sheetHubStore.ts';
 import type {
+  SheetColumnMapping,
   SheetConnection,
+  SheetHubCellUpdateRequest,
   SheetSyncedRow,
   SheetTabSchema,
   SheetCellScalar,
@@ -38,8 +44,16 @@ import { NativeSpreadsheetEditor } from './NativeSpreadsheetEditor.tsx';
 import type { SheetTemplateHint } from '../../types/sheetHub.ts';
 
 export const SheetHubView: React.FC = () => {
-  const { user, firebaseUser, authorizeSheetHubReadOnly, showToast } = useApp();
-  const activeUserId = user?.id || firebaseUser?.uid || 'usr_guest';
+  const {
+    user,
+    firebaseUser,
+    signInWithGoogle,
+    authorizeSheetHubReadOnly,
+    authorizeSheetHubWrite,
+    confirmAction,
+    showToast,
+  } = useApp();
+  const activeUserId = firebaseUser?.uid || user?.id || 'usr_guest';
 
   // State
   const [connections, setConnections] = useState<SheetConnection[]>([]);
@@ -50,6 +64,8 @@ export const SheetHubView: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isPulling, setIsPulling] = useState(false);
+  const [isPushing, setIsPushing] = useState(false);
+  const [syncingRowUids, setSyncingRowUids] = useState<Record<string, boolean>>({});
   const [wizardOpen, setWizardOpen] = useState(false);
   const [schemaModalOpen, setSchemaModalOpen] = useState(false);
 
@@ -68,28 +84,31 @@ export const SheetHubView: React.FC = () => {
     setRowsByTabId({});
   }, [activeUserId]);
 
-  // Load connections
-  const loadConnections = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const conns = await sheetHubStore.listConnections(activeUserId);
-      setConnections(conns);
-      if (activeConnectionId && !conns.some((c) => c.id === activeConnectionId)) {
-        setActiveConnectionId(null);
-        setTabs([]);
-        setSelectedTabId(null);
-        setRowsByTabId({});
+  // Load connections (always bypasses stale cache when forceCloud is true or on Gmail account change)
+  const loadConnections = useCallback(
+    async (forceCloud = false) => {
+      setIsLoading(true);
+      try {
+        const conns = await sheetHubStore.listConnections(activeUserId, { forceCloud });
+        setConnections(conns);
+        if (activeConnectionId && !conns.some((c) => c.id === activeConnectionId)) {
+          setActiveConnectionId(null);
+          setTabs([]);
+          setSelectedTabId(null);
+          setRowsByTabId({});
+        }
+      } catch {
+        showToast('Failed to load connections.', 'error');
+      } finally {
+        setIsLoading(false);
       }
-    } catch {
-      showToast('Failed to load connections.', 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeUserId, showToast, activeConnectionId]);
+    },
+    [activeUserId, showToast, activeConnectionId]
+  );
 
   useEffect(() => {
-    loadConnections();
-  }, [loadConnections]);
+    loadConnections(Boolean(firebaseUser?.uid));
+  }, [loadConnections, firebaseUser?.uid]);
 
   // Load active connection tabs and rows
   const loadActiveWorkspace = useCallback(
@@ -133,6 +152,18 @@ export const SheetHubView: React.FC = () => {
     [tabs, selectedTabId]
   );
 
+  const isDemoSheet = activeConnection?.spreadsheetId === 'sem3-syllabus-sample';
+
+  const pendingChangesCount = useMemo(() => {
+    let count = 0;
+    for (const tabRows of Object.values(rowsByTabId)) {
+      for (const r of tabRows) {
+        if (r.status === 'pending_push') count++;
+      }
+    }
+    return count;
+  }, [rowsByTabId]);
+
   // Hub Aggregate Snapshot Metrics
   const hubMetrics = useMemo(() => {
     const totalConns = connections.length;
@@ -157,9 +188,407 @@ export const SheetHubView: React.FC = () => {
     };
   }, [connections, activeConnectionId, tabs, rowsByTabId, firebaseUser]);
 
+  // Helper: execute Google Sheets cell writeback with least-privilege write OAuth & 401 retry
+  const pushUpdatesWithWriteAuth = useCallback(
+    async (
+      conn: SheetConnection,
+      updates: SheetHubCellUpdateRequest[]
+    ): Promise<{ pushed: boolean; cancelled?: boolean; updatedCells?: number; pushedAt?: string }> => {
+      if (!firebaseUser) {
+        showToast('Please sign in with Google first to sync changes back to Google Sheets.', 'error');
+        return { pushed: false };
+      }
+
+      let writeToken = await getSheetHubWriteAccessToken();
+      if (!writeToken) {
+        writeToken = await authorizeSheetHubWrite();
+        if (!writeToken) {
+          return { pushed: false, cancelled: true };
+        }
+      }
+
+      try {
+        const res = await api.sheetHubPushCells(
+          { spreadsheetId: conn.spreadsheetId, updates },
+          writeToken
+        );
+        return { pushed: true, updatedCells: res.updatedCells, pushedAt: res.pushedAt };
+      } catch (err: any) {
+        const code = err?.code;
+        if (code === 'SHEETS_AUTH_REQUIRED' || err?.status === 401) {
+          setSheetHubWriteAccessToken(null);
+          const freshToken = await authorizeSheetHubWrite();
+          if (!freshToken) {
+            return { pushed: false, cancelled: true };
+          }
+          const retryRes = await api.sheetHubPushCells(
+            { spreadsheetId: conn.spreadsheetId, updates },
+            freshToken
+          );
+          return { pushed: true, updatedCells: retryRes.updatedCells, pushedAt: retryRes.pushedAt };
+        }
+        throw err;
+      }
+    },
+    [firebaseUser, authorizeSheetHubWrite, showToast]
+  );
+
+  // Toggle sync mode between Instant Two-Way Sync (confirm & push on click) and Batch Push (local first)
+  const handleToggleSyncMode = useCallback(async () => {
+    if (!activeConnection || activeConnection.spreadsheetId === 'sem3-syllabus-sample') return;
+    const nextMode = activeConnection.syncMode === 'manual_only' ? 'two_way' : 'manual_only';
+    const updatedConn: SheetConnection = {
+      ...activeConnection,
+      syncMode: nextMode,
+      updatedAt: new Date().toISOString(),
+    };
+    await sheetHubStore.saveConnection(activeUserId, updatedConn);
+    setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+    showToast(
+      nextMode === 'two_way'
+        ? 'Two-Way Sync enabled: marking/unmarking checkboxes will sync directly to Google Sheet.'
+        : 'Batch Push mode enabled: mark multiple items locally, then click "Push Changes" to sync at once.',
+      'info'
+    );
+  }, [activeConnection, activeUserId, showToast]);
+
+  // Interactive Mark / Unmark handler (FocusFlow <-> Google Sheets)
+  const handleToggleCell = useCallback(
+    async (tab: SheetTabSchema, row: SheetSyncedRow, col: SheetColumnMapping, nextValue: boolean) => {
+      if (!activeConnection) return;
+      if (col.inferredType === 'formula' || col.editable === false) {
+        showToast(col.readOnlyReason || 'This column is read-only and cannot be edited.', 'info');
+        return;
+      }
+      if (!row.lastKnownSheetRow || row.lastKnownSheetRow < 1) {
+        showToast('Cannot locate sheet row number. Pull latest updates first.', 'error');
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const currentTabRows = rowsByTabId[tab.id] || [];
+      const baseVal = row.baseValues?.[col.fieldKey];
+      const normalizedBase =
+        baseVal === true || (typeof baseVal === 'string' && baseVal.trim().toLowerCase() === 'true');
+      const existingDirty = Array.isArray(row.dirtyFields) ? row.dirtyFields : [];
+      const nextDirty =
+        nextValue === normalizedBase
+          ? existingDirty.filter((f) => f !== col.fieldKey)
+          : Array.from(new Set([...existingDirty, col.fieldKey]));
+
+      const localUpdatedRow: SheetSyncedRow = {
+        ...row,
+        values: { ...row.values, [col.fieldKey]: nextValue },
+        dirtyFields: nextDirty,
+        localUpdatedAt: nowIso,
+        lastSyncOrigin: 'app',
+        status: nextDirty.length > 0 ? 'pending_push' : 'synced',
+        updatedAt: nowIso,
+      };
+
+      const nextTabRows = currentTabRows.map((r) => (r.rowUid === row.rowUid ? localUpdatedRow : r));
+      const nextRowsByTabId = { ...rowsByTabId, [tab.id]: nextTabRows };
+      setRowsByTabId(nextRowsByTabId);
+
+      // Compute live pending count across all tabs for connection metadata
+      let nextPendingCount = 0;
+      for (const list of Object.values(nextRowsByTabId)) {
+        for (const item of list) {
+          if (item.status === 'pending_push') nextPendingCount++;
+        }
+      }
+
+      // Persist immediately to Firestore so local state is never lost
+      try {
+        await sheetHubStore.saveTabRowsChunked({
+          userId: activeUserId,
+          connectionId: activeConnection.id,
+          tabId: tab.id,
+          rows: nextTabRows,
+        });
+      } catch (saveErr: any) {
+        showToast(saveErr?.message || 'Failed to save checkbox state locally.', 'error');
+        return;
+      }
+
+      // Demo spreadsheet stays local-only
+      if (activeConnection.spreadsheetId === 'sem3-syllabus-sample') {
+        showToast(nextValue ? 'Marked as done (demo sheet)' : 'Unmarked (demo sheet)', 'success');
+        return;
+      }
+
+      // Batch push mode: keep saved locally as pending_push without prompting on every click
+      if (activeConnection.syncMode === 'manual_only') {
+        const updatedConn: SheetConnection = {
+          ...activeConnection,
+          pendingChangesCount: nextPendingCount,
+          updatedAt: nowIso,
+        };
+        await sheetHubStore.saveConnection(activeUserId, updatedConn);
+        setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+        return;
+      }
+
+      // Two-Way Sync: mandatory explicit user confirmation before writing to Google Sheets
+      const titleCol =
+        tab.columns.find((c) => c.semanticRole === 'title') ||
+        tab.columns.find((c) => c.inferredType === 'text');
+      const itemLabel = titleCol
+        ? String(row.values[titleCol.fieldKey] || `Row ${row.lastKnownSheetRow}`).trim()
+        : `Row ${row.lastKnownSheetRow}`;
+      const cellRef = `${col.colLetter}${row.lastKnownSheetRow}`;
+
+      const confirmed = await confirmAction({
+        title: nextValue ? 'Mark item in Google Sheet?' : 'Unmark item in Google Sheet?',
+        message: `Update "${itemLabel}" in tab "${tab.sheetTitle}" (Cell ${cellRef}) to ${
+          nextValue ? 'Checked (TRUE)' : 'Unchecked (FALSE)'
+        } in Google Sheet "${activeConnection.title}"?`,
+        confirmLabel: 'Sync to Google Sheet',
+        cancelLabel: 'Keep Local Only',
+        tone: 'primary',
+      });
+
+      if (!confirmed) {
+        const updatedConn: SheetConnection = {
+          ...activeConnection,
+          pendingChangesCount: nextPendingCount,
+          updatedAt: nowIso,
+        };
+        await sheetHubStore.saveConnection(activeUserId, updatedConn);
+        setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+        showToast('Saved locally. Use "Push Changes" anytime to sync to Google Sheet.', 'info');
+        return;
+      }
+
+      setSyncingRowUids((prev) => ({ ...prev, [row.rowUid]: true }));
+      try {
+        const pushRes = await pushUpdatesWithWriteAuth(activeConnection, [
+          {
+            sheetTitle: tab.sheetTitle,
+            rowNumber: row.lastKnownSheetRow,
+            colLetter: col.colLetter,
+            value: nextValue,
+          },
+        ]);
+
+        if (!pushRes.pushed) {
+          const updatedConn: SheetConnection = {
+            ...activeConnection,
+            pendingChangesCount: nextPendingCount,
+            updatedAt: nowIso,
+          };
+          await sheetHubStore.saveConnection(activeUserId, updatedConn);
+          setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+          if (pushRes.cancelled) {
+            showToast('Saved locally. Authorize edit access to push to Google Sheet.', 'info');
+          }
+          return;
+        }
+
+        const pushedAt = pushRes.pushedAt || new Date().toISOString();
+        const syncedRow: SheetSyncedRow = {
+          ...localUpdatedRow,
+          baseValues: { ...localUpdatedRow.baseValues, [col.fieldKey]: nextValue },
+          dirtyFields: nextDirty.filter((f) => f !== col.fieldKey),
+          status: nextDirty.filter((f) => f !== col.fieldKey).length > 0 ? 'pending_push' : 'synced',
+          sheetSyncedAt: pushedAt,
+          updatedAt: pushedAt,
+        };
+
+        const finalTabRows = nextTabRows.map((r) => (r.rowUid === row.rowUid ? syncedRow : r));
+        const finalRowsByTabId = { ...nextRowsByTabId, [tab.id]: finalTabRows };
+        setRowsByTabId(finalRowsByTabId);
+
+        let remainingPending = 0;
+        for (const list of Object.values(finalRowsByTabId)) {
+          for (const item of list) {
+            if (item.status === 'pending_push') remainingPending++;
+          }
+        }
+
+        await sheetHubStore.saveTabRowsChunked({
+          userId: activeUserId,
+          connectionId: activeConnection.id,
+          tabId: tab.id,
+          rows: finalTabRows,
+        });
+
+        const updatedConn: SheetConnection = {
+          ...activeConnection,
+          syncMode: 'two_way',
+          status: 'active',
+          lastError: null,
+          lastSyncedAt: pushedAt,
+          lastSuccessfulPushAt: pushedAt,
+          pendingChangesCount: remainingPending,
+          updatedAt: pushedAt,
+        };
+        await sheetHubStore.saveConnection(activeUserId, updatedConn);
+        setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+
+        showToast(
+          nextValue
+            ? `Marked done & synced to Google Sheet (${tab.sheetTitle}!${cellRef})`
+            : `Unmarked & synced to Google Sheet (${tab.sheetTitle}!${cellRef})`,
+          'success'
+        );
+      } catch (err: any) {
+        const errMsg = err?.message || 'Could not update Google Sheet. Change is saved locally.';
+        const updatedConn: SheetConnection = {
+          ...activeConnection,
+          lastError: errMsg,
+          pendingChangesCount: nextPendingCount,
+          updatedAt: new Date().toISOString(),
+        };
+        await sheetHubStore.saveConnection(activeUserId, updatedConn);
+        setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+        showToast(errMsg, 'error');
+      } finally {
+        setSyncingRowUids((prev) => {
+          const copy = { ...prev };
+          delete copy[row.rowUid];
+          return copy;
+        });
+      }
+    },
+    [activeConnection, activeUserId, rowsByTabId, confirmAction, pushUpdatesWithWriteAuth, showToast]
+  );
+
+  // Batch push all pending_push mark/unmark changes across all tabs of active connection
+  const handlePushPendingChanges = useCallback(async () => {
+    if (!activeConnection || activeConnection.spreadsheetId === 'sem3-syllabus-sample') return;
+
+    const updates: SheetHubCellUpdateRequest[] = [];
+    const affectedTabNames = new Set<string>();
+    const pendingByTab = new Map<string, SheetSyncedRow[]>();
+
+    for (const tab of tabs) {
+      const tabRows = rowsByTabId[tab.id] || [];
+      const dirtyRows = tabRows.filter((r) => r.status === 'pending_push' && r.lastKnownSheetRow >= 1);
+      if (dirtyRows.length === 0) continue;
+
+      pendingByTab.set(tab.id, dirtyRows);
+      for (const row of dirtyRows) {
+        const fieldsToPush =
+          row.dirtyFields && row.dirtyFields.length > 0
+            ? row.dirtyFields
+            : tab.columns
+                .filter((c) => c.semanticRole === 'done' || c.inferredType === 'checkbox' || c.inferredType === 'boolean')
+                .map((c) => c.fieldKey);
+
+        for (const fieldKey of fieldsToPush) {
+          const col = tab.columns.find((c) => c.fieldKey === fieldKey);
+          if (!col || col.inferredType === 'formula' || col.editable === false) continue;
+          updates.push({
+            sheetTitle: tab.sheetTitle,
+            rowNumber: row.lastKnownSheetRow,
+            colLetter: col.colLetter,
+            value: row.values[fieldKey] ?? null,
+          });
+          affectedTabNames.add(tab.sheetTitle);
+        }
+      }
+    }
+
+    if (updates.length === 0) {
+      showToast('No pending local changes to push.', 'info');
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: `Push ${updates.length} ${updates.length === 1 ? 'Change' : 'Changes'} to Google Sheet?`,
+      message: `This will update ${updates.length} cell(s) across ${Array.from(affectedTabNames).join(
+        ', '
+      )} in "${activeConnection.title}".`,
+      confirmLabel: 'Push to Google Sheet',
+      cancelLabel: 'Cancel',
+      tone: 'primary',
+    });
+
+    if (!confirmed) return;
+
+    setIsPushing(true);
+    try {
+      const pushRes = await pushUpdatesWithWriteAuth(activeConnection, updates);
+      if (!pushRes.pushed) {
+        if (pushRes.cancelled) {
+          showToast('Push cancelled. Your changes remain saved locally.', 'info');
+        }
+        return;
+      }
+
+      const pushedAt = pushRes.pushedAt || new Date().toISOString();
+      const updatedRowsByTabId: Record<string, SheetSyncedRow[]> = { ...rowsByTabId };
+
+      for (const [tabId] of pendingByTab.entries()) {
+        const tabRows = rowsByTabId[tabId] || [];
+        const syncedRows: SheetSyncedRow[] = tabRows.map((r) =>
+          r.status === 'pending_push'
+            ? {
+                ...r,
+                baseValues: { ...r.values },
+                dirtyFields: [],
+                status: 'synced',
+                sheetSyncedAt: pushedAt,
+                updatedAt: pushedAt,
+              }
+            : r
+        );
+        updatedRowsByTabId[tabId] = syncedRows;
+        await sheetHubStore.saveTabRowsChunked({
+          userId: activeUserId,
+          connectionId: activeConnection.id,
+          tabId,
+          rows: syncedRows,
+        });
+      }
+
+      setRowsByTabId(updatedRowsByTabId);
+
+      const updatedConn: SheetConnection = {
+        ...activeConnection,
+        status: 'active',
+        lastError: null,
+        lastSyncedAt: pushedAt,
+        lastSuccessfulPushAt: pushedAt,
+        pendingChangesCount: 0,
+        updatedAt: pushedAt,
+      };
+      await sheetHubStore.saveConnection(activeUserId, updatedConn);
+      setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+
+      showToast(
+        `Successfully synced ${pushRes.updatedCells || updates.length} cell(s) to Google Sheet!`,
+        'success'
+      );
+    } catch (err: any) {
+      const errMsg = err?.message || 'Failed to push pending changes to Google Sheets.';
+      const updatedConn: SheetConnection = {
+        ...activeConnection,
+        lastError: errMsg,
+        updatedAt: new Date().toISOString(),
+      };
+      await sheetHubStore.saveConnection(activeUserId, updatedConn);
+      setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+      showToast(errMsg, 'error');
+    } finally {
+      setIsPushing(false);
+    }
+  }, [activeConnection, activeUserId, tabs, rowsByTabId, confirmAction, pushUpdatesWithWriteAuth, showToast]);
+
   // Pull / Refresh action for active spreadsheet
   const handlePullUpdates = async (connId = activeConnectionId) => {
     if (!connId) return;
+    if (connId === activeConnectionId && pendingChangesCount > 0 && !isDemoSheet) {
+      const proceedPull = await confirmAction({
+        title: 'Unsynced Local Changes Detected',
+        message: `You have ${pendingChangesCount} local mark/unmark change(s) not yet pushed to Google Sheets. Pulling now will replace local checkboxes with the latest values from Google Sheets. Continue pulling?`,
+        confirmLabel: 'Pull & Overwrite Local',
+        cancelLabel: 'Cancel',
+        tone: 'warning',
+      });
+      if (!proceedPull) return;
+    }
     setIsPulling(true);
     try {
       const conn = connections.find((c) => c.id === connId);
@@ -321,6 +750,8 @@ export const SheetHubView: React.FC = () => {
           ...conn,
           lastSyncedAt: nowIso,
           lastSuccessfulPullAt: nowIso,
+          lastError: null,
+          pendingChangesCount: 0,
           status: 'active',
         };
         await sheetHubStore.saveConnection(activeUserId, updatedConn);
@@ -483,7 +914,12 @@ export const SheetHubView: React.FC = () => {
         <SheetSyncStatusPanel
           connection={activeConnection}
           isPulling={isPulling}
+          isPushing={isPushing}
+          pendingCount={pendingChangesCount}
+          isDemoSheet={isDemoSheet}
           onPull={() => handlePullUpdates(activeConnection.id)}
+          onPushPending={handlePushPendingChanges}
+          onToggleSyncMode={handleToggleSyncMode}
           onReconnect={() => authorizeSheetHubReadOnly()}
         />
 
@@ -491,7 +927,9 @@ export const SheetHubView: React.FC = () => {
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-[var(--ff-border-color)]">
           {tabs.map((tab) => {
             const isSelected = selectedTabId === tab.id;
-            const rowCount = (rowsByTabId[tab.id] || []).length;
+            const tabRows = rowsByTabId[tab.id] || [];
+            const rowCount = tabRows.length;
+            const tabPendingCount = tabRows.filter((r) => r.status === 'pending_push').length;
             const isOverview = tab.role === 'overview';
 
             return (
@@ -522,6 +960,12 @@ export const SheetHubView: React.FC = () => {
                     {rowCount}
                   </span>
                 )}
+                {!isOverview && !isDemoSheet && tabPendingCount > 0 && (
+                  <span
+                    className="w-2 h-2 rounded-full bg-amber-400 shrink-0"
+                    title={`${tabPendingCount} pending push`}
+                  />
+                )}
               </button>
             );
           })}
@@ -539,6 +983,10 @@ export const SheetHubView: React.FC = () => {
             schema={activeTab}
             rows={rowsByTabId[activeTab.id] || []}
             viewMode={activeTab.defaultView || 'checklist'}
+            onToggleCell={(row, col, nextVal) => handleToggleCell(activeTab, row, col, nextVal)}
+            syncingRowUids={syncingRowUids}
+            syncMode={activeConnection.syncMode}
+            isDemoSheet={isDemoSheet}
           />
         ) : (
           <div className="py-12 text-center text-[var(--ff-text-muted)]">No active tab selected.</div>
@@ -604,6 +1052,34 @@ export const SheetHubView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {firebaseUser ? (
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={async () => {
+                await loadConnections(true);
+                showToast('Synced your spreadsheets with Cloud Firestore!', 'success');
+              }}
+              disabled={isLoading}
+              className="flex items-center gap-1.5"
+              title="Refresh spreadsheets from your Gmail Cloud account"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Sync Cloud</span>
+            </ThemeButton>
+          ) : (
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={() => signInWithGoogle()}
+              className="flex items-center gap-1.5 border-amber-500/40 text-amber-500"
+              title="Sign in with Gmail so your connected sheets appear on all your devices"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Sign in to Sync Across Devices</span>
+            </ThemeButton>
+          )}
+
           <ThemeButton
             variant="primary"
             onClick={() => setCreateSheetModalOpen(true)}

@@ -287,6 +287,20 @@ export interface SheetPullResponse {
   pulledAt: string;
 }
 
+export interface SheetHubCellUpdateRequest {
+  sheetTitle: string;
+  rowNumber: number;
+  colLetter: string;
+  value: SheetCellScalar;
+}
+
+export interface SheetHubPushCellsResponse {
+  spreadsheetId: string;
+  updatedCells: number;
+  updatedRangeCount: number;
+  pushedAt: string;
+}
+
 export interface SheetIdentityDuplicateEntry {
   keySignature: string;
   rowNumbers: number[];
