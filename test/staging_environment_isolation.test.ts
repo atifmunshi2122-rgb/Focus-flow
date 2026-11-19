@@ -16,132 +16,193 @@ import {
   resolveProjectId as resolveVaultProjectId,
 } from '../server/vaultBackendService.ts';
 
-describe('Safe Staging Architecture & Environment Isolation Suite', () => {
-  it('1. Production configuration resolves only to Production', () => {
-    const result = resolveFirebaseConfiguration({}, 'production');
-    assert.equal(result.error, null);
-    assert.ok(result.config);
-    assert.equal(result.config.projectId, PRODUCTION_PROJECT_ID);
-    assert.equal(result.config.firestoreDatabaseId, PRODUCTION_DATABASE_ID);
-    assert.equal(result.config.tier, 'production');
-    assert.equal(result.config.isStagingIsolated, false);
-  });
-
-  it('2. Preview configuration resolves only to Staging when explicit staging vars provided', () => {
-    const stagingEnv = {
+describe('Vercel Environment Precedence & Safe Staging Isolation Matrix', () => {
+  // ==========================================================================
+  // Test A: VERCEL_ENV=preview, PROD=true, Staging project and database configured
+  // Expected: Preview/Staging.
+  // ==========================================================================
+  it('Test A — VERCEL_ENV=preview, PROD=true with staging variables resolves to Staging', () => {
+    const env = {
+      VERCEL: '1',
+      VERCEL_ENV: 'preview',
+      PROD: 'true',
+      NODE_ENV: 'production',
       VITE_FIREBASE_PROJECT_ID: 'focusflow-staging-proj',
-      VITE_FIREBASE_API_KEY: 'AIzaSyStagingTestKey123',
+      VITE_FIREBASE_API_KEY: 'AIzaSyStagingKey123',
       VITE_FIREBASE_AUTH_DOMAIN: 'focusflow-staging-proj.firebaseapp.com',
-      VITE_FIREBASE_DATABASE_ID: 'staging-focusflowfinance-db',
+      VITE_FIREBASE_DATABASE_ID: 'staging-focusflow-db',
     };
 
-    const result = resolveFirebaseConfiguration(stagingEnv, 'preview');
+    const result = resolveFirebaseConfiguration(env);
     assert.equal(result.error, null);
     assert.ok(result.config);
-    assert.equal(result.config.projectId, 'focusflow-staging-proj');
-    assert.equal(result.config.firestoreDatabaseId, 'staging-focusflowfinance-db');
     assert.equal(result.config.tier, 'preview');
+    assert.equal(result.config.projectId, 'focusflow-staging-proj');
+    assert.equal(result.config.firestoreDatabaseId, 'staging-focusflow-db');
     assert.equal(result.config.isStagingIsolated, true);
   });
 
-  it('3. Missing Preview variables cause a fail-closed configuration error', () => {
-    const result = resolveFirebaseConfiguration({}, 'preview');
+  // ==========================================================================
+  // Test B: VERCEL_ENV=preview, PROD=true, No Staging variables
+  // Expected: Configuration blocked. No Production fallback.
+  // ==========================================================================
+  it('Test B — VERCEL_ENV=preview, PROD=true with missing staging vars fails closed with no Production fallback', () => {
+    const env = {
+      VERCEL: '1',
+      VERCEL_ENV: 'preview',
+      PROD: 'true',
+      NODE_ENV: 'production',
+    };
+
+    const result = resolveFirebaseConfiguration(env);
     assert.equal(result.config, null);
     assert.ok(result.error);
     assert.match(result.error.message, /PREVIEW_STAGING_CONFIG_MISSING/);
     assert.match(result.error.message, /VITE_FIREBASE_PROJECT_ID/);
   });
 
-  it('4. Preview never falls back to Production manifest or accepts production identifiers', () => {
-    // Attempt to pass production project ID into Preview
-    const copyPasteProductionEnv = {
+  // ==========================================================================
+  // Test C: VERCEL_ENV=preview, PROD=true, Production project ID supplied accidentally
+  // Expected: STAGING_DATA_SAFETY_VIOLATION.
+  // ==========================================================================
+  it('Test C — VERCEL_ENV=preview, PROD=true with production project ID throws STAGING_DATA_SAFETY_VIOLATION', () => {
+    const env = {
+      VERCEL: '1',
+      VERCEL_ENV: 'preview',
+      PROD: 'true',
+      NODE_ENV: 'production',
       VITE_FIREBASE_PROJECT_ID: PRODUCTION_PROJECT_ID,
-      VITE_FIREBASE_API_KEY: 'AIzaSyStagingTestKey123',
+      VITE_FIREBASE_API_KEY: 'AIzaSyStagingKey123',
       VITE_FIREBASE_AUTH_DOMAIN: 'focusflow-staging.firebaseapp.com',
-      VITE_FIREBASE_DATABASE_ID: 'staging-database',
+      VITE_FIREBASE_DATABASE_ID: 'staging-db',
     };
 
-    const resultProject = resolveFirebaseConfiguration(copyPasteProductionEnv, 'preview');
-    assert.equal(resultProject.config, null);
-    assert.ok(resultProject.error);
-    assert.match(resultProject.error.message, /STAGING_DATA_SAFETY_VIOLATION/);
+    const result = resolveFirebaseConfiguration(env);
+    assert.equal(result.config, null);
+    assert.ok(result.error);
+    assert.match(result.error.message, /STAGING_DATA_SAFETY_VIOLATION/);
+  });
 
-    // Attempt to pass production database ID into Preview
-    const copyPasteDbEnv = {
+  // ==========================================================================
+  // Test D: VERCEL_ENV=preview, VITE_APP_ENV=production, PROD=true
+  // Expected: Preview environment must not become Production. Report conflicting configuration clearly.
+  // ==========================================================================
+  it('Test D — VERCEL_ENV=preview conflicts with VITE_APP_ENV=production and reports conflict clearly', () => {
+    const env = {
+      VERCEL: '1',
+      VERCEL_ENV: 'preview',
+      VITE_APP_ENV: 'production',
+      PROD: 'true',
+      NODE_ENV: 'production',
       VITE_FIREBASE_PROJECT_ID: 'focusflow-staging',
-      VITE_FIREBASE_API_KEY: 'AIzaSyStagingTestKey123',
+      VITE_FIREBASE_API_KEY: 'AIzaSyStagingKey',
       VITE_FIREBASE_AUTH_DOMAIN: 'focusflow-staging.firebaseapp.com',
-      VITE_FIREBASE_DATABASE_ID: PRODUCTION_DATABASE_ID,
+      VITE_FIREBASE_DATABASE_ID: 'staging-db',
     };
 
-    const resultDb = resolveFirebaseConfiguration(copyPasteDbEnv, 'preview');
-    assert.equal(resultDb.config, null);
-    assert.ok(resultDb.error);
-    assert.match(resultDb.error.message, /STAGING_DATA_SAFETY_VIOLATION/);
+    const result = resolveFirebaseConfiguration(env);
+    assert.equal(result.config, null);
+    assert.ok(result.error);
+    assert.match(result.error.message, /CONFIG_CONFLICT/);
   });
 
-  it('5. Backend and frontend project IDs cannot silently disagree', () => {
+  // ==========================================================================
+  // Test E: VERCEL_ENV=production, PROD=true, Valid Production configuration
+  // Expected: Production.
+  // ==========================================================================
+  it('Test E — VERCEL_ENV=production, PROD=true resolves to Production', () => {
+    const env = {
+      VERCEL: '1',
+      VERCEL_ENV: 'production',
+      PROD: 'true',
+      NODE_ENV: 'production',
+    };
+
+    const result = resolveFirebaseConfiguration(env);
+    assert.equal(result.error, null);
+    assert.ok(result.config);
+    assert.equal(result.config.tier, 'production');
+    assert.equal(result.config.projectId, PRODUCTION_PROJECT_ID);
+    assert.equal(result.config.firestoreDatabaseId, PRODUCTION_DATABASE_ID);
+  });
+
+  // ==========================================================================
+  // Test F: Vercel deployment with missing or invalid VERCEL_ENV
+  // Expected: Fail closed.
+  // ==========================================================================
+  it('Test F — Vercel deployment with missing or invalid VERCEL_ENV fails closed', () => {
+    // Missing VERCEL_ENV
+    const missingEnv = {
+      VERCEL: '1',
+      VERCEL_ENV: '',
+      PROD: 'true',
+      NODE_ENV: 'production',
+    };
+    const resultMissing = resolveFirebaseConfiguration(missingEnv);
+    assert.equal(resultMissing.config, null);
+    assert.ok(resultMissing.error);
+    assert.match(resultMissing.error.message, /VERCEL_ENVIRONMENT_UNRECOGNIZED/);
+
+    // Invalid VERCEL_ENV
+    const invalidEnv = {
+      VERCEL: '1',
+      VERCEL_ENV: 'unknown_staging_mode',
+      PROD: 'true',
+      NODE_ENV: 'production',
+    };
+    const resultInvalid = resolveFirebaseConfiguration(invalidEnv);
+    assert.equal(resultInvalid.config, null);
+    assert.ok(resultInvalid.error);
+    assert.match(resultInvalid.error.message, /VERCEL_ENVIRONMENT_UNRECOGNIZED/);
+  });
+
+  // ==========================================================================
+  // Test G: Non-Vercel local development with explicitly configured local Firebase settings
+  // Expected: Local development configuration. No silent Production fallback.
+  // ==========================================================================
+  it('Test G — Non-Vercel local development with explicit settings resolves local config without production fallback', () => {
+    const localExplicitEnv = {
+      VERCEL: '',
+      VERCEL_ENV: '',
+      VITE_FIREBASE_PROJECT_ID: 'seismic-codex-m01dl',
+      VITE_FIREBASE_DATABASE_ID: 'local-dev-db',
+      NODE_ENV: 'development',
+    };
+
+    const result = resolveFirebaseConfiguration(localExplicitEnv);
+    assert.equal(result.error, null);
+    assert.ok(result.config);
+    assert.equal(result.config.tier, 'development');
+    assert.equal(result.config.projectId, 'seismic-codex-m01dl');
+    assert.equal(result.config.firestoreDatabaseId, 'local-dev-db');
+    assert.equal(result.config.isStagingIsolated, true);
+
+    // If local development has NO explicit settings, it fails closed to prevent silent production fallback
+    const localEmptyEnv = {
+      VERCEL: '',
+      VERCEL_ENV: '',
+      VITE_FIREBASE_PROJECT_ID: '',
+      NODE_ENV: 'development',
+    };
+    const resultEmpty = resolveFirebaseConfiguration(localEmptyEnv);
+    assert.equal(resultEmpty.config, null);
+    assert.ok(resultEmpty.error);
+    assert.match(resultEmpty.error.message, /LOCAL_CONFIG_REQUIRED/);
+  });
+
+  // ==========================================================================
+  // Backend Serverless Functions Parity Tests
+  // ==========================================================================
+  it('Backend — resolveServerFirebaseProjectId mirrors Vercel environment rules', () => {
+    const origVercel = process.env.VERCEL;
+    const origVercelEnv = process.env.VERCEL_ENV;
     const origBackend = process.env.FIREBASE_PROJECT_ID;
     const origFrontend = process.env.VITE_FIREBASE_PROJECT_ID;
-    const origVercel = process.env.VERCEL_ENV;
+    const origAppEnv = process.env.APP_ENV;
 
     try {
-      delete process.env.VERCEL_ENV;
-      process.env.FIREBASE_PROJECT_ID = 'staging-project-alpha';
-      process.env.VITE_FIREBASE_PROJECT_ID = 'staging-project-beta';
-      resetCachedProjectIdForTests();
-
-      assert.throws(() => {
-        resolveServerFirebaseProjectId();
-      }, /CONFIG_DISAGREEMENT/);
-    } finally {
-      if (origBackend !== undefined) process.env.FIREBASE_PROJECT_ID = origBackend;
-      else delete process.env.FIREBASE_PROJECT_ID;
-      if (origFrontend !== undefined) process.env.VITE_FIREBASE_PROJECT_ID = origFrontend;
-      else delete process.env.VITE_FIREBASE_PROJECT_ID;
-      if (origVercel !== undefined) process.env.VERCEL_ENV = origVercel;
-      else delete process.env.VERCEL_ENV;
-      resetCachedProjectIdForTests();
-    }
-  });
-
-  it('6. Named Firestore database configuration is respected across frontend and backend', () => {
-    const origDb = process.env.VITE_FIREBASE_DATABASE_ID;
-    const origVercel = process.env.VERCEL_ENV;
-
-    try {
-      process.env.VERCEL_ENV = 'preview';
-      process.env.VITE_FIREBASE_DATABASE_ID = 'staging-isolated-named-db';
-
-      // Backend resolver
-      const backendDb = resolveFirestoreDatabaseId();
-      assert.equal(backendDb, 'staging-isolated-named-db');
-
-      // Frontend resolver
-      const frontendRes = resolveFirebaseConfiguration(
-        {
-          VITE_FIREBASE_PROJECT_ID: 'staging-proj',
-          VITE_FIREBASE_API_KEY: 'staging-key',
-          VITE_FIREBASE_AUTH_DOMAIN: 'staging-proj.firebaseapp.com',
-          VITE_FIREBASE_DATABASE_ID: 'staging-isolated-named-db',
-        },
-        'preview'
-      );
-      assert.equal(frontendRes.config?.firestoreDatabaseId, 'staging-isolated-named-db');
-    } finally {
-      if (origDb !== undefined) process.env.VITE_FIREBASE_DATABASE_ID = origDb;
-      else delete process.env.VITE_FIREBASE_DATABASE_ID;
-      if (origVercel !== undefined) process.env.VERCEL_ENV = origVercel;
-      else delete process.env.VERCEL_ENV;
-    }
-  });
-
-  it('7. Preview backend fails closed if preview vars are missing or pointing to production', () => {
-    const origBackend = process.env.FIREBASE_PROJECT_ID;
-    const origFrontend = process.env.VITE_FIREBASE_PROJECT_ID;
-    const origVercel = process.env.VERCEL_ENV;
-
-    try {
+      // 1. Preview on Vercel without vars -> fails closed
+      process.env.VERCEL = '1';
       process.env.VERCEL_ENV = 'preview';
       delete process.env.FIREBASE_PROJECT_ID;
       delete process.env.VITE_FIREBASE_PROJECT_ID;
@@ -151,46 +212,96 @@ describe('Safe Staging Architecture & Environment Isolation Suite', () => {
         resolveServerFirebaseProjectId();
       }, /PREVIEW_STAGING_CONFIG_MISSING/);
 
-      // Attempt to point preview backend to production
+      // 2. Preview on Vercel with production project ID -> throws safety violation
       process.env.FIREBASE_PROJECT_ID = PRODUCTION_PROJECT_ID;
+      resetCachedProjectIdForTests();
       assert.throws(() => {
         resolveServerFirebaseProjectId();
       }, /STAGING_DATA_SAFETY_VIOLATION/);
+
+      // 3. Preview on Vercel with valid staging project -> resolves cleanly
+      process.env.FIREBASE_PROJECT_ID = 'focusflow-staging';
+      resetCachedProjectIdForTests();
+      assert.equal(resolveServerFirebaseProjectId(), 'focusflow-staging');
+
+      // 4. Vercel deployment with unrecognized environment -> fails closed
+      process.env.VERCEL_ENV = 'unknown_tier';
+      resetCachedProjectIdForTests();
+      assert.throws(() => {
+        resolveServerFirebaseProjectId();
+      }, /VERCEL_ENVIRONMENT_UNRECOGNIZED/);
+
+      // 5. Backend and frontend ID disagreement -> throws
+      process.env.VERCEL_ENV = 'preview';
+      process.env.FIREBASE_PROJECT_ID = 'staging-a';
+      process.env.VITE_FIREBASE_PROJECT_ID = 'staging-b';
+      resetCachedProjectIdForTests();
+      assert.throws(() => {
+        resolveServerFirebaseProjectId();
+      }, /CONFIG_DISAGREEMENT/);
+
+      // 6. Production on Vercel -> resolves production project
+      process.env.VERCEL_ENV = 'production';
+      delete process.env.FIREBASE_PROJECT_ID;
+      delete process.env.VITE_FIREBASE_PROJECT_ID;
+      resetCachedProjectIdForTests();
+      assert.equal(resolveServerFirebaseProjectId(), PRODUCTION_PROJECT_ID);
     } finally {
+      if (origVercel !== undefined) process.env.VERCEL = origVercel;
+      else delete process.env.VERCEL;
+      if (origVercelEnv !== undefined) process.env.VERCEL_ENV = origVercelEnv;
+      else delete process.env.VERCEL_ENV;
       if (origBackend !== undefined) process.env.FIREBASE_PROJECT_ID = origBackend;
       else delete process.env.FIREBASE_PROJECT_ID;
       if (origFrontend !== undefined) process.env.VITE_FIREBASE_PROJECT_ID = origFrontend;
       else delete process.env.VITE_FIREBASE_PROJECT_ID;
-      if (origVercel !== undefined) process.env.VERCEL_ENV = origVercel;
-      else delete process.env.VERCEL_ENV;
+      if (origAppEnv !== undefined) process.env.APP_ENV = origAppEnv;
+      else delete process.env.APP_ENV;
       resetCachedProjectIdForTests();
     }
   });
 
-  it('8. Existing Production configuration remains unchanged and intact', () => {
-    const prodRes = resolveFirebaseConfiguration({}, 'production');
-    assert.equal(prodRes.error, null);
-    assert.equal(prodRes.config?.projectId, PRODUCTION_PROJECT_ID);
-    assert.equal(prodRes.config?.firestoreDatabaseId, PRODUCTION_DATABASE_ID);
-    assert.equal(prodRes.config?.authDomain, `${PRODUCTION_PROJECT_ID}.firebaseapp.com`);
+  it('Backend — resolveFirestoreDatabaseId mirrors Vercel environment rules', () => {
+    const origVercel = process.env.VERCEL;
+    const origVercelEnv = process.env.VERCEL_ENV;
+    const origDb = process.env.VITE_FIREBASE_DATABASE_ID;
+
+    try {
+      // 1. Preview on Vercel without DB -> fails closed
+      process.env.VERCEL = '1';
+      process.env.VERCEL_ENV = 'preview';
+      delete process.env.VITE_FIREBASE_DATABASE_ID;
+
+      assert.throws(() => {
+        resolveFirestoreDatabaseId();
+      }, /PREVIEW_STAGING_CONFIG_MISSING/);
+
+      // 2. Preview on Vercel with production DB -> throws safety violation
+      process.env.VITE_FIREBASE_DATABASE_ID = PRODUCTION_DATABASE_ID;
+      assert.throws(() => {
+        resolveFirestoreDatabaseId();
+      }, /STAGING_DATA_SAFETY_VIOLATION/);
+
+      // 3. Preview on Vercel with staging DB -> resolves cleanly
+      process.env.VITE_FIREBASE_DATABASE_ID = 'staging-named-database';
+      assert.equal(resolveFirestoreDatabaseId(), 'staging-named-database');
+    } finally {
+      if (origVercel !== undefined) process.env.VERCEL = origVercel;
+      else delete process.env.VERCEL;
+      if (origVercelEnv !== undefined) process.env.VERCEL_ENV = origVercelEnv;
+      else delete process.env.VERCEL_ENV;
+      if (origDb !== undefined) process.env.VITE_FIREBASE_DATABASE_ID = origDb;
+      else delete process.env.VITE_FIREBASE_DATABASE_ID;
+    }
   });
 
-  it('9. Hostname detection correctly categorizes preview versus production domains', () => {
-    assert.equal(
-      detectDeploymentTier({ hostname: 'focus-flow-by-atif.vercel.app' }),
-      'production'
-    );
-    assert.equal(
-      detectDeploymentTier({ hostname: 'focus-flow-git-review-pre-push.vercel.app' }),
-      'preview'
-    );
-    assert.equal(
-      detectDeploymentTier({ hostname: 'localhost' }),
-      'development'
-    );
-    assert.equal(
-      detectDeploymentTier({ hostname: '127.0.0.1' }),
-      'development'
-    );
+  it('Hostname Mismatch — Preview subdomain running VERCEL_ENV=production fails closed', () => {
+    const result = detectDeploymentTier({
+      isVercel: true,
+      vercelEnv: 'production',
+      hostname: 'focus-flow-git-review-pre-push.vercel.app',
+    });
+    assert.ok(result.error);
+    assert.match(result.error.message, /HOSTNAME_TIER_MISMATCH/);
   });
 });

@@ -139,9 +139,10 @@ export const PRODUCTION_PROJECT_ID = 'gen-lang-client-0390447756';
 export const PRODUCTION_DATABASE_ID = 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
 
 function resolveFirebaseProjectIdFallback(): string {
-  const vercelEnv = process.env.VERCEL_ENV || '';
-  const appEnv = process.env.APP_ENV || '';
-  const isPreview = vercelEnv === 'preview' || appEnv === 'preview';
+  const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+  const vercelEnv = (process.env.VERCEL_ENV || '').trim().toLowerCase();
+  const appEnv = (process.env.APP_ENV || process.env.VITE_APP_ENV || '').trim().toLowerCase();
+  const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
 
   const backendProjId = process.env.FIREBASE_PROJECT_ID;
   const frontendProjId = process.env.VITE_FIREBASE_PROJECT_ID;
@@ -154,10 +155,59 @@ function resolveFirebaseProjectIdFallback(): string {
 
   const explicitProjId = backendProjId || frontendProjId;
 
-  if (isPreview) {
+  // Rule 4: Conflicting Configuration Check
+  if (vercelEnv && appEnv) {
+    if (vercelEnv === 'preview' && appEnv === 'production') {
+      throw new Error(
+        "[CONFIG_CONFLICT] Vercel environment ('preview') conflicts with APP_ENV ('production'). Preview deployment cannot be overridden to production."
+      );
+    }
+    if (vercelEnv === 'production' && appEnv === 'preview') {
+      throw new Error(
+        "[CONFIG_CONFLICT] Vercel environment ('production') conflicts with APP_ENV ('preview'). Conflicting environment flags are strictly forbidden."
+      );
+    }
+  }
+
+  // Rule 3: Vercel Authoritative Environment Routing
+  if (isVercel) {
+    if (
+      !vercelEnv ||
+      (vercelEnv !== 'production' && vercelEnv !== 'preview' && vercelEnv !== 'development')
+    ) {
+      throw new Error(
+        `[VERCEL_ENVIRONMENT_UNRECOGNIZED] Running on Vercel deployment but VERCEL_ENV is missing or unrecognized ('${vercelEnv}'). Cannot safely determine deployment tier.`
+      );
+    }
+
+    if (vercelEnv === 'preview') {
+      if (!explicitProjId) {
+        throw new Error(
+          '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
+        );
+      }
+      if (explicitProjId === PRODUCTION_PROJECT_ID) {
+        throw new Error(
+          `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firebase Project (${PRODUCTION_PROJECT_ID}). Preview must use a dedicated Staging Firebase Project.`
+        );
+      }
+      return explicitProjId;
+    }
+
+    if (vercelEnv === 'production') {
+      if (explicitProjId) return explicitProjId;
+      return PRODUCTION_PROJECT_ID;
+    }
+
+    if (vercelEnv === 'development' && explicitProjId) {
+      return explicitProjId;
+    }
+  }
+
+  if (appEnv === 'preview') {
     if (!explicitProjId) {
       throw new Error(
-        '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
+        '[PREVIEW_STAGING_CONFIG_MISSING] Preview requires explicit Staging FIREBASE_PROJECT_ID or VITE_FIREBASE_PROJECT_ID. Automatic fallback to Production Firebase is blocked.'
       );
     }
     if (explicitProjId === PRODUCTION_PROJECT_ID) {
@@ -169,6 +219,7 @@ function resolveFirebaseProjectIdFallback(): string {
   }
 
   if (explicitProjId) return explicitProjId;
+  if (nodeEnv === 'test') return 'test-rules-project';
 
   try {
     const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
@@ -183,16 +234,49 @@ function resolveFirebaseProjectIdFallback(): string {
 }
 
 export function resolveFirestoreDatabaseId(): string {
-  const vercelEnv = process.env.VERCEL_ENV || '';
-  const appEnv = process.env.APP_ENV || '';
-  const isPreview = vercelEnv === 'preview' || appEnv === 'preview';
-
+  const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+  const vercelEnv = (process.env.VERCEL_ENV || '').trim().toLowerCase();
+  const appEnv = (process.env.APP_ENV || process.env.VITE_APP_ENV || '').trim().toLowerCase();
   const explicitDb = process.env.VITE_FIREBASE_DATABASE_ID || process.env.FIREBASE_DATABASE_ID;
 
-  if (isPreview) {
+  if (isVercel) {
+    if (
+      !vercelEnv ||
+      (vercelEnv !== 'production' && vercelEnv !== 'preview' && vercelEnv !== 'development')
+    ) {
+      throw new Error(
+        `[VERCEL_ENVIRONMENT_UNRECOGNIZED] Running on Vercel deployment but VERCEL_ENV is missing or unrecognized ('${vercelEnv}'). Cannot safely determine deployment tier.`
+      );
+    }
+
+    if (vercelEnv === 'preview') {
+      if (!explicitDb) {
+        throw new Error(
+          '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging VITE_FIREBASE_DATABASE_ID. Automatic fallback to Production Firestore Database is blocked.'
+        );
+      }
+      if (explicitDb === PRODUCTION_DATABASE_ID) {
+        throw new Error(
+          `[STAGING_DATA_SAFETY_VIOLATION] Preview deployment cannot use Production Firestore Database (${PRODUCTION_DATABASE_ID}). Preview must use a dedicated Staging Firestore Database.`
+        );
+      }
+      return explicitDb;
+    }
+
+    if (vercelEnv === 'production') {
+      if (explicitDb) return explicitDb;
+      return PRODUCTION_DATABASE_ID;
+    }
+
+    if (vercelEnv === 'development' && explicitDb) {
+      return explicitDb;
+    }
+  }
+
+  if (appEnv === 'preview') {
     if (!explicitDb) {
       throw new Error(
-        '[PREVIEW_STAGING_CONFIG_MISSING] Vercel Preview requires explicit Staging VITE_FIREBASE_DATABASE_ID. Automatic fallback to Production Firestore Database is blocked.'
+        '[PREVIEW_STAGING_CONFIG_MISSING] Preview requires explicit Staging VITE_FIREBASE_DATABASE_ID. Automatic fallback to Production Firestore Database is blocked.'
       );
     }
     if (explicitDb === PRODUCTION_DATABASE_ID) {

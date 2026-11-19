@@ -15,6 +15,7 @@ export default defineConfig(() => {
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version || 'unknown'),
       __VERCEL_ENV__: JSON.stringify(process.env.VERCEL_ENV || ''),
+      __IS_VERCEL__: JSON.stringify(process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV)),
     },
     plugins: [react(), tailwindcss()],
     resolve: {

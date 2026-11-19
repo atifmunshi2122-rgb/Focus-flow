@@ -20,100 +20,199 @@ export interface ConfigurationResolutionResult {
   tier: DeploymentTier;
 }
 
-export const PRODUCTION_PROJECT_ID = 'gen-lang-client-0390447756';
-export const PRODUCTION_DATABASE_ID = 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
-
-/**
- * Detects the deployment tier based on environment flags, global define tokens,
- * or runtime hostname verification.
- */
-export function detectDeploymentTier(envParams?: {
+export interface EnvironmentDetectionParams {
   vercelEnv?: string;
+  isVercel?: boolean | string;
   viteAppEnv?: string;
   nodeEnv?: string;
   mode?: string;
   hostname?: string;
-}): DeploymentTier {
-  // 1. Explicit Test Environment (only when hostname is not specifically tested)
+  prodFlag?: boolean;
+}
+
+export const PRODUCTION_PROJECT_ID = 'gen-lang-client-0390447756';
+export const PRODUCTION_DATABASE_ID = 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
+
+/**
+ * Detects the deployment tier with strict precedence:
+ * 1. Explicit test runner environments (isolated from deployment logic).
+ * 2. Vercel deployment detection: VERCEL_ENV is the authoritative signal.
+ *    - VERCEL_ENV=preview -> 'preview'
+ *    - VERCEL_ENV=production -> 'production'
+ *    - Missing or unrecognized VERCEL_ENV on Vercel -> FAIL CLOSED.
+ * 3. Conflicting flags (e.g. VERCEL_ENV=preview with VITE_APP_ENV=production) -> FAIL CLOSED.
+ * 4. PROD=true alone NEVER classifies a deployment as Production.
+ * 5. Runtime hostname mismatches produce explicit configuration errors.
+ * 6. Non-Vercel local development requires explicit configuration.
+ */
+export function detectDeploymentTier(envParams?: EnvironmentDetectionParams): {
+  tier: DeploymentTier;
+  error: Error | null;
+} {
   const nodeEnv =
     envParams?.nodeEnv !== undefined
       ? envParams.nodeEnv
       : typeof process !== 'undefined' && process.env
       ? process.env.NODE_ENV
       : '';
-  if (nodeEnv === 'test' && !envParams?.hostname) {
-    return 'test';
+
+  // 1. Explicit Test Environment (when not explicitly verifying Vercel or deployment flags)
+  if (
+    nodeEnv === 'test' &&
+    envParams?.hostname === undefined &&
+    envParams?.vercelEnv === undefined &&
+    envParams?.isVercel === undefined &&
+    envParams?.viteAppEnv === undefined
+  ) {
+    return { tier: 'test', error: null };
   }
 
-  // 2. Explicit Preview Environment Flags
-  const vercelEnv =
-    envParams?.vercelEnv ||
-    (typeof __VERCEL_ENV__ !== 'undefined' ? __VERCEL_ENV__ : '') ||
-    (typeof process !== 'undefined' && process.env ? process.env.VERCEL_ENV : '');
+  // 2. Gather Environment Signals
+  const rawIsVercel =
+    envParams?.isVercel !== undefined
+      ? envParams.isVercel
+      : (typeof __IS_VERCEL__ !== 'undefined' ? __IS_VERCEL__ : false) ||
+        (typeof process !== 'undefined' && (process.env?.VERCEL === '1' || Boolean(process.env?.VERCEL_ENV)));
 
-  const viteAppEnv =
-    envParams?.viteAppEnv ||
-    (typeof import.meta !== 'undefined' && (import.meta as any).env
-      ? (import.meta as any).env.VITE_APP_ENV
-      : '');
-
-  const mode =
-    envParams?.mode ||
-    (typeof import.meta !== 'undefined' && (import.meta as any).env
-      ? (import.meta as any).env.MODE
-      : '');
-
-  if (vercelEnv === 'preview' || viteAppEnv === 'preview' || mode === 'preview') {
-    return 'preview';
-  }
-
-  // 3. Runtime Browser Hostname Inspection
   let hostname = envParams?.hostname;
   if (!hostname && typeof window !== 'undefined' && window.location) {
     hostname = window.location.hostname || '';
   }
 
+  const isVercelDomain = Boolean(hostname && hostname.endsWith('.vercel.app'));
+  const isVercel = Boolean(
+    rawIsVercel === true ||
+    rawIsVercel === '1' ||
+    rawIsVercel === 'true' ||
+    isVercelDomain
+  );
+
+  const vercelEnv = (
+    envParams?.vercelEnv !== undefined
+      ? envParams.vercelEnv
+      : (typeof __VERCEL_ENV__ !== 'undefined' ? __VERCEL_ENV__ : '') ||
+        (typeof process !== 'undefined' ? process.env?.VERCEL_ENV : '')
+  )?.trim()?.toLowerCase() || '';
+
+  const viteAppEnv = (
+    envParams?.viteAppEnv !== undefined
+      ? envParams.viteAppEnv
+      : (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_APP_ENV) ||
+        (typeof process !== 'undefined' ? process.env?.VITE_APP_ENV : '')
+  )?.trim()?.toLowerCase() || '';
+
+  // 3. Rule 4: Conflicting Configuration Check
+  if (vercelEnv && viteAppEnv) {
+    if (vercelEnv === 'preview' && viteAppEnv === 'production') {
+      return {
+        tier: 'preview',
+        error: new Error(
+          "[CONFIG_CONFLICT] Vercel environment ('preview') conflicts with VITE_APP_ENV ('production'). Preview deployment cannot be overridden to production."
+        ),
+      };
+    }
+    if (vercelEnv === 'production' && viteAppEnv === 'preview') {
+      return {
+        tier: 'production',
+        error: new Error(
+          "[CONFIG_CONFLICT] Vercel environment ('production') conflicts with VITE_APP_ENV ('preview'). Conflicting environment flags are strictly forbidden."
+        ),
+      };
+    }
+  }
+
+  // 4. Vercel Authoritative Environment Routing (Rules 1, 2, 3, 6)
+  if (isVercel) {
+    // Rule 3: Missing or unrecognized Vercel environment on a Vercel deployment must fail closed!
+    if (
+      !vercelEnv ||
+      (vercelEnv !== 'production' && vercelEnv !== 'preview' && vercelEnv !== 'development')
+    ) {
+      return {
+        tier: 'preview',
+        error: new Error(
+          `[VERCEL_ENVIRONMENT_UNRECOGNIZED] Running on Vercel deployment but VERCEL_ENV is missing or unrecognized ('${vercelEnv}'). Cannot safely determine deployment tier.`
+        ),
+      };
+    }
+
+    // Rule 1: VERCEL_ENV=preview must resolve to Preview/Staging even when Vite PROD=true
+    if (vercelEnv === 'preview') {
+      // Rule 6: Check hostname mismatch if running in browser
+      if (hostname && hostname === 'focus-flow-by-atif.vercel.app') {
+        return {
+          tier: 'preview',
+          error: new Error(
+            "[HOSTNAME_TIER_MISMATCH] Production domain 'focus-flow-by-atif.vercel.app' detected but VERCEL_ENV is 'preview'. Aborting to prevent configuration confusion."
+          ),
+        };
+      }
+      return { tier: 'preview', error: null };
+    }
+
+    // Rule 2: VERCEL_ENV=production must resolve to Production
+    if (vercelEnv === 'production') {
+      // Rule 6: Check hostname mismatch if running in browser on a preview subdomain
+      if (
+        hostname &&
+        hostname.endsWith('.vercel.app') &&
+        hostname !== 'focus-flow-by-atif.vercel.app'
+      ) {
+        return {
+          tier: 'production',
+          error: new Error(
+            `[HOSTNAME_TIER_MISMATCH] Preview subdomain '${hostname}' detected but VERCEL_ENV is 'production'. Aborting to prevent production data access from preview URLs.`
+          ),
+        };
+      }
+      return { tier: 'production', error: null };
+    }
+
+    if (vercelEnv === 'development') {
+      return { tier: 'development', error: null };
+    }
+  }
+
+  // 5. Non-Vercel Deployments (Local or custom host)
+  if (viteAppEnv === 'preview') {
+    return { tier: 'preview', error: null };
+  }
+  if (viteAppEnv === 'production') {
+    return { tier: 'production', error: null };
+  }
+
   if (hostname) {
-    // Production domain
+    if (hostname.endsWith('.vercel.app') && hostname !== 'focus-flow-by-atif.vercel.app') {
+      return { tier: 'preview', error: null };
+    }
     if (hostname === 'focus-flow-by-atif.vercel.app') {
-      return 'production';
+      return { tier: 'production', error: null };
     }
-    // Standard Vercel Preview subdomains (e.g. *-git-*.vercel.app or *-hash.vercel.app)
-    if (
-      hostname.endsWith('.vercel.app') &&
-      hostname !== 'focus-flow-by-atif.vercel.app'
-    ) {
-      return 'preview';
-    }
-    // Local development addresses
-    if (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.endsWith('.local')
-    ) {
-      return 'development';
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local')) {
+      return { tier: 'development', error: null };
     }
   }
 
-  // 4. Production Flags
-  if (
-    vercelEnv === 'production' ||
-    viteAppEnv === 'production' ||
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.PROD) ||
-    nodeEnv === 'production'
-  ) {
-    return 'production';
+  const mode = (
+    envParams?.mode ||
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.MODE)
+  )?.trim()?.toLowerCase();
+  if (mode === 'preview') {
+    return { tier: 'preview', error: null };
   }
 
-  // 5. Default Fallback
-  return 'development';
+  // Rule 5: PROD=true must NEVER independently classify a deployment as Production!
+  // Neither import.meta.env.PROD nor NODE_ENV=production can assume Production without explicit configuration.
+
+  // 6. Default Fallback (Local Development)
+  return { tier: 'development', error: null };
 }
 
 /**
  * Resolves Firebase configuration with strict environment isolation:
  * - Production: uses explicit production env vars or defaults safely to committed manifest.
  * - Preview: strictly requires explicit Staging Firebase configuration and fails closed if missing or pointing to production.
- * - Development: uses local overrides or dev manifest.
+ * - Development: requires explicit local configuration or fails closed to prevent silent production fallback.
  * - Test: provides test configuration.
  */
 export function resolveFirebaseConfiguration(
@@ -135,14 +234,26 @@ export function resolveFirebaseConfiguration(
     return metaEnv[key] || processEnv[key];
   };
 
-  const tier =
-    tierOverride ||
-    detectDeploymentTier({
-      vercelEnv: getEnv('VERCEL_ENV'),
-      viteAppEnv: getEnv('VITE_APP_ENV'),
-      nodeEnv: getEnv('NODE_ENV'),
-      mode: getEnv('MODE'),
-    });
+  const tierResult = tierOverride
+    ? { tier: tierOverride, error: null }
+    : detectDeploymentTier({
+        vercelEnv: getEnv('VERCEL_ENV'),
+        isVercel: getEnv('VERCEL') || getEnv('IS_VERCEL'),
+        viteAppEnv: getEnv('VITE_APP_ENV'),
+        nodeEnv: getEnv('NODE_ENV'),
+        mode: getEnv('MODE'),
+        hostname: envOverrides?.hostname,
+      });
+
+  if (tierResult.error) {
+    return {
+      config: null,
+      error: tierResult.error,
+      tier: tierResult.tier,
+    };
+  }
+
+  const tier = tierResult.tier;
 
   // ==========================================
   // PREVIEW ENVIRONMENT (STAGING ISOLATION GATE)
@@ -286,37 +397,34 @@ export function resolveFirebaseConfiguration(
   // ==========================================
   // DEVELOPMENT ENVIRONMENT
   // ==========================================
-  const devProjectId =
-    getEnv('VITE_FIREBASE_PROJECT_ID') ||
-    getEnv('FIREBASE_PROJECT_ID') ||
-    firebaseManifest.projectId ||
-    PRODUCTION_PROJECT_ID;
+  const devProjectId = getEnv('VITE_FIREBASE_PROJECT_ID') || getEnv('FIREBASE_PROJECT_ID');
+  const devDatabaseId = getEnv('VITE_FIREBASE_DATABASE_ID');
 
-  const devApiKey = getEnv('VITE_FIREBASE_API_KEY') || firebaseManifest.apiKey;
-  const devAuthDomain = getEnv('VITE_FIREBASE_AUTH_DOMAIN') || firebaseManifest.authDomain;
-  const devStorageBucket =
-    getEnv('VITE_FIREBASE_STORAGE_BUCKET') || firebaseManifest.storageBucket;
-  const devMessagingSenderId =
-    getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || firebaseManifest.messagingSenderId;
-  const devAppId = getEnv('VITE_FIREBASE_APP_ID') || firebaseManifest.appId;
-  const devDatabaseId =
-    getEnv('VITE_FIREBASE_DATABASE_ID') ||
-    firebaseManifest.firestoreDatabaseId ||
-    PRODUCTION_DATABASE_ID;
-
-  return {
-    config: {
-      apiKey: devApiKey || '',
-      authDomain: devAuthDomain || '',
-      projectId: devProjectId,
-      storageBucket: devStorageBucket || '',
-      messagingSenderId: devMessagingSenderId || '',
-      appId: devAppId || '',
-      firestoreDatabaseId: devDatabaseId,
+  // Rule 7: Local development with explicit settings is supported cleanly
+  if (devProjectId) {
+    return {
+      config: {
+        apiKey: getEnv('VITE_FIREBASE_API_KEY') || '',
+        authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || `${devProjectId}.firebaseapp.com`,
+        projectId: devProjectId,
+        storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || `${devProjectId}.firebasestorage.app`,
+        messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || '',
+        appId: getEnv('VITE_FIREBASE_APP_ID') || '',
+        firestoreDatabaseId: devDatabaseId || 'default',
+        tier: 'development',
+        isStagingIsolated: devProjectId !== PRODUCTION_PROJECT_ID,
+      },
+      error: null,
       tier: 'development',
-      isStagingIsolated: devProjectId !== PRODUCTION_PROJECT_ID,
-    },
-    error: null,
+    };
+  }
+
+  // Rule 7: If no explicit local settings, fail closed to prevent silent production fallback
+  return {
+    config: null,
+    error: new Error(
+      '[LOCAL_CONFIG_REQUIRED] Local development requires an explicitly configured Firebase project (e.g. VITE_FIREBASE_PROJECT_ID in .env.local). Silent fallback to Production Firebase is blocked.'
+    ),
     tier: 'development',
   };
 }
