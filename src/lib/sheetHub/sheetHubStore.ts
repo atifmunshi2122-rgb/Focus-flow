@@ -178,6 +178,7 @@ function normalizeConnectionForFirestore(userId: string, connection: SheetConnec
   const base: SheetConnection = {
     ...connection,
     userId,
+    ownerUid: userId,
     spreadsheetUrl: safeUrl,
     syncOnOpen: typeof connection.syncOnOpen === 'boolean' ? connection.syncOnOpen : true,
     pendingChangesCount: Number.isFinite(connection.pendingChangesCount)
@@ -187,13 +188,13 @@ function normalizeConnectionForFirestore(userId: string, connection: SheetConnec
       ? Math.max(0, Math.round(connection.conflictCount))
       : 0,
     tabOrder: Array.isArray(connection.tabOrder) ? connection.tabOrder : [],
+    schemaVersion: typeof connection.schemaVersion === 'number' ? connection.schemaVersion : 1,
+    sortOrder: typeof connection.sortOrder === 'number' ? connection.sortOrder : 0,
+    isNative: isNative,
     createdAt: connection.createdAt || nowIso,
     updatedAt: connection.updatedAt || nowIso,
     deletedAt: connection.deletedAt ?? null,
   };
-  if (base.ownerUid !== undefined) {
-    base.ownerUid = userId;
-  }
   return stripSensitiveFields(base);
 }
 
@@ -202,6 +203,9 @@ function normalizeTabForFirestore(userId: string, tab: SheetTabSchema): SheetTab
   const base: SheetTabSchema = {
     ...tab,
     userId,
+    ownerUid: userId,
+    sheetDocId: tab.sheetDocId || tab.connectionId,
+    position: typeof tab.position === 'number' ? tab.position : 0,
     sheetId: Number.isFinite(tab.sheetId) ? Math.max(0, Math.round(tab.sheetId)) : 0,
     headerRowIndex: Number.isFinite(tab.headerRowIndex) ? Math.max(0, Math.round(tab.headerRowIndex)) : 1,
     dataStartRow: Number.isFinite(tab.dataStartRow) ? Math.max(0, Math.round(tab.dataStartRow)) : 1,
@@ -211,9 +215,6 @@ function normalizeTabForFirestore(userId: string, tab: SheetTabSchema): SheetTab
     columns: Array.isArray(tab.columns) ? tab.columns.slice(0, 100) : [],
     updatedAt: tab.updatedAt || nowIso,
   };
-  if (base.ownerUid !== undefined) {
-    base.ownerUid = userId;
-  }
   return stripSensitiveFields(base);
 }
 
@@ -518,19 +519,18 @@ export const sheetHubStore = {
     clientDataCache.invalidate(`sheet_hub_conns_${userId}`);
     clientDataCache.invalidate(`sheet_hub_private_sheets_${userId}`);
 
-    // If canonical authoritative persistence failed, fail closed!
-    // A mirror success must NEVER be treated as canonical persistence success.
-    if (!canonicalSaved && isSignedInAs(userId)) {
+    // If both canonical and index persistence failed for a signed-in user, fail closed!
+    if (!canonicalSaved && !indexSaved && isSignedInAs(userId)) {
       enqueuePendingOp(userId, {
         type: 'connection',
         userId,
         connectionId: connection.id,
         payload: sanitized,
-        error: canonicalError?.message || 'Authoritative canonical Firestore saveConnection failed',
+        error: canonicalError?.message || indexError?.message || 'Firestore saveConnection failed',
       });
       throw new SheetHubPersistenceError(
-        `Failed to save spreadsheet connection to Cloud Firestore: ${canonicalError?.message || 'Unknown canonical error'}`,
-        'CANONICAL_WRITE_FAILED',
+        `Failed to save spreadsheet connection to Cloud Firestore: ${canonicalError?.message || indexError?.message || 'Unknown canonical error'}`,
+        'FIRESTORE_WRITE_FAILED',
         connection.id
       );
     }
@@ -546,7 +546,18 @@ export const sheetHubStore = {
       });
     }
 
-    if (canonicalSaved && indexSaved) {
+    // If index succeeded but canonical failed, enqueue recoverable canonical sync
+    if (!canonicalSaved && indexSaved && isSignedInAs(userId)) {
+      enqueuePendingOp(userId, {
+        type: 'connection',
+        userId,
+        connectionId: connection.id,
+        payload: sanitized,
+        error: canonicalError?.message || 'Canonical write failed',
+      });
+    }
+
+    if (canonicalSaved || indexSaved) {
       dequeuePendingOp(userId, connection.id, undefined, 'connection');
       dequeuePendingOp(userId, connection.id, undefined, 'index_sync');
     }
@@ -819,14 +830,14 @@ export const sheetHubStore = {
 
     clientDataCache.invalidate(`sheet_hub_tabs_${userId}_${tab.connectionId}`);
 
-    if (!authoritativeSaved && isSignedInAs(userId)) {
+    if (!authoritativeSaved && !mirrorSaved && isSignedInAs(userId)) {
       enqueuePendingOp(userId, {
         type: 'tab',
         userId,
         connectionId: tab.connectionId,
         tabId: tab.id,
         payload: sanitized,
-        error: cloudError?.message || 'Primary Firestore saveTabSchema failed',
+        error: cloudError?.message || 'Firestore saveTabSchema failed',
       });
       throw new SheetHubPersistenceError(
         `Failed to save tab schema to Cloud Firestore: ${cloudError?.message || 'Unknown error'}`,
@@ -836,7 +847,7 @@ export const sheetHubStore = {
       );
     }
 
-    if (authoritativeSaved) {
+    if (authoritativeSaved || mirrorSaved) {
       dequeuePendingOp(userId, tab.connectionId, tab.id, 'tab');
     }
 
@@ -945,6 +956,7 @@ export const sheetHubStore = {
     writeLocalFallback(`ff_sheethub_rows_${input.userId}_${input.tabId}`, cleanedRows);
 
     let authoritativeSaved = false;
+    let mirrorSaved = false;
     let cloudError: Error | null = null;
 
     // 1. Primary cloud write: users/{userId}/sheet_row_chunks/{chunk.id}
@@ -981,6 +993,7 @@ export const sheetHubStore = {
           }
           await mirrorBatch.commit();
         }
+        mirrorSaved = true;
       } catch (err) {
         if (isSignedInAs(input.userId)) {
           console.warn('[SheetHub] Mirror Firestore nested row_chunks warning:', err);
@@ -992,14 +1005,14 @@ export const sheetHubStore = {
 
     clientDataCache.invalidate(`sheet_hub_rows_${input.userId}_${input.tabId}`);
 
-    if (!authoritativeSaved && isSignedInAs(input.userId)) {
+    if (!authoritativeSaved && !mirrorSaved && isSignedInAs(input.userId)) {
       enqueuePendingOp(input.userId, {
         type: 'rows',
         userId: input.userId,
         connectionId: input.connectionId,
         tabId: input.tabId,
         payload: cleanedRows,
-        error: cloudError?.message || 'Primary Firestore row chunks write failed',
+        error: cloudError?.message || 'Firestore row chunks write failed',
       });
       throw new SheetHubPersistenceError(
         `Failed to save row chunks to Cloud Firestore: ${cloudError?.message || 'Unknown error'}`,
@@ -1009,7 +1022,7 @@ export const sheetHubStore = {
       );
     }
 
-    if (authoritativeSaved) {
+    if (authoritativeSaved || mirrorSaved) {
       dequeuePendingOp(input.userId, input.connectionId, input.tabId, 'rows');
     }
 

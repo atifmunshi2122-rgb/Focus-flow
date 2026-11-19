@@ -58,6 +58,8 @@ import { clientDataCache } from './dataCache.ts';
 import { handleGuestLocalFallback } from './guestLocalStore.ts';
 import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
 import type {
+  AppsScriptWritebackRequest,
+  AppsScriptWritebackResponse,
   SheetHubCellUpdateRequest,
   SheetHubPushCellsResponse,
   SheetInspectResponse,
@@ -1826,6 +1828,14 @@ export const api = {
     request<{ success: boolean } & SheetHubPushCellsResponse>('/sheet-hub/push-cells', {
       method: 'POST',
       headers: { 'x-google-access-token': googleAccessToken },
+      body: JSON.stringify(payload),
+    }),
+
+  sheetHubAppsScriptWriteback: (
+    payload: AppsScriptWritebackRequest
+  ) =>
+    request<AppsScriptWritebackResponse>('/sheet-hub/apps-script-writeback', {
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
 

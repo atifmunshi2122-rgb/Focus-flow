@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
+import { auth } from '../../lib/firebase.ts';
+import { syncStudyTopicCompletionToGoogleSheets } from '../../lib/sheetHub/sheetStudySyncService.ts';
 import {
   AcademicTier,
   StudySubject,
@@ -407,16 +409,18 @@ export const StudyView: React.FC = () => {
     });
   }, [habits]);
 
-  // Topic Checkbox Handlers
+  // Topic Checkbox Handlers with Automatic Google Sheets Checkbox Write-Back
   const handleToggleTopicFlag = async (topicId: string, flag: 'theory' | 'practice' | 'pyq') => {
     const existing = topics.find((t) => t.id === topicId);
     if (!existing) return;
 
+    const wasCompleted = Boolean(existing.theory && existing.practice);
     const updated: StudyTopic = {
       ...existing,
       [flag]: !existing[flag],
       updatedAt: new Date().toISOString(),
     };
+    const isCompleted = Boolean(updated.theory && updated.practice);
 
     // Optimistic state
     setTopics((prev) => prev.map((t) => (t.id === topicId ? updated : t)));
@@ -427,10 +431,85 @@ export const StudyView: React.FC = () => {
     try {
       await api.saveStudyTopic(updated);
       showToast(`Updated ${flag.toUpperCase()} for "${existing.subtopic}"`, 'success');
+
+      // Checkbox Write-Back Bridge to connected Google Sheets
+      const activeUserId = user?.id || auth.currentUser?.uid || 'usr_guest';
+      const subject = subjects.find((s) => s.code === updated.subjectCode);
+      if (wasCompleted !== isCompleted) {
+        syncStudyTopicCompletionToGoogleSheets(activeUserId, updated, isCompleted, subject?.name)
+          .then((res) => {
+            if (res.status === 'synced' && res.cellRef) {
+              showToast(
+                `Synced checkbox to Google Sheets (${res.cellRef} = ${isCompleted ? 'TRUE' : 'FALSE'})`,
+                'success'
+              );
+            } else if (res.status === 'queued') {
+              showToast(
+                'Google Sheets authorization expired. Reconnect in Sheet Hub to sync pending updates.',
+                'info'
+              );
+            }
+          })
+          .catch((err) => console.warn('[StudySync] Background sheets sync error:', err));
+      }
     } catch (err) {
       console.error('Failed to update topic status:', err);
       showToast('Could not save progress', 'error');
       // Rollback
+      setTopics((prev) => prev.map((t) => (t.id === topicId ? existing : t)));
+    }
+  };
+
+  // Direct Master Completion Toggle (sets theory + practice together and syncs to Google Sheets)
+  const handleToggleTopicCompleted = async (topicId: string) => {
+    const existing = topics.find((t) => t.id === topicId);
+    if (!existing) return;
+
+    const isCurrentlyDone = Boolean(existing.theory && existing.practice);
+    const nextDone = !isCurrentlyDone;
+
+    const updated: StudyTopic = {
+      ...existing,
+      theory: nextDone,
+      practice: nextDone,
+      pyq: nextDone ? true : existing.pyq,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setTopics((prev) => prev.map((t) => (t.id === topicId ? updated : t)));
+    if (nextDone) {
+      playStudyMilestoneSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+    }
+
+    try {
+      await api.saveStudyTopic(updated);
+      showToast(
+        nextDone
+          ? `Marked "${existing.subtopic || existing.topic}" as Completed`
+          : `Unmarked "${existing.subtopic || existing.topic}"`,
+        'success'
+      );
+
+      const activeUserId = user?.id || auth.currentUser?.uid || 'usr_guest';
+      const subject = subjects.find((s) => s.code === updated.subjectCode);
+      syncStudyTopicCompletionToGoogleSheets(activeUserId, updated, nextDone, subject?.name)
+        .then((res) => {
+          if (res.status === 'synced' && res.cellRef) {
+            showToast(
+              `Synced ${nextDone ? 'TRUE' : 'FALSE'} to Google Sheets (${res.cellRef})`,
+              'success'
+            );
+          } else if (res.status === 'queued') {
+            showToast(
+              'Google Sheets authorization expired. Reconnect in Sheet Hub to sync pending updates.',
+              'info'
+            );
+          }
+        })
+        .catch((err) => console.warn('[StudySync] Background sheets sync error:', err));
+    } catch (err) {
+      console.error('Failed to toggle topic completion:', err);
+      showToast('Could not save progress', 'error');
       setTopics((prev) => prev.map((t) => (t.id === topicId ? existing : t)));
     }
   };
@@ -1183,6 +1262,18 @@ export const StudyView: React.FC = () => {
             Bookmarks
           </ThemeButton>
 
+          {/* Sheet Hub Two-Way Sync Bridge */}
+          <ThemeButton
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentTab('sheet_hub')}
+            className="text-emerald-400 hover:bg-emerald-500/10 text-xs border border-emerald-500/20"
+            title="Open Universal Sheet Sync Hub (Two-Way Checkbox Write-Back)"
+          >
+            <CheckSquare className="w-3.5 h-3.5 mr-1 text-emerald-400" />
+            Sheet Hub Sync
+          </ThemeButton>
+
           {/* Export / Restore */}
           <ThemeButton
             variant="ghost"
@@ -1807,11 +1898,30 @@ export const StudyView: React.FC = () => {
                           >
                             {item.priority}
                           </span>
-                          {isFullyCompleted && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 flex items-center gap-1 font-medium">
-                              <Check className="w-3 h-3" /> Mastered
-                            </span>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTopicCompleted(item.id)}
+                            title={
+                              isFullyCompleted
+                                ? 'Click to unmark as completed (syncs FALSE to Google Sheet)'
+                                : 'Click to mark topic as completed (syncs TRUE to Google Sheet)'
+                            }
+                            className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-medium transition-all cursor-pointer ${
+                              isFullyCompleted
+                                ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30 font-semibold shadow-xs'
+                                : 'bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]'
+                            }`}
+                          >
+                            {isFullyCompleted ? (
+                              <>
+                                <CheckSquare className="w-3 h-3 text-emerald-400" /> Done
+                              </>
+                            ) : (
+                              <>
+                                <Circle className="w-3 h-3 text-[var(--ff-text-muted)]" /> Mark Done
+                              </>
+                            )}
+                          </button>
                         </div>
 
                         <h4 className="text-sm font-medium text-[var(--ff-text-primary)] leading-tight">

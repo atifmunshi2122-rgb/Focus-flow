@@ -52,6 +52,27 @@ export type SheetSyncOrigin = 'sheet' | 'app';
 
 export type SheetCellScalar = string | number | boolean | null;
 
+/**
+ * Write authorization status for a connection's Native OAuth.
+ * - 'authorized'    : User has granted Google Sheets write scope; token is live in memory.
+ * - 'not_requested' : User has not yet gone through the write-auth consent flow.
+ * - 'expired'       : Token was previously granted but has since expired or been revoked.
+ * - 'denied'        : User explicitly declined the write consent.
+ */
+export type SheetWriteAuthStatus =
+  | 'authorized'
+  | 'not_requested'
+  | 'expired'
+  | 'denied';
+
+/**
+ * Write mode for a connection:
+ * - 'native_oauth' : Primary. Per-user Google Sheets API v4 via the user's own OAuth token.
+ * - 'apps_script'  : Personal/test-only. Owner-executed Apps Script webhook. Single user only.
+ * - 'none'         : No remote write path configured.
+ */
+export type SheetWriteMode = 'native_oauth' | 'apps_script' | 'none';
+
 export interface SheetConnection {
   id: string;
   userId: string;
@@ -65,6 +86,20 @@ export interface SheetConnection {
   isNative?: boolean;
   templateHint: SheetTemplateHint;
   syncMode: SheetSyncMode;
+  /**
+   * Primary write mode for this connection.
+   * Defaults to 'native_oauth'. Only explicitly set to 'apps_script' for personal/test connections.
+   */
+  writeMode?: SheetWriteMode;
+  /**
+   * Native OAuth write authorization status for this connection.
+   * Updated after each authorization attempt.
+   */
+  writeAuthStatus?: SheetWriteAuthStatus;
+  /**
+   * ISO timestamp of the last time the user granted or renewed Google Sheets write authorization.
+   */
+  writeAuthorizedAt?: string | null;
   pollIntervalSec: number | null;
   syncOnOpen: boolean;
   status: SheetSyncStatus;
@@ -329,5 +364,83 @@ export interface SheetChunkPackResult {
   totalRows: number;
   maxChunkBytes: number;
   oversizedRowUids: string[];
+}
+
+export interface AppsScriptRowIdentity {
+  module?: string;
+  topic?: string;
+  subtopic?: string;
+}
+
+export interface AppsScriptWritebackRequest {
+  connectionId: string;
+  spreadsheetId: string;
+  sheetTitle: string;
+  rowNumber: number;
+  colLetter: string;
+  value: boolean | string | number;
+  expectedIdentity?: AppsScriptRowIdentity;
+}
+
+export interface AppsScriptWritebackResponse {
+  success: boolean;
+  updatedCell: string;
+  value: boolean | string | number;
+  updatedAt: string;
+  correctedRowNumber?: number;
+  bridgeMode: 'apps_script';
+}
+
+// ============================================================================
+// PENDING TOPIC WRITEBACK QUEUE (Native OAuth path — offline / auth-expired)
+// ============================================================================
+
+/**
+ * A pending sheet checkbox update queued when the OAuth token is missing or expired.
+ * Flushed when the user re-authorizes or the token is refreshed.
+ */
+export interface PendingTopicWriteback {
+  id: string;
+  userId: string;
+  connectionId: string;
+  spreadsheetId: string;
+  sheetTitle: string;
+  rowNumber: number;
+  colLetter: string;
+  cellRef: string;
+  value: boolean;
+  /** Composite identity for row-drift safety on flush. */
+  topicUnit: string;
+  topicTopic: string;
+  topicSubtopic: string;
+  createdAt: string;
+  attempts: number;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+}
+
+/**
+ * Result returned from syncStudyTopicCompletionToGoogleSheets.
+ */
+export type StudyTopicSyncStatus =
+  | 'synced'           // Successfully written to Google Sheets
+  | 'queued'           // Queued — OAuth token missing or expired; local state preserved
+  | 'demo'             // Sample sheet: local state only, no remote write needed
+  | 'no_connection'    // No active two-way write connection found
+  | 'no_matching_tab'  // No sheet tab matched the topic's subject code
+  | 'error';           // Unexpected error; local state preserved
+
+export interface StudyTopicSyncResult {
+  status: StudyTopicSyncStatus;
+  synced: boolean;
+  sheetTitle?: string;
+  rowNumber?: number;
+  colLetter?: string;
+  cellRef?: string;
+  spreadsheetId?: string;
+  value?: boolean;
+  connectionId?: string;
+  pendingId?: string;    // Set when status === 'queued'
+  error?: string;
 }
 

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { activeFirebaseConfig, getSheetHubAccessToken } from '../../lib/firebase.ts';
+import { activeFirebaseConfig, auth, getSheetHubAccessToken, getSheetHubWriteAccessToken } from '../../lib/firebase.ts';
 import { detectEmbeddedIframe, getCurrentAppUrl } from '../../lib/authDiagnostics.ts';
 import { parseGoogleSheetUrl } from '../../lib/sheetHub/urlParser.ts';
 import { evaluateRowIdentities } from '../../lib/sheetHub/rowIdentity.ts';
@@ -33,6 +33,7 @@ import type {
   SheetInspectResponse,
   SheetPullResponse,
   SheetSyncedRow,
+  SheetSyncMode,
   SheetTabRole,
   SheetTabSchema,
   SheetTemplateHint,
@@ -71,7 +72,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   onCancel,
   onSuccess,
 }) => {
-  const { user, firebaseUser, authorizeSheetHubReadOnly, showToast } = useApp();
+  const { user, firebaseUser, authorizeSheetHubReadOnly, authorizeSheetHubWrite, showToast } = useApp();
 
   const [currentStep, setCurrentStep] = useState<WizardStep>('url');
   const [urlInput, setUrlInput] = useState('');
@@ -80,9 +81,11 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [isPublicLinkMode, setIsPublicLinkMode] = useState(false);
 
-  // Auth state
+  // Auth & Sync mode state
+  const [selectedSyncMode, setSelectedSyncMode] = useState<SheetSyncMode>('two_way');
   const [oauthToken, setOauthToken] = useState<string | null>(null);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
+  const [isAuthorizingWrite, setIsAuthorizingWrite] = useState(false);
   const [authLocalError, setAuthLocalError] = useState<string | null>(null);
 
   // Inspection state
@@ -195,8 +198,39 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     await runInspection(null, true, overrideSpreadsheetId, overrideUrl);
   };
 
-  // Step 2B: Request Google Read-Only Authorization
-  const handleAuthorizeGoogle = async () => {
+  // Step 2B1: Request Google Two-Way Write Authorization (Automatic Checkbox Write-Back)
+  const handleAuthorizeGoogleWrite = async () => {
+    setIsAuthorizingWrite(true);
+    setIsDemoMode(false);
+    setIsPublicLinkMode(false);
+    setAuthLocalError(null);
+    setInspectError(null);
+    setInspectErrorCode(null);
+    try {
+      const res = await authorizeSheetHubWrite();
+      if (res) {
+        setOauthToken(res);
+        setSelectedSyncMode('two_way');
+        showToast('Google Sheets edit & checkbox write-back permissions granted!', 'success');
+        await runInspection(res, false);
+      } else {
+        setAuthLocalError(
+          `Google Sheets edit authorization did not finish. If Google showed "Access blocked (Error 403)" or the popup closed inside an embedded preview, use "Import Public Link (Zero Auth)" above or open the app in a new browser tab.`
+        );
+      }
+    } catch (err) {
+      setAuthLocalError(
+        err instanceof Error
+          ? err.message
+          : 'Google authorization failed. Please check popup permissions or try Public Link mode.'
+      );
+    } finally {
+      setIsAuthorizingWrite(false);
+    }
+  };
+
+  // Step 2B2: Request Google Read-Only Authorization
+  const handleAuthorizeGoogleReadOnly = async () => {
     setIsAuthorizing(true);
     setIsDemoMode(false);
     setIsPublicLinkMode(false);
@@ -207,6 +241,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       const res = await authorizeSheetHubReadOnly();
       if (res) {
         setOauthToken(res);
+        setSelectedSyncMode('sheet_to_app');
         showToast('Google Sheets read-only access authorized successfully!', 'success');
         await runInspection(res, false);
       } else {
@@ -224,6 +259,9 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       setIsAuthorizing(false);
     }
   };
+
+  // Alias for backward compatibility
+  const handleAuthorizeGoogle = handleAuthorizeGoogleWrite;
 
   // Step 2C: Continue with Existing In-Memory Auth Token
   const handleContinueWithExistingAuth = async () => {
@@ -348,7 +386,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setImportStatusText('Preparing spreadsheet connection metadata...');
     setImportError(null);
 
-    const activeUserId = firebaseUser?.uid || user?.id || 'usr_guest';
+    const activeUserId = firebaseUser?.uid || auth.currentUser?.uid || user?.id || 'usr_guest';
     const connectionId = `conn_${spreadsheetId.slice(0, 24)}_${Date.now().toString(36)}`;
 
     try {
@@ -366,11 +404,13 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       const connectionDoc: SheetConnection = {
         id: connectionId,
         userId: activeUserId,
+        ownerUid: activeUserId,
         spreadsheetId,
         spreadsheetUrl: canonicalSpreadsheetUrl,
         title: inspectData.title || 'Connected Spreadsheet',
         templateHint,
-        syncMode: 'sheet_to_app',
+        // When in read-only import mode, syncMode: 'sheet_to_app' is preserved:
+        syncMode: selectedSyncMode,
         pollIntervalSec: null,
         syncOnOpen: true,
         status: 'active',
@@ -381,6 +421,9 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         pendingChangesCount: 0,
         conflictCount: 0,
         tabOrder: selectedTabIds.map((id) => `${connectionId}__tab_${id}`),
+        schemaVersion: 1,
+        sortOrder: 0,
+        isNative: false,
         createdAt: nowIso,
         updatedAt: nowIso,
         deletedAt: null,
@@ -530,7 +573,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             <span>Connect Google Spreadsheet</span>
           </h2>
           <p className="text-xs text-[var(--ff-text-muted)] mt-1">
-            Universal Sheet Sync Hub &bull; Phase 2 Guided Read-Only Import
+            Universal Sheet Sync Hub &bull; Checkbox Write-Back &amp; Two-Way Sync Import
           </p>
         </div>
 
@@ -793,15 +836,32 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
               </p>
             </div>
 
-            <div className="pt-1 flex flex-wrap items-center gap-2">
+            <div className="pt-1 flex flex-wrap items-center gap-2.5">
               <ThemeButton
                 variant="primary"
-                onClick={handleAuthorizeGoogle}
-                disabled={isAuthorizing}
-                className="w-full sm:w-auto"
+                onClick={handleAuthorizeGoogleWrite}
+                disabled={isAuthorizingWrite || isAuthorizing}
+                className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
               >
                 <ShieldCheck className="w-4 h-4 mr-1.5" />
-                <span>{isAuthorizing ? 'Authorizing with Google...' : 'Authorize Read-Only Sheets Access'}</span>
+                <span>
+                  {isAuthorizingWrite
+                    ? 'Authorizing Edit Access...'
+                    : 'Authorize Two-Way Checkbox Write-Back (Recommended)'}
+                </span>
+              </ThemeButton>
+
+              <ThemeButton
+                variant="secondary"
+                onClick={handleAuthorizeGoogleReadOnly}
+                disabled={isAuthorizingWrite || isAuthorizing}
+                className="w-full sm:w-auto"
+                title="Only pull data from Google Sheets into FocusFlow (no write-back)"
+              >
+                <Eye className="w-4 h-4 mr-1.5 text-[var(--ff-accent)]" />
+                <span>
+                  {isAuthorizing ? 'Authorizing Read-Only...' : 'Authorize Read-Only Access'}
+                </span>
               </ThemeButton>
 
               <ThemeButton
@@ -1163,9 +1223,36 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
               <span className="text-[var(--ff-text-muted)]">Default View</span>
               <span className="font-semibold text-[var(--ff-text-primary)] capitalize">{preferredView}</span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between py-2 gap-2">
               <span className="text-[var(--ff-text-muted)]">Sync Boundary</span>
-              <span className="font-semibold text-emerald-500">Google Sheet → FocusFlow (Read-Only)</span>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`font-semibold px-2 py-0.5 rounded text-[11px] ${
+                    selectedSyncMode === 'two_way'
+                      ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                      : selectedSyncMode === 'manual_only'
+                      ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                      : 'text-blue-400 bg-blue-500/10 border border-blue-500/20'
+                  }`}
+                >
+                  {selectedSyncMode === 'two_way'
+                    ? 'FocusFlow → Google Sheet Automatic Checkbox Write-Back'
+                    : selectedSyncMode === 'manual_only'
+                    ? 'Batch Push (FocusFlow → Google Sheet)'
+                    : 'Google Sheet → FocusFlow (Read-Only)'}
+                </span>
+
+                <select
+                  value={selectedSyncMode}
+                  onChange={(e) => setSelectedSyncMode(e.target.value as SheetSyncMode)}
+                  className="bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] text-xs rounded px-2 py-0.5 outline-none"
+                  aria-label="Select Sync Mode"
+                >
+                  <option value="two_way">FocusFlow → Google Sheet Automatic Checkbox Write-Back</option>
+                  <option value="manual_only">Batch Push (Push Button)</option>
+                  <option value="sheet_to_app">Read-Only (Sheet → App)</option>
+                </select>
+              </div>
             </div>
           </div>
 

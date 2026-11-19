@@ -42,6 +42,7 @@ import { DynamicOverviewPanel } from './DynamicOverviewPanel.tsx';
 import { ConnectSheetWizard } from './ConnectSheetWizard.tsx';
 import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
 import { NativeSpreadsheetEditor } from './NativeSpreadsheetEditor.tsx';
+import { flushPendingWritebacks } from '../../lib/sheetHub/sheetStudySyncService.ts';
 import type { SheetTemplateHint } from '../../types/sheetHub.ts';
 
 export const SheetHubView: React.FC = () => {
@@ -253,9 +254,18 @@ export const SheetHubView: React.FC = () => {
             showToast('Write authorization was not granted. Remaining in Batch Push mode.', 'info');
             return;
           }
+          const flushed = await flushPendingWritebacks(activeUserId);
+          if (flushed > 0) {
+            showToast(`Synced ${flushed} pending study update(s) to Google Sheets.`, 'success');
+          }
         } catch {
           showToast('Could not obtain Google Sheets write access. Remaining in Batch Push mode.', 'error');
           return;
+        }
+      } else {
+        const flushed = await flushPendingWritebacks(activeUserId);
+        if (flushed > 0) {
+          showToast(`Synced ${flushed} pending study update(s) to Google Sheets.`, 'success');
         }
       }
       nextMode = 'two_way';
@@ -280,6 +290,27 @@ export const SheetHubView: React.FC = () => {
       'info'
     );
   }, [activeConnection, activeUserId, authorizeSheetHubWrite, showToast]);
+
+  // Reconnect handler: intelligently re-authorizes write access if needed and flushes pending queue
+  const handleReconnect = useCallback(
+    async (conn?: SheetConnection) => {
+      const target = conn || activeConnection;
+      if (target?.syncMode === 'two_way' || target?.writeAuthStatus === 'expired') {
+        const writeToken = await authorizeSheetHubWrite();
+        if (writeToken) {
+          const flushed = await flushPendingWritebacks(activeUserId);
+          if (flushed > 0) {
+            showToast(`Reconnected write access and synced ${flushed} pending update(s) to Google Sheets.`, 'success');
+          } else {
+            showToast('Google Sheets write access re-authorized successfully.', 'success');
+          }
+          return;
+        }
+      }
+      await authorizeSheetHubReadOnly();
+    },
+    [activeConnection, activeUserId, authorizeSheetHubReadOnly, authorizeSheetHubWrite, showToast]
+  );
 
   // Interactive Mark / Unmark handler (FocusFlow <-> Google Sheets)
   const handleToggleCell = useCallback(
@@ -358,7 +389,7 @@ export const SheetHubView: React.FC = () => {
         return;
       }
 
-      // Two-Way Sync: mandatory explicit user confirmation before writing to Google Sheets
+      // Two-Way Sync: direct automatic write-back to Google Sheets (zero prompt interruption)
       const titleCol =
         tab.columns.find((c) => c.semanticRole === 'title') ||
         tab.columns.find((c) => c.inferredType === 'text');
@@ -367,26 +398,29 @@ export const SheetHubView: React.FC = () => {
         : `Row ${row.lastKnownSheetRow}`;
       const cellRef = `${col.colLetter}${row.lastKnownSheetRow}`;
 
-      const confirmed = await confirmAction({
-        title: nextValue ? 'Mark item in Google Sheet?' : 'Unmark item in Google Sheet?',
-        message: `Update "${itemLabel}" in tab "${tab.sheetTitle}" (Cell ${cellRef}) to ${
-          nextValue ? 'Checked (TRUE)' : 'Unchecked (FALSE)'
-        } in Google Sheet "${activeConnection.title}"?`,
-        confirmLabel: 'Sync to Google Sheet',
-        cancelLabel: 'Keep Local Only',
-        tone: 'primary',
-      });
-
-      if (!confirmed) {
-        const updatedConn: SheetConnection = {
-          ...activeConnection,
-          pendingChangesCount: nextPendingCount,
-          updatedAt: nowIso,
-        };
-        await sheetHubStore.saveConnection(activeUserId, updatedConn);
-        setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
-        showToast('Saved locally. Use "Push Changes" anytime to sync to Google Sheet.', 'info');
-        return;
+      // If user has not granted write permissions or explicitly requested confirmation:
+      const hasWriteToken = Boolean(await getSheetHubWriteAccessToken());
+      if (!hasWriteToken && !firebaseUser) {
+        const confirmed = await confirmAction({
+          title: nextValue ? 'Mark item in Google Sheet?' : 'Unmark item in Google Sheet?',
+          message: `Update "${itemLabel}" in tab "${tab.sheetTitle}" (Cell ${cellRef}) to ${
+            nextValue ? 'Checked (TRUE)' : 'Unchecked (FALSE)'
+          } in Google Sheet "${activeConnection.title}"?`,
+          confirmLabel: 'Sync to Google Sheet',
+          cancelLabel: 'Keep Local Only',
+          tone: 'primary',
+        });
+        if (!confirmed) {
+          const updatedConn: SheetConnection = {
+            ...activeConnection,
+            pendingChangesCount: nextPendingCount,
+            updatedAt: nowIso,
+          };
+          await sheetHubStore.saveConnection(activeUserId, updatedConn);
+          setConnections((prev) => prev.map((c) => (c.id === updatedConn.id ? updatedConn : c)));
+          showToast('Saved locally. Use "Push Changes" anytime to sync to Google Sheet.', 'info');
+          return;
+        }
       }
 
       setSyncingRowUids((prev) => ({ ...prev, [row.rowUid]: true }));
@@ -949,7 +983,7 @@ export const SheetHubView: React.FC = () => {
           onPull={() => handlePullUpdates(activeConnection.id)}
           onPushPending={handlePushPendingChanges}
           onToggleSyncMode={handleToggleSyncMode}
-          onReconnect={() => authorizeSheetHubReadOnly()}
+          onReconnect={() => handleReconnect()}
         />
 
         {/* Tabs Navigation Switcher */}
@@ -1269,7 +1303,7 @@ export const SheetHubView: React.FC = () => {
                 onOpen={(id) => setActiveConnectionId(id)}
                 onRefresh={(id) => handlePullUpdates(id)}
                 onTogglePause={(id) => handleTogglePause(id)}
-                onReconnect={() => authorizeSheetHubReadOnly()}
+                onReconnect={() => handleReconnect(conn)}
                 onRemove={(id, purge) => handleRemoveConnection(id, purge)}
                 isPulling={isPulling}
               />

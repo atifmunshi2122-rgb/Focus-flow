@@ -62,6 +62,11 @@ import {
   SheetHubWorkerError,
 } from './universalSheetsWorker.ts';
 import { pushSheetHubCellUpdates } from './sheetHubWriteWorker.ts';
+import {
+  isSpreadsheetAllowlisted,
+  dispatchAppsScriptWriteback,
+  AppsScriptBridgeError,
+} from './appsScriptBridgeWorker.ts';
 import type { SheetsSnapshotPayload } from '../src/lib/sheetsSpec.js';
 
 export const apiRouter = Router();
@@ -3593,6 +3598,71 @@ apiRouter.post('/sheet-hub/push-cells', async (req: Request, res: Response) => {
     res.json({ success: true, ...result });
   } catch (err) {
     sendSheetHubError(res, err, 'Failed to push cell updates to Google Sheets.');
+  }
+});
+
+apiRouter.post('/sheet-hub/apps-script-writeback', async (req: Request, res: Response) => {
+  const authCtx = getAuth(req);
+  if (!authCtx || authCtx.isGuest) {
+    res.status(401).json({
+      error: 'Signed-in FocusFlow authentication is required for Apps Script write-back.',
+      code: 'AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const { connectionId, spreadsheetId, sheetTitle, rowNumber, colLetter, value, expectedIdentity } = req.body || {};
+
+  if (!connectionId || typeof connectionId !== 'string') {
+    res.status(400).json({
+      error: 'connectionId is required.',
+      code: 'INVALID_CONNECTION_ID',
+    });
+    return;
+  }
+
+  // Connection ownership verification
+  // Rejects connections belonging to other tenants
+  const requestedUserId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
+  if (requestedUserId && requestedUserId !== authCtx.userId) {
+    res.status(403).json({
+      error: 'Tenant isolation violation: connection does not belong to the authenticated user.',
+      code: 'TENANT_ISOLATION_VIOLATION',
+    });
+    return;
+  }
+
+  // Verify spreadsheet allowlist (protects production spreadsheets)
+  if (!isSpreadsheetAllowlisted(spreadsheetId)) {
+    res.status(403).json({
+      error: `Spreadsheet "${spreadsheetId}" is not allowlisted for Apps Script write-back. Only the dedicated test spreadsheet is permitted.`,
+      code: 'SPREADSHEET_NOT_ALLOWLISTED',
+    });
+    return;
+  }
+
+  try {
+    const result = await dispatchAppsScriptWriteback({
+      spreadsheetId,
+      sheetTitle,
+      rowNumber,
+      colLetter,
+      value,
+      expectedIdentity,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof AppsScriptBridgeError) {
+      res.status(err.status).json({
+        error: err.message,
+        code: err.code,
+      });
+      return;
+    }
+    res.status(500).json({
+      error: err instanceof Error ? err.message : 'Apps Script write-back failed',
+      code: 'APPS_SCRIPT_ERROR',
+    });
   }
 });
 
