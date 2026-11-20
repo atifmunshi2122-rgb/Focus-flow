@@ -16,6 +16,7 @@ import {
 } from '../src/lib/firebase.ts';
 import type {
   SheetColumnMapping,
+  SheetConnection,
   SheetSyncedRow,
 } from '../src/types/sheetHub.ts';
 import type { StudyTopic } from '../src/types/study.ts';
@@ -549,5 +550,121 @@ describe('Dual-Copy Google Drive + Firestore Two-Way Sync Engine', () => {
         return true;
       }
     );
+  });
+
+  // --------------------------------------------------------------------------
+  // 11. Regression: Dual-Copy Save Order & Zero Premature Connection Invariant
+  // --------------------------------------------------------------------------
+  it('11. verifies Dual-Copy creates exactly one authoritative connection linked to Drive copy without premature source save', async () => {
+    const userId = 'usr_dual_order_test';
+    const sourceSpreadsheetId = 'source-sheet-original-12345';
+    const driveDuplicateFileId = 'drive-copy-duplicate-67890';
+
+    // Track all saveConnection invocations
+    const originalSaveConnection = sheetHubStore.saveConnection.bind(sheetHubStore);
+    const savedConnections: SheetConnection[] = [];
+
+    sheetHubStore.saveConnection = async (uid: string, conn: SheetConnection, options?: { force?: boolean }) => {
+      savedConnections.push({ ...conn });
+      return originalSaveConnection(uid, conn, options);
+    };
+
+    try {
+      // Execute createDualCopySpreadsheet (as ConnectSheetWizard now does directly in Dual-Copy mode)
+      const { connection } = await sheetHubStore.createDualCopySpreadsheet(userId, {
+        title: 'Biology 101',
+        sourceSpreadsheetId,
+        driveFileId: driveDuplicateFileId,
+        driveUrl: `https://docs.google.com/spreadsheets/d/${driveDuplicateFileId}/edit`,
+        tabs: [
+          {
+            sheetTitle: 'Syllabus',
+            sheetId: 0,
+            role: 'data',
+            columns: [
+              { colIndex: 0, colLetter: 'A', fieldKey: 'topic', headerName: 'Topic', displayName: 'Topic', inferredType: 'text', confirmedType: 'text', semanticRole: 'title', confidence: 'high', editable: true, requiresConfirmation: false },
+            ],
+            rows: [
+              {
+                rowUid: 'row_bio_1',
+                lastKnownSheetRow: 2,
+                values: { topic: 'Cell Division' },
+                baseValues: { topic: 'Cell Division' },
+                rowHash: 'hash_bio_1',
+                version: 1,
+                lastSyncOrigin: 'sheet',
+                dirtyFields: [],
+                localUpdatedAt: null,
+                sheetSyncedAt: new Date().toISOString(),
+                status: 'synced',
+              },
+            ],
+          },
+        ],
+        progressTrackerTopics: [{ unit: 'Unit 1', topic: 'Cell Division', isCompleted: false }],
+      });
+
+      // Assertions:
+      // 1. Exactly one connection was saved
+      assert.equal(savedConnections.length, 1, 'Only one connection must be saved during Dual-Copy import');
+
+      // 2. The saved connection is authoritative and points to the Drive duplicate, NOT the source sheet ID
+      assert.equal(savedConnections[0].id, connection.id);
+      assert.equal(savedConnections[0].isDualCopy, true);
+      assert.equal(savedConnections[0].spreadsheetId, driveDuplicateFileId);
+      assert.equal(savedConnections[0].driveFileId, driveDuplicateFileId);
+      assert.equal(savedConnections[0].sourceSpreadsheetId, sourceSpreadsheetId);
+
+      // 3. No connection was ever saved with the sourceSpreadsheetId as primary spreadsheetId
+      assert.ok(
+        !savedConnections.some((c) => c.spreadsheetId === sourceSpreadsheetId && !c.isDualCopy),
+        'Must NOT save a premature standard connection pointing to the source spreadsheet'
+      );
+    } finally {
+      sheetHubStore.saveConnection = originalSaveConnection;
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // 12. Dual-Copy Rollback on Failure (No Orphaned Records)
+  // --------------------------------------------------------------------------
+  it('12. rolls back and purges tabs and connection if saveConnection fails during createDualCopySpreadsheet', async () => {
+    const userId = 'usr_dual_rollback_test';
+    const originalSave = sheetHubStore.saveConnection.bind(sheetHubStore);
+
+    // Simulate Firestore permission or network failure during saveConnection
+    sheetHubStore.saveConnection = async () => {
+      const err = new Error('Missing or insufficient permissions: Cloud Firestore rules rejected the write.');
+      (err as any).code = 'permission-denied';
+      throw err;
+    };
+
+    try {
+      await assert.rejects(
+        async () => {
+          await sheetHubStore.createDualCopySpreadsheet(userId, {
+            title: 'Failing Dual-Copy',
+            sourceSpreadsheetId: 'source-fail-1',
+            driveFileId: 'drive-fail-1',
+            tabs: [
+              {
+                sheetTitle: 'Tab 1',
+                sheetId: 0,
+                columns: [],
+                rows: [],
+              },
+            ],
+          });
+        },
+        /Missing or insufficient permissions/
+      );
+
+      // Verify no orphaned connections exist in user store
+      sheetHubStore.saveConnection = originalSave;
+      const userConns = await sheetHubStore.listConnections(userId);
+      assert.equal(userConns.length, 0, 'No orphaned connections should remain after failed dual-copy creation');
+    } finally {
+      sheetHubStore.saveConnection = originalSave;
+    }
   });
 });

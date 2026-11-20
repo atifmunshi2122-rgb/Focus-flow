@@ -44,6 +44,7 @@ import { ThemeCard, ThemeButton, ThemeBadge, ThemeInput } from '../ui/ThemePrimi
 import { AnimatedProgressBar } from '../ui/MotionPrimitives.tsx';
 import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
 import { GoogleSheetPickerModal, type SelectedGoogleSheet } from './GoogleSheetPickerModal.tsx';
+import { requestGoogleDriveToken } from '../../lib/googleAuthGis.ts';
 
 interface ConnectSheetWizardProps {
   onCancel: () => void;
@@ -80,7 +81,6 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     firebaseUser,
     authorizeSheetHubReadOnly,
     authorizeSheetHubWrite,
-    authorizeSheetHubDualCopy,
     showToast,
   } = useApp();
 
@@ -228,7 +228,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     await runInspection(null, true, overrideSpreadsheetId, overrideUrl);
   };
 
-  // Step 2B0: Request Google Drive Duplicate + Sheets Write Authorization (Project ghost-7b055)
+  // Step 2B0: Request Google Drive Duplicate + Sheets Write Authorization strictly via Project ghost-7b055 (GIS)
   const handleAuthorizeGoogleDriveDualCopy = async () => {
     setIsAuthorizingWrite(true);
     setIsDemoMode(false);
@@ -237,11 +237,13 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setInspectError(null);
     setInspectErrorCode(null);
     try {
-      const res = await authorizeSheetHubDualCopy();
+      const res = await requestGoogleDriveToken({
+        loginHint: firebaseUser?.email || null,
+      });
       if (res) {
         setOauthToken(res);
         setSelectedSyncMode('two_way');
-        showToast('Google Drive duplicate & Sheets two-way write access authorized!', 'success');
+        showToast('Google Drive duplicate & Sheets two-way write access authorized via project ghost-7b055!', 'success');
         await runInspection(res, false);
       } else {
         setAuthLocalError(
@@ -448,7 +450,8 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setImportError(null);
 
     const activeUserId = firebaseUser?.uid || auth.currentUser?.uid || user?.id || 'usr_guest';
-    const connectionId = `conn_${spreadsheetId.slice(0, 24)}_${Date.now().toString(36)}`;
+    const isDualCopy = Boolean(isDualCopyEnabled && !isDemoMode && !isPublicLinkMode);
+    const standardConnectionId = `conn_${spreadsheetId.slice(0, 24)}_${Date.now().toString(36)}`;
 
     try {
       const nowIso = new Date().toISOString();
@@ -461,40 +464,10 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           ? trimmedInput
           : `https://docs.google.com/spreadsheets/d/${encodeURIComponent(spreadsheetId)}/edit`);
 
-      // 1. Create connection document
-      const connectionDoc: SheetConnection = {
-        id: connectionId,
-        userId: activeUserId,
-        ownerUid: activeUserId,
-        spreadsheetId,
-        spreadsheetUrl: canonicalSpreadsheetUrl,
-        title: inspectData.title || 'Connected Spreadsheet',
-        templateHint,
-        // When in read-only import mode, syncMode: 'sheet_to_app' is preserved:
-        syncMode: selectedSyncMode,
-        pollIntervalSec: null,
-        syncOnOpen: true,
-        status: 'active',
-        lastSyncedAt: nowIso,
-        lastSuccessfulPullAt: nowIso,
-        lastSuccessfulPushAt: null,
-        lastError: null,
-        pendingChangesCount: 0,
-        conflictCount: 0,
-        tabOrder: selectedTabIds.map((id) => `${connectionId}__tab_${id}`),
-        schemaVersion: 1,
-        sortOrder: 0,
-        isNative: false,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        deletedAt: null,
-      };
+      setImportProgress(20);
+      setImportStatusText('Fetching spreadsheet rows...');
 
-      await sheetHubStore.saveConnection(activeUserId, connectionDoc);
-      setImportProgress(25);
-      setImportStatusText('Saving confirmed tab schemas and column mappings...');
-
-      // 2. Fetch full rows (either via sample endpoint or live Google Sheets API)
+      // 1. Fetch full rows (either via sample endpoint or live Google Sheets API)
       let pullResult: SheetPullResponse;
 
       if (isDemoMode) {
@@ -560,8 +533,9 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         });
 
         // Evaluate row identities
+        const identityScopeId = isDualCopy ? `dual_${spreadsheetId.slice(0, 16)}` : standardConnectionId;
         const identityAudit = evaluateRowIdentities({
-          tabScope: `${connectionId}:${sheetId}`,
+          tabScope: `${identityScopeId}:${sheetId}`,
           strategy: identityStrategy,
           keyColumns: keyCols,
           rows: rawRowsForIdentity,
@@ -610,17 +584,19 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         });
       }
 
-      // Check if Dual-Copy mode applies
-      if (isDualCopyEnabled && !isDemoMode && !isPublicLinkMode) {
+      // BRANCH A: Dual-Copy Google Drive Duplicate + Firestore Native Architecture
+      if (isDualCopy) {
         setImportProgress(60);
         setImportStatusText('Requesting Google Drive authorization for duplicate copy...');
 
         let dualCopyToken = oauthToken || (await getSheetHubWriteAccessToken()) || (await getSheetHubAccessToken());
         if (!dualCopyToken) {
-          dualCopyToken = await authorizeSheetHubDualCopy();
+          dualCopyToken = await requestGoogleDriveToken({
+            loginHint: firebaseUser?.email || null,
+          });
         }
         if (!dualCopyToken) {
-          throw new Error('Google authorization with Google Drive access is required to duplicate to your Google Drive.');
+          throw new Error('Google authorization with Google Drive access (project ghost-7b055) is required to duplicate to your Google Drive.');
         }
 
         setImportProgress(75);
@@ -631,6 +607,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             sourceSpreadsheetId: spreadsheetId,
             title: inspectData.title || 'FocusFlow Spreadsheet',
             topics: topicsForTracker,
+            idempotencyKey: `dual_copy_${activeUserId}_${spreadsheetId}`,
           },
           dualCopyToken
         );
@@ -660,26 +637,58 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         return;
       }
 
-      // Standard / Single-Copy / Public Link Import Pipeline
-      setImportProgress(60);
+      // BRANCH B: Standard Single-Copy / Public Link Import Pipeline
+      setImportProgress(50);
+      setImportStatusText('Saving spreadsheet connection document...');
+
+      const connectionDoc: SheetConnection = {
+        id: standardConnectionId,
+        userId: activeUserId,
+        ownerUid: activeUserId,
+        spreadsheetId,
+        spreadsheetUrl: canonicalSpreadsheetUrl,
+        title: inspectData.title || 'Connected Spreadsheet',
+        templateHint,
+        syncMode: selectedSyncMode,
+        pollIntervalSec: null,
+        syncOnOpen: true,
+        status: 'active',
+        lastSyncedAt: nowIso,
+        lastSuccessfulPullAt: nowIso,
+        lastSuccessfulPushAt: null,
+        lastError: null,
+        pendingChangesCount: 0,
+        conflictCount: 0,
+        tabOrder: selectedTabIds.map((id) => `${standardConnectionId}__tab_${id}`),
+        schemaVersion: 1,
+        sortOrder: 0,
+        isNative: false,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        deletedAt: null,
+      };
+
+      await sheetHubStore.saveConnection(activeUserId, connectionDoc);
+
+      setImportProgress(65);
       setImportStatusText('Saving tab schemas and chunked records...');
 
       for (let i = 0; i < processedTabs.length; i++) {
         const tabItem = processedTabs[i];
         const sheetId = tabItem.sheetId ?? i;
-        const tabDocId = `${connectionId}__tab_${sheetId}`;
+        const tabDocId = `${standardConnectionId}__tab_${sheetId}`;
         const keyCols = selectedKeyColumns[sheetId] || [];
 
         const chunkResult = await sheetHubStore.saveTabRowsChunked({
           userId: activeUserId,
-          connectionId,
+          connectionId: standardConnectionId,
           tabId: tabDocId,
           rows: tabItem.rows,
         });
 
         const tabSchemaDoc: SheetTabSchema = {
           id: tabDocId,
-          connectionId,
+          connectionId: standardConnectionId,
           userId: activeUserId,
           sheetId,
           sheetTitle: tabItem.sheetTitle,
@@ -700,7 +709,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         };
 
         await sheetHubStore.saveTabSchema(activeUserId, tabSchemaDoc);
-        setImportProgress(60 + Math.round(((i + 1) / processedTabs.length) * 35));
+        setImportProgress(65 + Math.round(((i + 1) / processedTabs.length) * 30));
       }
 
       setImportProgress(100);
@@ -709,9 +718,11 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
       // Finish wizard and switch to workspace
       setTimeout(() => {
-        onSuccess(connectionId);
+        onSuccess(standardConnectionId);
       }, 400);
     } catch (err: any) {
+      console.error('[ConnectSheetWizard] Import pipeline failed:', err);
+      setImportProgress(0);
       setImportError(err?.message || 'Import pipeline failed.');
       setCurrentStep('confirm');
     }
@@ -1027,7 +1038,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                 <span>
                   {isAuthorizingWrite
                     ? 'Authorizing Google Drive...'
-                    : 'Authorize Google Drive & Sheets (Dual-Copy)'}
+                    : 'Authorize Google Drive & Sheets (Dual-Copy via ghost-7b055)'}
                 </span>
               </ThemeButton>
 

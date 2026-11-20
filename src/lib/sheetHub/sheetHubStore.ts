@@ -1415,175 +1415,181 @@ export const sheetHubStore = {
     const createdTabs: SheetTabSchema[] = [];
     const tabOrder: string[] = [];
 
-    // 1. Process imported tabs
-    for (let i = 0; i < input.tabs.length; i++) {
-      const tabInput = input.tabs[i];
-      const numericSheetId = typeof tabInput.sheetId === 'number' ? tabInput.sheetId : i;
-      const tabDocId = `${connId}__tab_${numericSheetId}`;
-      tabOrder.push(tabDocId);
+    try {
+      // 1. Process imported tabs
+      for (let i = 0; i < input.tabs.length; i++) {
+        const tabInput = input.tabs[i];
+        const numericSheetId = typeof tabInput.sheetId === 'number' ? tabInput.sheetId : i;
+        const tabDocId = `${connId}__tab_${numericSheetId}`;
+        tabOrder.push(tabDocId);
 
-      const tabSchema: SheetTabSchema = {
-        id: tabDocId,
+        const tabSchema: SheetTabSchema = {
+          id: tabDocId,
+          connectionId: connId,
+          sheetDocId: connId,
+          userId,
+          ownerUid: userId,
+          sheetId: numericSheetId,
+          sheetTitle: tabInput.sheetTitle,
+          position: i,
+          role: tabInput.role || 'data',
+          headerRowIndex: 1,
+          dataStartRow: 2,
+          dataEndColumn: tabInput.columns[tabInput.columns.length - 1]?.colLetter || 'D',
+          identityStrategy: 'composite_key',
+          identityColumns: tabInput.columns.slice(0, 3).map((c) => c.fieldKey),
+          metadataIdColumn: null,
+          columns: tabInput.columns,
+          defaultView: 'checklist',
+          groupByColumnId: tabInput.columns[0]?.fieldKey || null,
+          lastPullHash: 'dual_init',
+          rowCount: tabInput.rows.length,
+          chunkCount: 1,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        await this.saveTabSchema(userId, tabSchema);
+        if (tabInput.rows.length > 0) {
+          await this.saveTabRowsChunked({
+            userId,
+            connectionId: connId,
+            tabId: tabDocId,
+            rows: tabInput.rows,
+          });
+        }
+        createdTabs.push(tabSchema);
+      }
+
+      // 2. Automatically create "Progress Tracker" tab in Firestore native copy
+      const trackerNumericId = 9999;
+      const trackerTabDocId = `${connId}__tab_${trackerNumericId}`;
+      tabOrder.push(trackerTabDocId);
+
+      const trackerColumns: SheetColumnMapping[] = [
+        { colIndex: 0, colLetter: 'A', fieldKey: 'unit', headerName: 'Module / Unit', displayName: 'Module', inferredType: 'text', confirmedType: 'text', semanticRole: 'group', confidence: 'high', editable: true, requiresConfirmation: false },
+        { colIndex: 1, colLetter: 'B', fieldKey: 'topic', headerName: 'Topic', displayName: 'Topic', inferredType: 'text', confirmedType: 'text', semanticRole: 'title', confidence: 'high', editable: true, requiresConfirmation: false },
+        { colIndex: 2, colLetter: 'C', fieldKey: 'subtopic', headerName: 'Subtopic', displayName: 'Subtopic', inferredType: 'text', confirmedType: 'text', semanticRole: 'subgroup', confidence: 'high', editable: true, requiresConfirmation: false },
+        { colIndex: 3, colLetter: 'D', fieldKey: 'done', headerName: 'Completed', displayName: 'Completed', inferredType: 'checkbox', confirmedType: 'checkbox', semanticRole: 'done', confidence: 'high', editable: true, requiresConfirmation: false },
+        { colIndex: 4, colLetter: 'E', fieldKey: 'lastSynced', headerName: 'Last Synced', displayName: 'Last Synced', inferredType: 'date', confirmedType: 'date', semanticRole: 'custom', confidence: 'high', editable: false, requiresConfirmation: false },
+      ];
+
+      const trackerTopics = input.progressTrackerTopics || [];
+      const trackerRows: SheetSyncedRow[] = trackerTopics.map((t, idx) => {
+        const vals: Record<string, SheetCellScalar> = {
+          unit: t.unit || '',
+          topic: t.topic || '',
+          subtopic: t.subtopic || '',
+          done: Boolean(t.isCompleted),
+          lastSynced: now,
+        };
+        return {
+          rowUid: `row_tracker_${Date.now()}_${idx + 1}`,
+          id: `row_tracker_${Date.now()}_${idx + 1}`,
+          tabId: trackerTabDocId,
+          sheetDocId: connId,
+          userId,
+          ownerUid: userId,
+          rowIndex: idx + 2,
+          lastKnownSheetRow: idx + 2,
+          values: vals,
+          cells: vals,
+          baseValues: vals,
+          rowHash: `hash_tracker_${idx + 1}`,
+          version: 1,
+          lastSyncOrigin: 'app',
+          dirtyFields: [],
+          localUpdatedAt: null,
+          sheetSyncedAt: now,
+          status: 'synced',
+          createdAt: now,
+          updatedAt: now,
+        };
+      });
+
+      const trackerTab: SheetTabSchema = {
+        id: trackerTabDocId,
         connectionId: connId,
         sheetDocId: connId,
         userId,
         ownerUid: userId,
-        sheetId: numericSheetId,
-        sheetTitle: tabInput.sheetTitle,
-        position: i,
-        role: tabInput.role || 'data',
+        sheetId: trackerNumericId,
+        sheetTitle: 'Progress Tracker',
+        position: createdTabs.length,
+        role: 'overview',
         headerRowIndex: 1,
         dataStartRow: 2,
-        dataEndColumn: tabInput.columns[tabInput.columns.length - 1]?.colLetter || 'D',
+        dataEndColumn: 'E',
         identityStrategy: 'composite_key',
-        identityColumns: tabInput.columns.slice(0, 3).map((c) => c.fieldKey),
+        identityColumns: ['unit', 'topic', 'subtopic'],
         metadataIdColumn: null,
-        columns: tabInput.columns,
+        columns: trackerColumns,
         defaultView: 'checklist',
-        groupByColumnId: tabInput.columns[0]?.fieldKey || null,
+        groupByColumnId: 'unit',
         lastPullHash: 'dual_init',
-        rowCount: tabInput.rows.length,
+        rowCount: trackerRows.length,
         chunkCount: 1,
         createdAt: now,
         updatedAt: now,
       };
 
-      await this.saveTabSchema(userId, tabSchema);
-      if (tabInput.rows.length > 0) {
+      await this.saveTabSchema(userId, trackerTab);
+      if (trackerRows.length > 0) {
         await this.saveTabRowsChunked({
           userId,
           connectionId: connId,
-          tabId: tabDocId,
-          rows: tabInput.rows,
+          tabId: trackerTabDocId,
+          rows: trackerRows,
         });
       }
-      createdTabs.push(tabSchema);
-    }
+      createdTabs.push(trackerTab);
 
-    // 2. Automatically create "Progress Tracker" tab in Firestore native copy
-    const trackerNumericId = 9999;
-    const trackerTabDocId = `${connId}__tab_${trackerNumericId}`;
-    tabOrder.push(trackerTabDocId);
-
-    const trackerColumns: SheetColumnMapping[] = [
-      { colIndex: 0, colLetter: 'A', fieldKey: 'unit', headerName: 'Module / Unit', displayName: 'Module', inferredType: 'text', confirmedType: 'text', semanticRole: 'group', confidence: 'high', editable: true, requiresConfirmation: false },
-      { colIndex: 1, colLetter: 'B', fieldKey: 'topic', headerName: 'Topic', displayName: 'Topic', inferredType: 'text', confirmedType: 'text', semanticRole: 'title', confidence: 'high', editable: true, requiresConfirmation: false },
-      { colIndex: 2, colLetter: 'C', fieldKey: 'subtopic', headerName: 'Subtopic', displayName: 'Subtopic', inferredType: 'text', confirmedType: 'text', semanticRole: 'subgroup', confidence: 'high', editable: true, requiresConfirmation: false },
-      { colIndex: 3, colLetter: 'D', fieldKey: 'done', headerName: 'Completed', displayName: 'Completed', inferredType: 'checkbox', confirmedType: 'checkbox', semanticRole: 'done', confidence: 'high', editable: true, requiresConfirmation: false },
-      { colIndex: 4, colLetter: 'E', fieldKey: 'lastSynced', headerName: 'Last Synced', displayName: 'Last Synced', inferredType: 'date', confirmedType: 'date', semanticRole: 'custom', confidence: 'high', editable: false, requiresConfirmation: false },
-    ];
-
-    const trackerTopics = input.progressTrackerTopics || [];
-    const trackerRows: SheetSyncedRow[] = trackerTopics.map((t, idx) => {
-      const vals: Record<string, SheetCellScalar> = {
-        unit: t.unit || '',
-        topic: t.topic || '',
-        subtopic: t.subtopic || '',
-        done: Boolean(t.isCompleted),
-        lastSynced: now,
-      };
-      return {
-        rowUid: `row_tracker_${Date.now()}_${idx + 1}`,
-        id: `row_tracker_${Date.now()}_${idx + 1}`,
-        tabId: trackerTabDocId,
-        sheetDocId: connId,
+      // 3. Create primary connection document linked to Drive copy
+      const connection: SheetConnection = {
+        id: connId,
         userId,
         ownerUid: userId,
-        rowIndex: idx + 2,
-        lastKnownSheetRow: idx + 2,
-        values: vals,
-        cells: vals,
-        baseValues: vals,
-        rowHash: `hash_tracker_${idx + 1}`,
-        version: 1,
-        lastSyncOrigin: 'app',
-        dirtyFields: [],
-        localUpdatedAt: null,
-        sheetSyncedAt: now,
-        status: 'synced',
+        spreadsheetId: input.driveFileId,
+        spreadsheetUrl: input.driveUrl || `https://docs.google.com/spreadsheets/d/${encodeURIComponent(input.driveFileId)}/edit`,
+        title: input.title.trim() || 'Dual-Copy Spreadsheet',
+        description: 'FocusFlow Dual-Copy (Google Drive + Firestore)',
+        templateHint: 'checklist',
+        syncMode: 'two_way',
+        writeMode: 'native_oauth',
+        writeAuthStatus: 'authorized',
+        writeAuthorizedAt: now,
+        pollIntervalSec: 60,
+        syncOnOpen: true,
+        status: 'active',
+        lastSyncedAt: now,
+        lastSuccessfulPullAt: now,
+        lastSuccessfulPushAt: now,
+        lastError: null,
+        pendingChangesCount: 0,
+        conflictCount: 0,
+        tabOrder,
+        schemaVersion: 1,
+        sortOrder: 0,
+        isNative: false,
+        isDualCopy: true,
+        driveFileId: input.driveFileId,
+        sourceSpreadsheetId: input.sourceSpreadsheetId,
+        nativeSheetId: connId,
+        lastDriveSyncAt: now,
+        driveSyncStatus: 'synced',
         createdAt: now,
         updatedAt: now,
+        deletedAt: null,
       };
-    });
 
-    const trackerTab: SheetTabSchema = {
-      id: trackerTabDocId,
-      connectionId: connId,
-      sheetDocId: connId,
-      userId,
-      ownerUid: userId,
-      sheetId: trackerNumericId,
-      sheetTitle: 'Progress Tracker',
-      position: createdTabs.length,
-      role: 'overview',
-      headerRowIndex: 1,
-      dataStartRow: 2,
-      dataEndColumn: 'E',
-      identityStrategy: 'composite_key',
-      identityColumns: ['unit', 'topic', 'subtopic'],
-      metadataIdColumn: null,
-      columns: trackerColumns,
-      defaultView: 'checklist',
-      groupByColumnId: 'unit',
-      lastPullHash: 'dual_init',
-      rowCount: trackerRows.length,
-      chunkCount: 1,
-      createdAt: now,
-      updatedAt: now,
-    };
+      await this.saveConnection(userId, connection);
 
-    await this.saveTabSchema(userId, trackerTab);
-    if (trackerRows.length > 0) {
-      await this.saveTabRowsChunked({
-        userId,
-        connectionId: connId,
-        tabId: trackerTabDocId,
-        rows: trackerRows,
-      });
+      return { connection, tabs: createdTabs };
+    } catch (err) {
+      // Safe rollback cleanup: delete any partially written tabs or row chunks to prevent orphans
+      await this.deleteConnection(userId, connId, true).catch(() => {});
+      throw err;
     }
-    createdTabs.push(trackerTab);
-
-    // 3. Create primary connection document linked to Drive copy
-    const connection: SheetConnection = {
-      id: connId,
-      userId,
-      ownerUid: userId,
-      spreadsheetId: input.driveFileId,
-      spreadsheetUrl: input.driveUrl || `https://docs.google.com/spreadsheets/d/${encodeURIComponent(input.driveFileId)}/edit`,
-      title: input.title.trim() || 'Dual-Copy Spreadsheet',
-      description: 'FocusFlow Dual-Copy (Google Drive + Firestore)',
-      templateHint: 'checklist',
-      syncMode: 'two_way',
-      writeMode: 'native_oauth',
-      writeAuthStatus: 'authorized',
-      writeAuthorizedAt: now,
-      pollIntervalSec: 60,
-      syncOnOpen: true,
-      status: 'active',
-      lastSyncedAt: now,
-      lastSuccessfulPullAt: now,
-      lastSuccessfulPushAt: now,
-      lastError: null,
-      pendingChangesCount: 0,
-      conflictCount: 0,
-      tabOrder,
-      schemaVersion: 1,
-      sortOrder: 0,
-      isNative: false,
-      isDualCopy: true,
-      driveFileId: input.driveFileId,
-      sourceSpreadsheetId: input.sourceSpreadsheetId,
-      nativeSheetId: connId,
-      lastDriveSyncAt: now,
-      driveSyncStatus: 'synced',
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-    };
-
-    await this.saveConnection(userId, connection);
-
-    return { connection, tabs: createdTabs };
   },
 
   /**

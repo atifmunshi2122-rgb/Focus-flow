@@ -14,7 +14,7 @@
  * - Tokens are NEVER written to localStorage, indexedDB, or Cloud Firestore.
  */
 
-import { authorizeSheetHubDualCopy, setSheetHubWriteAccessToken } from './firebase.ts';
+import { setSheetHubWriteAccessToken } from './firebase.ts';
 
 export const GHOST_OAUTH_CLIENT_ID =
   '965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com';
@@ -323,14 +323,13 @@ export function loadGoogleIdentityServicesScript(): Promise<void> {
 
 /**
  * Requests an OAuth 2.0 Access Token with Google Drive & Google Sheets permissions
- * using the Web Application Client from project `ghost-7b055`.
+ * strictly using the Web Application Client from Google Cloud project `ghost-7b055`.
  *
  * Scopes:
  * - https://www.googleapis.com/auth/drive.file (Only files created/opened by FocusFlow)
  * - https://www.googleapis.com/auth/spreadsheets (Read & write cell updates)
  *
- * If the GIS script is blocked by browser extensions or fails to load,
- * this function gracefully falls back to the Firebase Auth popup provider.
+ * Note: Never falls back to Firebase Auth provider to avoid project domain mismatch (403).
  */
 export async function requestGoogleDriveToken(options?: {
   loginHint?: string | null;
@@ -339,73 +338,72 @@ export async function requestGoogleDriveToken(options?: {
   const clientId = getGoogleOAuthClientId();
   const scopes = GOOGLE_DRIVE_SHEETS_SCOPES.join(' ');
 
-  try {
-    // Attempt Google Identity Services Token Client first
-    await loadGoogleIdentityServicesScript();
+  // Load Google Identity Services client script
+  await loadGoogleIdentityServicesScript();
 
-    if (window.google?.accounts?.oauth2?.initTokenClient) {
-      return await new Promise<string>((resolve, reject) => {
-        let settled = false;
+  if (!window.google?.accounts?.oauth2?.initTokenClient) {
+    throw new Error(
+      'Google Identity Services client is not available. Please allow popups and ensure accounts.google.com is not blocked by your browser extensions.'
+    );
+  }
 
-        try {
-          const client = window.google!.accounts!.oauth2!.initTokenClient({
-            client_id: clientId,
-            scope: scopes,
-            prompt: options?.prompt !== undefined ? options.prompt : 'select_account',
-            login_hint: options?.loginHint || undefined,
-            callback: (res: TokenResponse) => {
-              if (settled) return;
-              settled = true;
+  return await new Promise<string>((resolve, reject) => {
+    let settled = false;
 
-              if (res.error) {
-                const errMsg = res.error_description || res.error;
-                if (res.error === 'access_denied') {
-                  reject(new Error('Google authorization was denied by the user or requires test-user access in Google Cloud project ghost-7b055.'));
-                } else if (res.error === 'popup_closed_by_user') {
-                  reject(new Error('Google authorization popup was closed before completing consent.'));
-                } else {
-                  reject(new Error(`Google authorization error: ${errMsg}`));
-                }
-                return;
-              }
+    try {
+      const client = window.google!.accounts!.oauth2!.initTokenClient({
+        client_id: clientId,
+        scope: scopes,
+        prompt: options?.prompt !== undefined ? options.prompt : 'select_account',
+        login_hint: options?.loginHint || undefined,
+        callback: (res: TokenResponse) => {
+          if (settled) return;
+          settled = true;
 
-              if (!res.access_token) {
-                reject(new Error('Google did not return an access token. Please verify permissions and retry.'));
-                return;
-              }
-
-              // Store in ephemeral memory cache for immediate Sheet Hub worker use
-              setSheetHubWriteAccessToken(res.access_token);
-              resolve(res.access_token);
-            },
-            error_callback: (err: unknown) => {
-              if (settled) return;
-              settled = true;
-              console.warn('[GoogleAuthGIS] GIS error callback invoked:', err);
-              reject(new Error(`Google Identity Services failed: ${err instanceof Error ? err.message : String(err)}`));
-            },
-          });
-
-          client.requestAccessToken();
-        } catch (initErr) {
-          if (!settled) {
-            settled = true;
-            reject(initErr);
+          if (res.error) {
+            const errMsg = res.error_description || res.error;
+            if (res.error === 'access_denied') {
+              reject(
+                new Error(
+                  'Google authorization was denied by the user or requires test-user access in Google Cloud project ghost-7b055.'
+                )
+              );
+            } else if (res.error === 'popup_closed_by_user') {
+              reject(new Error('Google authorization popup was closed before completing consent.'));
+            } else {
+              reject(new Error(`Google authorization error: ${errMsg}`));
+            }
+            return;
           }
-        }
-      });
-    }
-  } catch (gisError) {
-    console.warn('[GoogleAuthGIS] GIS client could not be initialized; falling back to Firebase Auth provider:', gisError);
-  }
 
-  // Fallback to Firebase GoogleAuthProvider popup
-  const firebaseAuthResult = await authorizeSheetHubDualCopy(options?.loginHint || null);
-  const token = firebaseAuthResult.accessToken;
-  if (!token) {
-    throw new Error('Google authorization failed to return an access token.');
-  }
-  setSheetHubWriteAccessToken(token);
-  return token;
+          if (!res.access_token) {
+            reject(new Error('Google did not return an access token. Please verify permissions and retry.'));
+            return;
+          }
+
+          // Store in ephemeral memory cache for immediate Sheet Hub worker use
+          setSheetHubWriteAccessToken(res.access_token);
+          resolve(res.access_token);
+        },
+        error_callback: (err: unknown) => {
+          if (settled) return;
+          settled = true;
+          console.warn('[GoogleAuthGIS] GIS error callback invoked:', err);
+          reject(
+            new Error(
+              `Google Identity Services authorization failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        },
+      });
+
+      client.requestAccessToken();
+    } catch (initErr) {
+      if (!settled) {
+        settled = true;
+        reject(initErr);
+      }
+    }
+  });
 }
 
