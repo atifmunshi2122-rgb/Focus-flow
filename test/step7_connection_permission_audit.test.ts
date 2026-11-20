@@ -1,47 +1,89 @@
-import { test, before, after } from 'node:test';
+import './test_bootstrap.ts';
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import {
-  initializeTestEnvironment,
-  assertFails,
-  assertSucceeds,
-  RulesTestEnvironment,
-} from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 const PROJECT_ID = 'test-rules-project';
-const hostPort = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
-const host = hostPort[0] || '127.0.0.1';
-const port = parseInt(hostPort[1] || '8080', 10);
+const HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+const DATABASE_ID =
+  process.env.FIRESTORE_DATABASE_ID ||
+  'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
+const DB_PATH = `projects/${PROJECT_ID}/databases/${DATABASE_ID}/documents`;
+const BASE_URL = `http://${HOST}/v1/${DB_PATH}`;
 
 const isEmulatorRunning = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 const skipReason = !isEmulatorRunning
   ? 'Live Firestore emulator host not detected (run via firebase emulators:exec --only firestore)'
   : false;
 
-let testEnv: RulesTestEnvironment;
+function makeEmulatorJwt(uid: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    sub: uid,
+    user_id: uid,
+    aud: PROJECT_ID,
+    iss: `https://securetoken.google.com/${PROJECT_ID}`,
+    iat: now,
+    exp: now + 3600,
+    auth_time: now,
+    email: `${uid}@example.com`,
+    email_verified: true,
+  };
+  return `${header}.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.`;
+}
 
-before(async () => {
-  if (!isEmulatorRunning) return;
-  const rulesPath = path.resolve(process.cwd(), 'firestore.rules');
-  const rules = fs.readFileSync(rulesPath, 'utf8');
-
-  testEnv = await initializeTestEnvironment({
-    projectId: PROJECT_ID,
-    firestore: {
-      rules,
-      host,
-      port,
-    },
-  });
-});
-
-after(async () => {
-  if (testEnv) {
-    await testEnv.cleanup();
+function toFsVal(v: unknown): Record<string, unknown> {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'string') return { stringValue: v };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
   }
-});
+  if (Array.isArray(v)) {
+    return { arrayValue: { values: v.map(toFsVal) } };
+  }
+  if (typeof v === 'object') {
+    const fields: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (val !== undefined) fields[k] = toFsVal(val);
+    }
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(v) };
+}
+
+function toFsDoc(obj: Record<string, unknown>): { fields: Record<string, unknown> } {
+  const fields: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) fields[k] = toFsVal(v);
+  }
+  return { fields };
+}
+
+async function fsWrite(docPath: string, data: Record<string, unknown>, jwt?: string): Promise<number> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (jwt) headers.Authorization = `Bearer ${jwt}`;
+  const res = await fetch(`${BASE_URL}/${docPath}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(toFsDoc(data)),
+  });
+  return res.status;
+}
+
+async function fsRead(docPath: string, jwt?: string): Promise<number> {
+  const headers: Record<string, string> = {};
+  if (jwt) headers.Authorization = `Bearer ${jwt}`;
+  const res = await fetch(`${BASE_URL}/${docPath}`, { method: 'GET', headers });
+  return res.status;
+}
+
+async function fsDelete(docPath: string, jwt?: string): Promise<number> {
+  const headers: Record<string, string> = {};
+  if (jwt) headers.Authorization = `Bearer ${jwt}`;
+  const res = await fetch(`${BASE_URL}/${docPath}`, { method: 'DELETE', headers });
+  return res.status;
+}
 
 // Helper to generate the exact normalized payload produced by Step 7 ConnectSheetWizard.tsx + sheetHubStore.ts
 function makeStep7ConnectionDoc(userId: string, connId: string, syncMode: 'two_way' | 'sheet_to_app' = 'sheet_to_app') {
@@ -76,47 +118,48 @@ function makeStep7ConnectionDoc(userId: string, connId: string, syncMode: 'two_w
 
 test('1. Authenticated User A can create and read their own Step 7 connection in both sheets and sheet_connections', { skip: skipReason }, async () => {
   const userA = 'user_alice_123';
+  const ownerJwt = makeEmulatorJwt(userA);
   const connId = 'conn_1BxiMVs0XRA5nFMdKvBdBZjgm_m01abc123';
   const docData = makeStep7ConnectionDoc(userA, connId, 'sheet_to_app');
 
-  const aliceDb = testEnv.authenticatedContext(userA).firestore();
-
   // Write 1: Canonical path users/{userId}/sheets/{connId}
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), docData)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/${connId}`, docData, ownerJwt),
+    200
   );
 
   // Read 1: Canonical path
-  const canonicalSnap = await assertSucceeds(
-    getDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`))
+  assert.equal(
+    await fsRead(`users/${userA}/sheets/${connId}`, ownerJwt),
+    200
   );
-  assert.equal(canonicalSnap.exists(), true);
-  assert.equal(canonicalSnap.data()?.title, 'Semester 3 Syllabus Tracker');
 
   // Write 2: Index path users/{userId}/sheet_connections/{connId}
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), docData)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/${connId}`, docData, ownerJwt),
+    200
   );
 
   // Read 2: Index path
-  const indexSnap = await assertSucceeds(
-    getDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`))
+  assert.equal(
+    await fsRead(`users/${userA}/sheet_connections/${connId}`, ownerJwt),
+    200
   );
-  assert.equal(indexSnap.exists(), true);
 });
 
 test('2. Two-way sync mode connection creates and updates successfully for owner', { skip: skipReason }, async () => {
   const userA = 'user_alice_123';
+  const ownerJwt = makeEmulatorJwt(userA);
   const connId = 'conn_two_way_456';
   const docData = makeStep7ConnectionDoc(userA, connId, 'two_way');
 
-  const aliceDb = testEnv.authenticatedContext(userA).firestore();
-
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), docData)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/${connId}`, docData, ownerJwt),
+    200
   );
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), docData)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/${connId}`, docData, ownerJwt),
+    200
   );
 
   // Update status to paused
@@ -126,53 +169,60 @@ test('2. Two-way sync mode connection creates and updates successfully for owner
     updatedAt: new Date().toISOString(),
   };
 
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), updatedData)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/${connId}`, updatedData, ownerJwt),
+    200
   );
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), updatedData)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/${connId}`, updatedData, ownerJwt),
+    200
   );
 });
 
 test('3. Cross-User Isolation — User B CANNOT read, create, update, or delete User A connections', { skip: skipReason }, async () => {
   const userA = 'user_alice_123';
   const userB = 'user_bob_456';
+  const ownerJwt = makeEmulatorJwt(userA);
+  const attackerJwt = makeEmulatorJwt(userB);
   const connId = 'conn_alice_secret';
   const docData = makeStep7ConnectionDoc(userA, connId, 'sheet_to_app');
 
-  const aliceDb = testEnv.authenticatedContext(userA).firestore();
-  const bobDb = testEnv.authenticatedContext(userB).firestore();
-
   // Alice creates her connection
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), docData)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/${connId}`, docData, ownerJwt),
+    200
   );
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), docData)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/${connId}`, docData, ownerJwt),
+    200
   );
 
   // Bob CANNOT read Alice's sheets or sheet_connections
-  await assertFails(getDoc(doc(bobDb, `users/${userA}/sheets/${connId}`)));
-  await assertFails(getDoc(doc(bobDb, `users/${userA}/sheet_connections/${connId}`)));
+  assert.equal(await fsRead(`users/${userA}/sheets/${connId}`, attackerJwt), 403);
+  assert.equal(await fsRead(`users/${userA}/sheet_connections/${connId}`, attackerJwt), 403);
 
   // Bob CANNOT update Alice's sheets or sheet_connections
-  await assertFails(
-    setDoc(doc(bobDb, `users/${userA}/sheets/${connId}`), { ...docData, title: 'Hacked by Bob' })
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/${connId}`, { ...docData, title: 'Hacked by Bob' }, attackerJwt),
+    403
   );
-  await assertFails(
-    setDoc(doc(bobDb, `users/${userA}/sheet_connections/${connId}`), { ...docData, title: 'Hacked by Bob' })
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/${connId}`, { ...docData, title: 'Hacked by Bob' }, attackerJwt),
+    403
   );
 
   // Bob CANNOT delete Alice's sheets or sheet_connections
-  await assertFails(deleteDoc(doc(bobDb, `users/${userA}/sheets/${connId}`)));
-  await assertFails(deleteDoc(doc(bobDb, `users/${userA}/sheet_connections/${connId}`)));
+  assert.equal(await fsDelete(`users/${userA}/sheets/${connId}`, attackerJwt), 403);
+  assert.equal(await fsDelete(`users/${userA}/sheet_connections/${connId}`, attackerJwt), 403);
 
   // Bob CANNOT create documents in Alice's namespace
-  await assertFails(
-    setDoc(doc(bobDb, `users/${userA}/sheets/conn_bob_intruder`), makeStep7ConnectionDoc(userA, 'conn_bob_intruder'))
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/conn_bob_intruder`, makeStep7ConnectionDoc(userA, 'conn_bob_intruder'), attackerJwt),
+    403
   );
-  await assertFails(
-    setDoc(doc(bobDb, `users/${userA}/sheet_connections/conn_bob_intruder`), makeStep7ConnectionDoc(userA, 'conn_bob_intruder'))
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/conn_bob_intruder`, makeStep7ConnectionDoc(userA, 'conn_bob_intruder'), attackerJwt),
+    403
   );
 });
 
@@ -181,68 +231,63 @@ test('4. Unauthenticated Access — Rejected for all reads, creates, updates, an
   const connId = 'conn_unauth_test';
   const docData = makeStep7ConnectionDoc(userA, connId, 'sheet_to_app');
 
-  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  assert.equal(await fsRead(`users/${userA}/sheets/${connId}`), 403);
+  assert.equal(await fsRead(`users/${userA}/sheet_connections/${connId}`), 403);
 
-  await assertFails(getDoc(doc(unauthDb, `users/${userA}/sheets/${connId}`)));
-  await assertFails(getDoc(doc(unauthDb, `users/${userA}/sheet_connections/${connId}`)));
+  assert.equal(await fsWrite(`users/${userA}/sheets/${connId}`, docData), 403);
+  assert.equal(await fsWrite(`users/${userA}/sheet_connections/${connId}`, docData), 403);
 
-  await assertFails(setDoc(doc(unauthDb, `users/${userA}/sheets/${connId}`), docData));
-  await assertFails(setDoc(doc(unauthDb, `users/${userA}/sheet_connections/${connId}`), docData));
-
-  await assertFails(deleteDoc(doc(unauthDb, `users/${userA}/sheets/${connId}`)));
-  await assertFails(deleteDoc(doc(unauthDb, `users/${userA}/sheet_connections/${connId}`)));
+  assert.equal(await fsDelete(`users/${userA}/sheets/${connId}`), 403);
+  assert.equal(await fsDelete(`users/${userA}/sheet_connections/${connId}`), 403);
 });
 
 test('5. Anti-Spoofing — User A cannot create a document with mismatched userId or ownerUid', { skip: skipReason }, async () => {
   const userA = 'user_alice_123';
   const userB = 'user_bob_456';
+  const ownerJwt = makeEmulatorJwt(userA);
   const connId = 'conn_spoof_attempt';
-
-  const aliceDb = testEnv.authenticatedContext(userA).firestore();
 
   // Mismatched userId in payload
   const spoofedUserId = {
     ...makeStep7ConnectionDoc(userA, connId),
     userId: userB,
   };
-  await assertFails(setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), spoofedUserId));
-  await assertFails(setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), spoofedUserId));
+  assert.equal(await fsWrite(`users/${userA}/sheets/${connId}`, spoofedUserId, ownerJwt), 403);
+  assert.equal(await fsWrite(`users/${userA}/sheet_connections/${connId}`, spoofedUserId, ownerJwt), 403);
 
   // Mismatched ownerUid in payload
   const spoofedOwnerUid = {
     ...makeStep7ConnectionDoc(userA, connId),
     ownerUid: userB,
   };
-  await assertFails(setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), spoofedOwnerUid));
-  await assertFails(setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), spoofedOwnerUid));
+  assert.equal(await fsWrite(`users/${userA}/sheets/${connId}`, spoofedOwnerUid, ownerJwt), 403);
+  assert.equal(await fsWrite(`users/${userA}/sheet_connections/${connId}`, spoofedOwnerUid, ownerJwt), 403);
 });
 
 test('6. OAuth token fields — Rejected if accessToken or refreshToken are present', { skip: skipReason }, async () => {
   const userA = 'user_alice_123';
+  const ownerJwt = makeEmulatorJwt(userA);
   const connId = 'conn_token_leak';
-
-  const aliceDb = testEnv.authenticatedContext(userA).firestore();
 
   const withAccessToken = {
     ...makeStep7ConnectionDoc(userA, connId),
     accessToken: 'ya29.secret_token',
   };
-  await assertFails(setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), withAccessToken));
-  await assertFails(setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), withAccessToken));
+  assert.equal(await fsWrite(`users/${userA}/sheets/${connId}`, withAccessToken, ownerJwt), 403);
+  assert.equal(await fsWrite(`users/${userA}/sheet_connections/${connId}`, withAccessToken, ownerJwt), 403);
 
   const withRefreshToken = {
     ...makeStep7ConnectionDoc(userA, connId),
     refreshToken: '1//refresh_token',
   };
-  await assertFails(setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), withRefreshToken));
-  await assertFails(setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), withRefreshToken));
+  assert.equal(await fsWrite(`users/${userA}/sheets/${connId}`, withRefreshToken, ownerJwt), 403);
+  assert.equal(await fsWrite(`users/${userA}/sheet_connections/${connId}`, withRefreshToken, ownerJwt), 403);
 });
 
 test('7. New fields — writeMode, writeAuthStatus, writeAuthorizedAt validation', { skip: skipReason }, async () => {
   const userA = 'user_alice_123';
+  const ownerJwt = makeEmulatorJwt(userA);
   const connId = 'conn_write_status_test';
-
-  const aliceDb = testEnv.authenticatedContext(userA).firestore();
 
   const docWithValidNewFields = {
     ...makeStep7ConnectionDoc(userA, connId, 'two_way'),
@@ -252,35 +297,40 @@ test('7. New fields — writeMode, writeAuthStatus, writeAuthorizedAt validation
   };
 
   // Valid Native OAuth tracking fields must SUCCEED for owner
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), docWithValidNewFields)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/${connId}`, docWithValidNewFields, ownerJwt),
+    200
   );
-  await assertSucceeds(
-    setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), docWithValidNewFields)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/${connId}`, docWithValidNewFields, ownerJwt),
+    200
   );
 
-  // Invalid writeMode enum value must FAIL
+  // Invalid writeMode enum value must FAIL (403)
   const docWithInvalidMode = {
     ...docWithValidNewFields,
     writeMode: 'unauthorized_hack_mode',
   };
-  await assertFails(
-    setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), docWithInvalidMode)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/${connId}`, docWithInvalidMode, ownerJwt),
+    403
   );
-  await assertFails(
-    setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), docWithInvalidMode)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/${connId}`, docWithInvalidMode, ownerJwt),
+    403
   );
 
-  // Invalid writeAuthStatus enum value must FAIL
+  // Invalid writeAuthStatus enum value must FAIL (403)
   const docWithInvalidAuth = {
     ...docWithValidNewFields,
     writeAuthStatus: 'superuser_bypass',
   };
-  await assertFails(
-    setDoc(doc(aliceDb, `users/${userA}/sheets/${connId}`), docWithInvalidAuth)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheets/${connId}`, docWithInvalidAuth, ownerJwt),
+    403
   );
-  await assertFails(
-    setDoc(doc(aliceDb, `users/${userA}/sheet_connections/${connId}`), docWithInvalidAuth)
+  assert.equal(
+    await fsWrite(`users/${userA}/sheet_connections/${connId}`, docWithInvalidAuth, ownerJwt),
+    403
   );
 });
-
