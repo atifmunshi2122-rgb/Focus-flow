@@ -10,6 +10,7 @@ export interface FirebaseClientConfig {
   messagingSenderId: string;
   appId: string;
   firestoreDatabaseId: string;
+  measurementId?: string;
   tier: DeploymentTier;
   isStagingIsolated: boolean;
 }
@@ -30,8 +31,8 @@ export interface EnvironmentDetectionParams {
   prodFlag?: boolean;
 }
 
-export const PRODUCTION_PROJECT_ID = 'seismic-codex-m01dl';
-export const PRODUCTION_DATABASE_ID = 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
+export const PRODUCTION_PROJECT_ID = 'focus-flow-by-atif';
+export const PRODUCTION_DATABASE_ID = '(default)';
 
 /**
  * Detects the deployment tier with strict precedence:
@@ -288,6 +289,7 @@ export function resolveFirebaseConfiguration(
     // Safety Gate: Ensure Preview does NOT point to the Production project or database
     if (
       projectId === PRODUCTION_PROJECT_ID ||
+      projectId === 'focus-flow-by-atif' ||
       projectId === 'seismic-codex-m01dl' ||
       projectId === 'gen-lang-client-0390447756'
     ) {
@@ -319,6 +321,7 @@ export function resolveFirebaseConfiguration(
         messagingSenderId: messagingSenderId || '',
         appId: appId || '',
         firestoreDatabaseId: databaseId!,
+        measurementId: getEnv('VITE_FIREBASE_MEASUREMENT_ID') || '',
         tier: 'preview',
         isStagingIsolated: true,
       },
@@ -358,6 +361,10 @@ export function resolveFirebaseConfiguration(
         messagingSenderId: messagingSenderId || '',
         appId: appId || '',
         firestoreDatabaseId: databaseId,
+        measurementId:
+          getEnv('VITE_FIREBASE_MEASUREMENT_ID') ||
+          firebaseManifest.measurementId ||
+          'G-H4D8JLHJQJ',
         tier: 'production',
         isStagingIsolated: false,
       },
@@ -390,6 +397,10 @@ export function resolveFirebaseConfiguration(
         messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || firebaseManifest.messagingSenderId,
         appId: getEnv('VITE_FIREBASE_APP_ID') || firebaseManifest.appId,
         firestoreDatabaseId: databaseId,
+        measurementId:
+          getEnv('VITE_FIREBASE_MEASUREMENT_ID') ||
+          firebaseManifest.measurementId ||
+          '',
         tier: 'test',
         isStagingIsolated: true,
       },
@@ -414,7 +425,11 @@ export function resolveFirebaseConfiguration(
         storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || `${devProjectId}.firebasestorage.app`,
         messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || '',
         appId: getEnv('VITE_FIREBASE_APP_ID') || '',
-        firestoreDatabaseId: devDatabaseId || 'default',
+        firestoreDatabaseId: devDatabaseId || firebaseManifest.firestoreDatabaseId || '(default)',
+        measurementId:
+          getEnv('VITE_FIREBASE_MEASUREMENT_ID') ||
+          firebaseManifest.measurementId ||
+          '',
         tier: 'development',
         isStagingIsolated: devProjectId !== PRODUCTION_PROJECT_ID,
       },

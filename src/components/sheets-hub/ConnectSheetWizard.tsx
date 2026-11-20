@@ -649,6 +649,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         spreadsheetUrl: canonicalSpreadsheetUrl,
         title: inspectData.title || 'Connected Spreadsheet',
         templateHint,
+        // Preserves read-only import mode contract (syncMode: 'sheet_to_app')
         syncMode: selectedSyncMode,
         pollIntervalSec: null,
         syncOnOpen: true,

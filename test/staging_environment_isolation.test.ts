@@ -164,7 +164,7 @@ describe('Vercel Environment Precedence & Safe Staging Isolation Matrix', () => 
     const localExplicitEnv = {
       VERCEL: '',
       VERCEL_ENV: '',
-      VITE_FIREBASE_PROJECT_ID: 'seismic-codex-m01dl',
+      VITE_FIREBASE_PROJECT_ID: 'focus-flow-by-atif',
       VITE_FIREBASE_DATABASE_ID: 'local-dev-db',
       NODE_ENV: 'development',
     };
@@ -173,7 +173,7 @@ describe('Vercel Environment Precedence & Safe Staging Isolation Matrix', () => 
     assert.equal(result.error, null);
     assert.ok(result.config);
     assert.equal(result.config.tier, 'development');
-    assert.equal(result.config.projectId, 'seismic-codex-m01dl');
+    assert.equal(result.config.projectId, 'focus-flow-by-atif');
     assert.equal(result.config.firestoreDatabaseId, 'local-dev-db');
     assert.equal(result.config.isStagingIsolated, false);
 

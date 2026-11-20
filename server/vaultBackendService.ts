@@ -135,8 +135,8 @@ export function resolveServiceAccount(): ServiceAccountConfig | null {
   return null;
 }
 
-export const PRODUCTION_PROJECT_ID = 'seismic-codex-m01dl';
-export const PRODUCTION_DATABASE_ID = 'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
+export const PRODUCTION_PROJECT_ID = 'focus-flow-by-atif';
+export const PRODUCTION_DATABASE_ID = '(default)';
 
 function resolveFirebaseProjectIdFallback(): string {
   const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
@@ -188,6 +188,7 @@ function resolveFirebaseProjectIdFallback(): string {
       }
       if (
         explicitProjId === PRODUCTION_PROJECT_ID ||
+        explicitProjId === 'focus-flow-by-atif' ||
         explicitProjId === 'seismic-codex-m01dl' ||
         explicitProjId === 'gen-lang-client-0390447756'
       ) {
@@ -216,6 +217,7 @@ function resolveFirebaseProjectIdFallback(): string {
     }
     if (
       explicitProjId === PRODUCTION_PROJECT_ID ||
+      explicitProjId === 'focus-flow-by-atif' ||
       explicitProjId === 'seismic-codex-m01dl' ||
       explicitProjId === 'gen-lang-client-0390447756'
     ) {

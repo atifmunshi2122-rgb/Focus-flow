@@ -8,7 +8,7 @@ test('Public Clone — firebase-applet-config.json is valid and contains no priv
   assert.ok(fs.existsSync(configPath), 'firebase-applet-config.json must exist for fresh clones');
 
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  assert.equal(config.projectId, 'seismic-codex-m01dl', 'Project ID must match owner project');
+  assert.equal(config.projectId, 'focus-flow-by-atif', 'Project ID must match owner project');
   assert.ok(config.apiKey && config.apiKey.startsWith('AIza'), 'Public Web API key must be present');
   assert.ok(config.authDomain, 'authDomain must be present');
   assert.ok(config.firestoreDatabaseId, 'firestoreDatabaseId must be present');

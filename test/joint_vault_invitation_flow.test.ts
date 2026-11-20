@@ -51,8 +51,8 @@ function createMockFirebaseIdToken(uid: string, email?: string, name?: string): 
       user_id: uid,
       email: email || `${uid}@focusflow.test`,
       name: name || uid.toUpperCase(),
-      aud: 'seismic-codex-m01dl',
-      iss: 'https://securetoken.google.com/seismic-codex-m01dl',
+      aud: 'focus-flow-by-atif',
+      iss: 'https://securetoken.google.com/focus-flow-by-atif',
       iat: now,
       exp: now + 3600,
     })

@@ -21,12 +21,11 @@ import {
 } from '../server/vaultBackendService.ts';
 
 describe('Production Firebase Configuration & AI Studio Regression Guard', () => {
-  const EXPECTED_PROD_PROJECT = 'seismic-codex-m01dl';
-  const EXPECTED_PROD_DATABASE =
-    'ai-studio-focusflowfinance-34a065b9-d0d0-4728-b07d-d2b9028624a8';
+  const EXPECTED_PROD_PROJECT = 'focus-flow-by-atif';
+  const EXPECTED_PROD_DATABASE = '(default)';
   const FORBIDDEN_AI_STUDIO_PROJECT = 'gen-lang-client-0390447756';
 
-  it('1. firebase-applet-config.json must point to seismic-codex-m01dl and never gen-lang-client', () => {
+  it('1. firebase-applet-config.json must point to focus-flow-by-atif and never gen-lang-client', () => {
     const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
     assert.ok(fs.existsSync(configPath), 'firebase-applet-config.json must exist');
 
@@ -41,12 +40,13 @@ describe('Production Firebase Configuration & AI Studio Regression Guard', () =>
       FORBIDDEN_AI_STUDIO_PROJECT,
       `firebase-applet-config.json was reverted to AI Studio project '${FORBIDDEN_AI_STUDIO_PROJECT}'!`
     );
-    assert.equal(config.messagingSenderId, '363778207392');
+    assert.equal(config.messagingSenderId, '1010159085609');
     assert.equal(config.authDomain, `${EXPECTED_PROD_PROJECT}.firebaseapp.com`);
     assert.equal(config.firestoreDatabaseId, EXPECTED_PROD_DATABASE);
+    assert.equal(config.measurementId, 'G-H4D8JLHJQJ');
   });
 
-  it('2. .firebaserc default project must be seismic-codex-m01dl', () => {
+  it('2. .firebaserc default project must be focus-flow-by-atif', () => {
     const rcPath = path.resolve(process.cwd(), '.firebaserc');
     assert.ok(fs.existsSync(rcPath), '.firebaserc must exist');
 
@@ -67,17 +67,17 @@ describe('Production Firebase Configuration & AI Studio Regression Guard', () =>
     assert.equal(
       FRONTEND_PROD_PROJECT_ID,
       EXPECTED_PROD_PROJECT,
-      'Frontend resolver must have seismic-codex-m01dl as production project'
+      'Frontend resolver must have focus-flow-by-atif as production project'
     );
     assert.equal(
       BACKEND_PROD_PROJECT_ID,
       EXPECTED_PROD_PROJECT,
-      'server/auth.ts must have seismic-codex-m01dl as production project'
+      'server/auth.ts must have focus-flow-by-atif as production project'
     );
     assert.equal(
       VAULT_PROD_PROJECT_ID,
       EXPECTED_PROD_PROJECT,
-      'server/vaultBackendService.ts must have seismic-codex-m01dl as production project'
+      'server/vaultBackendService.ts must have focus-flow-by-atif as production project'
     );
   });
 
@@ -86,7 +86,7 @@ describe('Production Firebase Configuration & AI Studio Regression Guard', () =>
     assert.equal(VAULT_PROD_DATABASE_ID, EXPECTED_PROD_DATABASE);
   });
 
-  it('5. Runtime Production Resolution: Frontend and Backend both resolve seismic-codex-m01dl', () => {
+  it('5. Runtime Production Resolution: Frontend and Backend both resolve focus-flow-by-atif', () => {
     // Frontend resolution under Vercel Production
     const frontendProd = resolveFirebaseConfiguration({
       VERCEL: '1',
@@ -123,8 +123,8 @@ describe('Production Firebase Configuration & AI Studio Regression Guard', () =>
     }
   });
 
-  it('6. Preview Safety Gate: Frontend and Backend strictly reject both seismic-codex-m01dl and gen-lang-client', () => {
-    // Frontend rejects seismic-codex-m01dl in Preview
+  it('6. Preview Safety Gate: Frontend and Backend strictly reject both focus-flow-by-atif and gen-lang-client', () => {
+    // Frontend rejects focus-flow-by-atif in Preview
     const previewSeismic = resolveFirebaseConfiguration({
       VERCEL: '1',
       VERCEL_ENV: 'preview',
@@ -148,7 +148,7 @@ describe('Production Firebase Configuration & AI Studio Regression Guard', () =>
     assert.ok(previewGenLang.error);
     assert.match(previewGenLang.error.message, /STAGING_DATA_SAFETY_VIOLATION/);
 
-    // Backend rejects seismic-codex-m01dl in Preview
+    // Backend rejects focus-flow-by-atif in Preview
     const origVercel = process.env.VERCEL;
     const origVercelEnv = process.env.VERCEL_ENV;
     const origBackend = process.env.FIREBASE_PROJECT_ID;
@@ -174,15 +174,15 @@ describe('Production Firebase Configuration & AI Studio Regression Guard', () =>
     }
   });
 
-  it('7. firebase.json authorizedRedirectUris points to seismic-codex-m01dl', () => {
+  it('7. firebase.json authorizedRedirectUris points to focus-flow-by-atif', () => {
     const fbJsonPath = path.resolve(process.cwd(), 'firebase.json');
     assert.ok(fs.existsSync(fbJsonPath), 'firebase.json must exist');
 
     const fbJson = JSON.parse(fs.readFileSync(fbJsonPath, 'utf8'));
     const uris = fbJson.auth?.providers?.googleSignIn?.authorizedRedirectUris || [];
     assert.ok(
-      uris.some((u: string) => u.includes('seismic-codex-m01dl.firebaseapp.com')),
-      'firebase.json must contain seismic-codex-m01dl.firebaseapp.com in authorizedRedirectUris'
+      uris.some((u: string) => u.includes('focus-flow-by-atif.firebaseapp.com')),
+      'firebase.json must contain focus-flow-by-atif.firebaseapp.com in authorizedRedirectUris'
     );
   });
 });

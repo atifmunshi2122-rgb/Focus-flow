@@ -19,7 +19,7 @@ const GOOGLE_CERTS_URL =
   'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
 const GUEST_ID_REGEX = /^gst_[a-zA-Z0-9_-]{8,64}$/;
 
-export const PRODUCTION_PROJECT_ID = 'seismic-codex-m01dl';
+export const PRODUCTION_PROJECT_ID = 'focus-flow-by-atif';
 
 let cachedProjectId: string | null = null;
 let certCache: { certs: Record<string, string>; expiresAt: number } = {
@@ -83,6 +83,7 @@ export function resolveServerFirebaseProjectId(): string {
       }
       if (
         explicitProjId === PRODUCTION_PROJECT_ID ||
+        explicitProjId === 'focus-flow-by-atif' ||
         explicitProjId === 'seismic-codex-m01dl' ||
         explicitProjId === 'gen-lang-client-0390447756'
       ) {
@@ -113,6 +114,7 @@ export function resolveServerFirebaseProjectId(): string {
     }
     if (
       explicitProjId === PRODUCTION_PROJECT_ID ||
+      explicitProjId === 'focus-flow-by-atif' ||
       explicitProjId === 'seismic-codex-m01dl' ||
       explicitProjId === 'gen-lang-client-0390447756'
     ) {
@@ -236,6 +238,7 @@ export async function verifyFirebaseIdToken(token: string): Promise<AuthContext>
     const validAuds = new Set([
       projectId,
       'test-rules-project',
+      'focus-flow-by-atif',
       'seismic-codex-m01dl',
     ]);
     if (payload.aud && !validAuds.has(payload.aud)) {

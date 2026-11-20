@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 import {
   getAuth,
   GoogleAuthProvider,
@@ -31,6 +32,7 @@ export const activeFirebaseConfig = configResolution.config || {
   storageBucket: 'preview-staging-blocked.firebasestorage.app',
   messagingSenderId: '',
   appId: '',
+  measurementId: '',
   firestoreDatabaseId: 'preview-staging-blocked',
   tier: configResolution.tier,
   isStagingIsolated: true,
@@ -43,6 +45,20 @@ export const app = getApps().length === 0 ? initializeApp(activeFirebaseConfig) 
 export const db: Firestore = getFirestore(app, activeFirebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
+
+// Initialize Firebase Analytics (Browser environment only, guarded against SSR/Node/test)
+export let analytics: Analytics | null = null;
+if (typeof window !== 'undefined' && activeFirebaseConfig.measurementId) {
+  isSupported()
+    .then((supported) => {
+      if (supported) {
+        analytics = getAnalytics(app);
+      }
+    })
+    .catch(() => {
+      // Analytics unsupported or blocked (e.g. adblocker, private browsing)
+    });
+}
 
 // Legacy Executive 23-tab Workbook Sync scopes (Read/Write + file creation)
 export const LEGACY_SHEETS_SCOPES = [
