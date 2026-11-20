@@ -1,12 +1,13 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { terminate } from 'firebase/firestore';
 import {
   syncStudyTopicCompletionToGoogleSheets,
   flushPendingWritebacks,
 } from '../src/lib/sheetHub/sheetStudySyncService.ts';
-import { setSheetHubWriteAccessToken } from '../src/lib/firebase.ts';
+import { setSheetHubWriteAccessToken, db as firestoreDb } from '../src/lib/firebase.ts';
 import { sheetHubStore } from '../src/lib/sheetHub/sheetHubStore.ts';
 import { dispatchAppsScriptWriteback, AppsScriptBridgeError } from '../server/appsScriptBridgeWorker.ts';
 import { DatabaseService } from '../server/db.ts';
@@ -414,4 +415,27 @@ test('Bug 5: rejectVaultInvitation rejects when user.email is missing on invitat
   assert.equal(rejected.status, 'rejected');
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('Bug 16: ConnectSheetWizard sets syncMode to sheet_to_app for public link connections', () => {
+  const wizardPath = path.resolve('src/components/sheets-hub/ConnectSheetWizard.tsx');
+  const content = fs.readFileSync(wizardPath, 'utf8');
+
+  // Verify handleInspectPublicLink sets setSelectedSyncMode('sheet_to_app')
+  assert.ok(
+    content.includes("setSelectedSyncMode('sheet_to_app')"),
+    'ConnectSheetWizard must set setSelectedSyncMode to sheet_to_app in public link inspection'
+  );
+
+  const publicLinkFuncMatch = content.match(/handleInspectPublicLink[\s\S]*?setSelectedSyncMode\('sheet_to_app'\)/);
+  assert.ok(
+    publicLinkFuncMatch,
+    'handleInspectPublicLink must explicitly set sync mode to sheet_to_app'
+  );
+});
+
+after(async () => {
+  try {
+    await terminate(firestoreDb);
+  } catch {}
 });

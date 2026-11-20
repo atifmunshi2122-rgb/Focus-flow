@@ -192,6 +192,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   const handleInspectPublicLink = async (overrideSpreadsheetId?: string, overrideUrl?: string) => {
     setIsDemoMode(false);
     setIsPublicLinkMode(true);
+    setSelectedSyncMode('sheet_to_app');
     setAuthLocalError(null);
     setInspectError(null);
     setInspectErrorCode(null);
