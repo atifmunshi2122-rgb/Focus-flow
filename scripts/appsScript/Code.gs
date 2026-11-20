@@ -131,7 +131,12 @@ function doPost(e) {
       try {
         ss = SpreadsheetApp.openById(data.spreadsheetId);
       } catch (openErr) {
-        ss = SpreadsheetApp.getActiveSpreadsheet();
+        return jsonResponse({
+          success: false,
+          error: 'Spreadsheet could not be accessed with id: ' + data.spreadsheetId,
+          code: 'SPREADSHEET_NOT_FOUND',
+          statusCode: 404
+        }, 404);
       }
     } else {
       ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -263,6 +268,9 @@ function computeHmacHex(message, secret) {
  * Formats JSON response with appropriate MIME type.
  */
 function jsonResponse(obj, statusCode) {
+  if (typeof obj === 'object' && obj !== null) {
+    obj.statusCode = statusCode || (obj.success ? 200 : 500);
+  }
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }

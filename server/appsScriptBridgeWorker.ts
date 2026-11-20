@@ -227,7 +227,46 @@ export async function dispatchAppsScriptWriteback(
   if (!response.ok || !result.success) {
     const errorMsg = result?.error || `Apps Script write failed with HTTP status ${response.status}`;
     const errorCode = result?.code || 'APPS_SCRIPT_REJECTED';
-    throw new AppsScriptBridgeError(errorMsg, response.status >= 400 ? response.status : 500, errorCode);
+
+    let effectiveStatus = 500;
+    if (typeof result?.statusCode === 'number' && result.statusCode >= 400 && result.statusCode < 600) {
+      effectiveStatus = result.statusCode;
+    } else if (response.status >= 400) {
+      effectiveStatus = response.status;
+    } else {
+      switch (errorCode) {
+        case 'INVALID_SIGNATURE':
+        case 'MISSING_SIGNATURE':
+          effectiveStatus = 401;
+          break;
+        case 'NONCE_REPLAY':
+          effectiveStatus = 403;
+          break;
+        case 'SPREADSHEET_NOT_FOUND':
+        case 'SHEET_NOT_FOUND':
+        case 'ROW_NOT_FOUND':
+          effectiveStatus = 404;
+          break;
+        case 'DUPLICATE_ROW_IDENTITY':
+          effectiveStatus = 409;
+          break;
+        case 'INVALID_COORDINATES':
+        case 'UNSUPPORTED_ACTION':
+        case 'TIMESTAMP_OUT_OF_BOUNDS':
+        case 'MALFORMED_JSON':
+        case 'EMPTY_BODY':
+          effectiveStatus = 400;
+          break;
+        case 'SECRET_NOT_CONFIGURED':
+          effectiveStatus = 503;
+          break;
+        default:
+          effectiveStatus = 500;
+          break;
+      }
+    }
+
+    throw new AppsScriptBridgeError(errorMsg, effectiveStatus, errorCode);
   }
 
   return {

@@ -1004,7 +1004,7 @@ export class VaultBackendService {
     if (!code) throw new VaultServiceError('Invite code is required', 400, 'INVALID_CODE');
 
     if (user.isGuest) {
-      return dbService.rejectVaultInvitation(code, user.id);
+      return dbService.rejectVaultInvitation(code, user);
     }
 
     const sa = this.ensureConfigured(user.isGuest);
@@ -1045,6 +1045,23 @@ export class VaultBackendService {
 
     const inviteDoc = firstResult.document;
     const inviteData = fromFirestoreDoc(inviteDoc) as VaultInvitation;
+
+    if (inviteData.status !== 'pending') {
+      throw new VaultServiceError(
+        `Invitation cannot be rejected because it is already ${inviteData.status}`,
+        400,
+        'INVITATION_INVALID'
+      );
+    }
+
+    if (inviteData.invitedEmail) {
+      const normalizedInvited = inviteData.invitedEmail.trim().toLowerCase();
+      const normalizedUser = (user.email || '').trim().toLowerCase();
+      if (!normalizedUser || normalizedInvited !== normalizedUser) {
+        throw new VaultServiceError('This invitation was sent to a different email address', 403, 'EMAIL_MISMATCH');
+      }
+    }
+
     const nowIso = new Date().toISOString();
 
     const writes = [
@@ -1063,7 +1080,7 @@ export class VaultBackendService {
       },
     ];
 
-    await fetch(`${baseUrl}:commit`, {
+    const commitRes = await fetch(`${baseUrl}:commit`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -1071,6 +1088,11 @@ export class VaultBackendService {
       },
       body: JSON.stringify({ writes }),
     });
+
+    if (!commitRes.ok) {
+      const errText = await commitRes.text();
+      throw new VaultServiceError(`Failed to reject vault invitation: ${errText}`, 500, 'FIRESTORE_COMMIT_FAILED');
+    }
 
     return {
       ...inviteData,
@@ -1155,6 +1177,33 @@ export class VaultBackendService {
     const databaseId = resolveFirestoreDatabaseId();
     const baseUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
 
+    // 1. Verify vault exists and user is an active member
+    const vaultRes = await fetch(`${baseUrl}/sharedVaults/${vaultId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!vaultRes.ok) {
+      throw new VaultServiceError('Vault not found', 404, 'VAULT_NOT_FOUND');
+    }
+    const vaultDoc = await vaultRes.json();
+    const vaultData = fromFirestoreDoc(vaultDoc) as any;
+    const memberUids: string[] = Array.isArray(vaultData.memberUids) ? vaultData.memberUids : [];
+    if (!memberUids.includes(user.id)) {
+      throw new VaultServiceError('User is not an active member of this vault', 403, 'NOT_A_MEMBER');
+    }
+
+    // 2. Verify expense exists and is not already reversed
+    const expenseRes = await fetch(`${baseUrl}/sharedVaults/${vaultId}/expenses/${expenseId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!expenseRes.ok) {
+      throw new VaultServiceError('Expense not found', 404, 'EXPENSE_NOT_FOUND');
+    }
+    const expenseDoc = await expenseRes.json();
+    const expenseData = fromFirestoreDoc(expenseDoc) as any;
+    if (expenseData.status === 'reversed') {
+      throw new VaultServiceError('Expense has already been reversed', 400, 'ALREADY_REVERSED');
+    }
+
     const nowIso = new Date().toISOString();
     const activityId = `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const writes = [
@@ -1188,7 +1237,7 @@ export class VaultBackendService {
       },
     ];
 
-    await fetch(`${baseUrl}:commit`, {
+    const commitRes = await fetch(`${baseUrl}:commit`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -1196,6 +1245,11 @@ export class VaultBackendService {
       },
       body: JSON.stringify({ writes }),
     });
+
+    if (!commitRes.ok) {
+      const errText = await commitRes.text();
+      throw new VaultServiceError(`Failed to reverse vault expense: ${errText}`, 500, 'FIRESTORE_COMMIT_FAILED');
+    }
 
     return { success: true };
   }

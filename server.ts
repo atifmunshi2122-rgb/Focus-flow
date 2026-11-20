@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { apiRouter } from './server/routes.js';
-import { securityHeaders, rateLimiter, corsHandler, errorHandler, configureTrustProxy } from './server/security.js';
+import { securityHeaders, corsHandler, errorHandler, configureTrustProxy } from './server/security.js';
 import { setupGracefulShutdown } from './server/shutdown.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -34,8 +34,6 @@ async function startServer() {
   };
   app.get('/health', healthCheck);
   app.get('/api/health', healthCheck);
-
-  app.use('/api', rateLimiter({ maxRequests: 300, windowMs: 60_000 }));
 
   // Mount API routes
   app.use('/api', apiRouter);

@@ -454,6 +454,7 @@ export async function flushPendingWritebacks(userId: string): Promise<number> {
 
   let flushed = 0;
   const remaining: PendingTopicWriteback[] = [];
+  const affectedConnectionIds = new Set<string>();
   const now = new Date().toISOString();
 
   for (const entry of queue) {
@@ -475,6 +476,9 @@ export async function flushPendingWritebacks(userId: string): Promise<number> {
         writeToken
       );
       flushed++;
+      if (entry.connectionId) {
+        affectedConnectionIds.add(entry.connectionId);
+      }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       remaining.push({
@@ -487,6 +491,27 @@ export async function flushPendingWritebacks(userId: string): Promise<number> {
   }
 
   writePendingQueue(userId, remaining);
+
+  // Restore connection status back to active & authorized once pending writes are flushed
+  for (const connId of affectedConnectionIds) {
+    try {
+      const conn = await sheetHubStore.getConnection(userId, connId);
+      if (conn && (conn.status === 'auth_required' || conn.writeAuthStatus !== 'authorized' || conn.lastError)) {
+        await sheetHubStore.saveConnection(userId, {
+          ...conn,
+          status: 'active',
+          writeAuthStatus: 'authorized',
+          writeAuthorizedAt: conn.writeAuthorizedAt || now,
+          lastSuccessfulPushAt: now,
+          lastError: null,
+          updatedAt: now,
+        }, { force: true });
+      }
+    } catch (err) {
+      console.warn(`[SheetStudySync] Could not update connection ${connId} after flush:`, err);
+    }
+  }
+
   return flushed;
 }
 
@@ -553,27 +578,47 @@ export async function syncStudyTopicCompletionToGoogleSheets(
       const colLetter = doneCol.colLetter;
       const cellRef = `${matchingTab.sheetTitle}!${colLetter}${rowNumber}`;
 
-      // 5. Update local row state immediately (optimistic update)
+      // 5. Update local row state immediately (optimistic update as pending_push)
       const nowIso = new Date().toISOString();
-      const updatedRow: SheetSyncedRow = {
+      const pendingRow: SheetSyncedRow = {
         ...targetRow,
         values: { ...targetRow.values, [doneCol.fieldKey]: isCompleted },
-        baseValues: { ...targetRow.baseValues, [doneCol.fieldKey]: isCompleted },
+        baseValues: targetRow.baseValues, // Retain original sheet baseValues until confirmed
+        dirtyFields: Array.from(new Set([...(targetRow.dirtyFields || []), doneCol.fieldKey])),
+        lastSyncOrigin: 'app',
         localUpdatedAt: nowIso,
-        sheetSyncedAt: nowIso,
-        status: 'synced',
+        sheetSyncedAt: targetRow.sheetSyncedAt || nowIso,
+        status: 'pending_push',
       };
 
-      const updatedRows = rows.map((r) => (r.rowUid === targetRow.rowUid ? updatedRow : r));
+      const pendingRows = rows.map((r) => (r.rowUid === targetRow.rowUid ? pendingRow : r));
       await sheetHubStore.saveTabRowsChunked({
         userId,
         connectionId: conn.id,
         tabId: matchingTab.id,
-        rows: updatedRows,
+        rows: pendingRows,
       });
 
-      // 6. Demo / sample spreadsheet: local state is sufficient, no remote write needed
+      const markRowConfirmedSynced = async () => {
+        const syncedRow: SheetSyncedRow = {
+          ...pendingRow,
+          baseValues: { ...pendingRow.baseValues, [doneCol.fieldKey]: isCompleted },
+          dirtyFields: [],
+          sheetSyncedAt: new Date().toISOString(),
+          status: 'synced',
+        };
+        const syncedRows = rows.map((r) => (r.rowUid === targetRow.rowUid ? syncedRow : r));
+        await sheetHubStore.saveTabRowsChunked({
+          userId,
+          connectionId: conn.id,
+          tabId: matchingTab.id,
+          rows: syncedRows,
+        });
+      };
+
+      // 6. Demo / sample spreadsheet: local state is sufficient, mark confirmed
       if (conn.spreadsheetId === 'sem3-syllabus-sample') {
+        await markRowConfirmedSynced();
         return {
           status: 'demo',
           synced: true,
@@ -598,6 +643,7 @@ export async function syncStudyTopicCompletionToGoogleSheets(
           conn, matchingTab, rowNumber, colLetter, cellRef, isCompleted, topic
         );
         if (success) {
+          await markRowConfirmedSynced();
           return {
             status: 'synced',
             synced: true,
@@ -625,10 +671,16 @@ export async function syncStudyTopicCompletionToGoogleSheets(
       }
 
       // PRIMARY PATH: Native per-user Google Sheets API v4
-      return await attemptNativeOAuthWrite(
+      const writeResult = await attemptNativeOAuthWrite(
         userId, conn, matchingTab, doneCol, targetRow,
         rowNumber, colLetter, cellRef, isCompleted, topic
       );
+
+      if (writeResult.status === 'synced') {
+        await markRowConfirmedSynced();
+      }
+
+      return writeResult;
     }
 
     return { status: 'no_matching_tab', synced: false, error: 'NO_MATCHING_TAB' };

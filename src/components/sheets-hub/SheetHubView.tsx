@@ -675,8 +675,17 @@ export const SheetHubView: React.FC = () => {
               for (const col of tab.columns) {
                 rowVals[col.fieldKey] = r.values[col.colIndex] ?? null;
               }
+              const semanticKey = tab.columns
+                .filter((col) => col.semanticRole === 'id' || col.semanticRole === 'title' || col.semanticRole === 'group' || col.semanticRole === 'subgroup')
+                .map((col) => String(rowVals[col.fieldKey] ?? '').trim())
+                .filter(Boolean)
+                .join('_');
+              const stableRowUid = semanticKey
+                ? `row_${tab.sheetId}_${encodeURIComponent(semanticKey)}`
+                : `row_${tab.sheetId}_${r.sheetRowNumber}`;
+
               return {
-                rowUid: `row_${tab.sheetId}_${r.sheetRowNumber}`,
+                rowUid: stableRowUid,
                 lastKnownSheetRow: r.sheetRowNumber,
                 values: rowVals,
                 baseValues: rowVals,
@@ -785,8 +794,17 @@ export const SheetHubView: React.FC = () => {
               for (const col of tab.columns) {
                 rowVals[col.fieldKey] = r.values[col.colIndex] ?? null;
               }
+              const semanticKey = tab.columns
+                .filter((col) => col.semanticRole === 'id' || col.semanticRole === 'title' || col.semanticRole === 'group' || col.semanticRole === 'subgroup')
+                .map((col) => String(rowVals[col.fieldKey] ?? '').trim())
+                .filter(Boolean)
+                .join('_');
+              const stableRowUid = semanticKey
+                ? `row_${tab.sheetId}_${encodeURIComponent(semanticKey)}`
+                : `row_${tab.sheetId}_${r.sheetRowNumber}`;
+
               return {
-                rowUid: `row_${tab.sheetId}_${r.sheetRowNumber}`,
+                rowUid: stableRowUid,
                 lastKnownSheetRow: r.sheetRowNumber,
                 values: rowVals,
                 baseValues: rowVals,
@@ -1043,6 +1061,7 @@ export const SheetHubView: React.FC = () => {
           />
         ) : activeTab ? (
           <DynamicSheetRenderer
+            key={activeTab.id}
             schema={activeTab}
             rows={rowsByTabId[activeTab.id] || []}
             viewMode={activeTab.defaultView || 'checklist'}

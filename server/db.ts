@@ -574,6 +574,7 @@ export class DatabaseService {
         subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
         auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
         syncQueue: Array.isArray(parsed.syncQueue) ? parsed.syncQueue : [],
+        studyTiers: Array.isArray(parsed.studyTiers) ? parsed.studyTiers : [],
         studySubjects: Array.isArray(parsed.studySubjects) ? parsed.studySubjects : [],
         studyTopics: Array.isArray(parsed.studyTopics) ? parsed.studyTopics : [],
         studyRevisions: Array.isArray(parsed.studyRevisions) ? parsed.studyRevisions : [],
@@ -840,6 +841,7 @@ export class DatabaseService {
       const preservedSubscriptions = (this.db.subscriptions || []).filter((sub) => sub.userId !== 'usr_atif_default');
       const preservedAuditLogs = (this.db.auditLogs || []).filter((l) => l.userId !== 'usr_atif_default');
       const preservedSyncQueue = (this.db.syncQueue || []).filter((sq) => sq.userId !== 'usr_atif_default');
+      const preservedStudyTiers = (this.db.studyTiers || []).filter((st) => st.userId && st.userId !== 'usr_atif_default');
 
       this.db = {
         users: preservedUsers,
@@ -858,6 +860,7 @@ export class DatabaseService {
         subscriptions: preservedSubscriptions,
         auditLogs: preservedAuditLogs,
         syncQueue: preservedSyncQueue,
+        studyTiers: preservedStudyTiers,
       };
       this.ensureSeedDataForUser('usr_atif_default', true);
       this.checkRecurringBills('usr_atif_default');
@@ -882,6 +885,7 @@ export class DatabaseService {
     this.db.studyTopics = (this.db.studyTopics || []).filter((t) => t.userId !== targetUserId);
     this.db.studyRevisions = (this.db.studyRevisions || []).filter((r) => r.userId !== targetUserId);
     this.db.studyMistakes = (this.db.studyMistakes || []).filter((m) => m.userId !== targetUserId);
+    this.db.studyTiers = (this.db.studyTiers || []).filter((st) => st.userId !== targetUserId);
     this.db.auditLogs = (this.db.auditLogs || []).filter((l) => l.userId !== targetUserId);
     this.db.syncQueue = (this.db.syncQueue || []).filter((sq) => sq.userId !== targetUserId);
     this.ensureSeedDataForUser(targetUserId, false);
@@ -906,6 +910,7 @@ export class DatabaseService {
     this.db.studyTopics = (this.db.studyTopics || []).filter((t) => !isTarget(t.userId));
     this.db.studyRevisions = (this.db.studyRevisions || []).filter((r) => !isTarget(r.userId));
     this.db.studyMistakes = (this.db.studyMistakes || []).filter((m) => !isTarget(m.userId));
+    this.db.studyTiers = (this.db.studyTiers || []).filter((st) => st.userId !== targetUserId);
     this.save();
   }
 
@@ -1965,6 +1970,7 @@ export class DatabaseService {
       studyTopics: (this.db.studyTopics || []).filter((t) => t.userId === userId),
       studyRevisions: (this.db.studyRevisions || []).filter((r) => r.userId === userId),
       studyMistakes: (this.db.studyMistakes || []).filter((m) => m.userId === userId),
+      studyTiers: (this.db.studyTiers || []).filter((st) => st.userId === userId),
       auditLogs: (this.db.auditLogs || []).filter((l) => l.userId === userId),
     };
     return backup;
@@ -1981,6 +1987,21 @@ export class DatabaseService {
     const counts: Record<string, number> = {};
     const nowIso = new Date().toISOString();
 
+    if (data.userSettings && typeof data.userSettings === 'object') {
+      const existingIdx = this.db.userSettings.findIndex((s) => s.userId === userId);
+      const restoredSettings = {
+        ...data.userSettings,
+        userId,
+        updatedAt: nowIso,
+      };
+      if (existingIdx >= 0) {
+        this.db.userSettings[existingIdx] = restoredSettings;
+      } else {
+        this.db.userSettings.push(restoredSettings);
+      }
+      counts.userSettings = 1;
+    }
+
     if (Array.isArray(data.tasks)) {
       this.db.tasks = this.db.tasks.filter((t) => t.userId !== userId);
       for (const item of data.tasks) {
@@ -1989,6 +2010,36 @@ export class DatabaseService {
         }
       }
       counts.tasks = this.db.tasks.filter((t) => t.userId === userId).length;
+    }
+
+    if (Array.isArray(data.focusSessions)) {
+      this.db.focusSessions = this.db.focusSessions.filter((s) => s.userId !== userId);
+      for (const item of data.focusSessions) {
+        if (item && item.id) {
+          this.db.focusSessions.push({ ...item, userId });
+        }
+      }
+      counts.focusSessions = this.db.focusSessions.filter((s) => s.userId === userId).length;
+    }
+
+    if (Array.isArray(data.categories)) {
+      this.db.categories = this.db.categories.filter((c) => c.userId !== userId);
+      for (const item of data.categories) {
+        if (item && item.id && item.name) {
+          this.db.categories.push({ ...item, userId });
+        }
+      }
+      counts.categories = this.db.categories.filter((c) => c.userId === userId).length;
+    }
+
+    if (Array.isArray(data.recurringExpenses)) {
+      this.db.recurringExpenses = this.db.recurringExpenses.filter((r) => r.userId !== userId);
+      for (const item of data.recurringExpenses) {
+        if (item && item.id && item.name) {
+          this.db.recurringExpenses.push({ ...item, userId });
+        }
+      }
+      counts.recurringExpenses = this.db.recurringExpenses.filter((r) => r.userId === userId).length;
     }
 
     if (Array.isArray(data.incomeTransactions)) {
@@ -2009,6 +2060,16 @@ export class DatabaseService {
         }
       }
       counts.expenseTransactions = this.db.expenseTransactions.filter((e) => e.userId === userId).length;
+    }
+
+    if (Array.isArray(data.savingsGoals)) {
+      this.db.savingsGoals = this.db.savingsGoals.filter((g) => g.userId !== userId);
+      for (const item of data.savingsGoals) {
+        if (item && item.id && item.title) {
+          this.db.savingsGoals.push({ ...item, userId });
+        }
+      }
+      counts.savingsGoals = this.db.savingsGoals.filter((g) => g.userId === userId).length;
     }
 
     if (Array.isArray(data.bills)) {
@@ -2099,6 +2160,16 @@ export class DatabaseService {
         }
       }
       counts.studyMistakes = this.db.studyMistakes.filter((m) => m.userId === userId).length;
+    }
+
+    if (Array.isArray(data.studyTiers)) {
+      this.db.studyTiers = (this.db.studyTiers || []).filter((st) => st.userId !== userId);
+      for (const item of data.studyTiers) {
+        if (item && item.id && item.name) {
+          this.db.studyTiers.push({ ...item, userId });
+        }
+      }
+      counts.studyTiers = (this.db.studyTiers || []).filter((st) => st.userId === userId).length;
     }
 
     this.recordAuditLog(userId, {
@@ -2357,7 +2428,9 @@ export class DatabaseService {
     if (idx === -1) return null;
 
     const rev = this.db.studyRevisions[idx];
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const userSettings = this.db.userSettings.find((s) => s.userId === userId);
+    const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayDateString(tz);
     const ladder = [1, 3, 7, 14, 30, 60];
     const currentIdx = ladder.indexOf(rev.intervalDays);
 
@@ -2696,13 +2769,23 @@ export class DatabaseService {
     return { vault, invitation };
   }
 
-  public rejectVaultInvitation(inviteCode: string, userId: string): VaultInvitation {
+  public rejectVaultInvitation(inviteCode: string, user: { id: string; email?: string } | string): VaultInvitation {
     this.ensureJointVaultsArrays();
     const code = inviteCode.trim().toUpperCase();
     const invitation = (this.db.vaultInvitations || []).find(
       (inv) => inv.inviteCode === code && inv.status === 'pending'
     );
     if (!invitation) throw new Error('Invalid or already processed invitation');
+
+    if (invitation.invitedEmail) {
+      const email = typeof user === 'object' ? user.email : undefined;
+      const normalizedInvited = invitation.invitedEmail.trim().toLowerCase();
+      const normalizedUser = (email || '').trim().toLowerCase();
+      if (!normalizedUser || normalizedInvited !== normalizedUser) {
+        throw new Error('This invitation was sent to a different email address.');
+      }
+    }
+
     invitation.status = 'rejected';
     this.save();
     return invitation;

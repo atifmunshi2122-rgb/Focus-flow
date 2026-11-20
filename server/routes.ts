@@ -12,6 +12,7 @@ import {
 import { vaultBackendService } from './vaultBackendService.js';
 import { buildDefaultStudyWorkspace } from '../src/data/studySeedData.ts';
 import { AuthenticatedRequest, requireUserContext } from './auth.js';
+import { rateLimiter } from './security.js';
 import {
   DEFAULT_TIMEZONE,
   getTodayDateString,
@@ -73,6 +74,7 @@ export const apiRouter = Router();
 
 // Enforce authenticated token verification (or isolated guest session in non-strict dev/demo mode)
 apiRouter.use(requireUserContext);
+apiRouter.use(rateLimiter({ maxRequests: 300, windowMs: 60_000 }));
 
 const getAuth = (req: Request) => (req as AuthenticatedRequest).auth;
 
@@ -1687,10 +1689,18 @@ apiRouter.put('/finance/expenses/:id', async (req: Request, res: Response, next:
 
   if (categoryId !== undefined) {
     if (typeof categoryId !== 'string' || !categoryId.trim()) {
-      res.status(400).json({ error: 'Invalid categoryId' });
+      res.status(400).json({ error: 'Invalid categoryId', code: 'INVALID_CATEGORY' });
       return;
     }
-    expense.categoryId = categoryId.trim();
+    const trimmedCat = categoryId.trim();
+    const catExists = db.categories.some(
+      (c) => c.id === trimmedCat && (c.userId === userId || c.userId === 'usr_atif_default')
+    );
+    if (!catExists) {
+      res.status(400).json({ error: 'Referenced category does not exist or belongs to another user', code: 'INVALID_CATEGORY' });
+      return;
+    }
+    expense.categoryId = trimmedCat;
   }
 
   if (amountPaise !== undefined) {
@@ -1929,10 +1939,18 @@ apiRouter.put('/finance/recurring/:id', async (req: Request, res: Response, next
 
   if (categoryId !== undefined) {
     if (typeof categoryId !== 'string' || !categoryId.trim()) {
-      res.status(400).json({ error: 'Invalid categoryId' });
+      res.status(400).json({ error: 'Invalid categoryId', code: 'INVALID_CATEGORY' });
       return;
     }
-    rec.categoryId = categoryId.trim();
+    const trimmedCat = categoryId.trim();
+    const catExists = db.categories.some(
+      (c) => c.id === trimmedCat && (c.userId === userId || c.userId === 'usr_atif_default')
+    );
+    if (!catExists) {
+      res.status(400).json({ error: 'Referenced category does not exist or belongs to another user', code: 'INVALID_CATEGORY' });
+      return;
+    }
+    rec.categoryId = trimmedCat;
   }
 
   if (recurrence !== undefined) {

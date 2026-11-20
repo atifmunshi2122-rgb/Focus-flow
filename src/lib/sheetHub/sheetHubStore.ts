@@ -959,45 +959,91 @@ export const sheetHubStore = {
     let mirrorSaved = false;
     let cloudError: Error | null = null;
 
-    // 1. Primary cloud write: users/{userId}/sheet_row_chunks/{chunk.id}
-    if (packed.chunks.length > 0) {
+    if (isSignedInAs(input.userId)) {
+      const newChunkIds = new Set(packed.chunks.map((c) => c.id));
+
+      // 1. Primary cloud write & prune: users/{userId}/sheet_row_chunks/{chunk.id}
       try {
-        for (let i = 0; i < packed.chunks.length; i += 250) {
-          const slice = packed.chunks.slice(i, i + 250);
-          const primaryBatch = writeBatch(db);
-          for (const chunk of slice) {
-            const ref = doc(db, userCollectionPath(input.userId, SHEET_HUB_COLLECTIONS.rowChunks), chunk.id);
-            primaryBatch.set(ref, stripSensitiveFields(chunk as unknown as Record<string, unknown>));
+        const existingSnap = await getDocs(
+          query(
+            collection(db, userCollectionPath(input.userId, SHEET_HUB_COLLECTIONS.rowChunks)),
+            where('tabId', '==', input.tabId)
+          )
+        );
+        const staleDocRefs = existingSnap.docs.filter((d) => !newChunkIds.has(d.id)).map((d) => d.ref);
+
+        const primaryOps: Array<{ type: 'set'; ref: any; data: any } | { type: 'delete'; ref: any }> = [];
+        for (const chunk of packed.chunks) {
+          const ref = doc(db, userCollectionPath(input.userId, SHEET_HUB_COLLECTIONS.rowChunks), chunk.id);
+          primaryOps.push({ type: 'set', ref, data: stripSensitiveFields(chunk as unknown as Record<string, unknown>) });
+        }
+        for (const staleRef of staleDocRefs) {
+          primaryOps.push({ type: 'delete', ref: staleRef });
+        }
+
+        if (primaryOps.length > 0) {
+          for (let i = 0; i < primaryOps.length; i += 250) {
+            const slice = primaryOps.slice(i, i + 250);
+            const primaryBatch = writeBatch(db);
+            for (const op of slice) {
+              if (op.type === 'set') {
+                primaryBatch.set(op.ref, op.data);
+              } else {
+                primaryBatch.delete(op.ref);
+              }
+            }
+            await primaryBatch.commit();
           }
-          await primaryBatch.commit();
         }
         authoritativeSaved = true;
       } catch (err) {
         cloudError = err instanceof Error ? err : new Error(String(err));
-        if (isSignedInAs(input.userId)) {
-          console.error('[SheetHub] Primary Firestore saveTabRowsChunked failed:', err);
-        }
+        console.error('[SheetHub] Primary Firestore saveTabRowsChunked failed:', err);
       }
 
-      // 2. Independent best-effort secondary mirror: nested row_chunks under sheets/{connectionId}/tabs/{tabId}
+      // 2. Independent best-effort secondary mirror & prune: nested row_chunks under sheets/{connectionId}/tabs/{tabId}
       try {
-        for (let i = 0; i < packed.chunks.length; i += 250) {
-          const slice = packed.chunks.slice(i, i + 250);
-          const mirrorBatch = writeBatch(db);
-          for (const chunk of slice) {
-            const nestedRef = doc(
-              db,
-              `users/${input.userId}/sheets/${input.connectionId}/tabs/${input.tabId}/row_chunks/${chunk.id}`
-            );
-            mirrorBatch.set(nestedRef, stripSensitiveFields(chunk as unknown as Record<string, unknown>));
+        const mirrorNestedCol = collection(
+          db,
+          `users/${input.userId}/sheets/${input.connectionId}/tabs/${input.tabId}/row_chunks`
+        );
+        let staleMirrorRefs: any[] = [];
+        try {
+          const mirrorSnap = await getDocs(mirrorNestedCol);
+          staleMirrorRefs = mirrorSnap.docs.filter((d) => !newChunkIds.has(d.id)).map((d) => d.ref);
+        } catch {
+          // Best effort mirror discovery
+        }
+
+        const mirrorOps: Array<{ type: 'set'; ref: any; data: any } | { type: 'delete'; ref: any }> = [];
+        for (const chunk of packed.chunks) {
+          const nestedRef = doc(
+            db,
+            `users/${input.userId}/sheets/${input.connectionId}/tabs/${input.tabId}/row_chunks/${chunk.id}`
+          );
+          mirrorOps.push({ type: 'set', ref: nestedRef, data: stripSensitiveFields(chunk as unknown as Record<string, unknown>) });
+        }
+        for (const staleMirrorRef of staleMirrorRefs) {
+          mirrorOps.push({ type: 'delete', ref: staleMirrorRef });
+        }
+
+        if (mirrorOps.length > 0) {
+          for (let i = 0; i < mirrorOps.length; i += 250) {
+            const slice = mirrorOps.slice(i, i + 250);
+            const mirrorBatch = writeBatch(db);
+            for (const op of slice) {
+              if (op.type === 'set') {
+                mirrorBatch.set(op.ref, op.data);
+              } else {
+                mirrorBatch.delete(op.ref);
+              }
+            }
+            await mirrorBatch.commit();
           }
-          await mirrorBatch.commit();
         }
         mirrorSaved = true;
       } catch (err) {
-        if (isSignedInAs(input.userId)) {
-          console.warn('[SheetHub] Mirror Firestore nested row_chunks warning:', err);
-        }
+        console.warn('[SheetHub] Mirror Firestore nested row_chunks warning:', err);
       }
     } else {
       authoritativeSaved = true;

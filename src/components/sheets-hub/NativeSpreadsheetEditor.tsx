@@ -391,6 +391,7 @@ export const NativeSpreadsheetEditor: React.FC<NativeSpreadsheetEditorProps> = (
     const targetIdx = direction === 'left' ? tabIndex - 1 : tabIndex + 1;
     if (targetIdx < 0 || targetIdx >= tabs.length) return;
 
+    const previousTabs = [...tabs];
     const newTabs = [...tabs];
     const [moved] = newTabs.splice(tabIndex, 1);
     newTabs.splice(targetIdx, 0, moved);
@@ -402,6 +403,7 @@ export const NativeSpreadsheetEditor: React.FC<NativeSpreadsheetEditorProps> = (
       await sheetHubStore.reorderNativeTabs(userId, sheet.id, newOrder);
       onUpdateSheet({ ...sheet, tabOrder: newOrder });
     } catch {
+      onUpdateTabs(previousTabs);
       showToast('Failed to save new tab order.', 'error');
     }
   };

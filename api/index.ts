@@ -1,6 +1,6 @@
 import express from 'express';
 import { apiRouter } from '../server/routes.ts';
-import { securityHeaders, corsHandler, errorHandler, rateLimiter, configureTrustProxy } from '../server/security.ts';
+import { securityHeaders, corsHandler, errorHandler, configureTrustProxy } from '../server/security.ts';
 
 const app = express();
 configureTrustProxy(app, process.env.TRUST_PROXY || 'true');
@@ -21,8 +21,6 @@ const healthCheck = (_req: express.Request, res: express.Response) => {
 };
 app.get('/health', healthCheck);
 app.get('/api/health', healthCheck);
-
-app.use('/api', rateLimiter({ maxRequests: 300, windowMs: 60_000 }));
 
 // Mount API routes on both /api and / to handle all routing scenarios
 app.use('/api', apiRouter);

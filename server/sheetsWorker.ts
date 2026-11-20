@@ -330,6 +330,17 @@ interface SheetRecordLocations {
 }
 
 /**
+ * Properly escapes sheet titles for A1 notation:
+ * If the sheet title contains spaces or special characters, wraps in single quotes and doubles internal single quotes.
+ */
+function escapeSheetTitleForA1(title: string): string {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(title)) {
+    return `'${title.replace(/'/g, "''")}'`;
+  }
+  return title;
+}
+
+/**
  * Pre-fetches existing record IDs and their 1-based row numbers from Column A of target worksheets
  * to guarantee idempotent append, in-place update, and accurate deletion.
  */
@@ -343,7 +354,7 @@ async function fetchExistingRecordLocations(
   if (sheetNames.length === 0) return locMap;
 
   const rangesQuery = sheetNames
-    .map((s) => `ranges=${encodeURIComponent(`${s}!A2:A`)}`)
+    .map((s) => `ranges=${encodeURIComponent(`${escapeSheetTitleForA1(s)}!A2:A`)}`)
     .join('&');
 
   const res = await fetchImpl(
@@ -477,7 +488,7 @@ export async function flushQueueOperations(
           // In-place update of matching row
           const updateRes = await fetchImpl(
             `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
-              `${op.sheetName}!A${existingRow}`
+              `${escapeSheetTitleForA1(op.sheetName)}!A${existingRow}`
             )}?valueInputOption=USER_ENTERED`,
             {
               method: 'PUT',
@@ -499,7 +510,7 @@ export async function flushQueueOperations(
           // If record does not yet exist, append it (upsert)
           const appendRes = await fetchImpl(
             `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
-              `${op.sheetName}!A2:append`
+              `${escapeSheetTitleForA1(op.sheetName)}!A2:append`
             )}?valueInputOption=USER_ENTERED`,
             {
               method: 'POST',
@@ -529,7 +540,7 @@ export async function flushQueueOperations(
           // Safely clear matching row values
           const clearRes = await fetchImpl(
             `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
-              `${op.sheetName}!A${existingRow}:Z${existingRow}`
+              `${escapeSheetTitleForA1(op.sheetName)}!A${existingRow}:Z${existingRow}`
             )}:clear`,
             {
               method: 'POST',
@@ -551,7 +562,7 @@ export async function flushQueueOperations(
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  ranges: [`${op.sheetName}!A${existingRow}:Z${existingRow}`],
+                  ranges: [`${escapeSheetTitleForA1(op.sheetName)}!A${existingRow}:Z${existingRow}`],
                 }),
               }
             );
@@ -583,7 +594,7 @@ export async function flushQueueOperations(
 
         const appendRes = await fetchImpl(
           `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
-            `${op.sheetName}!A2:append`
+            `${escapeSheetTitleForA1(op.sheetName)}!A2:append`
           )}?valueInputOption=USER_ENTERED`,
           {
             method: 'POST',
