@@ -60,6 +60,12 @@ export const SHEET_HUB_WRITE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
 ] as const;
 
+// Universal Sheet Sync Hub Dual-Copy scopes (Drive duplication + Spreadsheets read/write)
+export const SHEET_HUB_DUAL_COPY_SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.file',
+] as const;
+
 // Backward-compatible alias for existing tests and legacy references
 export const GOOGLE_SHEETS_SCOPES = LEGACY_SHEETS_SCOPES;
 
@@ -113,6 +119,24 @@ export function createSheetHubReadOnlyProvider(loginHint?: string | null): Googl
 export function createSheetHubWriteProvider(loginHint?: string | null): GoogleAuthProvider {
   const provider = new GoogleAuthProvider();
   for (const scope of SHEET_HUB_WRITE_SCOPES) {
+    provider.addScope(scope);
+  }
+  const params: Record<string, string> = {
+    prompt: loginHint ? 'consent' : 'select_account consent',
+  };
+  if (loginHint) {
+    params.login_hint = loginHint;
+  }
+  provider.setCustomParameters(params);
+  return provider;
+}
+
+/**
+ * Creates provider for Universal Sheet Sync Hub Dual-Copy (Drive Duplicate + Spreadsheets).
+ */
+export function createSheetHubDualCopyProvider(loginHint?: string | null): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  for (const scope of SHEET_HUB_DUAL_COPY_SCOPES) {
     provider.addScope(scope);
   }
   const params: Record<string, string> = {
@@ -322,6 +346,38 @@ export const authorizeSheetHubWrite = createSingleFlightRunner(
       return { user: result.user, accessToken };
     } catch (error) {
       console.error('Google Sheets write authorization error:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
+    }
+  }
+);
+
+// Incremental Google Drive & Sheets authorization for Dual-Copy Google Drive Duplicate + Two-Way Sync
+export const authorizeSheetHubDualCopy = createSingleFlightRunner(
+  async (loginHint?: string | null): Promise<{ user: User; accessToken: string }> => {
+    try {
+      isSigningIn = true;
+      const activeUser = auth.currentUser;
+      const provider = createSheetHubDualCopyProvider(loginHint || activeUser?.email || null);
+      const result = activeUser
+        ? await reauthenticateWithPopup(activeUser, provider)
+        : await signInWithPopup(auth, provider);
+
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken || '';
+      if (!accessToken) {
+        const err = new Error(
+          'Google did not return an OAuth access token for Drive & Sheets. Please retry and approve permissions.'
+        ) as Error & { code?: string };
+        err.code = 'auth/missing-access-token';
+        throw err;
+      }
+
+      cachedSheetHubWriteAccessToken = accessToken;
+      return { user: result.user, accessToken };
+    } catch (error) {
+      console.error('Google Drive & Sheets authorization error:', error);
       throw error;
     } finally {
       isSigningIn = false;

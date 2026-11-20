@@ -287,15 +287,56 @@ async function attemptNativeOAuthWrite(
 
   // 2. We have a token — try the write.
   try {
+    const updates: Array<{
+      sheetTitle: string;
+      rowNumber: number;
+      colLetter: string;
+      value: boolean;
+    }> = [{
+      sheetTitle: matchingTab.sheetTitle,
+      rowNumber,
+      colLetter,
+      value: isCompleted,
+    }];
+
+    // If Dual-Copy: also sync to "Progress Tracker" tab
+    if (conn.isDualCopy) {
+      try {
+        const tabs = await sheetHubStore.listTabsForConnection(userId, conn.id);
+        const trackerTab = tabs.find((t) => t.sheetTitle.toLowerCase() === 'progress tracker');
+        if (trackerTab) {
+          const trackerRows = await sheetHubStore.loadTabRows(userId, trackerTab.id, conn.id);
+          const matchedTrackerRow = trackerRows.find((r) =>
+            (r.values.unit || '') === (topic.unit || '') &&
+            (r.values.topic || '') === (topic.topic || '') &&
+            (!topic.subtopic || (r.values.subtopic || '') === (topic.subtopic || ''))
+          );
+          if (matchedTrackerRow && matchedTrackerRow.lastKnownSheetRow) {
+            updates.push({
+              sheetTitle: trackerTab.sheetTitle,
+              rowNumber: matchedTrackerRow.lastKnownSheetRow,
+              colLetter: 'D',
+              value: isCompleted,
+            });
+            matchedTrackerRow.values.done = isCompleted;
+            matchedTrackerRow.values.lastSynced = new Date().toISOString();
+            await sheetHubStore.saveTabRowsChunked({
+              userId,
+              connectionId: conn.id,
+              tabId: trackerTab.id,
+              rows: trackerRows,
+            });
+          }
+        }
+      } catch (trackerErr) {
+        console.warn('[SheetStudySync] Notice: Progress Tracker writeback error:', trackerErr);
+      }
+    }
+
     await api.sheetHubPushCells(
       {
         spreadsheetId: conn.spreadsheetId,
-        updates: [{
-          sheetTitle: matchingTab.sheetTitle,
-          rowNumber,
-          colLetter,
-          value: isCompleted,
-        }],
+        updates,
       },
       writeToken
     );
@@ -688,4 +729,150 @@ export async function syncStudyTopicCompletionToGoogleSheets(
     console.error('[SheetStudySync] Unexpected error in syncStudyTopicCompletionToGoogleSheets:', err);
     return { status: 'error', synced: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * Direction B: Google Drive Copy → FocusFlow Firestore Two-Way Sync
+ * Pulls latest values from the user's Drive duplicate, reconciles with Firestore native copy,
+ * handles row shifts via composite keys, and records 3-way merge conflicts when detected.
+ */
+export async function pullDualCopyChangesFromDrive(
+  userId: string,
+  connectionId: string,
+  customToken?: string
+): Promise<{
+  updatedCells: number;
+  conflictsDetected: number;
+  lastSyncedAt: string;
+}> {
+  const conn = await sheetHubStore.getConnection(userId, connectionId);
+  if (!conn || !conn.spreadsheetId) {
+    throw new Error(`Connection "${connectionId}" not found.`);
+  }
+
+  const token = customToken || (await getSheetHubWriteAccessToken());
+  if (!token) {
+    throw new Error('Google Drive/Sheets access token required for synchronization.');
+  }
+
+  const tabs = await sheetHubStore.listTabsForConnection(userId, connectionId);
+  const tabsToPull = tabs.map((t) => ({
+    sheetId: t.sheetId,
+    sheetTitle: t.sheetTitle,
+    headerRowIndex: t.headerRowIndex || 1,
+  }));
+
+  const pullRes = await api.sheetHubPull(
+    {
+      spreadsheetId: conn.spreadsheetId,
+      tabs: tabsToPull,
+    },
+    token
+  );
+
+  let updatedCells = 0;
+  let conflictsDetected = 0;
+  const nowIso = new Date().toISOString();
+
+  for (const tabSchema of tabs) {
+    const pulledTab = pullRes.tabs.find((pt) => pt.sheetTitle === tabSchema.sheetTitle);
+    if (!pulledTab) continue;
+
+    const localRows = await sheetHubStore.loadTabRows(userId, tabSchema.id, connectionId);
+    let tabModified = false;
+
+    for (const pulledRow of pulledTab.rows) {
+      // Find matching local row by composite key or physical row
+      const keyCols = tabSchema.identityColumns && tabSchema.identityColumns.length > 0
+        ? tabSchema.identityColumns
+        : ['unit', 'topic', 'subtopic'];
+
+      const rowValues = pulledRow.values;
+      const matchedLocalRow = localRows.find((lr) => {
+        return keyCols.every((colKey) => {
+          const colDef = tabSchema.columns.find((c) => c.fieldKey === colKey);
+          if (!colDef) return true;
+          const remoteVal = String(rowValues[colDef.colIndex] ?? '').trim();
+          const localVal = String(lr.values[colKey] ?? '').trim();
+          return remoteVal.toLowerCase() === localVal.toLowerCase();
+        });
+      }) || localRows.find((lr) => lr.lastKnownSheetRow === pulledRow.sheetRowNumber);
+
+      if (!matchedLocalRow) continue;
+
+      // Update physical row cache in case rows shifted
+      matchedLocalRow.lastKnownSheetRow = pulledRow.sheetRowNumber;
+
+      // 3-way reconciliation on editable fields
+      for (const col of tabSchema.columns) {
+        if (!col.editable) continue;
+        const remoteVal = rowValues[col.colIndex] ?? null;
+        const baseVal = matchedLocalRow.baseValues[col.fieldKey] ?? null;
+        const localVal = matchedLocalRow.values[col.fieldKey] ?? null;
+
+        // Check if remote value changed
+        if (remoteVal !== baseVal) {
+          // If local ALSO changed and differs from remote -> Conflict!
+          if (localVal !== baseVal && localVal !== remoteVal) {
+            conflictsDetected++;
+            matchedLocalRow.status = 'conflict';
+            try {
+              await sheetHubStore.saveConflict(userId, {
+                id: `conflict_${connectionId}_${matchedLocalRow.rowUid}_${col.fieldKey}`,
+                connectionId,
+                tabId: tabSchema.id,
+                userId,
+                rowUid: matchedLocalRow.rowUid,
+                fieldKey: col.fieldKey,
+                fieldLabel: col.displayName || col.headerName,
+                baseValue: baseVal,
+                localValue: localVal,
+                remoteValue: remoteVal,
+                status: 'open',
+                resolution: null,
+                detectedAt: nowIso,
+                resolvedAt: null,
+              });
+            } catch (err) {
+              console.warn('[SheetStudySync] Could not save conflict record:', err);
+            }
+          } else {
+            // No local conflict -> adopt remote value cleanly!
+            matchedLocalRow.values[col.fieldKey] = remoteVal;
+            matchedLocalRow.baseValues[col.fieldKey] = remoteVal;
+            matchedLocalRow.status = 'synced';
+            matchedLocalRow.sheetSyncedAt = nowIso;
+            updatedCells++;
+            tabModified = true;
+          }
+        }
+      }
+    }
+
+    if (tabModified) {
+      await sheetHubStore.saveTabRowsChunked({
+        userId,
+        connectionId,
+        tabId: tabSchema.id,
+        rows: localRows,
+      });
+    }
+  }
+
+  // Update connection sync timestamps
+  await sheetHubStore.saveConnection(userId, {
+    ...conn,
+    lastSyncedAt: nowIso,
+    lastSuccessfulPullAt: nowIso,
+    lastDriveSyncAt: nowIso,
+    driveSyncStatus: conflictsDetected > 0 ? 'conflict' : 'synced',
+    conflictCount: conflictsDetected,
+    updatedAt: nowIso,
+  }, { force: true });
+
+  return {
+    updatedCells,
+    conflictsDetected,
+    lastSyncedAt: nowIso,
+  };
 }

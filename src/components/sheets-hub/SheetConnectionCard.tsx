@@ -15,6 +15,7 @@ import {
   Layers,
   Database,
   Lock,
+  FolderSync,
 } from 'lucide-react';
 import type { SheetConnection } from '../../types/sheetHub.ts';
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeModal } from '../ui/ThemePrimitives.tsx';
@@ -80,7 +81,19 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
                 >
                   {connection.title}
                 </h3>
-                {connection.isNative ? (
+                {connection.isDualCopy ? (
+                  <a
+                    href={connection.driveFileId ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(connection.driveFileId)}/edit` : connection.spreadsheetUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-xs text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 inline-flex items-center gap-1 mt-0.5 truncate max-w-[220px] font-medium"
+                    title="Open duplicated copy in Google Drive"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span>Google Drive Copy</span>
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                ) : connection.isNative ? (
                   <span className="text-xs text-[var(--ff-accent-text)] inline-flex items-center gap-1 mt-0.5 truncate font-medium">
                     <Database className="w-3 h-3 shrink-0" />
                     <span>Native Firestore</span>
@@ -142,16 +155,44 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
                       <span>Check Google Auth</span>
                     </button>
 
-                    <a
-                      href={connection.spreadsheetUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      onClick={() => setMenuOpen(false)}
-                      className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-primary)]"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
-                      <span>Open in Google Sheets</span>
-                    </a>
+                    {connection.isDualCopy && connection.driveFileId && (
+                      <a
+                        href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(connection.driveFileId)}/edit`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        onClick={() => setMenuOpen(false)}
+                        className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-[var(--ff-surface-hover)] text-emerald-600 dark:text-emerald-400 font-medium"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Open Drive Duplicate</span>
+                      </a>
+                    )}
+
+                    {connection.sourceSpreadsheetId && (
+                      <a
+                        href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(connection.sourceSpreadsheetId)}/edit`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        onClick={() => setMenuOpen(false)}
+                        className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-muted)]"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>View Original Source</span>
+                      </a>
+                    )}
+
+                    {!connection.isDualCopy && (
+                      <a
+                        href={connection.spreadsheetUrl}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        onClick={() => setMenuOpen(false)}
+                        className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-primary)]"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Open in Google Sheets</span>
+                      </a>
+                    )}
 
                     <div className="border-t border-[var(--ff-border-color)] my-1" />
 
@@ -174,6 +215,11 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
 
           {/* Status Badge */}
           <div className="flex flex-wrap items-center gap-2 mb-4">
+            {connection.isDualCopy && (
+              <ThemeBadge tone="success" className="text-xs flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold">
+                <FolderSync className="w-3 h-3" /> Dual-Copy
+              </ThemeBadge>
+            )}
             {connection.isNative && (
               <ThemeBadge tone="neutral" className="text-xs flex items-center gap-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold">
                 <Database className="w-3 h-3" /> Native Sheet

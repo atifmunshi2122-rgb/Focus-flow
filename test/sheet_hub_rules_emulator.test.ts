@@ -685,3 +685,65 @@ test('Sheet Hub Rules — Denies cross-user reads/writes, unauthenticated access
   );
 });
 
+test('Sheet Hub Rules — Dual-Copy Drive sync fields allowed and strictly validated', { skip: skipReason }, async () => {
+  const ownerUid = 'usr_sh_owner_dualcopy';
+  const ownerJwt = makeEmulatorJwt(ownerUid);
+
+  const validDualCopyConn = {
+    id: 'conn_dual_1',
+    userId: ownerUid,
+    spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+    spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
+    title: 'Dual Copy Sheet',
+    templateHint: 'tracker',
+    syncMode: 'two_way',
+    pollIntervalSec: 60,
+    syncOnOpen: true,
+    status: 'active',
+    lastSyncedAt: NOW_ISO,
+    lastSuccessfulPullAt: NOW_ISO,
+    lastSuccessfulPushAt: NOW_ISO,
+    lastError: null,
+    pendingChangesCount: 0,
+    conflictCount: 0,
+    tabOrder: [],
+    createdAt: NOW_ISO,
+    updatedAt: NOW_ISO,
+    deletedAt: null,
+    isDualCopy: true,
+    driveFileId: '1AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789',
+    sourceSpreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+    nativeSheetId: 'native_sheet_abc123',
+    lastDriveSyncAt: NOW_ISO,
+    driveSyncStatus: 'synced',
+    lastDriveModifiedTime: NOW_ISO,
+  };
+
+  // Valid create with dual-copy fields
+  assert.equal(await fsWrite(`users/${ownerUid}/sheet_connections/conn_dual_1`, validDualCopyConn, ownerJwt), 200);
+
+  // Invalid driveSyncStatus enum rejected
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheet_connections/conn_dual_bad_status`,
+      { ...validDualCopyConn, id: 'conn_dual_bad_status', driveSyncStatus: 'invalid_status' },
+      ownerJwt
+    ),
+    403
+  );
+
+  // Invalid isDualCopy type rejected
+  assert.equal(
+    await fsWrite(
+      `users/${ownerUid}/sheet_connections/conn_dual_bad_type`,
+      { ...validDualCopyConn, id: 'conn_dual_bad_type', isDualCopy: 'not_a_bool' },
+      ownerJwt
+    ),
+    403
+  );
+
+  // Clean up
+  await fsDelete(`users/${ownerUid}/sheet_connections/conn_dual_1`, ownerJwt);
+});
+
+

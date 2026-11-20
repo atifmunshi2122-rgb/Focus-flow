@@ -191,6 +191,13 @@ function normalizeConnectionForFirestore(userId: string, connection: SheetConnec
     schemaVersion: typeof connection.schemaVersion === 'number' ? connection.schemaVersion : 1,
     sortOrder: typeof connection.sortOrder === 'number' ? connection.sortOrder : 0,
     isNative: isNative,
+    isDualCopy: typeof connection.isDualCopy === 'boolean' ? connection.isDualCopy : false,
+    driveFileId: connection.driveFileId ? String(connection.driveFileId).trim() : null,
+    sourceSpreadsheetId: connection.sourceSpreadsheetId ? String(connection.sourceSpreadsheetId).trim() : null,
+    nativeSheetId: connection.nativeSheetId ? String(connection.nativeSheetId).trim() : null,
+    lastDriveSyncAt: connection.lastDriveSyncAt || null,
+    driveSyncStatus: connection.driveSyncStatus || (connection.driveFileId ? 'synced' : 'not_connected'),
+    lastDriveModifiedTime: connection.lastDriveModifiedTime || null,
     createdAt: connection.createdAt || nowIso,
     updatedAt: connection.updatedAt || nowIso,
     deletedAt: connection.deletedAt ?? null,
@@ -265,72 +272,72 @@ export const sheetHubStore = {
       await waitForInitialAuth().catch(() => null);
     }
 
-    try {
-      const mergedById = new Map<string, SheetConnection>();
-
-      // 1. Primary query index: users/{userId}/sheet_connections
+    if (isSignedInAs(userId)) {
       try {
-        const connSnap = await getDocs(
-          collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections))
-        );
-        for (const d of connSnap.docs) {
-          const item = d.data() as SheetConnection;
-          if (!item.deletedAt) mergedById.set(item.id, item);
-        }
-      } catch (connErr) {
-        if (isSignedInAs(userId)) {
-          console.warn('[SheetHub] Primary index sheet_connections fetch failed:', connErr);
-        }
-      }
+        const mergedById = new Map<string, SheetConnection>();
 
-      // 2. Authoritative canonical storage: users/{userId}/sheets (merge any docs present only there)
-      const missingInIndex: SheetConnection[] = [];
-      try {
-        const sheetsSnap = await getDocs(
-          collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets))
-        );
-        for (const d of sheetsSnap.docs) {
-          const item = d.data() as SheetConnection;
-          if (item.deletedAt) continue;
-          const existing = mergedById.get(item.id);
-          if (!existing) {
-            mergedById.set(item.id, item);
-            missingInIndex.push(item);
-          } else if ((item.updatedAt || '') > (existing.updatedAt || '')) {
-            mergedById.set(item.id, item);
-            missingInIndex.push(item);
+        // 1. Primary query index: users/{userId}/sheet_connections
+        try {
+          const connSnap = await getDocs(
+            collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections))
+          );
+          for (const d of connSnap.docs) {
+            const item = d.data() as SheetConnection;
+            if (!item.deletedAt) mergedById.set(item.id, item);
+          }
+        } catch (connErr) {
+          if (isSignedInAs(userId)) {
+            console.warn('[SheetHub] Primary index sheet_connections fetch failed:', connErr);
           }
         }
-      } catch (sheetsErr) {
-        if (isSignedInAs(userId)) {
-          console.warn('[SheetHub] Canonical sheets fetch warning:', sheetsErr);
-        }
-      }
 
-      // 3. Safe reconciliation and missing-index repair: backfill canonical records into sheet_connections
-      if (isSignedInAs(userId) && missingInIndex.length > 0) {
-        for (const item of missingInIndex) {
-          setDoc(
-            doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), item.id),
-            normalizeConnectionForFirestore(userId, item)
-          ).catch((e) => console.warn('[SheetHub] Safe index repair deferred:', e));
-        }
-      }
-
-      // If Firestore read did not find records or in offline mode, merge local fallback records
-      if (mergedById.size === 0) {
-        const local = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
-        for (const c of local) {
-          if (!c.deletedAt && !mergedById.has(c.id)) {
-            mergedById.set(c.id, c);
+        // 2. Authoritative canonical storage: users/{userId}/sheets (merge any docs present only there)
+        const missingInIndex: SheetConnection[] = [];
+        try {
+          const sheetsSnap = await getDocs(
+            collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets))
+          );
+          for (const d of sheetsSnap.docs) {
+            const item = d.data() as SheetConnection;
+            if (item.deletedAt) continue;
+            const existing = mergedById.get(item.id);
+            if (!existing) {
+              mergedById.set(item.id, item);
+              missingInIndex.push(item);
+            } else if ((item.updatedAt || '') > (existing.updatedAt || '')) {
+              mergedById.set(item.id, item);
+              missingInIndex.push(item);
+            }
+          }
+        } catch (sheetsErr) {
+          if (isSignedInAs(userId)) {
+            console.warn('[SheetHub] Canonical sheets fetch warning:', sheetsErr);
           }
         }
-      }
 
-      // Automatic Local-to-Cloud reconciliation for signed-in users:
-      // If a sheet was previously saved only to localStorage on this device (e.g. offline, guest, or earlier rule rejection),
-      // upload it + its tabs + row chunks to Firestore so it immediately appears on all other devices logged into this Gmail.
-      if (isSignedInAs(userId)) {
+        // 3. Safe reconciliation and missing-index repair: backfill canonical records into sheet_connections
+        if (missingInIndex.length > 0) {
+          for (const item of missingInIndex) {
+            setDoc(
+              doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), item.id),
+              normalizeConnectionForFirestore(userId, item)
+            ).catch((e) => console.warn('[SheetHub] Safe index repair deferred:', e));
+          }
+        }
+
+        // If Firestore read did not find records or in offline mode, merge local fallback records
+        if (mergedById.size === 0) {
+          const local = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
+          for (const c of local) {
+            if (!c.deletedAt && !mergedById.has(c.id)) {
+              mergedById.set(c.id, c);
+            }
+          }
+        }
+
+        // Automatic Local-to-Cloud reconciliation for signed-in users:
+        // If a sheet was previously saved only to localStorage on this device (e.g. offline, guest, or earlier rule rejection),
+        // upload it + its tabs + row chunks to Firestore so it immediately appears on all other devices logged into this Gmail.
         const localCandidates: Array<{ sourceUserId: string; conn: SheetConnection }> = [];
         for (const sourceUid of [userId, 'usr_guest', 'usr_1']) {
           const localList = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${sourceUid}`, []);
@@ -382,26 +389,27 @@ export const sheetHubStore = {
             console.warn('[SheetHub] Deferred local-to-cloud sheet migration:', migrateErr);
           }
         }
-      }
 
-      const items = Array.from(mergedById.values())
-        .filter((c) => !c.deletedAt)
-        .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+        const items = Array.from(mergedById.values())
+          .filter((c) => !c.deletedAt)
+          .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
-      clientDataCache.set(cacheKey, items, userId);
-      writeLocalFallback(`ff_sheethub_conns_${userId}`, items);
-      return items;
-    } catch (err) {
-      if (isSignedInAs(userId)) {
-        console.error('[SheetHub] Firestore listConnections failed:', err);
+        clientDataCache.set(cacheKey, items, userId);
+        writeLocalFallback(`ff_sheethub_conns_${userId}`, items);
+        return items;
+      } catch (err) {
+        if (isSignedInAs(userId)) {
+          console.error('[SheetHub] Firestore listConnections failed:', err);
+        }
       }
-      // Local fallback for guest or offline mode (do NOT cache empty failure state in clientDataCache)
-      const local = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
-      if (!isSignedInAs(userId)) {
-        clientDataCache.set(cacheKey, local, userId);
-      }
-      return local;
     }
+
+    // Local fallback for guest or offline mode (do NOT cache empty failure state in clientDataCache)
+    const local = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
+    if (!isSignedInAs(userId)) {
+      clientDataCache.set(cacheKey, local, userId);
+    }
+    return local;
   },
 
   async getConnection(userId: string, connectionId: string): Promise<SheetConnection | null> {
@@ -409,31 +417,33 @@ export const sheetHubStore = {
     if (userId !== 'usr_guest' && userId !== 'usr_1') {
       await waitForInitialAuth().catch(() => null);
     }
-    try {
-      // 1. Check canonical document first (authoritative source of truth)
-      const canonicalSnap = await getDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId)
-      );
-      if (canonicalSnap.exists()) {
-        const canonical = canonicalSnap.data() as SheetConnection;
-        return canonical;
-      }
+    if (isSignedInAs(userId)) {
+      try {
+        // 1. Check canonical document first (authoritative source of truth)
+        const canonicalSnap = await getDoc(
+          doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId)
+        );
+        if (canonicalSnap.exists()) {
+          const canonical = canonicalSnap.data() as SheetConnection;
+          return canonical;
+        }
 
-      // 2. Fallback check secondary query index: users/{userId}/sheet_connections
-      const snap = await getDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId)
-      );
-      if (snap.exists()) {
-        const item = snap.data() as SheetConnection;
-        if (isSignedInAs(userId)) {
+        // 2. Fallback check secondary query index: users/{userId}/sheet_connections
+        const snap = await getDoc(
+          doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId)
+        );
+        if (snap.exists()) {
+          const item = snap.data() as SheetConnection;
           setDoc(
             doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId),
             normalizeConnectionForFirestore(userId, item)
           ).catch(() => {});
+          return item;
         }
-        return item;
+      } catch (err) {
+        console.warn('[SheetHub] Firestore getConnection fetch failed:', err);
       }
-    } catch {}
+    }
     const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
     return conns.find((c) => c.id === connectionId) || null;
   },
@@ -489,29 +499,27 @@ export const sheetHubStore = {
     let indexError: Error | null = null;
 
     // 1. Authoritative canonical persistence: users/{userId}/sheets/{connection.id}
-    try {
-      await setDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connection.id),
-        sanitized
-      );
-      canonicalSaved = true;
-    } catch (err) {
-      canonicalError = err instanceof Error ? err : new Error(String(err));
-      if (isSignedInAs(userId)) {
+    if (isSignedInAs(userId)) {
+      try {
+        await setDoc(
+          doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connection.id),
+          sanitized
+        );
+        canonicalSaved = true;
+      } catch (err) {
+        canonicalError = err instanceof Error ? err : new Error(String(err));
         console.error('[SheetHub] Authoritative canonical Firestore saveConnection failed:', err);
       }
-    }
 
-    // 2. Query index mirror: users/{userId}/sheet_connections/{connection.id}
-    try {
-      await setDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connection.id),
-        sanitized
-      );
-      indexSaved = true;
-    } catch (err) {
-      indexError = err instanceof Error ? err : new Error(String(err));
-      if (isSignedInAs(userId)) {
+      // 2. Query index mirror: users/{userId}/sheet_connections/{connection.id}
+      try {
+        await setDoc(
+          doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connection.id),
+          sanitized
+        );
+        indexSaved = true;
+      } catch (err) {
+        indexError = err instanceof Error ? err : new Error(String(err));
         console.warn('[SheetHub] Secondary index sheet_connections write warning:', err);
       }
     }
@@ -751,45 +759,48 @@ export const sheetHubStore = {
       await waitForInitialAuth().catch(() => null);
     }
 
-    try {
-      const q = query(
-        collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs)),
-        where('connectionId', '==', connectionId)
-      );
-      const snap = await getDocs(q);
-      const byId = new Map<string, SheetTabSchema>();
-      for (const d of snap.docs) {
-        const t = d.data() as SheetTabSchema;
-        byId.set(t.id, t);
-      }
+    if (isSignedInAs(userId)) {
+      try {
+        const q = query(
+          collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs)),
+          where('connectionId', '==', connectionId)
+        );
+        const snap = await getDocs(q);
+        const byId = new Map<string, SheetTabSchema>();
+        for (const d of snap.docs) {
+          const t = d.data() as SheetTabSchema;
+          byId.set(t.id, t);
+        }
 
-      // Also check nested canonical mirror tabs if primary was empty
-      if (byId.size === 0) {
-        try {
-          const nestedSnap = await getDocs(
-            collection(db, `users/${userId}/sheets/${connectionId}/tabs`)
-          );
-          for (const d of nestedSnap.docs) {
-            const t = d.data() as SheetTabSchema;
-            byId.set(t.id, t);
-          }
-        } catch {}
-      }
+        // Also check nested canonical mirror tabs if primary was empty
+        if (byId.size === 0) {
+          try {
+            const nestedSnap = await getDocs(
+              collection(db, `users/${userId}/sheets/${connectionId}/tabs`)
+            );
+            for (const d of nestedSnap.docs) {
+              const t = d.data() as SheetTabSchema;
+              byId.set(t.id, t);
+            }
+          } catch {}
+        }
 
-      const tabs = Array.from(byId.values());
-      clientDataCache.set(cacheKey, tabs, userId);
-      writeLocalFallback(`ff_sheethub_tabs_${userId}_${connectionId}`, tabs);
-      return tabs;
-    } catch (err) {
-      if (isSignedInAs(userId)) {
-        console.error('[SheetHub] Firestore listTabsForConnection failed:', err);
+        const tabs = Array.from(byId.values());
+        clientDataCache.set(cacheKey, tabs, userId);
+        writeLocalFallback(`ff_sheethub_tabs_${userId}_${connectionId}`, tabs);
+        return tabs;
+      } catch (err) {
+        if (isSignedInAs(userId)) {
+          console.error('[SheetHub] Firestore listTabsForConnection failed:', err);
+        }
       }
-      const local = readLocalFallback<SheetTabSchema[]>(`ff_sheethub_tabs_${userId}_${connectionId}`, []);
-      if (!isSignedInAs(userId)) {
-        clientDataCache.set(cacheKey, local, userId);
-      }
-      return local;
     }
+
+    const local = readLocalFallback<SheetTabSchema[]>(`ff_sheethub_tabs_${userId}_${connectionId}`, []);
+    if (!isSignedInAs(userId)) {
+      clientDataCache.set(cacheKey, local, userId);
+    }
+    return local;
   },
 
   async saveTabSchema(userId: string, tab: SheetTabSchema): Promise<SheetTabSchema> {
@@ -807,23 +818,21 @@ export const sheetHubStore = {
     let mirrorSaved = false;
     let cloudError: Error | null = null;
 
-    // Primary write in sheet_tabs
-    try {
-      await setDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tab.id), sanitized);
-      authoritativeSaved = true;
-    } catch (err) {
-      cloudError = err instanceof Error ? err : new Error(String(err));
-      if (isSignedInAs(userId)) {
+    if (isSignedInAs(userId)) {
+      // Primary write in sheet_tabs
+      try {
+        await setDoc(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tab.id), sanitized);
+        authoritativeSaved = true;
+      } catch (err) {
+        cloudError = err instanceof Error ? err : new Error(String(err));
         console.error('[SheetHub] Primary Firestore saveTabSchema failed:', err);
       }
-    }
 
-    // Mirror write in canonical nested tabs
-    try {
-      await setDoc(doc(db, `users/${userId}/sheets/${tab.connectionId}/tabs/${tab.id}`), sanitized);
-      mirrorSaved = true;
-    } catch (err) {
-      if (isSignedInAs(userId)) {
+      // Mirror write in canonical nested tabs
+      try {
+        await setDoc(doc(db, `users/${userId}/sheets/${tab.connectionId}/tabs/${tab.id}`), sanitized);
+        mirrorSaved = true;
+      } catch (err) {
         console.warn('[SheetHub] Mirror Firestore nested tab write warning:', err);
       }
     }
@@ -864,67 +873,70 @@ export const sheetHubStore = {
       await waitForInitialAuth().catch(() => null);
     }
 
-    try {
-      const q = query(
-        collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)),
-        where('tabId', '==', tabId)
-      );
-      const snap = await getDocs(q);
-      const chunks = snap.docs
-        .map((d) => d.data() as SheetRowChunk)
-        .sort((a, b) => a.chunkIndex - b.chunkIndex);
+    if (isSignedInAs(userId)) {
+      try {
+        const q = query(
+          collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)),
+          where('tabId', '==', tabId)
+        );
+        const snap = await getDocs(q);
+        const chunks = snap.docs
+          .map((d) => d.data() as SheetRowChunk)
+          .sort((a, b) => a.chunkIndex - b.chunkIndex);
 
-      const rowMap = new Map<string, SheetSyncedRow>();
-      for (const chunk of chunks) {
-        for (const row of Object.values(chunk.rows || {})) {
-          if (row && row.rowUid) {
-            rowMap.set(row.rowUid, row);
-          }
-        }
-      }
-
-      // Check canonical nested path if primary chunks were empty
-      if (rowMap.size === 0 && sheetId) {
-        try {
-          const nestedSnap = await getDocs(
-            collection(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}/row_chunks`)
-          );
-          const nestedChunks = nestedSnap.docs
-            .map((d) => d.data() as SheetRowChunk)
-            .sort((a, b) => a.chunkIndex - b.chunkIndex);
-          for (const chunk of nestedChunks) {
-            for (const row of Object.values(chunk.rows || {})) {
-              if (row && row.rowUid) {
-                rowMap.set(row.rowUid, row);
-              }
+        const rowMap = new Map<string, SheetSyncedRow>();
+        for (const chunk of chunks) {
+          for (const row of Object.values(chunk.rows || {})) {
+            if (row && row.rowUid) {
+              rowMap.set(row.rowUid, row);
             }
           }
-        } catch {}
-      }
+        }
 
-      if (rowMap.size > 0) {
-        const rows = Array.from(rowMap.values()).sort(
-          (a, b) => (a.lastKnownSheetRow ?? a.rowIndex ?? 0) - (b.lastKnownSheetRow ?? b.rowIndex ?? 0)
-        );
-        clientDataCache.set(cacheKey, rows, userId);
-        writeLocalFallback(`ff_sheethub_rows_${userId}_${tabId}`, rows);
-        return rows;
-      }
+        // Check canonical nested path if primary chunks were empty
+        if (rowMap.size === 0 && sheetId) {
+          try {
+            const nestedSnap = await getDocs(
+              collection(db, `users/${userId}/sheets/${sheetId}/tabs/${tabId}/row_chunks`)
+            );
+            const nestedChunks = nestedSnap.docs
+              .map((d) => d.data() as SheetRowChunk)
+              .sort((a, b) => a.chunkIndex - b.chunkIndex);
+            for (const chunk of nestedChunks) {
+              for (const row of Object.values(chunk.rows || {})) {
+                if (row && row.rowUid) {
+                  rowMap.set(row.rowUid, row);
+                }
+              }
+            }
+          } catch {}
+        }
 
-      // Fallback to local store if firestore had no records
-      const local = readLocalFallback<SheetSyncedRow[]>(`ff_sheethub_rows_${userId}_${tabId}`, []);
-      clientDataCache.set(cacheKey, local, userId);
-      return local;
-    } catch (err) {
-      if (isSignedInAs(userId)) {
-        console.error('[SheetHub] Firestore loadTabRows failed:', err);
-      }
-      const local = readLocalFallback<SheetSyncedRow[]>(`ff_sheethub_rows_${userId}_${tabId}`, []);
-      if (!isSignedInAs(userId)) {
+        if (rowMap.size > 0) {
+          const rows = Array.from(rowMap.values()).sort(
+            (a, b) => (a.lastKnownSheetRow ?? a.rowIndex ?? 0) - (b.lastKnownSheetRow ?? b.rowIndex ?? 0)
+          );
+          clientDataCache.set(cacheKey, rows, userId);
+          writeLocalFallback(`ff_sheethub_rows_${userId}_${tabId}`, rows);
+          return rows;
+        }
+
+        // Fallback to local store if firestore had no records
+        const local = readLocalFallback<SheetSyncedRow[]>(`ff_sheethub_rows_${userId}_${tabId}`, []);
         clientDataCache.set(cacheKey, local, userId);
+        return local;
+      } catch (err) {
+        if (isSignedInAs(userId)) {
+          console.error('[SheetHub] Firestore loadTabRows failed:', err);
+        }
       }
-      return local;
     }
+
+    const local = readLocalFallback<SheetSyncedRow[]>(`ff_sheethub_rows_${userId}_${tabId}`, []);
+    if (!isSignedInAs(userId)) {
+      clientDataCache.set(cacheKey, local, userId);
+    }
+    return local;
   },
 
   /**
@@ -1091,14 +1103,72 @@ export const sheetHubStore = {
 
   async listOpenConflicts(userId: string, connectionId: string): Promise<SheetConflict[]> {
     assertValidUserId(userId);
-    const q = query(
-      collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts)),
-      where('connectionId', '==', connectionId)
-    );
-    const snap = await getDocs(q);
-    return snap.docs
-      .map((d) => d.data() as SheetConflict)
-      .filter((c) => c.status === 'open');
+    if (isSignedInAs(userId)) {
+      try {
+        const q = query(
+          collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts)),
+          where('connectionId', '==', connectionId)
+        );
+        const snap = await getDocs(q);
+        return snap.docs
+          .map((d) => d.data() as SheetConflict)
+          .filter((c) => c.status === 'open');
+      } catch {
+        // Fallback to local
+      }
+    }
+    const localKey = `ff_sheethub_conflicts_${userId}_${connectionId}`;
+    const localList = readLocalFallback<SheetConflict[]>(localKey, []);
+    return localList.filter((c) => c.status === 'open');
+  },
+
+  async saveConflict(userId: string, conflict: SheetConflict): Promise<void> {
+    assertValidUserId(userId);
+    const sanitized = stripSensitiveFields(conflict);
+    if (isSignedInAs(userId)) {
+      try {
+        const ref = doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts), conflict.id);
+        await setDoc(ref, sanitized);
+      } catch (err: any) {
+        console.warn('[SheetHubStore] Failed to save conflict to Cloud Firestore:', err);
+      }
+    }
+    const localKey = `ff_sheethub_conflicts_${userId}_${conflict.connectionId}`;
+    const localList = readLocalFallback<SheetConflict[]>(localKey, []);
+    const idx = localList.findIndex((c) => c.id === conflict.id);
+    if (idx >= 0) {
+      localList[idx] = sanitized;
+    } else {
+      localList.push(sanitized);
+    }
+    writeLocalFallback(localKey, localList);
+  },
+
+  async resolveConflict(
+    userId: string,
+    conflictId: string,
+    connectionId: string,
+    resolution: 'keep_app' | 'keep_sheet' | 'custom'
+  ): Promise<void> {
+    assertValidUserId(userId);
+    const nowIso = new Date().toISOString();
+    if (isSignedInAs(userId)) {
+      try {
+        const ref = doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts), conflictId);
+        await setDoc(ref, { status: 'resolved', resolution, resolvedAt: nowIso }, { merge: true });
+      } catch (err) {
+        console.warn('[SheetHubStore] Failed to resolve conflict in Firestore:', err);
+      }
+    }
+    const localKey = `ff_sheethub_conflicts_${userId}_${connectionId}`;
+    const localList = readLocalFallback<SheetConflict[]>(localKey, []);
+    const target = localList.find((c) => c.id === conflictId);
+    if (target) {
+      target.status = 'resolved';
+      target.resolution = resolution;
+      target.resolvedAt = nowIso;
+      writeLocalFallback(localKey, localList);
+    }
   },
 
   /**
@@ -1305,6 +1375,215 @@ export const sheetHubStore = {
     }
 
     return { sheet, tab, rows };
+  },
+
+  /**
+   * Creates a Dual-Copy spreadsheet pair:
+   * 1. FocusFlow Native private spreadsheet in Firestore with all imported tabs.
+   * 2. Automatically appends the "Progress Tracker" tab to the native copy.
+   * 3. Stores explicit linkage metadata to the Google Drive duplicate:
+   *    isDualCopy: true, driveFileId, sourceSpreadsheetId, etc.
+   */
+  async createDualCopySpreadsheet(
+    userId: string,
+    input: {
+      title: string;
+      sourceSpreadsheetId: string;
+      driveFileId: string;
+      driveUrl?: string;
+      tabs: Array<{
+        sheetTitle: string;
+        sheetId?: number;
+        role?: 'data' | 'overview' | 'ignored';
+        columns: SheetColumnMapping[];
+        rows: SheetSyncedRow[];
+      }>;
+      progressTrackerTopics?: Array<{
+        unit: string;
+        topic: string;
+        subtopic?: string;
+        isCompleted?: boolean;
+      }>;
+    }
+  ): Promise<{
+    connection: SheetConnection;
+    tabs: SheetTabSchema[];
+  }> {
+    assertValidUserId(userId);
+    const now = new Date().toISOString();
+    const connId = `conn_dual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const createdTabs: SheetTabSchema[] = [];
+    const tabOrder: string[] = [];
+
+    // 1. Process imported tabs
+    for (let i = 0; i < input.tabs.length; i++) {
+      const tabInput = input.tabs[i];
+      const numericSheetId = typeof tabInput.sheetId === 'number' ? tabInput.sheetId : i;
+      const tabDocId = `${connId}__tab_${numericSheetId}`;
+      tabOrder.push(tabDocId);
+
+      const tabSchema: SheetTabSchema = {
+        id: tabDocId,
+        connectionId: connId,
+        sheetDocId: connId,
+        userId,
+        ownerUid: userId,
+        sheetId: numericSheetId,
+        sheetTitle: tabInput.sheetTitle,
+        position: i,
+        role: tabInput.role || 'data',
+        headerRowIndex: 1,
+        dataStartRow: 2,
+        dataEndColumn: tabInput.columns[tabInput.columns.length - 1]?.colLetter || 'D',
+        identityStrategy: 'composite_key',
+        identityColumns: tabInput.columns.slice(0, 3).map((c) => c.fieldKey),
+        metadataIdColumn: null,
+        columns: tabInput.columns,
+        defaultView: 'checklist',
+        groupByColumnId: tabInput.columns[0]?.fieldKey || null,
+        lastPullHash: 'dual_init',
+        rowCount: tabInput.rows.length,
+        chunkCount: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await this.saveTabSchema(userId, tabSchema);
+      if (tabInput.rows.length > 0) {
+        await this.saveTabRowsChunked({
+          userId,
+          connectionId: connId,
+          tabId: tabDocId,
+          rows: tabInput.rows,
+        });
+      }
+      createdTabs.push(tabSchema);
+    }
+
+    // 2. Automatically create "Progress Tracker" tab in Firestore native copy
+    const trackerNumericId = 9999;
+    const trackerTabDocId = `${connId}__tab_${trackerNumericId}`;
+    tabOrder.push(trackerTabDocId);
+
+    const trackerColumns: SheetColumnMapping[] = [
+      { colIndex: 0, colLetter: 'A', fieldKey: 'unit', headerName: 'Module / Unit', displayName: 'Module', inferredType: 'text', confirmedType: 'text', semanticRole: 'group', confidence: 'high', editable: true, requiresConfirmation: false },
+      { colIndex: 1, colLetter: 'B', fieldKey: 'topic', headerName: 'Topic', displayName: 'Topic', inferredType: 'text', confirmedType: 'text', semanticRole: 'title', confidence: 'high', editable: true, requiresConfirmation: false },
+      { colIndex: 2, colLetter: 'C', fieldKey: 'subtopic', headerName: 'Subtopic', displayName: 'Subtopic', inferredType: 'text', confirmedType: 'text', semanticRole: 'subgroup', confidence: 'high', editable: true, requiresConfirmation: false },
+      { colIndex: 3, colLetter: 'D', fieldKey: 'done', headerName: 'Completed', displayName: 'Completed', inferredType: 'checkbox', confirmedType: 'checkbox', semanticRole: 'done', confidence: 'high', editable: true, requiresConfirmation: false },
+      { colIndex: 4, colLetter: 'E', fieldKey: 'lastSynced', headerName: 'Last Synced', displayName: 'Last Synced', inferredType: 'date', confirmedType: 'date', semanticRole: 'custom', confidence: 'high', editable: false, requiresConfirmation: false },
+    ];
+
+    const trackerTopics = input.progressTrackerTopics || [];
+    const trackerRows: SheetSyncedRow[] = trackerTopics.map((t, idx) => {
+      const vals: Record<string, SheetCellScalar> = {
+        unit: t.unit || '',
+        topic: t.topic || '',
+        subtopic: t.subtopic || '',
+        done: Boolean(t.isCompleted),
+        lastSynced: now,
+      };
+      return {
+        rowUid: `row_tracker_${Date.now()}_${idx + 1}`,
+        id: `row_tracker_${Date.now()}_${idx + 1}`,
+        tabId: trackerTabDocId,
+        sheetDocId: connId,
+        userId,
+        ownerUid: userId,
+        rowIndex: idx + 2,
+        lastKnownSheetRow: idx + 2,
+        values: vals,
+        cells: vals,
+        baseValues: vals,
+        rowHash: `hash_tracker_${idx + 1}`,
+        version: 1,
+        lastSyncOrigin: 'app',
+        dirtyFields: [],
+        localUpdatedAt: null,
+        sheetSyncedAt: now,
+        status: 'synced',
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
+
+    const trackerTab: SheetTabSchema = {
+      id: trackerTabDocId,
+      connectionId: connId,
+      sheetDocId: connId,
+      userId,
+      ownerUid: userId,
+      sheetId: trackerNumericId,
+      sheetTitle: 'Progress Tracker',
+      position: createdTabs.length,
+      role: 'overview',
+      headerRowIndex: 1,
+      dataStartRow: 2,
+      dataEndColumn: 'E',
+      identityStrategy: 'composite_key',
+      identityColumns: ['unit', 'topic', 'subtopic'],
+      metadataIdColumn: null,
+      columns: trackerColumns,
+      defaultView: 'checklist',
+      groupByColumnId: 'unit',
+      lastPullHash: 'dual_init',
+      rowCount: trackerRows.length,
+      chunkCount: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.saveTabSchema(userId, trackerTab);
+    if (trackerRows.length > 0) {
+      await this.saveTabRowsChunked({
+        userId,
+        connectionId: connId,
+        tabId: trackerTabDocId,
+        rows: trackerRows,
+      });
+    }
+    createdTabs.push(trackerTab);
+
+    // 3. Create primary connection document linked to Drive copy
+    const connection: SheetConnection = {
+      id: connId,
+      userId,
+      ownerUid: userId,
+      spreadsheetId: input.driveFileId,
+      spreadsheetUrl: input.driveUrl || `https://docs.google.com/spreadsheets/d/${encodeURIComponent(input.driveFileId)}/edit`,
+      title: input.title.trim() || 'Dual-Copy Spreadsheet',
+      description: 'FocusFlow Dual-Copy (Google Drive + Firestore)',
+      templateHint: 'checklist',
+      syncMode: 'two_way',
+      writeMode: 'native_oauth',
+      writeAuthStatus: 'authorized',
+      writeAuthorizedAt: now,
+      pollIntervalSec: 60,
+      syncOnOpen: true,
+      status: 'active',
+      lastSyncedAt: now,
+      lastSuccessfulPullAt: now,
+      lastSuccessfulPushAt: now,
+      lastError: null,
+      pendingChangesCount: 0,
+      conflictCount: 0,
+      tabOrder,
+      schemaVersion: 1,
+      sortOrder: 0,
+      isNative: false,
+      isDualCopy: true,
+      driveFileId: input.driveFileId,
+      sourceSpreadsheetId: input.sourceSpreadsheetId,
+      nativeSheetId: connId,
+      lastDriveSyncAt: now,
+      driveSyncStatus: 'synced',
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+
+    await this.saveConnection(userId, connection);
+
+    return { connection, tabs: createdTabs };
   },
 
   /**

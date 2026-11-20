@@ -9,6 +9,7 @@ import {
   ArrowLeftRight,
   CloudUpload,
   Lock,
+  FolderSync,
 } from 'lucide-react';
 import type { SheetConnection, SheetSyncStatus } from '../../types/sheetHub.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
@@ -91,10 +92,24 @@ export const SheetSyncStatusPanel: React.FC<SheetSyncStatusPanelProps> = ({
       <div className="flex flex-wrap items-center gap-2.5 min-w-0">
         {getStatusBadge(connection.status)}
 
+        {connection.isDualCopy && (
+          <div className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+            <FolderSync className="w-3.5 h-3.5" />
+            <span>Dual-Copy Active</span>
+          </div>
+        )}
+
         <div className="flex items-center gap-1.5 text-xs text-[var(--ff-text-muted)]">
           <Clock className="w-3.5 h-3.5 text-[var(--ff-text-muted)]" />
           <span>Last pulled: {formatTimestamp(connection.lastSuccessfulPullAt || connection.lastSyncedAt)}</span>
         </div>
+
+        {connection.lastDriveSyncAt && (
+          <div className="hidden lg:flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Drive Synced: {formatTimestamp(connection.lastDriveSyncAt)}</span>
+          </div>
+        )}
 
         {connection.lastSuccessfulPushAt && !isDemoSheet && (
           <div className="hidden md:flex items-center gap-1.5 text-xs text-emerald-500">

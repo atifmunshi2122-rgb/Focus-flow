@@ -17,6 +17,8 @@ import {
   Check,
   AlertCircle,
   HelpCircle,
+  FolderSync,
+  Copy,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -41,6 +43,7 @@ import type {
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeInput } from '../ui/ThemePrimitives.tsx';
 import { AnimatedProgressBar } from '../ui/MotionPrimitives.tsx';
 import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
+import { GoogleSheetPickerModal, type SelectedGoogleSheet } from './GoogleSheetPickerModal.tsx';
 
 interface ConnectSheetWizardProps {
   onCancel: () => void;
@@ -72,7 +75,14 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   onCancel,
   onSuccess,
 }) => {
-  const { user, firebaseUser, authorizeSheetHubReadOnly, authorizeSheetHubWrite, showToast } = useApp();
+  const {
+    user,
+    firebaseUser,
+    authorizeSheetHubReadOnly,
+    authorizeSheetHubWrite,
+    authorizeSheetHubDualCopy,
+    showToast,
+  } = useApp();
 
   const [currentStep, setCurrentStep] = useState<WizardStep>('url');
   const [urlInput, setUrlInput] = useState('');
@@ -80,6 +90,8 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   const [spreadsheetId, setSpreadsheetId] = useState<string>('');
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [isPublicLinkMode, setIsPublicLinkMode] = useState(false);
+  const [isDualCopyEnabled, setIsDualCopyEnabled] = useState(true);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
 
   // Auth & Sync mode state
   const [selectedSyncMode, setSelectedSyncMode] = useState<SheetSyncMode>('two_way');
@@ -188,6 +200,23 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     }
   };
 
+  // Step 1: Select via Google Picker Dialog (Grants drive.file permission to existing private spreadsheet)
+  const handleSelectPickedSheet = async (picked: SelectedGoogleSheet) => {
+    setIsPickerOpen(false);
+    setUrlInput(picked.url);
+    setSpreadsheetId(picked.id);
+    setIsDemoMode(false);
+    setIsPublicLinkMode(false);
+    setSelectedSyncMode('two_way');
+    setAuthLocalError(null);
+    setInspectError(null);
+    setInspectErrorCode(null);
+
+    const token = oauthToken || (await getSheetHubWriteAccessToken()) || (await getSheetHubAccessToken());
+    showToast(`Selected "${picked.name}" via Google Picker!`, 'success');
+    await runInspection(token, false, picked.id, picked.url);
+  };
+
   // Step 2A: Connect Publicly Viewable Google Sheet (Zero OAuth)
   const handleInspectPublicLink = async (overrideSpreadsheetId?: string, overrideUrl?: string) => {
     setIsDemoMode(false);
@@ -197,6 +226,37 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setInspectError(null);
     setInspectErrorCode(null);
     await runInspection(null, true, overrideSpreadsheetId, overrideUrl);
+  };
+
+  // Step 2B0: Request Google Drive Duplicate + Sheets Write Authorization (Project ghost-7b055)
+  const handleAuthorizeGoogleDriveDualCopy = async () => {
+    setIsAuthorizingWrite(true);
+    setIsDemoMode(false);
+    setIsPublicLinkMode(false);
+    setAuthLocalError(null);
+    setInspectError(null);
+    setInspectErrorCode(null);
+    try {
+      const res = await authorizeSheetHubDualCopy();
+      if (res) {
+        setOauthToken(res);
+        setSelectedSyncMode('two_way');
+        showToast('Google Drive duplicate & Sheets two-way write access authorized!', 'success');
+        await runInspection(res, false);
+      } else {
+        setAuthLocalError(
+          `Google Drive authorization did not finish. If Google showed "Access blocked (Error 403)", ensure your email (${firebaseUser?.email || 'your account'}) is added under Test users in Google Cloud project ghost-7b055.`
+        );
+      }
+    } catch (err) {
+      setAuthLocalError(
+        err instanceof Error
+          ? err.message
+          : 'Google Drive authorization failed. Please check popup permissions or use Public Link mode.'
+      );
+    } finally {
+      setIsAuthorizingWrite(false);
+    }
   };
 
   // Step 2B1: Request Google Two-Way Write Authorization (Automatic Checkbox Write-Back)
@@ -462,18 +522,26 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         );
       }
 
-      setImportProgress(50);
-      setImportStatusText('Resolving deterministic row identities and packaging chunks...');
+      setImportProgress(40);
+      setImportStatusText('Resolving deterministic row identities...');
 
+      // Process rows for all selected tabs
+      const processedTabs: Array<{
+        sheetTitle: string;
+        sheetId?: number;
+        role?: SheetTabRole;
+        columns: SheetColumnMapping[];
+        rows: SheetSyncedRow[];
+      }> = [];
+
+      const topicsForTracker: Array<{ unit: string; topic: string; subtopic?: string; isCompleted?: boolean }> = [];
       let totalImportedRows = 0;
 
-      // 3. Process and save each tab
       for (let i = 0; i < selectedTabIds.length; i++) {
         const sheetId = selectedTabIds[i];
         const tabMeta = inspectData.tabs.find((t) => t.sheetId === sheetId);
         if (!tabMeta) continue;
 
-        const tabDocId = `${connectionId}__tab_${sheetId}`;
         const activeColumns = tabColumns[sheetId] || tabMeta.columns;
         const keyCols = selectedKeyColumns[sheetId] || [];
 
@@ -515,39 +583,124 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
         totalImportedRows += syncedRows.length;
 
-        // Save chunked rows
+        // Extract topics for Progress Tracker
+        const unitCol = activeColumns.find((c) => c.semanticRole === 'group')?.fieldKey;
+        const topicCol = activeColumns.find((c) => c.semanticRole === 'title')?.fieldKey;
+        const subtopicCol = activeColumns.find((c) => c.semanticRole === 'subgroup')?.fieldKey;
+        const doneCol = activeColumns.find((c) => c.semanticRole === 'done')?.fieldKey;
+
+        for (const r of syncedRows) {
+          const topicVal = String(r.values[topicCol || ''] || '').trim();
+          if (topicVal) {
+            topicsForTracker.push({
+              unit: String(r.values[unitCol || ''] || tabMeta.sheetTitle).trim(),
+              topic: topicVal,
+              subtopic: subtopicCol ? String(r.values[subtopicCol] || '').trim() : undefined,
+              isCompleted: doneCol ? Boolean(r.values[doneCol]) : false,
+            });
+          }
+        }
+
+        processedTabs.push({
+          sheetTitle: tabMeta.sheetTitle,
+          sheetId,
+          role: tabRoles[sheetId] || tabMeta.role,
+          columns: activeColumns,
+          rows: syncedRows,
+        });
+      }
+
+      // Check if Dual-Copy mode applies
+      if (isDualCopyEnabled && !isDemoMode && !isPublicLinkMode) {
+        setImportProgress(60);
+        setImportStatusText('Requesting Google Drive authorization for duplicate copy...');
+
+        let dualCopyToken = oauthToken || (await getSheetHubWriteAccessToken()) || (await getSheetHubAccessToken());
+        if (!dualCopyToken) {
+          dualCopyToken = await authorizeSheetHubDualCopy();
+        }
+        if (!dualCopyToken) {
+          throw new Error('Google authorization with Google Drive access is required to duplicate to your Google Drive.');
+        }
+
+        setImportProgress(75);
+        setImportStatusText('Duplicating to your Google Drive & provisioning Progress Tracker tab...');
+
+        const driveDup = await api.sheetHubDriveDuplicate(
+          {
+            sourceSpreadsheetId: spreadsheetId,
+            title: inspectData.title || 'FocusFlow Spreadsheet',
+            topics: topicsForTracker,
+          },
+          dualCopyToken
+        );
+
+        setImportProgress(90);
+        setImportStatusText('Creating native FocusFlow spreadsheet in Cloud Firestore...');
+
+        const { connection: createdConn } = await sheetHubStore.createDualCopySpreadsheet(
+          activeUserId,
+          {
+            title: `${inspectData.title || 'FocusFlow Spreadsheet'} (Dual-Copy)`,
+            sourceSpreadsheetId: spreadsheetId,
+            driveFileId: driveDup.driveFileId,
+            driveUrl: driveDup.driveUrl,
+            tabs: processedTabs,
+            progressTrackerTopics: topicsForTracker,
+          }
+        );
+
+        setImportProgress(100);
+        setImportStatusText('Dual-Copy setup complete!');
+        showToast(`Dual-Copy created! Saved to your Google Drive and FocusFlow Firestore.`, 'success');
+
+        setTimeout(() => {
+          onSuccess(createdConn.id);
+        }, 400);
+        return;
+      }
+
+      // Standard / Single-Copy / Public Link Import Pipeline
+      setImportProgress(60);
+      setImportStatusText('Saving tab schemas and chunked records...');
+
+      for (let i = 0; i < processedTabs.length; i++) {
+        const tabItem = processedTabs[i];
+        const sheetId = tabItem.sheetId ?? i;
+        const tabDocId = `${connectionId}__tab_${sheetId}`;
+        const keyCols = selectedKeyColumns[sheetId] || [];
+
         const chunkResult = await sheetHubStore.saveTabRowsChunked({
           userId: activeUserId,
           connectionId,
           tabId: tabDocId,
-          rows: syncedRows,
+          rows: tabItem.rows,
         });
 
-        // Save Tab Schema
         const tabSchemaDoc: SheetTabSchema = {
           id: tabDocId,
           connectionId,
           userId: activeUserId,
           sheetId,
-          sheetTitle: tabMeta.sheetTitle,
-          role: tabRoles[sheetId] || tabMeta.role,
-          headerRowIndex: tabMeta.headerRowIndex,
-          dataStartRow: tabMeta.dataStartRow,
-          dataEndColumn: tabMeta.dataEndColumn,
+          sheetTitle: tabItem.sheetTitle,
+          role: tabItem.role || 'data',
+          headerRowIndex: 1,
+          dataStartRow: 2,
+          dataEndColumn: tabItem.columns[tabItem.columns.length - 1]?.colLetter || 'D',
           identityStrategy,
           identityColumns: keyCols,
           metadataIdColumn: null,
-          columns: activeColumns,
+          columns: tabItem.columns,
           defaultView: preferredView === 'checklist' ? 'checklist' : 'table',
-          groupByColumnId: activeColumns.find((c) => c.semanticRole === 'group')?.fieldKey || null,
+          groupByColumnId: tabItem.columns.find((c) => c.semanticRole === 'group')?.fieldKey || null,
           lastPullHash: 'pull_initial',
-          rowCount: syncedRows.length,
+          rowCount: tabItem.rows.length,
           chunkCount: chunkResult.chunkCount,
           updatedAt: nowIso,
         };
 
         await sheetHubStore.saveTabSchema(activeUserId, tabSchemaDoc);
-        setImportProgress(50 + Math.round(((i + 1) / selectedTabIds.length) * 45));
+        setImportProgress(60 + Math.round(((i + 1) / processedTabs.length) * 35));
       }
 
       setImportProgress(100);
@@ -615,9 +768,22 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider block">
-              Google Spreadsheet URL
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider block">
+                Google Spreadsheet URL
+              </label>
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                type="button"
+                onClick={() => setIsPickerOpen(true)}
+                className="text-xs py-1 px-2.5 bg-emerald-600/10 border border-emerald-500/30 text-emerald-600 hover:bg-emerald-600/20"
+                title="Select directly from your Google Drive using Google Picker"
+              >
+                <FolderSync className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                <span>Browse My Google Drive</span>
+              </ThemeButton>
+            </div>
             <ThemeInput
               placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit"
               value={urlInput}
@@ -721,9 +887,21 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                   </p>
                   <p className="leading-relaxed">{inspectError}</p>
                   {inspectErrorCode === 'SHEET_PRIVATE_AUTH_REQUIRED' && (
-                    <p className="text-[11px] opacity-90">
-                      Tip: In Google Sheets, click <strong>Share → General access → Anyone with the link (Viewer)</strong> and click <strong>Import Public Link</strong> below, or click <strong>Authorize Read-Only Sheets Access</strong> to read it privately.
-                    </p>
+                    <div className="pt-1.5 space-y-2">
+                      <p className="text-[11px] opacity-90 leading-relaxed">
+                        Tip: For private spreadsheets in your Google Drive, select it with <strong>Browse My Google Drive</strong> to grant per-file authorization via Google Picker under <code className="font-mono">drive.file</code>. Alternatively, in Google Sheets set <strong>Share → Anyone with the link (Viewer)</strong> and click <strong>Import Public Link</strong> below.
+                      </p>
+                      <ThemeButton
+                        variant="secondary"
+                        size="sm"
+                        type="button"
+                        onClick={() => setIsPickerOpen(true)}
+                        className="text-xs"
+                      >
+                        <FolderSync className="w-3.5 h-3.5 mr-1 text-[var(--ff-accent)]" />
+                        Select via Browse My Google Drive
+                      </ThemeButton>
+                    </div>
                   )}
                 </div>
               </div>
@@ -821,17 +999,17 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             >
               <div className="flex items-center gap-1.5 font-semibold text-amber-500">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>Troubleshooting Error 403 (Project: {activeFirebaseConfig.projectId})</span>
+                <span>Troubleshooting Error 403 (Projects: ghost-7b055 & {activeFirebaseConfig.projectId})</span>
               </div>
               <p className="text-[11px] text-[var(--ff-text-secondary)] leading-relaxed">
-                If Google displays <em>&ldquo;Access blocked (Error 403: access_denied)&rdquo;</em> for private sheets, add your email ({firebaseUser?.email || 'your Google account'}) under{' '}
+                If Google displays <em>&ldquo;Access blocked (Error 403: access_denied)&rdquo;</em> for private spreadsheets or Drive duplicate creation, add your email ({firebaseUser?.email || 'your Google account'}) under{' '}
                 <a
-                  href={`https://console.cloud.google.com/apis/credentials/consent?project=${encodeURIComponent(activeFirebaseConfig.projectId)}`}
+                  href="https://console.cloud.google.com/apis/credentials/consent?project=ghost-7b055"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[var(--ff-accent)] underline font-medium inline-flex items-center gap-0.5"
                 >
-                  Google Cloud OAuth Consent Screen → Test users <ExternalLink className="w-2.5 h-2.5" />
+                  Google Cloud OAuth Consent Screen (ghost-7b055) → Test users <ExternalLink className="w-2.5 h-2.5" />
                 </a>
                 , or use <strong>Option A (Public Link)</strong> above with zero OAuth setup.
               </p>
@@ -840,11 +1018,27 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             <div className="pt-1 flex flex-wrap items-center gap-2.5">
               <ThemeButton
                 variant="primary"
-                onClick={handleAuthorizeGoogleWrite}
+                onClick={handleAuthorizeGoogleDriveDualCopy}
                 disabled={isAuthorizingWrite || isAuthorizing}
                 className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                title="Authorize personal Google Drive copy & live Sheets two-way sync via ghost-7b055 OAuth"
               >
-                <ShieldCheck className="w-4 h-4 mr-1.5" />
+                <FolderSync className="w-4 h-4 mr-1.5" />
+                <span>
+                  {isAuthorizingWrite
+                    ? 'Authorizing Google Drive...'
+                    : 'Authorize Google Drive & Sheets (Dual-Copy)'}
+                </span>
+              </ThemeButton>
+
+              <ThemeButton
+                variant="secondary"
+                onClick={handleAuthorizeGoogleWrite}
+                disabled={isAuthorizingWrite || isAuthorizing}
+                className="w-full sm:w-auto"
+                title="Authorize two-way checkbox writeback to existing Google Sheet without Drive duplication"
+              >
+                <ShieldCheck className="w-4 h-4 mr-1.5 text-emerald-500" />
                 <span>
                   {isAuthorizingWrite
                     ? 'Authorizing Edit Access...'
@@ -1257,6 +1451,54 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             </div>
           </div>
 
+          {/* Dual-Copy Google Drive + Firestore Architecture Card */}
+          {!isPublicLinkMode && !isDemoMode && (
+            <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FolderSync className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span className="text-xs font-bold text-[var(--ff-text-primary)]">
+                    Dual-Copy Architecture (Google Drive + FocusFlow Firestore)
+                  </span>
+                </div>
+                <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isDualCopyEnabled}
+                    onChange={(e) => setIsDualCopyEnabled(e.target.checked)}
+                    className="rounded border-[var(--ff-border-color)] text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>Enable Dual-Copy</span>
+                </label>
+              </div>
+
+              {isDualCopyEnabled ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                  <div className="p-2.5 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400 block mb-1">
+                      📂 1. Google Drive Duplicate
+                    </span>
+                    <p className="text-[11px] text-[var(--ff-text-secondary)] leading-relaxed">
+                      Creates an isolated duplicate copy in your personal Google Drive with a dedicated <strong>&ldquo;Progress Tracker&rdquo;</strong> tab. Source sheet stays completely untouched!
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                    <span className="font-semibold text-blue-600 dark:text-blue-400 block mb-1">
+                      ⚡ 2. FocusFlow Native Firestore
+                    </span>
+                    <p className="text-[11px] text-[var(--ff-text-secondary)] leading-relaxed">
+                      Creates a private native spreadsheet in Cloud Firestore with full offline support, fast checklist views, and two-way writeback.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-[var(--ff-text-muted)]">
+                  Dual-Copy is disabled. FocusFlow will connect directly to the source spreadsheet in read-only or manual push mode.
+                </p>
+              )}
+            </div>
+          )}
+
           {importError && (
             <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1289,6 +1531,14 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           <span className="text-xs font-mono text-[var(--ff-accent)]">{importProgress}%</span>
         </ThemeCard>
       )}
+
+      <GoogleSheetPickerModal
+        isOpen={isPickerOpen}
+        onClose={() => setIsPickerOpen(false)}
+        onSelectSheet={handleSelectPickedSheet}
+        oauthToken={oauthToken}
+        loginHint={firebaseUser?.email}
+      />
     </div>
   );
 };

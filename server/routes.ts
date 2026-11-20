@@ -63,6 +63,7 @@ import {
   SheetHubWorkerError,
 } from './universalSheetsWorker.ts';
 import { pushSheetHubCellUpdates } from './sheetHubWriteWorker.ts';
+import { duplicateGoogleDriveFile } from './driveWorker.ts';
 import {
   isSpreadsheetAllowlisted,
   dispatchAppsScriptWriteback,
@@ -3616,6 +3617,45 @@ apiRouter.post('/sheet-hub/push-cells', async (req: Request, res: Response) => {
     res.json({ success: true, ...result });
   } catch (err) {
     sendSheetHubError(res, err, 'Failed to push cell updates to Google Sheets.');
+  }
+});
+
+apiRouter.post('/sheet-hub/drive-duplicate', async (req: Request, res: Response) => {
+  const authCtx = getAuth(req);
+  if (!authCtx || authCtx.isGuest) {
+    res.status(401).json({
+      error: 'Signed-in FocusFlow authentication is required to create a Google Drive duplicate.',
+      code: 'AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const accessToken = extractGoogleAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({
+      error: 'Google Drive authorization token header is required.',
+      code: 'DRIVE_AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const { sourceSpreadsheetId, title, idempotencyKey, topics } = req.body || {};
+  if (!sourceSpreadsheetId || typeof sourceSpreadsheetId !== 'string') {
+    res.status(400).json({
+      error: 'sourceSpreadsheetId is required.',
+      code: 'INVALID_SPREADSHEET_ID',
+    });
+    return;
+  }
+
+  try {
+    const result = await duplicateGoogleDriveFile(
+      { sourceSpreadsheetId, title, idempotencyKey, topics },
+      accessToken
+    );
+    res.json({ success: true, ...result });
+  } catch (err) {
+    sendSheetHubError(res, err, 'Failed to duplicate spreadsheet in Google Drive.');
   }
 });
 

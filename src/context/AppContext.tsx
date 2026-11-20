@@ -34,6 +34,7 @@ import {
   authorizeGoogleSheets as fbAuthorizeGoogleSheets,
   authorizeSheetHubReadOnly as fbAuthorizeSheetHubReadOnly,
   authorizeSheetHubWrite as fbAuthorizeSheetHubWrite,
+  authorizeSheetHubDualCopy as fbAuthorizeSheetHubDualCopy,
   signOut as fbSignOut,
   initAuthListener,
   getAccessToken,
@@ -43,6 +44,7 @@ import {
   testConnection,
 } from '../lib/firebase.ts';
 import { User as FirebaseUser } from 'firebase/auth';
+import { requestGoogleDriveToken } from '../lib/googleAuthGis.ts';
 import { AuthDiagnostic, classifyFirebaseAuthError } from '../lib/authDiagnostics.ts';
 import { googleSheetsService } from '../lib/googleSheetsService.ts';
 import { firestoreService } from '../lib/firestoreService.ts';
@@ -254,6 +256,7 @@ interface AppContextType {
   authorizeGoogleSheets: () => Promise<string | null>;
   authorizeSheetHubReadOnly: () => Promise<string | null>;
   authorizeSheetHubWrite: () => Promise<string | null>;
+  authorizeSheetHubDualCopy: () => Promise<string | null>;
   signOutGoogle: () => Promise<void>;
 
   // Google Sheets Integration
@@ -1448,6 +1451,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return accessToken;
     } catch (err: unknown) {
       console.error('Google Sheets write authorization failed:', err);
+      const diagnostic = classifyFirebaseAuthError(err, {
+        scopeMode: 'sheets',
+        userEmail: firebaseUser?.email,
+      });
+      setAuthError(diagnostic);
+      showToast(`${diagnostic.title} (${diagnostic.code})`, 'error');
+      return null;
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const authorizeSheetHubDualCopy = async (): Promise<string | null> => {
+    setIsSigningIn(true);
+    setAuthError(null);
+    try {
+      // First attempt Google Identity Services Token Client with ghost-7b055 OAuth Client ID
+      const accessToken = await requestGoogleDriveToken({
+        loginHint: firebaseUser?.email || null,
+      });
+      if (accessToken) {
+        showToast('Google Drive & Sheets permissions granted via FocusFlow OAuth!', 'success');
+        triggerRefresh();
+        return accessToken;
+      }
+      return null;
+    } catch (err: unknown) {
+      console.error('Google Drive & Sheets authorization failed:', err);
       const diagnostic = classifyFirebaseAuthError(err, {
         scopeMode: 'sheets',
         userEmail: firebaseUser?.email,
@@ -3008,6 +3039,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         authorizeGoogleSheets,
         authorizeSheetHubReadOnly,
         authorizeSheetHubWrite,
+        authorizeSheetHubDualCopy,
         signOutGoogle,
 
         // Google Sheets

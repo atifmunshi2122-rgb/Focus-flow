@@ -61,6 +61,8 @@ import type {
   AppsScriptWritebackRequest,
   AppsScriptWritebackResponse,
   SheetHubCellUpdateRequest,
+  SheetHubDriveDuplicateRequest,
+  SheetHubDriveDuplicateResponse,
   SheetHubPushCellsResponse,
   SheetInspectResponse,
   SheetPullResponse,
@@ -1826,6 +1828,16 @@ export const api = {
     googleAccessToken: string
   ) =>
     request<{ success: boolean } & SheetHubPushCellsResponse>('/sheet-hub/push-cells', {
+      method: 'POST',
+      headers: { 'x-google-access-token': googleAccessToken },
+      body: JSON.stringify(payload),
+    }),
+
+  sheetHubDriveDuplicate: (
+    payload: SheetHubDriveDuplicateRequest,
+    googleAccessToken: string
+  ) =>
+    request<SheetHubDriveDuplicateResponse>('/sheet-hub/drive-duplicate', {
       method: 'POST',
       headers: { 'x-google-access-token': googleAccessToken },
       body: JSON.stringify(payload),

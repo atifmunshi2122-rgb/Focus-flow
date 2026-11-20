@@ -916,7 +916,9 @@ service cloud.firestore {
             'pendingChangesCount', 'conflictCount', 'tabOrder',
             'createdAt', 'updatedAt', 'deletedAt',
             'ownerUid', 'schemaVersion', 'sortOrder', 'isNative',
-            'writeMode', 'writeAuthStatus', 'writeAuthorizedAt'
+            'writeMode', 'writeAuthStatus', 'writeAuthorizedAt',
+            'isDualCopy', 'driveFileId', 'sourceSpreadsheetId', 'nativeSheetId',
+            'lastDriveSyncAt', 'driveSyncStatus', 'lastDriveModifiedTime'
           ])
           && !('accessToken' in data)
           && !('refreshToken' in data)
@@ -929,6 +931,13 @@ service cloud.firestore {
           && (data.get('writeMode', null) == null || data.writeMode in ['native_oauth', 'apps_script', 'none'])
           && (data.get('writeAuthStatus', null) == null || data.writeAuthStatus in ['authorized', 'not_requested', 'expired', 'denied'])
           && isOptionalBoundedIsoDate(data.get('writeAuthorizedAt', null))
+          && (data.get('isDualCopy', null) == null || data.isDualCopy is bool)
+          && (data.get('driveFileId', null) == null || isNonEmptyString(data.driveFileId, 128))
+          && (data.get('sourceSpreadsheetId', null) == null || isNonEmptyString(data.sourceSpreadsheetId, 128))
+          && (data.get('nativeSheetId', null) == null || isNonEmptyString(data.nativeSheetId, 128))
+          && isOptionalBoundedIsoDate(data.get('lastDriveSyncAt', null))
+          && (data.get('driveSyncStatus', null) == null || data.driveSyncStatus in ['synced', 'pending', 'conflict', 'error', 'not_connected'])
+          && isOptionalBoundedIsoDate(data.get('lastDriveModifiedTime', null))
           && isNonEmptyString(data.title, 256)
           && (data.get('spreadsheetId', null) == null || isNonEmptyString(data.spreadsheetId, 128))
           && (
@@ -1082,7 +1091,9 @@ service cloud.firestore {
               'lastError', 'pendingChangesCount', 'conflictCount', 'tabOrder',
               'createdAt', 'updatedAt', 'deletedAt',
               'ownerUid', 'schemaVersion', 'sortOrder', 'isNative',
-              'writeMode', 'writeAuthStatus', 'writeAuthorizedAt'
+              'writeMode', 'writeAuthStatus', 'writeAuthorizedAt',
+              'isDualCopy', 'driveFileId', 'sourceSpreadsheetId', 'nativeSheetId',
+              'lastDriveSyncAt', 'driveSyncStatus', 'lastDriveModifiedTime'
             ])
             && !('accessToken' in data)
             && !('refreshToken' in data)
@@ -1095,6 +1106,13 @@ service cloud.firestore {
             && (data.get('writeMode', null) == null || data.writeMode in ['native_oauth', 'apps_script', 'none'])
             && (data.get('writeAuthStatus', null) == null || data.writeAuthStatus in ['authorized', 'not_requested', 'expired', 'denied'])
             && isOptionalBoundedIsoDate(data.get('writeAuthorizedAt', null))
+            && (data.get('isDualCopy', null) == null || data.isDualCopy is bool)
+            && (data.get('driveFileId', null) == null || isNonEmptyString(data.driveFileId, 128))
+            && (data.get('sourceSpreadsheetId', null) == null || isNonEmptyString(data.sourceSpreadsheetId, 128))
+            && (data.get('nativeSheetId', null) == null || isNonEmptyString(data.nativeSheetId, 128))
+            && isOptionalBoundedIsoDate(data.get('lastDriveSyncAt', null))
+            && (data.get('driveSyncStatus', null) == null || data.driveSyncStatus in ['synced', 'pending', 'conflict', 'error', 'not_connected'])
+            && isOptionalBoundedIsoDate(data.get('lastDriveModifiedTime', null))
             && isNonEmptyString(data.spreadsheetId, 128)
             && (
               (data.get('isNative', false) == true && (data.get('spreadsheetUrl', null) == null || data.spreadsheetUrl == '')) ||

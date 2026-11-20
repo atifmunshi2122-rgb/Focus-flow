@@ -1,0 +1,411 @@
+/**
+ * FocusFlow — Google Identity Services (GIS) Token Client Integration
+ *
+ * Integrates the Web Application OAuth 2.0 Client from Google Cloud project `ghost-7b055`:
+ * - Client ID: 965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com
+ * - Least-privilege user-granted scopes:
+ *     1. https://www.googleapis.com/auth/drive.file (personal Drive duplicate creation)
+ *     2. https://www.googleapis.com/auth/spreadsheets (checkbox & cell writeback)
+ *
+ * Security & Zero-Secret Guarantee:
+ * - Google Identity Services Token Client uses purely the public Client ID.
+ * - Zero OAuth Client Secret is ever bundled, stored, or referenced client-side.
+ * - Returned access tokens are held strictly in ephemeral volatile memory.
+ * - Tokens are NEVER written to localStorage, indexedDB, or Cloud Firestore.
+ */
+
+import { authorizeSheetHubDualCopy, setSheetHubWriteAccessToken } from './firebase.ts';
+
+export const GHOST_OAUTH_CLIENT_ID =
+  '965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com';
+export const GHOST_PROJECT_ID = 'ghost-7b055';
+export const GHOST_PROJECT_NUMBER = '965140210258';
+
+export const GOOGLE_DRIVE_SHEETS_SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.file',
+] as const;
+
+// TypeScript definitions for Google Identity Services (GSI) Token Client & Google Picker
+interface TokenClientConfig {
+  client_id: string;
+  scope: string;
+  callback: (response: TokenResponse) => void;
+  error_callback?: (error: unknown) => void;
+  prompt?: string;
+  login_hint?: string;
+}
+
+interface TokenResponse {
+  access_token: string;
+  expires_in: number;
+  scope: string;
+  token_type: string;
+  error?: string;
+  error_description?: string;
+  error_uri?: string;
+}
+
+interface TokenClient {
+  requestAccessToken: (overrideConfig?: { prompt?: string; login_hint?: string }) => void;
+}
+
+export interface GooglePickerDocument {
+  id: string;
+  name: string;
+  url: string;
+  mimeType?: string;
+  iconUrl?: string;
+}
+
+export interface GooglePickerCallbackData {
+  action: string;
+  docs?: GooglePickerDocument[];
+  [key: string]: unknown;
+}
+
+declare global {
+  interface Window {
+    gapi?: {
+      load: (
+        apiName: string,
+        options: { callback: () => void; onerror?: (err: unknown) => void }
+      ) => void;
+    };
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient: (config: TokenClientConfig) => TokenClient;
+          hasGrantedAllScopes: (
+            tokenResponse: TokenResponse,
+            firstScope: string,
+            ...restScopes: string[]
+          ) => boolean;
+        };
+      };
+      picker?: {
+        PickerBuilder: new () => {
+          addView: (view: unknown) => any;
+          setOAuthToken: (token: string) => any;
+          setDeveloperKey: (key: string) => any;
+          setAppId: (appId: string) => any;
+          setTitle: (title: string) => any;
+          enableFeature: (feature: unknown) => any;
+          setCallback: (cb: (data: GooglePickerCallbackData) => void) => any;
+          build: () => { setVisible: (visible: boolean) => void };
+        };
+        DocsView: new (viewId: unknown) => {
+          setMimeTypes: (mimeTypes: string) => any;
+          setMode: (mode: unknown) => any;
+          setIncludeFolders: (include: boolean) => any;
+        };
+        DocsViewMode: {
+          LIST: unknown;
+          GRID: unknown;
+        };
+        ViewId: {
+          SPREADSHEETS: unknown;
+          DOCS: unknown;
+          FOLDERS: unknown;
+        };
+        Action: {
+          PICKED: string;
+          CANCEL: string;
+        };
+        Feature: {
+          NAV_HIDDEN: unknown;
+          MULTISELECT_ENABLED: unknown;
+          SUPPORT_DRIVES: unknown;
+        };
+        Response: {
+          ACTION: string;
+          DOCUMENTS: string;
+        };
+        Document: {
+          ID: string;
+          NAME: string;
+          URL: string;
+          ICON_URL: string;
+          MIME_TYPE: string;
+        };
+      };
+    };
+  }
+}
+
+let gisScriptLoadPromise: Promise<void> | null = null;
+let gapiScriptLoadPromise: Promise<void> | null = null;
+let pickerLoadPromise: Promise<void> | null = null;
+
+/**
+ * Returns the effective Google OAuth Client ID (from environment override or ghost-7b055 default).
+ */
+export function getGoogleOAuthClientId(): string {
+  try {
+    const envClientId = import.meta.env?.VITE_GOOGLE_OAUTH_CLIENT_ID;
+    if (typeof envClientId === 'string' && envClientId.trim().length > 10) {
+      return envClientId.trim();
+    }
+  } catch {
+    // Non-Vite test or Node environment
+  }
+  return GHOST_OAUTH_CLIENT_ID;
+}
+
+/**
+ * Returns the Google Picker API Key strictly from environment variable VITE_GOOGLE_PICKER_API_KEY.
+ * Throws a descriptive configuration error if the environment variable is missing.
+ */
+export function getGooglePickerApiKey(): string {
+  let envKey: string | undefined;
+
+  try {
+    envKey = import.meta.env?.VITE_GOOGLE_PICKER_API_KEY;
+  } catch {
+    // Non-Vite runtime
+  }
+
+  // Fallback to process.env in Node test environments
+  if (!envKey) {
+    try {
+      envKey = process.env?.VITE_GOOGLE_PICKER_API_KEY;
+    } catch {
+      // Ignore
+    }
+  }
+
+  if (typeof envKey === 'string') {
+    const cleaned = envKey.trim().replace(/^["']|["']$/g, '');
+    if (cleaned.length > 0) {
+      return cleaned;
+    }
+  }
+
+  throw new Error(
+    'Google Picker API key is missing. Please configure VITE_GOOGLE_PICKER_API_KEY in your environment variables (.env.local).'
+  );
+}
+
+/**
+ * Returns the numeric Google Cloud Project Number for ghost-7b055 (965140210258).
+ */
+export function getGhostProjectNumber(): string {
+  try {
+    const envNum = import.meta.env?.VITE_GOOGLE_PROJECT_NUMBER;
+    if (typeof envNum === 'string' && envNum.trim().length > 5) {
+      return envNum.trim();
+    }
+  } catch {
+    // Non-Vite test or Node environment
+  }
+  return GHOST_PROJECT_NUMBER;
+}
+
+/**
+ * Dynamically loads the official Google API client loader script (apis.google.com/js/api.js).
+ */
+export function loadGoogleApiScript(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return Promise.resolve();
+  }
+
+  if (window.gapi) {
+    return Promise.resolve();
+  }
+
+  if (gapiScriptLoadPromise) {
+    return gapiScriptLoadPromise;
+  }
+
+  gapiScriptLoadPromise = new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector('script[src*="apis.google.com/js/api.js"]');
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve());
+      existingScript.addEventListener('error', () => reject(new Error('Failed to load Google API loader script.')));
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://apis.google.com/js/api.js';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      gapiScriptLoadPromise = null;
+      reject(new Error('Failed to load Google API Client script (apis.google.com/js/api.js).'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return gapiScriptLoadPromise;
+}
+
+/**
+ * Loads and initializes the Google Picker API (gapi.load('picker')).
+ */
+export async function loadGooglePickerApi(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (window.google?.picker) {
+    return;
+  }
+
+  if (pickerLoadPromise) {
+    return pickerLoadPromise;
+  }
+
+  await loadGoogleApiScript();
+
+  pickerLoadPromise = new Promise<void>((resolve, reject) => {
+    if (!window.gapi?.load) {
+      reject(new Error('window.gapi.load is not available after loading apis.google.com/js/api.js.'));
+      return;
+    }
+
+    window.gapi.load('picker', {
+      callback: () => resolve(),
+      onerror: (err: unknown) => {
+        pickerLoadPromise = null;
+        reject(
+          new Error(
+            `Failed to load Google Picker API: ${err instanceof Error ? err.message : String(err)}`
+          )
+        );
+      },
+    });
+  });
+
+  return pickerLoadPromise;
+}
+
+/**
+ * Dynamically loads the official Google Identity Services client script.
+ * Deduplicates concurrent calls via a single-flight Promise.
+ */
+export function loadGoogleIdentityServicesScript(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return Promise.resolve();
+  }
+
+  if (window.google?.accounts?.oauth2) {
+    return Promise.resolve();
+  }
+
+  if (gisScriptLoadPromise) {
+    return gisScriptLoadPromise;
+  }
+
+  gisScriptLoadPromise = new Promise<void>((resolve, reject) => {
+    // Check if script tag is already in DOM
+    const existingScript = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve());
+      existingScript.addEventListener('error', () => reject(new Error('Failed to load Google Identity Services script.')));
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      gisScriptLoadPromise = null;
+      reject(new Error('Failed to load Google Identity Services client script (accounts.google.com/gsi/client).'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return gisScriptLoadPromise;
+}
+
+/**
+ * Requests an OAuth 2.0 Access Token with Google Drive & Google Sheets permissions
+ * using the Web Application Client from project `ghost-7b055`.
+ *
+ * Scopes:
+ * - https://www.googleapis.com/auth/drive.file (Only files created/opened by FocusFlow)
+ * - https://www.googleapis.com/auth/spreadsheets (Read & write cell updates)
+ *
+ * If the GIS script is blocked by browser extensions or fails to load,
+ * this function gracefully falls back to the Firebase Auth popup provider.
+ */
+export async function requestGoogleDriveToken(options?: {
+  loginHint?: string | null;
+  prompt?: 'select_account' | 'consent' | '';
+}): Promise<string> {
+  const clientId = getGoogleOAuthClientId();
+  const scopes = GOOGLE_DRIVE_SHEETS_SCOPES.join(' ');
+
+  try {
+    // Attempt Google Identity Services Token Client first
+    await loadGoogleIdentityServicesScript();
+
+    if (window.google?.accounts?.oauth2?.initTokenClient) {
+      return await new Promise<string>((resolve, reject) => {
+        let settled = false;
+
+        try {
+          const client = window.google!.accounts!.oauth2!.initTokenClient({
+            client_id: clientId,
+            scope: scopes,
+            prompt: options?.prompt !== undefined ? options.prompt : 'select_account',
+            login_hint: options?.loginHint || undefined,
+            callback: (res: TokenResponse) => {
+              if (settled) return;
+              settled = true;
+
+              if (res.error) {
+                const errMsg = res.error_description || res.error;
+                if (res.error === 'access_denied') {
+                  reject(new Error('Google authorization was denied by the user or requires test-user access in Google Cloud project ghost-7b055.'));
+                } else if (res.error === 'popup_closed_by_user') {
+                  reject(new Error('Google authorization popup was closed before completing consent.'));
+                } else {
+                  reject(new Error(`Google authorization error: ${errMsg}`));
+                }
+                return;
+              }
+
+              if (!res.access_token) {
+                reject(new Error('Google did not return an access token. Please verify permissions and retry.'));
+                return;
+              }
+
+              // Store in ephemeral memory cache for immediate Sheet Hub worker use
+              setSheetHubWriteAccessToken(res.access_token);
+              resolve(res.access_token);
+            },
+            error_callback: (err: unknown) => {
+              if (settled) return;
+              settled = true;
+              console.warn('[GoogleAuthGIS] GIS error callback invoked:', err);
+              reject(new Error(`Google Identity Services failed: ${err instanceof Error ? err.message : String(err)}`));
+            },
+          });
+
+          client.requestAccessToken();
+        } catch (initErr) {
+          if (!settled) {
+            settled = true;
+            reject(initErr);
+          }
+        }
+      });
+    }
+  } catch (gisError) {
+    console.warn('[GoogleAuthGIS] GIS client could not be initialized; falling back to Firebase Auth provider:', gisError);
+  }
+
+  // Fallback to Firebase GoogleAuthProvider popup
+  const firebaseAuthResult = await authorizeSheetHubDualCopy(options?.loginHint || null);
+  const token = firebaseAuthResult.accessToken;
+  if (!token) {
+    throw new Error('Google authorization failed to return an access token.');
+  }
+  setSheetHubWriteAccessToken(token);
+  return token;
+}
+

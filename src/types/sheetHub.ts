@@ -113,6 +113,36 @@ export interface SheetConnection {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** Dual-Copy Architecture fields */
+  isDualCopy?: boolean;
+  driveFileId?: string | null;
+  sourceSpreadsheetId?: string | null;
+  nativeSheetId?: string | null;
+  lastDriveSyncAt?: string | null;
+  driveSyncStatus?: 'synced' | 'pending' | 'conflict' | 'error' | 'not_connected';
+  lastDriveModifiedTime?: string | null;
+}
+
+export interface SheetHubDriveDuplicateRequest {
+  sourceSpreadsheetId: string;
+  title?: string;
+  idempotencyKey?: string;
+  topics?: Array<{
+    unit: string;
+    topic: string;
+    subtopic?: string;
+    isCompleted?: boolean;
+  }>;
+}
+
+export interface SheetHubDriveDuplicateResponse {
+  success: boolean;
+  driveFileId: string;
+  driveUrl: string;
+  title: string;
+  sourceSpreadsheetId: string;
+  progressTrackerTabCreated: boolean;
+  createdAt: string;
 }
 
 export interface SheetColumnMapping {
