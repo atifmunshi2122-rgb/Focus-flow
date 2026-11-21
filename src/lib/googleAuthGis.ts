@@ -153,14 +153,17 @@ export function getGoogleOAuthClientId(): string {
 }
 
 /**
- * Returns the Google Picker API Key strictly from environment variable VITE_GOOGLE_PICKER_API_KEY.
+ * Returns the Google Picker API Key from environment variables (VITE_GOOGLE_PICKER_API_KEY or VITE_GOOGLE_SHEETS_API_KEY).
  * Throws a descriptive configuration error if the environment variable is missing.
  */
 export function getGooglePickerApiKey(): string {
   let envKey: string | undefined;
 
   try {
-    envKey = import.meta.env?.VITE_GOOGLE_PICKER_API_KEY;
+    envKey =
+      import.meta.env?.VITE_GOOGLE_PICKER_API_KEY ||
+      import.meta.env?.VITE_GOOGLE_SHEETS_API_KEY ||
+      import.meta.env?.VITE_GOOGLE_API_KEY;
   } catch {
     // Non-Vite runtime
   }
@@ -168,7 +171,10 @@ export function getGooglePickerApiKey(): string {
   // Fallback to process.env in Node test environments
   if (!envKey) {
     try {
-      envKey = process.env?.VITE_GOOGLE_PICKER_API_KEY;
+      envKey =
+        process.env?.VITE_GOOGLE_PICKER_API_KEY ||
+        process.env?.VITE_GOOGLE_SHEETS_API_KEY ||
+        process.env?.VITE_GOOGLE_API_KEY;
     } catch {
       // Ignore
     }

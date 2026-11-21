@@ -39,6 +39,9 @@ These variables are prefixed with `VITE_` and are embedded into the client-side 
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | No | `firebase-applet-config.json` | Project messaging sender ID for push notifications. |
 | `VITE_FIREBASE_APP_ID` | No | `firebase-applet-config.json` | Web App ID registered in the Firebase console. |
 | `VITE_FIREBASE_DATABASE_ID` | No | `(default)` | Firestore database ID (supports custom named databases or default). |
+| `VITE_GOOGLE_PICKER_API_KEY` | No | `.env.local` | Google Cloud API key for Google Drive Sheet Picker modal integration. |
+| `VITE_GOOGLE_SHEETS_API_KEY` | No | `.env.local` | Google Sheets / Drive API key fallback for spreadsheet operations. |
+| `VITE_GOOGLE_PROJECT_NUMBER` | No | `965140210258` | Google Cloud project number for Google Drive file picker dialog. |
 
 ---
 
