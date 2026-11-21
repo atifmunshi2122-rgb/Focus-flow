@@ -31,6 +31,8 @@ import type {
 import {
   auth,
   signInWithGoogle as fbSignInWithGoogle,
+  signInWithEmail as fbSignInWithEmail,
+  signUpWithEmail as fbSignUpWithEmail,
   authorizeGoogleSheets as fbAuthorizeGoogleSheets,
   authorizeSheetHubReadOnly as fbAuthorizeSheetHubReadOnly,
   authorizeSheetHubWrite as fbAuthorizeSheetHubWrite,
@@ -253,6 +255,8 @@ interface AppContextType {
   clearAuthError: () => void;
   googleAccessToken: string | null;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string) => Promise<void>;
   authorizeGoogleSheets: () => Promise<string | null>;
   authorizeSheetHubReadOnly: () => Promise<string | null>;
   authorizeSheetHubWrite: () => Promise<string | null>;
@@ -1388,6 +1392,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       setAuthError(diagnostic);
       showToast(`${diagnostic.title} (${diagnostic.code})`, 'error');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const signInWithEmail = async (email: string, password: string) => {
+    setIsSigningIn(true);
+    setAuthError(null);
+    try {
+      const { user: fbUser } = await fbSignInWithEmail(email, password);
+      setFirebaseUser(fbUser);
+      showToast(`Welcome back, ${fbUser.displayName || fbUser.email || 'User'}!`, 'success');
+      triggerRefresh();
+    } catch (err: unknown) {
+      console.error('Email sign in failed:', err);
+      const diagnostic = classifyFirebaseAuthError(err, {
+        scopeMode: 'basic',
+        userEmail: email,
+      });
+      setAuthError(diagnostic);
+      showToast(`${diagnostic.title} (${diagnostic.code})`, 'error');
+      throw err;
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const signUpWithEmail = async (email: string, password: string) => {
+    setIsSigningIn(true);
+    setAuthError(null);
+    try {
+      const { user: fbUser } = await fbSignUpWithEmail(email, password);
+      setFirebaseUser(fbUser);
+      showToast(`Account created! Welcome, ${fbUser.displayName || fbUser.email || 'User'}!`, 'success');
+      triggerRefresh();
+    } catch (err: unknown) {
+      console.error('Email sign up failed:', err);
+      const diagnostic = classifyFirebaseAuthError(err, {
+        scopeMode: 'basic',
+        userEmail: email,
+      });
+      setAuthError(diagnostic);
+      showToast(`${diagnostic.title} (${diagnostic.code})`, 'error');
+      throw err;
     } finally {
       setIsSigningIn(false);
     }
@@ -3036,6 +3084,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         clearAuthError,
         googleAccessToken,
         signInWithGoogle,
+        signInWithEmail,
+        signUpWithEmail,
         authorizeGoogleSheets,
         authorizeSheetHubReadOnly,
         authorizeSheetHubWrite,

@@ -1,13 +1,13 @@
 {
   "auth": {
     "providers": {
+      "emailPassword": true,
       "googleSignIn": {
         "oAuthBrandDisplayName": "FocusFlow and Finance",
         "supportEmail": "atifmunshi2122@gmail.com",
         "authorizedRedirectUris": [
           "https://focus-flow-by-atif.firebaseapp.com/__/auth/handler",
-          "http://localhost:3000",
-          "http://localhost:5173"
+          "http://localhost"
         ]
       }
     }

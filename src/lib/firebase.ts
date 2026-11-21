@@ -8,6 +8,8 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
   User,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -266,6 +268,44 @@ export const signInWithGoogle = createSingleFlightRunner(
       return { user: result.user, accessToken };
     } catch (error) {
       console.error('Sign in error:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
+    }
+  }
+);
+
+// Sign in with Email and Password
+export const signInWithEmail = createSingleFlightRunner(
+  async (email: string, password: string): Promise<{ user: User }> => {
+    if (configurationError) {
+      throw configurationError;
+    }
+    try {
+      isSigningIn = true;
+      const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+      return { user: result.user };
+    } catch (error) {
+      console.error('Email sign in error:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
+    }
+  }
+);
+
+// Sign up with Email and Password
+export const signUpWithEmail = createSingleFlightRunner(
+  async (email: string, password: string): Promise<{ user: User }> => {
+    if (configurationError) {
+      throw configurationError;
+    }
+    try {
+      isSigningIn = true;
+      const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      return { user: result.user };
+    } catch (error) {
+      console.error('Email sign up error:', error);
       throw error;
     } finally {
       isSigningIn = false;

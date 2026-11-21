@@ -251,6 +251,8 @@ export const SettingsView: React.FC = () => {
     isSigningIn,
     googleAccessToken,
     signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
     authorizeGoogleSheets,
     signOutGoogle,
     googleSpreadsheetId,
@@ -301,6 +303,35 @@ export const SettingsView: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isInitializingSheets, setIsInitializingSheets] = useState(false);
+
+  // Email/Password Authentication state
+  const [showEmailAuth, setShowEmailAuth] = useState(false);
+  const [emailAuthMode, setEmailAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [emailAuthLoading, setEmailAuthLoading] = useState(false);
+  const [emailAuthError, setEmailAuthError] = useState<string | null>(null);
+
+  const handleEmailAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailInput || !passwordInput) return;
+    setEmailAuthLoading(true);
+    setEmailAuthError(null);
+    try {
+      if (emailAuthMode === 'signup') {
+        await signUpWithEmail(emailInput, passwordInput);
+      } else {
+        await signInWithEmail(emailInput, passwordInput);
+      }
+      setShowEmailAuth(false);
+      setEmailInput('');
+      setPasswordInput('');
+    } catch (err: unknown) {
+      setEmailAuthError(err instanceof Error ? err.message : 'Authentication failed');
+    } finally {
+      setEmailAuthLoading(false);
+    }
+  };
 
   const { isDisabled, intensity, profile } = useMotionPreferences();
   const factor = getIntensityFactor(intensity);
@@ -704,15 +735,24 @@ export const SettingsView: React.FC = () => {
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
                       {!isAuthenticated ? (
-                        <ThemeButton
-                          variant="primary"
-                          size="sm"
-                          loading={isSigningIn}
-                          loadingText="Signing in..."
-                          onClick={signInWithGoogle}
-                        >
-                          Sign in with Google
-                        </ThemeButton>
+                        <>
+                          <ThemeButton
+                            variant="primary"
+                            size="sm"
+                            loading={isSigningIn}
+                            loadingText="Signing in..."
+                            onClick={signInWithGoogle}
+                          >
+                            Sign in with Google
+                          </ThemeButton>
+                          <ThemeButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setShowEmailAuth(!showEmailAuth)}
+                          >
+                            {showEmailAuth ? 'Hide Email Form' : 'Email & Password'}
+                          </ThemeButton>
+                        </>
                       ) : (
                         <>
                           {!googleAccessToken && (
@@ -733,6 +773,79 @@ export const SettingsView: React.FC = () => {
                       )}
                     </div>
                   </div>
+
+                  {!isAuthenticated && showEmailAuth && (
+                    <form
+                      onSubmit={handleEmailAuthSubmit}
+                      className="p-4 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] flex flex-col gap-3 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-[var(--ff-text-primary)]">
+                          {emailAuthMode === 'signup' ? 'Create an Account' : 'Sign in with Email'}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-xs text-[var(--ff-accent-primary)] hover:underline font-medium"
+                          onClick={() => {
+                            setEmailAuthMode(emailAuthMode === 'signup' ? 'signin' : 'signup');
+                            setEmailAuthError(null);
+                          }}
+                        >
+                          {emailAuthMode === 'signup'
+                            ? 'Already have an account? Sign in'
+                            : "Don't have an account? Sign up"}
+                        </button>
+                      </div>
+
+                      {emailAuthError && (
+                        <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+                          {emailAuthError}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">
+                            Email address
+                          </label>
+                          <input
+                            type="email"
+                            required
+                            value={emailInput}
+                            onChange={(e) => setEmailInput(e.target.value)}
+                            placeholder="name@example.com"
+                            className="w-full px-3 py-1.5 rounded-lg border border-[var(--ff-border-color)] bg-[var(--ff-surface)] text-[var(--ff-text-primary)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent-primary)]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-[var(--ff-text-muted)] mb-1">
+                            Password
+                          </label>
+                          <input
+                            type="password"
+                            required
+                            minLength={6}
+                            value={passwordInput}
+                            onChange={(e) => setPasswordInput(e.target.value)}
+                            placeholder="Minimum 6 characters"
+                            className="w-full px-3 py-1.5 rounded-lg border border-[var(--ff-border-color)] bg-[var(--ff-surface)] text-[var(--ff-text-primary)] text-xs focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent-primary)]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 mt-1">
+                        <ThemeButton
+                          type="submit"
+                          variant="primary"
+                          size="sm"
+                          loading={emailAuthLoading}
+                          loadingText={emailAuthMode === 'signup' ? 'Creating...' : 'Signing in...'}
+                        >
+                          {emailAuthMode === 'signup' ? 'Create Account' : 'Sign In'}
+                        </ThemeButton>
+                      </div>
+                    </form>
+                  )}
                   {detectEmbeddedIframe() && !isAuthenticated && (
                     <div
                       className="p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
