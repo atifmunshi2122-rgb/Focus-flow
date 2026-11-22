@@ -64,18 +64,31 @@ import {
 } from './universalSheetsWorker.ts';
 import { pushSheetHubCellUpdates } from './sheetHubWriteWorker.ts';
 import { duplicateGoogleDriveFile } from './driveWorker.ts';
+import { defaultIdempotencyLedger } from './durableIdempotencyLedger.ts';
 import {
   isSpreadsheetAllowlisted,
   dispatchAppsScriptWriteback,
   AppsScriptBridgeError,
 } from './appsScriptBridgeWorker.ts';
 import type { SheetsSnapshotPayload } from '../src/lib/sheetsSpec.js';
+import { googleCalendarOAuthCallbackRouter } from './routes/googleCalendarOAuthCallback.js';
+import { googleCalendarRouter } from './routes/googleCalendarRoutes.js';
+import { pushRouter } from './routes/pushRoutes.js';
+import { cronNotificationRouter } from './routes/cronNotificationRoutes.js';
 
 export const apiRouter = Router();
+
+// Specialized system / callback routes mounted before requireUserContext
+apiRouter.use(googleCalendarOAuthCallbackRouter);
+apiRouter.use(cronNotificationRouter);
 
 // Enforce authenticated token verification (or isolated guest session in non-strict dev/demo mode)
 apiRouter.use(requireUserContext);
 apiRouter.use(rateLimiter({ maxRequests: 300, windowMs: 60_000 }));
+
+// Authenticated integration routes
+apiRouter.use(googleCalendarRouter);
+apiRouter.use(pushRouter);
 
 const getAuth = (req: Request) => (req as AuthenticatedRequest).auth;
 
@@ -3308,11 +3321,19 @@ function extractGoogleAccessToken(req: Request): string | null {
 function sendSheetsError(res: Response, err: unknown, fallbackMessage: string, defaultStatus = 502): void {
   const message = err instanceof Error ? err.message : fallbackMessage;
   const isAuthError =
-    /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials|insufficient authentication scopes/i.test(
+    /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials/i.test(
       message
     );
   if (isAuthError) {
     res.status(401).json({ error: message, code: 'SHEETS_AUTH_REQUIRED' });
+    return;
+  }
+  const isPermissionError =
+    /\b403\b|PERMISSION_DENIED|The caller does not have permission|insufficient authentication scopes/i.test(
+      message
+    );
+  if (isPermissionError) {
+    res.status(403).json({ error: message, code: 'SHEETS_PERMISSION_DENIED' });
     return;
   }
   res.status(defaultStatus).json({ error: message });
@@ -3639,7 +3660,15 @@ apiRouter.post('/sheet-hub/drive-duplicate', async (req: Request, res: Response)
     return;
   }
 
-  const { sourceSpreadsheetId, title, idempotencyKey, topics } = req.body || {};
+  const { sourceSpreadsheetId, title, idempotencyKey, operationId, topics, ownerUid: bodyOwnerUid } = req.body || {};
+  if (bodyOwnerUid && typeof bodyOwnerUid === 'string' && bodyOwnerUid.trim() !== authCtx.userId) {
+    res.status(403).json({
+      error: 'Security violation: Request body ownerUid does not match authenticated user.',
+      code: 'FORGED_OWNER_UID',
+    });
+    return;
+  }
+
   if (!sourceSpreadsheetId || typeof sourceSpreadsheetId !== 'string') {
     res.status(400).json({
       error: 'sourceSpreadsheetId is required.',
@@ -3648,14 +3677,65 @@ apiRouter.post('/sheet-hub/drive-duplicate', async (req: Request, res: Response)
     return;
   }
 
+  const effectiveOpId = (operationId || idempotencyKey || '').trim();
+
   try {
     const result = await duplicateGoogleDriveFile(
-      { sourceSpreadsheetId, title, idempotencyKey, topics },
+      {
+        sourceSpreadsheetId,
+        title,
+        operationId: effectiveOpId,
+        idempotencyKey: effectiveOpId,
+        ownerUid: authCtx.userId,
+        topics,
+      },
       accessToken
     );
     res.json({ success: true, ...result });
   } catch (err) {
     sendSheetHubError(res, err, 'Failed to duplicate spreadsheet in Google Drive.');
+  }
+});
+
+apiRouter.post('/sheet-hub/drive-duplicate/reconcile', async (req: Request, res: Response) => {
+  const authCtx = getAuth(req);
+  if (!authCtx || authCtx.isGuest) {
+    res.status(401).json({
+      error: 'Signed-in FocusFlow authentication is required.',
+      code: 'AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const { operationId, status, driveFileId, nativeSheetId, errorMessage, ownerUid: bodyOwnerUid } = req.body || {};
+  if (bodyOwnerUid && typeof bodyOwnerUid === 'string' && bodyOwnerUid.trim() !== authCtx.userId) {
+    res.status(403).json({
+      error: 'Security violation: Request body ownerUid does not match authenticated user.',
+      code: 'FORGED_OWNER_UID',
+    });
+    return;
+  }
+
+  if (!operationId || typeof operationId !== 'string') {
+    res.status(400).json({
+      error: 'operationId is required.',
+      code: 'INVALID_OPERATION_ID',
+    });
+    return;
+  }
+
+  try {
+    const record = await defaultIdempotencyLedger.reconcileOperation({
+      operationId,
+      status: status || 'COMPLETED',
+      ownerUid: authCtx.userId,
+      driveFileId,
+      nativeSheetId,
+      errorMessage,
+    });
+    res.json({ success: true, record });
+  } catch (err) {
+    sendSheetHubError(res, err, 'Failed to reconcile operation.');
   }
 });
 

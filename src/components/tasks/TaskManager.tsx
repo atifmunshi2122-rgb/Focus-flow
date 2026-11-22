@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { googleSheetsService } from '../../lib/googleSheetsService.ts';
+import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 import { SubtaskItem, Task, TaskRecurrence } from '../../types/index.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
 import {
@@ -209,25 +209,23 @@ export const TaskManager: React.FC = () => {
         savedTask = await api.createTask(payload);
         showToast('Task created successfully', 'success');
       }
-      googleSheetsService.enqueueMutation(
+      await syncCoordinator.syncMutation(
         'Tasks',
         [
           savedTask.id,
           savedTask.title,
           savedTask.priority,
           savedTask.status,
-          savedTask.dueDate || '',
           savedTask.estimatedPomodoros,
           savedTask.completedPomodoros,
+          savedTask.dueDate || '',
+          savedTask.category || 'General',
+          savedTask.recurrence || 'none',
           savedTask.createdAt,
-          savedTask.updatedAt,
         ],
         editingTask ? 'update' : 'append',
         `Tasks_${editingTask ? 'update' : 'append'}_${savedTask.id}`
       );
-      if (googleSpreadsheetId && googleAccessToken) {
-        googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
-      }
       setModalOpen(false);
       triggerRefresh();
       loadTasks();
@@ -243,25 +241,23 @@ export const TaskManager: React.FC = () => {
     const nextStatus = targetStatus || (task.status === 'completed' ? 'todo' : 'completed');
     try {
       const updated = await api.updateTask(task.id, { status: nextStatus });
-      googleSheetsService.enqueueMutation(
+      await syncCoordinator.syncMutation(
         'Tasks',
         [
           updated.id,
           updated.title,
           updated.priority,
           updated.status,
-          updated.dueDate || '',
           updated.estimatedPomodoros,
           updated.completedPomodoros,
+          updated.dueDate || '',
+          updated.category || 'General',
+          updated.recurrence || 'none',
           updated.createdAt,
-          updated.updatedAt,
         ],
         'update',
-        `Tasks_update_${updated.id}_${updated.status}`
+        `Tasks_update_${updated.id}`
       );
-      if (googleSpreadsheetId && googleAccessToken) {
-        googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
-      }
       triggerRefresh();
       loadTasks();
       if (nextStatus === 'completed') {
@@ -307,7 +303,13 @@ export const TaskManager: React.FC = () => {
     if (!confirmed) return;
     try {
       await api.deleteTask(task.id);
-      showToast('Moved task to Trash', 'info');
+      await syncCoordinator.syncMutation(
+        'Tasks',
+        [task.id],
+        'delete',
+        `Tasks_delete_${task.id}`
+      );
+      showToast('Moved task to Trash & synchronized', 'info');
       triggerRefresh();
       loadTasks();
     } catch {
@@ -322,7 +324,7 @@ export const TaskManager: React.FC = () => {
     setIsSubmittingQuick(true);
     try {
       const todayStr = new Date().toISOString().split('T')[0];
-      await api.createTask({
+      const created = await api.createTask({
         title: cleanTitle,
         description: '',
         status: 'todo',
@@ -333,8 +335,25 @@ export const TaskManager: React.FC = () => {
         recurrence: 'none',
         subtasks: [],
       });
+      await syncCoordinator.syncMutation(
+        'Tasks',
+        [
+          created.id,
+          created.title,
+          created.priority,
+          created.status,
+          created.estimatedPomodoros,
+          created.completedPomodoros,
+          created.dueDate || '',
+          created.category || 'General',
+          created.recurrence || 'none',
+          created.createdAt,
+        ],
+        'append',
+        `Tasks_append_${created.id}`
+      );
       setQuickTaskTitle('');
-      showToast(`Quick task added: "${cleanTitle}"`, 'success');
+      showToast(`Quick task added & synchronized: "${cleanTitle}"`, 'success');
       triggerRefresh();
       loadTasks();
     } catch {

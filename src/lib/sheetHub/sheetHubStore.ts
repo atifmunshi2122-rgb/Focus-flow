@@ -1411,6 +1411,19 @@ export const sheetHubStore = {
   }> {
     assertValidUserId(userId);
     const now = new Date().toISOString();
+
+    // 0. Idempotent check: if a non-deleted native sheet already exists for this driveFileId under userId, return it
+    if (input.driveFileId) {
+      const existingConns = await this.listConnections(userId).catch(() => []);
+      const existing = existingConns.find(
+        (c) => c.isDualCopy && c.driveFileId === input.driveFileId && !c.deletedAt
+      );
+      if (existing) {
+        const existingTabs = await this.listTabsForConnection(userId, existing.id).catch(() => []);
+        return { connection: existing, tabs: existingTabs };
+      }
+    }
+
     const connId = `conn_dual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const createdTabs: SheetTabSchema[] = [];
     const tabOrder: string[] = [];

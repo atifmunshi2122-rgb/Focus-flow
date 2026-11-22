@@ -41,12 +41,14 @@ export type FetchLike = typeof fetch;
 export class SheetHubWorkerError extends Error {
   public readonly status: number;
   public readonly code: string;
+  public readonly details?: Record<string, unknown>;
 
-  constructor(message: string, status = 502, code = 'SHEETS_UPSTREAM_ERROR') {
+  constructor(message: string, status = 502, code = 'SHEETS_UPSTREAM_ERROR', details?: Record<string, unknown>) {
     super(message);
     this.name = 'SheetHubWorkerError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -111,23 +113,62 @@ function escapeSheetTitleForA1(title: string): string {
   return `'${escaped}'`;
 }
 
-async function readGoogleError(res: Response): Promise<string> {
+export interface GoogleApiErrorDetail {
+  status: number;
+  message: string;
+  reason?: string;
+  domain?: string;
+  rawText?: string;
+}
+
+export async function parseGoogleApiError(res: Response): Promise<GoogleApiErrorDetail> {
+  const status = res.status;
   try {
     const text = await res.text();
-    if (!text) return `HTTP ${res.status} ${res.statusText}`;
+    if (!text) return { status, message: `HTTP ${status} ${res.statusText}` };
     try {
-      const parsed = JSON.parse(text) as { error?: { message?: string } };
-      if (parsed?.error?.message) return parsed.error.message;
+      const parsed = JSON.parse(text) as {
+        error?: {
+          code?: number;
+          message?: string;
+          status?: string;
+          errors?: Array<{ message?: string; domain?: string; reason?: string }>;
+        };
+      };
+      if (parsed?.error) {
+        const msg = parsed.error.message || `HTTP ${status} ${res.statusText}`;
+        const firstErr = parsed.error.errors?.[0];
+        const reason = firstErr?.reason || parsed.error.status;
+        const domain = firstErr?.domain;
+        return {
+          status,
+          message: msg,
+          reason,
+          domain,
+          rawText: text.slice(0, 400),
+        };
+      }
     } catch {
       // plain text fallback
     }
-    return text.slice(0, 400);
+    return { status, message: text.slice(0, 400), rawText: text.slice(0, 400) };
   } catch {
-    return `HTTP ${res.status} ${res.statusText}`;
+    return { status, message: `HTTP ${status} ${res.statusText}` };
   }
 }
 
-function mapGoogleHttpError(status: number, message: string, context: string): SheetHubWorkerError {
+async function readGoogleError(res: Response): Promise<GoogleApiErrorDetail> {
+  return parseGoogleApiError(res);
+}
+
+function mapGoogleHttpError(
+  status: number,
+  errorDetail: GoogleApiErrorDetail | string,
+  context: string
+): SheetHubWorkerError {
+  const message = typeof errorDetail === 'string' ? errorDetail : errorDetail.message;
+  const reason = typeof errorDetail === 'object' ? errorDetail.reason : undefined;
+
   if (
     status === 401 ||
     /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials|insufficient authentication scopes/i.test(
@@ -137,34 +178,40 @@ function mapGoogleHttpError(status: number, message: string, context: string): S
     return new SheetHubWorkerError(
       `Google Sheets authorization expired or missing (${context}): ${message}`,
       401,
-      'SHEETS_AUTH_REQUIRED'
+      'SHEETS_AUTH_REQUIRED',
+      { status, reason, context, originalMessage: message }
     );
   }
   if (status === 403) {
+    const reasonDetail = reason ? ` (Reason: ${reason})` : '';
     return new SheetHubWorkerError(
-      `Access denied to this Google Spreadsheet. Verify your Google account has access and granted Sheets permission.`,
+      `Access denied to Google Spreadsheet (${context}): ${message}${reasonDetail}. Verify that your authorized Google account has permission to view this spreadsheet and that Google Sheets API access is granted.`,
       403,
-      'SHEETS_PERMISSION_DENIED'
+      'SHEETS_PERMISSION_DENIED',
+      { status, reason, context, originalMessage: message }
     );
   }
   if (status === 404) {
     return new SheetHubWorkerError(
-      'Google Spreadsheet not found. Verify the spreadsheet URL or ID.',
+      `Google Spreadsheet not found or inaccessible (${context}): ${message}. Verify the spreadsheet URL or ID. For private spreadsheets, use "Browse My Google Drive" to select the file.`,
       404,
-      'SPREADSHEET_NOT_FOUND'
+      'SPREADSHEET_NOT_FOUND',
+      { status, reason, context, originalMessage: message }
     );
   }
   if (status === 429) {
     return new SheetHubWorkerError(
-      'Google Sheets API rate limit reached. Please retry shortly.',
+      `Google Sheets API rate limit reached (${context}): ${message}. Please retry shortly.`,
       429,
-      'SHEETS_RATE_LIMITED'
+      'SHEETS_RATE_LIMITED',
+      { status, reason, context, originalMessage: message }
     );
   }
   return new SheetHubWorkerError(
     `Google Sheets API error (${context}, HTTP ${status}): ${message}`,
     status >= 400 && status < 500 ? status : 502,
-    'SHEETS_UPSTREAM_ERROR'
+    'SHEETS_UPSTREAM_ERROR',
+    { status, reason, context, originalMessage: message }
   );
 }
 

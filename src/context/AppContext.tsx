@@ -49,6 +49,7 @@ import { User as FirebaseUser } from 'firebase/auth';
 import { requestGoogleDriveToken } from '../lib/googleAuthGis.ts';
 import { AuthDiagnostic, classifyFirebaseAuthError } from '../lib/authDiagnostics.ts';
 import { googleSheetsService } from '../lib/googleSheetsService.ts';
+import { syncCoordinator } from '../lib/syncCoordinator.ts';
 import { firestoreService } from '../lib/firestoreService.ts';
 import { offlineOutbox } from '../lib/offlineOutbox.ts';
 import { clientDataCache } from '../lib/dataCache.ts';
@@ -140,7 +141,7 @@ import {
 } from '../lib/timerEngine.ts';
 export type { TimerEngineMode, TimerMode };
 
-export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
+export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'pending' | 'auth_required' | 'permission_denied' | 'error';
 
 export type ThemeSyncState = 'local' | 'syncing' | 'cloud-synced' | 'offline';
 
@@ -477,6 +478,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   >(null);
   const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const [syncLastError, setSyncLastError] = useState<string | null>(null);
+
+  useEffect(() => {
+    syncCoordinator.setCredentials(googleSpreadsheetId, googleAccessToken);
+  }, [googleSpreadsheetId, googleAccessToken]);
+
+  useEffect(() => {
+    const unsub = syncCoordinator.subscribe((state) => {
+      const mapped: SyncStatus = state.status === 'failed' ? 'error' : state.status;
+      setSyncStatus(mapped);
+      setSyncQueueCount(state.pendingCount);
+      if (state.lastSyncedAt) setLastSyncedAt(state.lastSyncedAt);
+      if (state.lastError) setSyncLastError(state.lastError);
+    });
+    return unsub;
+  }, []);
   const [notifications, setNotifications] = useState<AppNotificationItem[]>([]);
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
     try {
@@ -2420,7 +2436,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         api.saveStudyTopic({ id: activeStudyTopicId, theory: true }).catch(console.error);
       }
 
-      void googleSheetsService.enqueueMutation(
+      await syncCoordinator.syncMutation(
         'Focus_Sessions',
         [
           created.id,
@@ -2438,9 +2454,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'append',
         `Focus_Sessions_append_${created.id}`
       );
-      if (googleSpreadsheetId && googleAccessToken) {
-        googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
-      }
       resetTimer();
       triggerRefresh();
       showToast(`Logged ${mins} min stopwatch focus session!`, 'success');
@@ -2679,14 +2692,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               });
 
           savePromise
-            .then((newSession: FocusSession) => {
+            .then(async (newSession: FocusSession) => {
               if (studyTopicNow && studyActivityNow === 'practice') {
                 api.saveStudyTopic({ id: studyTopicNow, practice: true }).catch(console.error);
               } else if (studyTopicNow && studyActivityNow === 'theory') {
                 api.saveStudyTopic({ id: studyTopicNow, theory: true }).catch(console.error);
               }
 
-              void googleSheetsService.enqueueMutation(
+              await syncCoordinator.syncMutation(
                 'Focus_Sessions',
                 [
                   newSession.id,
@@ -2704,13 +2717,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 'append',
                 `Focus_Sessions_append_${newSession.id}`
               );
-
-              if (sheetIdNow && tokenNow) {
-                googleSheetsService
-                  .flushQueue(sheetIdNow, tokenNow)
-                  .then(() => setSyncStatus('synced'))
-                  .catch(() => setSyncStatus('error'));
-              }
 
               refreshNow();
             })

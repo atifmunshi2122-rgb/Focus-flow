@@ -8,6 +8,8 @@
   "messagingSenderId": "1010159085609",
   "measurementId": "G-H4D8JLHJQJ",
   "googleSheetsApiKey": "AIzaSyCw1wOxkYkJPoWcMrX4mc8E8rGxpxZXJMQ",
+  "googleCalendarApiKey": "AIzaSyDZFq6pp77Kp9zMSKVQSY-wb8xlWCcEcS8",
+  "fcmApiKey": "AIzaSyC9JOdO981WILoxGBjlIf1-hA-dRKkE0Fk",
   "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

@@ -333,10 +333,10 @@ service cloud.firestore {
         allow create: if isOwner(userId)
           && isValidId(queueId)
           && request.resource.data.userId == userId
-          && request.resource.data.status in ['pending', 'processing', 'completed', 'failed'];
+          && request.resource.data.status in ['pending', 'processing', 'completed', 'failed', 'failed_recoverable'];
         allow update: if isOwner(userId)
           && request.resource.data.userId == userId
-          && request.resource.data.status in ['pending', 'processing', 'completed', 'failed'];
+          && request.resource.data.status in ['pending', 'processing', 'completed', 'failed', 'failed_recoverable'];
         allow delete: if isOwner(userId);
       }
 
@@ -1455,6 +1455,27 @@ service cloud.firestore {
           allow delete: if isOwner(userId);
         }
       }
+
+      // ==========================================
+      // SERVER-MANAGED INTEGRATIONS & PUSH TOKENS
+      // ==========================================
+      // Direct client reads and writes are strictly forbidden.
+      // All operations are executed exclusively through authenticated backend services via Admin SDK.
+      match /integrations/{integrationId} {
+        allow read, write: if false;
+      }
+
+      match /fcm_installations/{installationId} {
+        allow read, write: if false;
+      }
+
+      match /calendar_event_links/{linkId} {
+        allow read, write: if false;
+      }
+
+      match /notification_delivery_ledger/{entryId} {
+        allow read, write: if false;
+      }
     }
 
     // ==========================================
@@ -2218,6 +2239,25 @@ service cloud.firestore {
           && (isMemberOfVault(vaultId) || isMemberOfVaultAfter(vaultId));
         allow update, delete: if false;
       }
+    }
+
+    // ==========================================
+    // GOOGLE DRIVE DUPLICATION IDEMPOTENCY
+    // ==========================================
+    // Server-managed durable duplication idempotency records.
+    // Client write is strictly forbidden under all circumstances.
+    // Authenticated users may read their own idempotency records.
+    match /driveIdempotency/{operationId} {
+      allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow write: if false;
+    }
+
+    // ==========================================
+    // EPHEMERAL OAUTH STATES
+    // ==========================================
+    // Server-managed only; client direct access strictly forbidden
+    match /oauth_states/{stateId} {
+      allow read, write: if false;
     }
   }
 }

@@ -318,7 +318,7 @@ export function resolveProjectId(serviceAccount?: ServiceAccountConfig | null): 
   return resolveFirebaseProjectIdFallback();
 }
 
-async function getGoogleOAuthAccessToken(sa: ServiceAccountConfig): Promise<string> {
+export async function getGoogleOAuthAccessToken(sa: ServiceAccountConfig): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   if (cachedAccessToken && cachedAccessToken.expiresAt > now + 300) {
     return cachedAccessToken.token;

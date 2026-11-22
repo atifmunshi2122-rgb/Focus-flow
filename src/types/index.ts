@@ -333,7 +333,7 @@ export interface DurableSyncOperation {
   sheetName: string;
   payload: unknown;
   dedupeKey?: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'failed_recoverable';
   attempts: number;
   lastAttemptAt?: string | null;
   nextRetryAt?: number | null; // epoch ms for exponential backoff

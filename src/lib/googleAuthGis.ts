@@ -15,6 +15,7 @@
  */
 
 import { setSheetHubWriteAccessToken } from './firebase.ts';
+import firebaseManifest from '../../firebase-applet-config.json';
 
 export const GHOST_OAUTH_CLIENT_ID =
   '965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com';
@@ -190,6 +191,88 @@ export function getGooglePickerApiKey(): string {
   throw new Error(
     'Google Picker API key is missing. Please configure VITE_GOOGLE_PICKER_API_KEY in your environment variables (.env.local).'
   );
+}
+
+/**
+ * Returns the Google Calendar API Key from environment variables or fallback configuration.
+ */
+export function getGoogleCalendarApiKey(): string {
+  let envKey: string | undefined;
+
+  try {
+    envKey = import.meta.env?.VITE_GOOGLE_CALENDAR_API_KEY;
+  } catch {
+    // Non-Vite runtime
+  }
+
+  if (!envKey) {
+    try {
+      envKey = process.env?.VITE_GOOGLE_CALENDAR_API_KEY;
+    } catch {
+      // Ignore
+    }
+  }
+
+  if (typeof envKey === 'string') {
+    const cleaned = envKey.trim().replace(/^["']|["']$/g, '');
+    if (cleaned.length > 0) {
+      return cleaned;
+    }
+  }
+
+  try {
+    const manifestKey = (firebaseManifest as { googleCalendarApiKey?: string })?.googleCalendarApiKey;
+    if (typeof manifestKey === 'string' && manifestKey.trim().length > 0) {
+      return manifestKey.trim();
+    }
+  } catch {
+    // Ignore
+  }
+
+  return '';
+}
+
+/**
+ * Returns the Firebase Cloud Messaging (FCM) API Key from environment variables or fallback configuration.
+ */
+export function getFirebaseMessagingApiKey(): string {
+  let envKey: string | undefined;
+
+  try {
+    envKey =
+      import.meta.env?.VITE_FIREBASE_MESSAGING_API_KEY ||
+      import.meta.env?.FCM_SERVER_KEY;
+  } catch {
+    // Non-Vite runtime
+  }
+
+  if (!envKey) {
+    try {
+      envKey =
+        process.env?.VITE_FIREBASE_MESSAGING_API_KEY ||
+        process.env?.FCM_SERVER_KEY;
+    } catch {
+      // Ignore
+    }
+  }
+
+  if (typeof envKey === 'string') {
+    const cleaned = envKey.trim().replace(/^["']|["']$/g, '');
+    if (cleaned.length > 0) {
+      return cleaned;
+    }
+  }
+
+  try {
+    const manifestKey = (firebaseManifest as { fcmApiKey?: string })?.fcmApiKey;
+    if (typeof manifestKey === 'string' && manifestKey.trim().length > 0) {
+      return manifestKey.trim();
+    }
+  } catch {
+    // Ignore
+  }
+
+  return '';
 }
 
 /**
@@ -371,13 +454,13 @@ export async function requestGoogleDriveToken(options?: {
             if (res.error === 'access_denied') {
               reject(
                 new Error(
-                  'Google authorization was denied by the user or requires test-user access in Google Cloud project ghost-7b055.'
+                  `Google authorization was denied (access_denied: ${errMsg}). Ensure your Google account is added under Test Users in Google Cloud project ghost-7b055 and all requested scopes are granted.`
                 )
               );
             } else if (res.error === 'popup_closed_by_user') {
               reject(new Error('Google authorization popup was closed before completing consent.'));
             } else {
-              reject(new Error(`Google authorization error: ${errMsg}`));
+              reject(new Error(`Google authorization error (${res.error}): ${errMsg}`));
             }
             return;
           }
@@ -385,6 +468,23 @@ export async function requestGoogleDriveToken(options?: {
           if (!res.access_token) {
             reject(new Error('Google did not return an access token. Please verify permissions and retry.'));
             return;
+          }
+
+          // Verify granted scopes
+          if (window.google?.accounts?.oauth2?.hasGrantedAllScopes) {
+            const hasAll = window.google.accounts.oauth2.hasGrantedAllScopes(
+              res,
+              GOOGLE_DRIVE_SHEETS_SCOPES[0],
+              ...GOOGLE_DRIVE_SHEETS_SCOPES.slice(1)
+            );
+            if (!hasAll) {
+              reject(
+                new Error(
+                  `Google authorization granted partial permissions (${res.scope || 'insufficient'}). Both Google Sheets and Google Drive permissions are required. Please re-authenticate and check all permission checkboxes on Google's consent screen.`
+                )
+              );
+              return;
+            }
           }
 
           // Store in ephemeral memory cache for immediate Sheet Hub worker use

@@ -36,7 +36,7 @@ export interface SelectedGoogleSheet {
 export interface GoogleSheetPickerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectSheet: (sheet: SelectedGoogleSheet) => void;
+  onSelectSheet: (sheet: SelectedGoogleSheet, token?: string) => void;
   oauthToken?: string | null;
   loginHint?: string | null;
 }
@@ -47,7 +47,7 @@ export interface GoogleSheetPickerModalProps {
  */
 export async function launchGoogleSpreadsheetPicker(options: {
   accessToken: string;
-  onSelect: (sheet: SelectedGoogleSheet) => void;
+  onSelect: (sheet: SelectedGoogleSheet, token?: string) => void;
   onCancel?: () => void;
   apiKey?: string;
   projectNumber?: string;
@@ -108,11 +108,14 @@ export async function launchGoogleSpreadsheetPicker(options: {
           ).trim();
 
           if (docId) {
-            options.onSelect({
-              id: docId,
-              name: docName,
-              url: docUrl,
-            });
+            options.onSelect(
+              {
+                id: docId,
+                name: docName,
+                url: docUrl,
+              },
+              token
+            );
           }
         }
       } else if (action === googlePicker.Action.CANCEL) {
@@ -152,9 +155,9 @@ export const GoogleSheetPickerModal: React.FC<GoogleSheetPickerModalProps> = ({
       // 2. Launch Google Picker dialog
       await launchGoogleSpreadsheetPicker({
         accessToken: token,
-        onSelect: (sheet) => {
+        onSelect: (sheet, pickerToken) => {
           setIsLoading(false);
-          onSelectSheet(sheet);
+          onSelectSheet(sheet, pickerToken || token || undefined);
           onClose();
         },
         onCancel: () => {

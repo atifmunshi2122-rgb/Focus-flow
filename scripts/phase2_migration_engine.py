@@ -229,25 +229,55 @@ class MigrationEngine:
             raise ValueError(f"Target DB not FIRESTORE_NATIVE: {db_info.get('type')}")
 
         # 3.2 Check target Firestore document count across root collections
-        root_cols = ["users", "sharedVaults", "vaultInvitations", "sheet_connections", "sheet_tabs", "sheet_row_chunks"]
-        total_target_docs = 0
-        for col in root_cols:
+        HISTORICAL_COLLECTIONS = [
+            "users",
+            "sharedVaults",
+            "vaultInvitations",
+            "sheet_connections",
+            "sheet_tabs",
+            "sheet_row_chunks",
+        ]
+        OPERATIONAL_COLLECTIONS = [
+            "driveIdempotency",
+        ]
+
+        total_historical_target_docs = 0
+        for col in HISTORICAL_COLLECTIONS:
             col_url = f"https://firestore.googleapis.com/v1/projects/{TARGET_PROJECT_ID}/databases/{TARGET_DATABASE_ID}/documents/{col}"
             c_req = urllib.request.Request(col_url, headers=self.headers)
             try:
                 with urllib.request.urlopen(c_req) as c_resp:
                     data = json.loads(c_resp.read().decode("utf-8"))
                     count = len(data.get("documents", []))
-                    total_target_docs += count
+                    total_historical_target_docs += count
                     if count > 0:
-                        raise ValueError(f"Target collection '{col}' contains {count} unexpected documents!")
+                        raise ValueError(f"Target historical collection '{col}' contains {count} unexpected documents!")
             except urllib.error.HTTPError as e:
                 if e.code != 404:
                     raise
 
-        if total_target_docs != 0:
-            raise ValueError(f"Target Firestore is NOT clean! Found {total_target_docs} documents.")
-        self.log("TARGET_AUDIT", "Target Firestore is completely clean (0 documents).", "OK")
+        # Check operational collections separately
+        total_operational_target_docs = 0
+        for col in OPERATIONAL_COLLECTIONS:
+            col_url = f"https://firestore.googleapis.com/v1/projects/{TARGET_PROJECT_ID}/databases/{TARGET_DATABASE_ID}/documents/{col}"
+            c_req = urllib.request.Request(col_url, headers=self.headers)
+            try:
+                with urllib.request.urlopen(c_req) as c_resp:
+                    data = json.loads(c_resp.read().decode("utf-8"))
+                    count = len(data.get("documents", []))
+                    total_operational_target_docs += count
+            except urllib.error.HTTPError as e:
+                if e.code != 404:
+                    raise
+
+        if total_historical_target_docs != 0:
+            raise ValueError(f"Target Firestore historical data is NOT clean! Found {total_historical_target_docs} documents.")
+
+        self.log(
+            "TARGET_AUDIT",
+            f"Target Firestore clean state confirmed: 0 historical documents (Operational ledger docs: {total_operational_target_docs}).",
+            "OK"
+        )
 
         # 3.3 Target Auth directory check (accounts:batchGet)
         auth_url = f"https://identitytoolkit.googleapis.com/v1/projects/{TARGET_PROJECT_ID}/accounts:batchGet?maxResults=100"
@@ -333,7 +363,7 @@ class MigrationEngine:
                     {
                         "providerId": "google.com",
                         "rawId": google_raw_id,
-                        "federatedId": google_raw_id,
+                        "federatedId": f"https://accounts.google.com/{google_raw_id}",
                         "email": email,
                         "displayName": src.get("displayName") or matching_canonical["displayName"],
                         "photoUrl": src.get("photoUrl") or google_provider.get("photoUrl", ""),
@@ -371,6 +401,13 @@ class MigrationEngine:
                 raise ValueError(f"Line {idx+1} missing fullPath!")
             if not fields:
                 raise ValueError(f"Document {full_path} has empty fields!")
+
+            # Safety Invariant: Operational collection driveIdempotency must never be in historical payload
+            if full_path.startswith("driveIdempotency/") or full_path == "driveIdempotency":
+                raise ValueError(
+                    f"CRITICAL SAFETY VIOLATION: Operational collection 'driveIdempotency' document ({full_path}) "
+                    f"cannot be included in the historical migration payload of 259 documents!"
+                )
 
             # Check sync_queue invariant
             if "sync_queue" in full_path:

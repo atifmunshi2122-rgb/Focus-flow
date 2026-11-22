@@ -19,7 +19,7 @@ import {
   FinanceSummaryData,
   SavingsGoal,
 } from '../../types/index.ts';
-import { googleSheetsService } from '../../lib/googleSheetsService.ts';
+import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 import { ThemeBadge, ThemeButton, ThemeCard, ThemeInput, ThemeSelect } from '../ui/ThemePrimitives.tsx';
 import { AnimatedProgressBar, EmptyStateIllustration } from '../ui/MotionPrimitives.tsx';
 
@@ -102,8 +102,26 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
     if (num === 0) delete nextMap[selectedCatId];
     else nextMap[selectedCatId] = toPaise(num);
     await updateSettings({ categoryBudgets: nextMap });
+
+    const catName = categories.find((c) => c.id === selectedCatId)?.name || 'Category';
+    if (num === 0) {
+      await syncCoordinator.syncMutation(
+        'Budgets',
+        [selectedCatId],
+        'delete',
+        `Budgets_delete_${selectedCatId}`
+      );
+    } else {
+      await syncCoordinator.syncMutation(
+        'Budgets',
+        [selectedCatId, catName, num, 0, num, '0.0%', 'On Track'],
+        'update',
+        `Budgets_update_${selectedCatId}`
+      );
+    }
+
     setCatBudgetInput('');
-    showToast('Saved category budget', 'success');
+    showToast('Saved category budget & synchronized', 'success');
   };
 
   const handleDeleteCategoryBudget = async (catId: string, catName: string) => {
@@ -117,7 +135,13 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
     const nextMap = { ...(settings?.categoryBudgets || {}) };
     delete nextMap[catId];
     await updateSettings({ categoryBudgets: nextMap });
-    showToast(`Removed budget cap for "${catName}"`, 'info');
+    await syncCoordinator.syncMutation(
+      'Budgets',
+      [catId],
+      'delete',
+      `Budgets_delete_${catId}`
+    );
+    showToast(`Removed budget cap for "${catName}" & synchronized`, 'info');
   };
 
   const handleSaveDailyLimit = async (e: React.FormEvent) => {
@@ -157,15 +181,19 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
         targetDate: goalDate || null,
         color: '#10b981',
       });
-      void googleSheetsService.enqueueMutation(
+      await syncCoordinator.syncMutation(
         'Savings_Goals',
         [
           created.id,
           created.title,
           created.targetPaise / 100,
           created.savedPaise / 100,
-          0,
+          Math.max(0, (created.targetPaise - created.savedPaise) / 100),
           created.targetDate || 'No Deadline',
+          created.targetPaise > 0
+            ? `${Math.round((created.savedPaise / created.targetPaise) * 100)}%`
+            : '0%',
+          'Active',
         ],
         'append',
         `Savings_Goals_append_${created.id}`
@@ -173,7 +201,7 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
       setGoalTitle('');
       setGoalTargetInput('');
       setGoalDate('');
-      showToast(`Created savings goal "${title}"`, 'success');
+      showToast(`Created savings goal "${title}" & synchronized`, 'success');
       triggerRefresh();
     } catch {
       showToast('Failed to create savings goal', 'error');
@@ -193,8 +221,26 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
     }
     try {
       await api.contributeSavingsGoal(goal.id, deltaPaise);
+      const nextSaved = Math.max(0, goal.savedPaise + deltaPaise);
+      await syncCoordinator.syncMutation(
+        'Savings_Goals',
+        [
+          goal.id,
+          goal.title,
+          goal.targetPaise / 100,
+          nextSaved / 100,
+          Math.max(0, (goal.targetPaise - nextSaved) / 100),
+          goal.targetDate || 'No Deadline',
+          goal.targetPaise > 0
+            ? `${Math.round((nextSaved / goal.targetPaise) * 100)}%`
+            : '0%',
+          nextSaved >= goal.targetPaise ? 'Achieved' : 'Active',
+        ],
+        'update',
+        `Savings_Goals_update_${goal.id}`
+      );
       setContribAmounts((prev) => ({ ...prev, [goal.id]: '' }));
-      showToast(sign > 0 ? 'Added savings deposit' : 'Recorded withdrawal', 'success');
+      showToast(sign > 0 ? 'Added savings deposit & synchronized' : 'Recorded withdrawal & synchronized', 'success');
       triggerRefresh();
     } catch {
       showToast('Failed to update savings balance', 'error');
@@ -212,7 +258,13 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
     if (!confirmed) return;
     try {
       await api.deleteSavingsGoal(goal.id);
-      showToast('Savings goal deleted', 'info');
+      await syncCoordinator.syncMutation(
+        'Savings_Goals',
+        [goal.id],
+        'delete',
+        `Savings_Goals_delete_${goal.id}`
+      );
+      showToast('Savings goal deleted & synchronized', 'info');
       triggerRefresh();
     } catch {
       showToast('Failed to delete goal', 'error');

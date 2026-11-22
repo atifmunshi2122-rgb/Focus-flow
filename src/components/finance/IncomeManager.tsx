@@ -21,7 +21,7 @@ import {
 } from '../ui/MotionPrimitives.tsx';
 import { MOTION_DURATION, MOTION_EASING, getIntensityFactor } from '../../theme/motionTokens.ts';
 import { Plus, TrendingUp, Trash2, Edit2, Calendar, Tag } from 'lucide-react';
-import { googleSheetsService } from '../../lib/googleSheetsService.ts';
+import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 
 export const IncomeManager: React.FC = () => {
   const {
@@ -106,7 +106,20 @@ export const IncomeManager: React.FC = () => {
           category,
           notes,
         });
-        showToast('Income record updated', 'success');
+        await syncCoordinator.syncMutation(
+          'Income',
+          [
+            updated.id,
+            updated.date,
+            updated.source,
+            updated.category,
+            updated.amountPaise / 100,
+            updated.notes || '',
+          ],
+          'update',
+          `Income_update_${updated.id}`
+        );
+        showToast('Income record updated & synchronized', 'success');
       } else {
         const created = await api.createIncome({
           source: source.trim(),
@@ -115,7 +128,7 @@ export const IncomeManager: React.FC = () => {
           category,
           notes,
         });
-        void googleSheetsService.enqueueMutation(
+        await syncCoordinator.syncMutation(
           'Income',
           [
             created.id,
@@ -128,9 +141,6 @@ export const IncomeManager: React.FC = () => {
           'append',
           `Income_append_${created.id}`
         );
-        if (googleSpreadsheetId && googleAccessToken) {
-          googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
-        }
         playCashSound(settings?.soundEnabled);
         showToast('Income recorded & synchronized', 'success');
       }
@@ -160,7 +170,13 @@ export const IncomeManager: React.FC = () => {
     if (!confirmed) return;
     try {
       await api.deleteIncome(inc.id);
-      showToast('Income record moved to Trash', 'info');
+      await syncCoordinator.syncMutation(
+        'Income',
+        [inc.id],
+        'delete',
+        `Income_delete_${inc.id}`
+      );
+      showToast('Income record moved to Trash & synchronized', 'info');
       triggerRefresh();
       loadIncomes();
     } catch {

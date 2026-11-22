@@ -32,7 +32,8 @@ import {
   Tag,
   TrendingDown,
 } from 'lucide-react';
-import { googleSheetsService } from '../../lib/googleSheetsService.ts';
+import { formatPaymentMethodLabel } from '../../lib/googleSheetsService.ts';
+import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 
 export const ExpenseManager: React.FC = () => {
   const {
@@ -117,6 +118,9 @@ export const ExpenseManager: React.FC = () => {
 
     setSaving(true);
     try {
+      const resolvedCategoryName =
+        categories.find((c) => c.id === varCategory)?.name || 'General';
+
       if (editingVar) {
         const updated = await api.updateExpense(editingVar.id, {
           description: varDesc.trim(),
@@ -127,7 +131,21 @@ export const ExpenseManager: React.FC = () => {
           notes: varNotes,
           type: 'variable',
         });
-        showToast('Expense updated', 'success');
+        await syncCoordinator.syncMutation(
+          'Variable_Expenses',
+          [
+            updated.id,
+            updated.date,
+            updated.description,
+            resolvedCategoryName,
+            updated.amountPaise / 100,
+            formatPaymentMethodLabel(varMethod, true),
+            updated.notes || '',
+          ],
+          'update',
+          `Variable_Expenses_update_${updated.id}`
+        );
+        showToast('Expense updated & synchronized', 'success');
       } else {
         const created = await api.createExpense({
           description: varDesc.trim(),
@@ -138,23 +156,20 @@ export const ExpenseManager: React.FC = () => {
           notes: varNotes,
           type: 'variable',
         });
-        void googleSheetsService.enqueueMutation(
+        await syncCoordinator.syncMutation(
           'Variable_Expenses',
           [
             created.id,
             created.date,
             created.description,
-            created.categoryName || 'General',
+            created.categoryName || resolvedCategoryName,
             created.amountPaise / 100,
-            varMethod.replace('_', ' ').toUpperCase(),
+            formatPaymentMethodLabel(varMethod, true),
             created.notes || '',
           ],
           'append',
           `Variable_Expenses_append_${created.id}`
         );
-        if (googleSpreadsheetId && googleAccessToken) {
-          googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
-        }
         showToast('Variable expense logged & synchronized', 'success');
       }
       setSaving(false);
@@ -183,7 +198,13 @@ export const ExpenseManager: React.FC = () => {
     if (!confirmed) return;
     try {
       await api.deleteExpense(exp.id);
-      showToast('Expense moved to Trash', 'info');
+      await syncCoordinator.syncMutation(
+        'Variable_Expenses',
+        [exp.id],
+        'delete',
+        `Variable_Expenses_delete_${exp.id}`
+      );
+      showToast('Expense moved to Trash & synchronized', 'info');
       triggerRefresh();
       loadData();
     } catch {
@@ -227,6 +248,9 @@ export const ExpenseManager: React.FC = () => {
 
     setSaving(true);
     try {
+      const resolvedCategoryName =
+        categories.find((c) => c.id === recCategory)?.name || 'Fixed Commitment';
+
       if (editingRec) {
         const updated = await api.updateRecurringExpense(editingRec.id, {
           name: recName.trim(),
@@ -236,7 +260,22 @@ export const ExpenseManager: React.FC = () => {
           dueDay: Number(recDueDay),
           notes: recNotes,
         });
-        showToast('Recurring expense updated', 'success');
+        await syncCoordinator.syncMutation(
+          'Fixed_Expenses',
+          [
+            updated.id,
+            updated.name,
+            resolvedCategoryName,
+            updated.amountPaise / 100,
+            updated.recurrence.toUpperCase(),
+            updated.dueDay,
+            updated.isActive ? 'ACTIVE' : 'INACTIVE',
+            updated.notes || '',
+          ],
+          'update',
+          `Fixed_Expenses_update_${updated.id}`
+        );
+        showToast('Recurring expense updated & synchronized', 'success');
       } else {
         const created = await api.createRecurringExpense({
           name: recName.trim(),
@@ -246,12 +285,12 @@ export const ExpenseManager: React.FC = () => {
           dueDay: Number(recDueDay),
           notes: recNotes,
         });
-        void googleSheetsService.enqueueMutation(
+        await syncCoordinator.syncMutation(
           'Fixed_Expenses',
           [
             created.id,
             created.name,
-            created.categoryName || 'Fixed Commitment',
+            created.categoryName || resolvedCategoryName,
             created.amountPaise / 100,
             created.recurrence.toUpperCase(),
             created.dueDay,
@@ -261,9 +300,6 @@ export const ExpenseManager: React.FC = () => {
           'append',
           `Fixed_Expenses_append_${created.id}`
         );
-        if (googleSpreadsheetId && googleAccessToken) {
-          googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
-        }
         showToast('Recurring plan registered; automatic bills created & synced!', 'success');
       }
       setSaving(false);
@@ -283,7 +319,23 @@ export const ExpenseManager: React.FC = () => {
 
   const handleToggleRecActive = async (rec: RecurringExpense) => {
     try {
-      await api.updateRecurringExpense(rec.id, { isActive: !rec.isActive });
+      const nextActive = !rec.isActive;
+      await api.updateRecurringExpense(rec.id, { isActive: nextActive });
+      await syncCoordinator.syncMutation(
+        'Fixed_Expenses',
+        [
+          rec.id,
+          rec.name,
+          rec.categoryName || 'Fixed Commitment',
+          rec.amountPaise / 100,
+          rec.recurrence.toUpperCase(),
+          rec.dueDay,
+          nextActive ? 'ACTIVE' : 'INACTIVE',
+          rec.notes || '',
+        ],
+        'update',
+        `Fixed_Expenses_update_${rec.id}`
+      );
       showToast(rec.isActive ? 'Recurring plan deactivated' : 'Recurring plan reactivated', 'info');
       triggerRefresh();
       loadData();
@@ -303,7 +355,13 @@ export const ExpenseManager: React.FC = () => {
     if (!confirmed) return;
     try {
       await api.deleteRecurringExpense(rec.id);
-      showToast('Recurring plan removed', 'info');
+      await syncCoordinator.syncMutation(
+        'Fixed_Expenses',
+        [rec.id],
+        'delete',
+        `Fixed_Expenses_delete_${rec.id}`
+      );
+      showToast('Recurring plan removed & synchronized', 'info');
       triggerRefresh();
       loadData();
     } catch {

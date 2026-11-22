@@ -126,7 +126,9 @@ export interface SheetConnection {
 export interface SheetHubDriveDuplicateRequest {
   sourceSpreadsheetId: string;
   title?: string;
+  operationId?: string;
   idempotencyKey?: string;
+  ownerUid?: string;
   topics?: Array<{
     unit: string;
     topic: string;
@@ -143,6 +145,17 @@ export interface SheetHubDriveDuplicateResponse {
   sourceSpreadsheetId: string;
   progressTrackerTabCreated: boolean;
   createdAt: string;
+  operationId?: string;
+  status?: string;
+  reusedExistingCopy?: boolean;
+}
+
+export interface SheetHubDriveDuplicateReconcileRequest {
+  operationId: string;
+  status: 'COMPLETED' | 'FAILED_REQUIRES_RECONCILIATION';
+  driveFileId?: string;
+  nativeSheetId?: string;
+  errorMessage?: string;
 }
 
 export interface SheetColumnMapping {

@@ -41,8 +41,19 @@ async function readErrorText(res: Response): Promise<string> {
     const text = await res.text();
     if (!text) return `HTTP ${res.status} ${res.statusText}`;
     try {
-      const parsed = JSON.parse(text) as { error?: { message?: string } };
-      if (parsed?.error?.message) return parsed.error.message;
+      const parsed = JSON.parse(text) as {
+        error?: {
+          code?: number;
+          message?: string;
+          status?: string;
+          errors?: Array<{ message?: string; domain?: string; reason?: string }>;
+        };
+      };
+      if (parsed?.error?.message) {
+        const reason = parsed.error.errors?.[0]?.reason || parsed.error.status;
+        const msg = parsed.error.message;
+        return reason ? `${msg} (status: ${res.status}, reason: ${reason})` : `${msg} (status: ${res.status})`;
+      }
     } catch {
       // plain text fallback
     }
@@ -444,8 +455,6 @@ export async function flushQueueOperations(
     return { processed: 0, skippedDuplicates: 0, failed: 0, results: [] };
   }
 
-  await verifySpreadsheet(spreadsheetId, accessToken, fetchImpl);
-
   const eligibleOps = ops.filter((op) => {
     if (op.status === 'completed') return false;
     if (op.status === 'failed' && (op.attempts || 0) >= 5) return false;
@@ -455,6 +464,37 @@ export async function flushQueueOperations(
 
   if (eligibleOps.length === 0) {
     return { processed: 0, skippedDuplicates: 0, failed: 0, results: [] };
+  }
+
+  try {
+    await verifySpreadsheet(spreadsheetId, accessToken, fetchImpl);
+  } catch (verifyErr) {
+    const errorMsg = verifyErr instanceof Error ? verifyErr.message : 'Spreadsheet verification failed';
+    const isAuthOrPermissionOrFormat =
+      /\b401\b|\b403\b|PERMISSION_DENIED|The caller does not have permission|invalid authentication credentials|Invalid Google Spreadsheet ID/i.test(
+        errorMsg
+      );
+    if (isAuthOrPermissionOrFormat) {
+      throw verifyErr;
+    }
+    // For network / transient verification errors, record backoff retry state on eligible operations
+    return {
+      processed: 0,
+      skippedDuplicates: 0,
+      failed: eligibleOps.length,
+      results: eligibleOps.map((op) => {
+        const nextAttempts = (op.attempts || 0) + 1;
+        const isTerminal = nextAttempts >= 5;
+        const backoffMs = computeBackoffDelayMs(nextAttempts);
+        return {
+          id: op.id,
+          status: isTerminal ? 'failed' : 'pending',
+          attempts: nextAttempts,
+          nextRetryAt: isTerminal ? null : nowMs + backoffMs,
+          errorMessage: errorMsg,
+        };
+      }),
+    };
   }
 
   const targetSheets = Array.from(
@@ -568,7 +608,7 @@ export async function flushQueueOperations(
             );
 
             if (!batchClearRes.ok) {
-              const errMsg = await readErrorText(clearRes);
+              const errMsg = await readErrorText(batchClearRes);
               throw new Error(`Failed to delete row in ${op.sheetName}: ${errMsg}`);
             }
           }

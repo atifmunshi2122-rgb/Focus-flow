@@ -63,6 +63,7 @@ import type {
   SheetHubCellUpdateRequest,
   SheetHubDriveDuplicateRequest,
   SheetHubDriveDuplicateResponse,
+  SheetHubDriveDuplicateReconcileRequest,
   SheetHubPushCellsResponse,
   SheetInspectResponse,
   SheetPullResponse,
@@ -1840,6 +1841,16 @@ export const api = {
     request<SheetHubDriveDuplicateResponse>('/sheet-hub/drive-duplicate', {
       method: 'POST',
       headers: { 'x-google-access-token': googleAccessToken },
+      body: JSON.stringify(payload),
+    }),
+
+  sheetHubDriveDuplicateReconcile: (
+    payload: SheetHubDriveDuplicateReconcileRequest,
+    googleAccessToken?: string | null
+  ) =>
+    request<{ success: boolean; record?: unknown }>('/sheet-hub/drive-duplicate/reconcile', {
+      method: 'POST',
+      ...(googleAccessToken ? { headers: { 'x-google-access-token': googleAccessToken } } : {}),
       body: JSON.stringify(payload),
     }),
 

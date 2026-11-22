@@ -5,6 +5,8 @@ import { api } from '../../lib/api.ts';
 import { CurrencyCode, NotificationPreferences } from '../../types/index.ts';
 import { ThemeStudio } from './ThemeStudio.tsx';
 import { DataRecoveryCenter } from './DataRecoveryCenter.tsx';
+import { GoogleCalendarSettings } from './GoogleCalendarSettings.tsx';
+import { PushNotificationSettings } from './PushNotificationSettings.tsx';
 import { detectEmbeddedIframe, getCurrentAppUrl } from '../../lib/authDiagnostics.ts';
 import {
   ThemeBadge,
@@ -1206,6 +1208,10 @@ export const SettingsView: React.FC = () => {
                 transition={{ duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01) }}
                 className="space-y-6"
               >
+                <PushNotificationSettings
+                  notificationPrefs={notifPrefs}
+                  onUpdatePrefs={(updated) => setNotifPrefs((prev) => ({ ...prev, ...updated }))}
+                />
                 <ThemeCard className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
@@ -1298,6 +1304,7 @@ export const SettingsView: React.FC = () => {
                 transition={{ duration: MOTION_DURATION.card * Math.max(0.5, factor || 0.01) }}
                 className="space-y-6"
               >
+                <GoogleCalendarSettings />
                 <ThemeCard className="space-y-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5">
@@ -1336,7 +1343,20 @@ export const SettingsView: React.FC = () => {
                             <span className="text-xs font-bold block" style={{ color: 'var(--ff-success)' }}>
                               Master Ledger Active in Google Drive
                             </span>
-                            {syncQueueCount > 0 && (
+                            {syncStatus === 'syncing' ? (
+                              <ThemeBadge tone="neutral" className="animate-pulse">Syncing...</ThemeBadge>
+                            ) : syncStatus === 'synced' ? (
+                              <ThemeBadge tone="success">Synced successfully</ThemeBadge>
+                            ) : syncStatus === 'pending' ? (
+                              <ThemeBadge tone="warning">Sync pending ({syncQueueCount})</ThemeBadge>
+                            ) : syncStatus === 'auth_required' ? (
+                              <ThemeBadge tone="warning">Auth required</ThemeBadge>
+                            ) : syncStatus === 'permission_denied' ? (
+                              <ThemeBadge tone="danger">Permission denied</ThemeBadge>
+                            ) : syncStatus === 'error' ? (
+                              <ThemeBadge tone="danger">Sync failed</ThemeBadge>
+                            ) : null}
+                            {syncQueueCount > 0 && syncStatus !== 'pending' && (
                               <ThemeBadge tone="warning">
                                 {syncQueueCount} queued {syncQueueCount === 1 ? 'op' : 'ops'}
                               </ThemeBadge>

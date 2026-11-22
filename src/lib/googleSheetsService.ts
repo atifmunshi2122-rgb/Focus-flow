@@ -10,6 +10,22 @@ import type {
   VerifiedSpreadsheetMetadata,
 } from './sheetsSpec.ts';
 
+export interface FlushOpResult {
+  id: string;
+  status: 'completed' | 'pending' | 'failed' | 'failed_recoverable';
+  attempts: number;
+  nextRetryAt?: number | null;
+  errorMessage?: string | null;
+  skippedDuplicate?: boolean;
+}
+
+export interface FlushQueueSummary {
+  processed: number;
+  skippedDuplicates: number;
+  failed: number;
+  results: FlushOpResult[];
+}
+
 export type {
   WorksheetName,
   SheetFormatSpec,
@@ -18,6 +34,7 @@ export type {
   SpreadsheetSheetMeta,
   VerifiedSpreadsheetMetadata,
 };
+
 
 /**
  * Lightweight helper to format payment method labels without loading the 723 kB sheetsSpec.
@@ -295,6 +312,8 @@ class GoogleSheetsService {
 
   /**
    * Flushes pending durable sync operations via the backend Sheets worker.
+   * Employs single-record canary validation when multiple operations are queued
+   * to protect batch operations from cascading authentication or permission failures.
    */
   public async flushQueue(spreadsheetId: string, accessToken: string): Promise<number> {
     let pendingOps: DurableSyncOperation[] = [];
@@ -309,22 +328,85 @@ class GoogleSheetsService {
     if (activeOps.length === 0) return 0;
 
     try {
-      const summary = await api.sheetsFlushQueue(spreadsheetId, accessToken, activeOps);
+      let allResults: FlushQueueSummary['results'] = [];
+      let totalProcessed = 0;
+      let totalFailed = 0;
+      let totalSkipped = 0;
 
-      for (const res of summary.results) {
-        await api
-          .updateSyncOpStatus(res.id, {
-            status: res.status,
-            attempts: res.attempts,
-            nextRetryAt: res.nextRetryAt ?? null,
-            errorMessage: res.errorMessage ?? null,
-            lastAttemptAt: new Date().toISOString(),
-          })
-          .catch(() => {});
+      // STEP 5 Canary protection: When multiple operations exist, verify target workbook connectivity with a single canary operation first
+      if (activeOps.length > 1) {
+        const canaryOp = [activeOps[0]];
+        const canarySummary = await api.sheetsFlushQueue(spreadsheetId, accessToken, canaryOp);
+        allResults = [...canarySummary.results];
+        totalProcessed += canarySummary.processed;
+        totalFailed += canarySummary.failed;
+        totalSkipped += canarySummary.skippedDuplicates;
+
+        for (const res of canarySummary.results) {
+          await api
+            .updateSyncOpStatus(res.id, {
+              status: res.status,
+              attempts: res.attempts,
+              nextRetryAt: res.nextRetryAt ?? null,
+              errorMessage: res.errorMessage ?? null,
+              lastAttemptAt: new Date().toISOString(),
+            })
+            .catch(() => {});
+        }
+
+        if (canarySummary.failed > 0) {
+          // Canary failed (e.g. 401 unauthenticated, 403 permission denied, 404 not found)
+          // Halt remaining batch to prevent queue corruption and rate limit exhaustion
+          const firstErr = canarySummary.results.find((r) => r.errorMessage)?.errorMessage || 'Canary validation failed';
+          this.lastError = firstErr;
+          this.notifyListeners();
+          return totalProcessed;
+        }
+
+        // Canary passed — safely process remaining operations
+        const remainingOps = activeOps.slice(1);
+        if (remainingOps.length > 0) {
+          const batchSummary = await api.sheetsFlushQueue(spreadsheetId, accessToken, remainingOps);
+          allResults = [...allResults, ...batchSummary.results];
+          totalProcessed += batchSummary.processed;
+          totalFailed += batchSummary.failed;
+          totalSkipped += batchSummary.skippedDuplicates;
+
+          for (const res of batchSummary.results) {
+            await api
+              .updateSyncOpStatus(res.id, {
+                status: res.status,
+                attempts: res.attempts,
+                nextRetryAt: res.nextRetryAt ?? null,
+                errorMessage: res.errorMessage ?? null,
+                lastAttemptAt: new Date().toISOString(),
+              })
+              .catch(() => {});
+          }
+        }
+      } else {
+        // Single operation flush
+        const summary = await api.sheetsFlushQueue(spreadsheetId, accessToken, activeOps);
+        allResults = summary.results;
+        totalProcessed = summary.processed;
+        totalFailed = summary.failed;
+        totalSkipped = summary.skippedDuplicates;
+
+        for (const res of summary.results) {
+          await api
+            .updateSyncOpStatus(res.id, {
+              status: res.status,
+              attempts: res.attempts,
+              nextRetryAt: res.nextRetryAt ?? null,
+              errorMessage: res.errorMessage ?? null,
+              lastAttemptAt: new Date().toISOString(),
+            })
+            .catch(() => {});
+        }
       }
 
       const refreshed = await api.getSyncQueue().catch(() => {
-        const resultById = new Map(summary.results.map((r) => [r.id, r]));
+        const resultById = new Map(allResults.map((r) => [r.id, r]));
         return activeOps.map((op) => {
           const r = resultById.get(op.id);
           return r
@@ -341,14 +423,14 @@ class GoogleSheetsService {
 
       this.setQueueSnapshot(refreshed);
 
-      if (summary.failed > 0) {
-        const firstErr = summary.results.find((r) => r.errorMessage)?.errorMessage || 'Sync queue error';
+      if (totalFailed > 0) {
+        const firstErr = allResults.find((r) => r.errorMessage)?.errorMessage || 'Sync queue error';
         this.lastError = firstErr;
       } else {
         this.lastError = null;
       }
 
-      return summary.processed;
+      return totalProcessed;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Queue flush failed.';
       this.lastError = msg;

@@ -49,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     signOutGoogle,
     googleSpreadsheetId,
     syncStatus,
+    syncQueueCount,
     syncNowToGoogleSheets,
     effectiveThemeConfig,
     setCommandCenterOpen,
@@ -366,9 +367,30 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
             className="hidden sm:flex items-center gap-1.5 px-2 2xl:px-2.5 py-1.5 text-xs border shrink-0"
             style={{
               borderRadius: 'var(--ff-radius-button)',
-              background: 'var(--ff-success-soft)',
-              borderColor: 'color-mix(in oklab, var(--ff-success) 35%, transparent)',
-              color: 'var(--ff-success)',
+              background:
+                syncStatus === 'synced'
+                  ? 'var(--ff-success-soft)'
+                  : syncStatus === 'syncing'
+                  ? 'color-mix(in oklab, var(--ff-primary) 15%, transparent)'
+                  : syncStatus === 'auth_required' || syncStatus === 'pending'
+                  ? 'color-mix(in oklab, #f59e0b 15%, transparent)'
+                  : 'color-mix(in oklab, #ef4444 15%, transparent)',
+              borderColor:
+                syncStatus === 'synced'
+                  ? 'color-mix(in oklab, var(--ff-success) 35%, transparent)'
+                  : syncStatus === 'syncing'
+                  ? 'color-mix(in oklab, var(--ff-primary) 35%, transparent)'
+                  : syncStatus === 'auth_required' || syncStatus === 'pending'
+                  ? 'color-mix(in oklab, #f59e0b 35%, transparent)'
+                  : 'color-mix(in oklab, #ef4444 35%, transparent)',
+              color:
+                syncStatus === 'synced'
+                  ? 'var(--ff-success)'
+                  : syncStatus === 'syncing'
+                  ? 'var(--ff-primary)'
+                  : syncStatus === 'auth_required' || syncStatus === 'pending'
+                  ? '#f59e0b'
+                  : '#ef4444',
             }}
           >
             <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
@@ -379,7 +401,19 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
               className="hidden 2xl:inline font-semibold hover:underline"
               title="Open Google Sheets workbook"
             >
-              Sheets Synced
+              {syncStatus === 'syncing'
+                ? 'Syncing...'
+                : syncStatus === 'synced'
+                ? 'Sheets Synced'
+                : syncStatus === 'pending'
+                ? syncQueueCount > 0
+                  ? `${syncQueueCount} Pending`
+                  : 'Sync Pending'
+                : syncStatus === 'auth_required'
+                ? 'Auth Required'
+                : syncStatus === 'permission_denied'
+                ? 'Access Denied'
+                : 'Sync Failed'}
             </a>
             <button
               type="button"

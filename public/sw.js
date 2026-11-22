@@ -153,3 +153,67 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+// ==========================================
+// 6. Firebase Cloud Messaging (Web Push)
+// ==========================================
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+
+  try {
+    const payload = event.data.json();
+    const notification = payload.notification || {};
+    const data = payload.data || {};
+
+    const title = notification.title || data.title || 'FocusFlow & Finance';
+    const body = notification.body || data.body || '';
+    const icon = notification.icon || data.icon || '/icon-192.png';
+    const badge = notification.badge || '/icon-192.png';
+    const tag = data.tag || 'focusflow-notification';
+
+    const options = {
+      body,
+      icon,
+      badge,
+      tag,
+      renotify: true,
+      data: {
+        targetTab: data.targetTab || 'dashboard',
+        category: data.category || 'general',
+        url: data.url || `/?tab=${data.targetTab || 'dashboard'}`,
+      },
+    };
+
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (err) {
+    console.warn('[SW] Push payload parse error:', err);
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const targetTab = event.notification.data?.targetTab || 'dashboard';
+  const targetUrl = event.notification.data?.url || `/?tab=${targetTab}`;
+
+  event.waitUntil(
+    clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        // If a window is already open, focus it and navigate
+        for (const client of clientList) {
+          if ('focus' in client) {
+            client.focus();
+            if ('navigate' in client) {
+              return client.navigate(targetUrl);
+            }
+            return;
+          }
+        }
+        // If no window open, open a new one
+        if (clients.openWindow) {
+          return clients.openWindow(targetUrl);
+        }
+      })
+  );
+});

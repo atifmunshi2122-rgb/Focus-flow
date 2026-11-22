@@ -815,6 +815,10 @@ export class DatabaseService {
     return { user, settings };
   }
 
+  public getUserSettings(userId: string): UserSettings | undefined {
+    return this.db.userSettings.find((s) => s.userId === userId);
+  }
+
   public getFallbackCategoryId(userId: string): string {
     const userCat = this.db.categories.find((c) => c.userId === userId || c.userId === 'system');
     if (userCat) return userCat.id;

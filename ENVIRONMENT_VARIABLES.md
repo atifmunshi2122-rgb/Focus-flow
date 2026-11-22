@@ -23,6 +23,11 @@ These variables are consumed exclusively by the Express backend running in Node.
 | `RATE_LIMIT_WINDOW_MS` | No | `60000` | Internal | Sliding window duration in milliseconds (default: 60,000 ms = 1 minute). |
 | `TRUST_PROXY` | No | `false` | Internal | Express reverse proxy trust setting (`false` for direct connections; `1` for single reverse proxy e.g. Cloud Run/Nginx; `loopback`, `true`, or CIDRs). |
 | `SHUTDOWN_TIMEOUT_MS` | No | `10000` | Internal | Maximum milliseconds to wait during graceful SIGTERM/SIGINT shutdown for in-flight requests and database flushes before forcing exit. |
+| `GOOGLE_CALENDAR_CLIENT_ID` | **Yes** (in Prod) | Unset | Secret | Google OAuth 2.0 Client ID for server-side Google Calendar authorization code flow. |
+| `GOOGLE_CALENDAR_CLIENT_SECRET` | **Yes** (in Prod) | Unset | Secret | Google OAuth 2.0 Client Secret used to exchange authorization codes for access and refresh tokens. |
+| `GOOGLE_CALENDAR_REDIRECT_URI` | No | Match `APP_URL` | Internal | OAuth 2.0 redirect callback endpoint (`/api/integrations/google-calendar/oauth/callback`). |
+| `INTEGRATION_ENCRYPTION_KEY` | **Yes** (in Prod) | Test Key | Secret | 32-byte cryptographic secret key used for AES-256-GCM authenticated encryption of OAuth tokens at rest. |
+| `CRON_SECRET` | **Yes** (in Prod) | Unset | Secret | Bearer token secret used to authenticate automated notification cron jobs dispatched by Vercel Cron or Google Cloud Scheduler. |
 
 ---
 
@@ -42,6 +47,10 @@ These variables are prefixed with `VITE_` and are embedded into the client-side 
 | `VITE_GOOGLE_PICKER_API_KEY` | No | `.env.local` | Google Cloud API key for Google Drive Sheet Picker modal integration. |
 | `VITE_GOOGLE_SHEETS_API_KEY` | No | `.env.local` | Google Sheets / Drive API key fallback for spreadsheet operations. |
 | `VITE_GOOGLE_PROJECT_NUMBER` | No | `965140210258` | Google Cloud project number for Google Drive file picker dialog. |
+| `VITE_GOOGLE_CALENDAR_API_KEY` | No | `.env.local` | Google Cloud API key for Google Calendar API integration. |
+| `VITE_FIREBASE_MESSAGING_API_KEY` | No | `.env.local` | Firebase Cloud Messaging (FCM) API key for notifications. |
+| `VITE_FIREBASE_VAPID_KEY` | No | `.env.local` | Voluntary Application Server Identification (VAPID) public key for Web Push. |
+| `FCM_SERVER_KEY` | No | `.env.local` | Backend server key for Firebase Cloud Messaging push dispatch. |
 
 ---
 

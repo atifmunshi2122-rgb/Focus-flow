@@ -72,6 +72,36 @@ const STEPS: Array<{ id: WizardStep; label: string }> = [
   { id: 'confirm', label: '7. Confirm' },
 ];
 
+// ============================================================================
+// TASK 6: CLIENT OPERATION ID SESSION PERSISTENCE HELPERS
+// ============================================================================
+function getClientSessionOpKey(userId: string, targetSheetId: string): string {
+  return `focusflow_op_dual_${userId}_${targetSheetId}`;
+}
+
+function loadPersistedOpId(userId: string, targetSheetId: string): string | null {
+  if (typeof window === 'undefined' || !targetSheetId) return null;
+  try {
+    return window.sessionStorage.getItem(getClientSessionOpKey(userId, targetSheetId));
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedOpId(userId: string, targetSheetId: string, opId: string): void {
+  if (typeof window === 'undefined' || !targetSheetId || !opId) return;
+  try {
+    window.sessionStorage.setItem(getClientSessionOpKey(userId, targetSheetId), opId);
+  } catch {}
+}
+
+function clearPersistedOpId(userId: string, targetSheetId: string): void {
+  if (typeof window === 'undefined' || !targetSheetId) return;
+  try {
+    window.sessionStorage.removeItem(getClientSessionOpKey(userId, targetSheetId));
+  } catch {}
+}
+
 export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   onCancel,
   onSuccess,
@@ -92,6 +122,10 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   const [isPublicLinkMode, setIsPublicLinkMode] = useState(false);
   const [isDualCopyEnabled, setIsDualCopyEnabled] = useState(true);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+
+  // Durable Idempotency state for Dual-Copy
+  const [duplicationOpId, setDuplicationOpId] = useState<string>('');
+  const [persistedDriveDuplicate, setPersistedDriveDuplicate] = useState<{ driveFileId: string; driveUrl: string } | null>(null);
 
   // Auth & Sync mode state
   const [selectedSyncMode, setSelectedSyncMode] = useState<SheetSyncMode>('two_way');
@@ -156,6 +190,8 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   // Quick Demo: Semester 3 Syllabus Tracker
   const handleLoadSemester3Demo = async () => {
     setIsDemoMode(true);
+    setDuplicationOpId('');
+    setPersistedDriveDuplicate(null);
     setUrlInput('https://docs.google.com/spreadsheets/d/sem3-syllabus-sample/edit');
     setSpreadsheetId('sem3-syllabus-sample');
     setCurrentStep('inspect');
@@ -201,20 +237,38 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   };
 
   // Step 1: Select via Google Picker Dialog (Grants drive.file permission to existing private spreadsheet)
-  const handleSelectPickedSheet = async (picked: SelectedGoogleSheet) => {
+  const handleSelectPickedSheet = async (picked: SelectedGoogleSheet, tokenFromPicker?: string) => {
     setIsPickerOpen(false);
-    setUrlInput(picked.url);
-    setSpreadsheetId(picked.id);
+    const pickedId = (picked.id || '').trim();
+    const pickedUrl = (picked.url || '').trim() || `https://docs.google.com/spreadsheets/d/${encodeURIComponent(pickedId)}/edit`;
+    setUrlInput(pickedUrl);
+    setSpreadsheetId(pickedId);
     setIsDemoMode(false);
     setIsPublicLinkMode(false);
     setSelectedSyncMode('two_way');
     setAuthLocalError(null);
     setInspectError(null);
     setInspectErrorCode(null);
+    // Clear old inspection data and session op ID when spreadsheet changes
+    const activeUid = firebaseUser?.uid || auth.currentUser?.uid || user?.id || 'usr_guest';
+    if (spreadsheetId) {
+      clearPersistedOpId(activeUid, spreadsheetId);
+    }
+    setInspectData(null);
+    setSelectedTabIds([]);
+    setDuplicationOpId('');
+    setPersistedDriveDuplicate(null);
 
-    const token = oauthToken || (await getSheetHubWriteAccessToken()) || (await getSheetHubAccessToken());
-    showToast(`Selected "${picked.name}" via Google Picker!`, 'success');
-    await runInspection(token, false, picked.id, picked.url);
+    const token =
+      tokenFromPicker ||
+      oauthToken ||
+      (await getSheetHubWriteAccessToken()) ||
+      (await getSheetHubAccessToken());
+    if (token) {
+      setOauthToken(token);
+    }
+    // Note: Success toast is deferred until inspection verifies metadata access!
+    await runInspection(token, false, pickedId, pickedUrl);
   };
 
   // Step 2A: Connect Publicly Viewable Google Sheet (Zero OAuth)
@@ -225,6 +279,10 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setAuthLocalError(null);
     setInspectError(null);
     setInspectErrorCode(null);
+    setInspectData(null);
+    setSelectedTabIds([]);
+    setDuplicationOpId('');
+    setPersistedDriveDuplicate(null);
     await runInspection(null, true, overrideSpreadsheetId, overrideUrl);
   };
 
@@ -243,7 +301,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       if (res) {
         setOauthToken(res);
         setSelectedSyncMode('two_way');
-        showToast('Google Drive duplicate & Sheets two-way write access authorized via project ghost-7b055!', 'success');
+        // Do not show success toast yet! Must verify metadata access via Google Sheets API first.
         await runInspection(res, false);
       } else {
         setAuthLocalError(
@@ -274,7 +332,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       if (res) {
         setOauthToken(res);
         setSelectedSyncMode('two_way');
-        showToast('Google Sheets edit & checkbox write-back permissions granted!', 'success');
+        // Do not show success toast yet! Must verify metadata access via Google Sheets API first.
         await runInspection(res, false);
       } else {
         setAuthLocalError(
@@ -305,7 +363,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       if (res) {
         setOauthToken(res);
         setSelectedSyncMode('sheet_to_app');
-        showToast('Google Sheets read-only access authorized successfully!', 'success');
+        // Do not show success toast yet! Must verify metadata access via Google Sheets API first.
         await runInspection(res, false);
       } else {
         setAuthLocalError(
@@ -353,13 +411,25 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setIsInspecting(true);
     setInspectError(null);
     setInspectErrorCode(null);
+    // Bug 3: Clear inspection state when new inspection starts
+    setInspectData(null);
+    setSelectedTabIds([]);
     setCurrentStep('inspect');
 
-    const targetId = overrideSpreadsheetId ?? spreadsheetId;
-    const targetUrl = overrideUrl ?? urlInput;
+    const targetId = (overrideSpreadsheetId ?? spreadsheetId).trim();
+    const targetUrl = (overrideUrl ?? urlInput).trim();
     const resolvedToken = usePublicAccess
       ? null
       : token || oauthToken || (await getSheetHubAccessToken());
+
+    // Task 6: Generate or restore stable duplication operation ID from client session storage
+    const activeUserId = firebaseUser?.uid || auth.currentUser?.uid || user?.id || 'usr_guest';
+    let opId = duplicationOpId;
+    if (!opId && targetId) {
+      opId = loadPersistedOpId(activeUserId, targetId) || `op_dual_${activeUserId}_${targetId.slice(0, 16)}_${Date.now().toString(36)}`;
+      savePersistedOpId(activeUserId, targetId, opId);
+      setDuplicationOpId(opId);
+    }
 
     try {
       const res = await api.sheetHubInspect(
@@ -371,8 +441,22 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         },
         resolvedToken
       );
+
+      // Verify metadata integrity
+      if (!res || !res.spreadsheetId || !Array.isArray(res.tabs)) {
+        throw new Error('Inspection received invalid or incomplete spreadsheet metadata.');
+      }
+
+      // Bug 1 & 3: Ensure inspected ID matches target ID
+      if (targetId && res.spreadsheetId !== targetId) {
+        throw new Error(
+          `Spreadsheet ID integrity check failed: expected "${targetId}" but Google API returned "${res.spreadsheetId}".`
+        );
+      }
+
       setIsPublicLinkMode(usePublicAccess);
       setInspectData(res);
+      setSpreadsheetId(res.spreadsheetId);
 
       const initialTabIds: number[] = [];
       const initialRoles: Record<number, SheetTabRole> = {};
@@ -403,8 +487,12 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       );
       setPreferredView(hasDoneCol ? 'checklist' : 'table');
 
+      // Bug 2: ONLY show success toast after inspection and metadata verification succeed!
+      showToast(`Successfully connected and inspected "${res.title || 'Spreadsheet'}"!`, 'success');
       setCurrentStep('tabs');
     } catch (err: any) {
+      setInspectData(null);
+      setSelectedTabIds([]);
       const msg = err?.message || 'Inspection failed. Please verify the Google Sheet link and permissions.';
       const code = typeof err?.code === 'string' ? err.code : null;
       setInspectError(msg);
@@ -425,6 +513,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     }
   };
 
+
   const toggleTabSelection = (sheetId: number) => {
     setSelectedTabIds((prev) =>
       prev.includes(sheetId) ? prev.filter((id) => id !== sheetId) : [...prev, sheetId]
@@ -443,7 +532,41 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
   // Step 8: Execute Import Pipeline
   const executeImportPipeline = async () => {
-    if (!inspectData) return;
+    // Bug 3 & Bug 6: Prevent Confirm & Import from proceeding on invalid state
+    if (!inspectData) {
+      const noDataErr = 'No spreadsheet inspection data available. Please inspect the spreadsheet first.';
+      setImportError(noDataErr);
+      showToast(noDataErr, 'error');
+      setCurrentStep('url');
+      return;
+    }
+    if (inspectData.spreadsheetId !== spreadsheetId) {
+      const mismatchMsg = `Spreadsheet ID mismatch: inspected sheet (${inspectData.spreadsheetId}) does not match current selection (${spreadsheetId}). Please re-inspect before importing.`;
+      setImportError(mismatchMsg);
+      showToast(mismatchMsg, 'error');
+      setInspectData(null);
+      setSelectedTabIds([]);
+      setCurrentStep('url');
+      return;
+    }
+    if (selectedTabIds.length === 0) {
+      const tabErr = 'Please select at least one tab to import.';
+      setImportError(tabErr);
+      showToast(tabErr, 'error');
+      setCurrentStep('tabs');
+      return;
+    }
+    if (!isDemoMode && !isPublicLinkMode) {
+      const activeToken = oauthToken || (await getSheetHubAccessToken());
+      if (!activeToken) {
+        const tokenMsg = 'Google authorization is required for private sheet import. Please authorize access.';
+        setImportError(tokenMsg);
+        showToast(tokenMsg, 'error');
+        setCurrentStep('auth');
+        return;
+      }
+    }
+
     setCurrentStep('importing');
     setImportProgress(10);
     setImportStatusText('Preparing spreadsheet connection metadata...');
@@ -586,11 +709,15 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
       // BRANCH A: Dual-Copy Google Drive Duplicate + Firestore Native Architecture
       if (isDualCopy) {
-        setImportProgress(60);
-        setImportStatusText('Requesting Google Drive authorization for duplicate copy...');
+        const effectiveOpId = duplicationOpId || `op_dual_${activeUserId}_${spreadsheetId.slice(0, 16)}_${Date.now().toString(36)}`;
+        if (!duplicationOpId) {
+          setDuplicationOpId(effectiveOpId);
+        }
 
         let dualCopyToken = oauthToken || (await getSheetHubWriteAccessToken()) || (await getSheetHubAccessToken());
         if (!dualCopyToken) {
+          setImportProgress(60);
+          setImportStatusText('Requesting Google Drive authorization for duplicate copy...');
           dualCopyToken = await requestGoogleDriveToken({
             loginHint: firebaseUser?.email || null,
           });
@@ -599,37 +726,102 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           throw new Error('Google authorization with Google Drive access (project ghost-7b055) is required to duplicate to your Google Drive.');
         }
 
-        setImportProgress(75);
-        setImportStatusText('Duplicating to your Google Drive & provisioning Progress Tracker tab...');
+        let driveDup: { driveFileId: string; driveUrl: string; sourceSpreadsheetId?: string };
 
-        const driveDup = await api.sheetHubDriveDuplicate(
-          {
+        // Task 4: Resume using existing Drive duplicate if already created during previous attempt
+        if (persistedDriveDuplicate && persistedDriveDuplicate.driveFileId) {
+          setImportProgress(75);
+          setImportStatusText(`Reusing existing verified Google Drive duplicate (${persistedDriveDuplicate.driveFileId})...`);
+          driveDup = {
+            driveFileId: persistedDriveDuplicate.driveFileId,
+            driveUrl: persistedDriveDuplicate.driveUrl,
             sourceSpreadsheetId: spreadsheetId,
-            title: inspectData.title || 'FocusFlow Spreadsheet',
-            topics: topicsForTracker,
-            idempotencyKey: `dual_copy_${activeUserId}_${spreadsheetId}`,
-          },
-          dualCopyToken
-        );
+          };
+        } else {
+          setImportProgress(75);
+          setImportStatusText('Duplicating to your Google Drive & provisioning Progress Tracker tab...');
+
+          const dupResult = await api.sheetHubDriveDuplicate(
+            {
+              sourceSpreadsheetId: spreadsheetId,
+              title: inspectData.title || 'FocusFlow Spreadsheet',
+              topics: topicsForTracker,
+              idempotencyKey: effectiveOpId,
+              operationId: effectiveOpId,
+            },
+            dualCopyToken
+          );
+
+          if (!dupResult || !dupResult.driveFileId) {
+            throw new Error('Google Drive duplication did not return a valid Drive file ID. Native Firestore sheet creation aborted.');
+          }
+
+          if (dupResult.sourceSpreadsheetId && dupResult.sourceSpreadsheetId !== spreadsheetId) {
+            throw new Error(
+              `Drive duplicate source mismatch: requested "${spreadsheetId}" but Drive returned "${dupResult.sourceSpreadsheetId}".`
+            );
+          }
+
+          driveDup = dupResult;
+          setPersistedDriveDuplicate({
+            driveFileId: dupResult.driveFileId,
+            driveUrl: dupResult.driveUrl,
+          });
+        }
+
+        if (!driveDup || !driveDup.driveFileId) {
+          throw new Error('Google Drive duplication did not return a valid Drive file ID. Native Firestore sheet creation aborted.');
+        }
 
         setImportProgress(90);
         setImportStatusText('Creating native FocusFlow spreadsheet in Cloud Firestore...');
 
-        const { connection: createdConn } = await sheetHubStore.createDualCopySpreadsheet(
-          activeUserId,
-          {
-            title: `${inspectData.title || 'FocusFlow Spreadsheet'} (Dual-Copy)`,
-            sourceSpreadsheetId: spreadsheetId,
-            driveFileId: driveDup.driveFileId,
-            driveUrl: driveDup.driveUrl,
-            tabs: processedTabs,
-            progressTrackerTopics: topicsForTracker,
-          }
-        );
+        let createdConn: SheetConnection;
+        try {
+          const res = await sheetHubStore.createDualCopySpreadsheet(
+            activeUserId,
+            {
+              title: `${inspectData.title || 'FocusFlow Spreadsheet'} (Dual-Copy)`,
+              sourceSpreadsheetId: spreadsheetId,
+              driveFileId: driveDup.driveFileId,
+              driveUrl: driveDup.driveUrl,
+              tabs: processedTabs,
+              progressTrackerTopics: topicsForTracker,
+            }
+          );
+          createdConn = res.connection;
+
+          // Reconcile operation as COMPLETED in the durable ledger
+          await api.sheetHubDriveDuplicateReconcile(
+            {
+              operationId: effectiveOpId,
+              driveFileId: driveDup.driveFileId,
+              nativeSheetId: createdConn.id,
+              status: 'COMPLETED',
+            },
+            dualCopyToken
+          ).catch((e) => console.warn('[ConnectSheetWizard] Reconcile COMPLETED warning:', e));
+        } catch (nativeErr: any) {
+          // Reconcile operation as FAILED_REQUIRES_RECONCILIATION in the durable ledger
+          await api.sheetHubDriveDuplicateReconcile(
+            {
+              operationId: effectiveOpId,
+              driveFileId: driveDup.driveFileId,
+              status: 'FAILED_REQUIRES_RECONCILIATION',
+              errorMessage: nativeErr?.message || String(nativeErr),
+            },
+            dualCopyToken
+          ).catch((e) => console.warn('[ConnectSheetWizard] Reconcile FAILED warning:', e));
+
+          throw new Error(
+            `Google Drive duplicate was preserved (${driveDup.driveFileId}), but native Firestore creation failed: ${nativeErr?.message || nativeErr}. Retrying will safely resume using this existing Drive duplicate without creating another file.`
+          );
+        }
 
         setImportProgress(100);
         setImportStatusText('Dual-Copy setup complete!');
         showToast(`Dual-Copy created! Saved to your Google Drive and FocusFlow Firestore.`, 'success');
+        clearPersistedOpId(activeUserId, spreadsheetId);
 
         setTimeout(() => {
           onSuccess(createdConn.id);
@@ -800,10 +992,27 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
               placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit"
               value={urlInput}
               onChange={(e) => {
-                setUrlInput(e.target.value);
+                const newVal = e.target.value;
+                setUrlInput(newVal);
                 setUrlError(null);
                 setInspectError(null);
                 setInspectErrorCode(null);
+                // Bug 3 & Task 6: Clear stale inspectData, tab selections, and client session op ID when URL changes
+                setInspectData(null);
+                setSelectedTabIds([]);
+                setTabRoles({});
+                setTabColumns({});
+                setSelectedKeyColumns({});
+                const activeUid = firebaseUser?.uid || auth.currentUser?.uid || user?.id || 'usr_guest';
+                if (spreadsheetId) {
+                  clearPersistedOpId(activeUid, spreadsheetId);
+                }
+                setDuplicationOpId('');
+                setPersistedDriveDuplicate(null);
+                const parsed = parseGoogleSheetUrl(newVal);
+                if (parsed.ok) {
+                  setSpreadsheetId(parsed.spreadsheetId);
+                }
               }}
             />
             {urlError && <p className="text-xs text-rose-500 font-medium">{urlError}</p>}
@@ -1511,6 +1720,15 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
             </div>
           )}
 
+          {inspectData.spreadsheetId !== spreadsheetId && (
+            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-xs text-rose-500 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>
+                Spreadsheet ID mismatch: inspected sheet ({inspectData.spreadsheetId}) does not match current selection ({spreadsheetId}). Please re-inspect before importing.
+              </span>
+            </div>
+          )}
+
           {importError && (
             <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1523,7 +1741,24 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
               <ArrowLeft className="w-4 h-4 inline mr-1" /> Back
             </ThemeButton>
 
-            <ThemeButton variant="primary" onClick={executeImportPipeline}>
+            <ThemeButton
+              variant="primary"
+              onClick={executeImportPipeline}
+              disabled={
+                !inspectData ||
+                inspectData.spreadsheetId !== spreadsheetId ||
+                selectedTabIds.length === 0 ||
+                isInspecting ||
+                (!isDemoMode && !isPublicLinkMode && !oauthToken)
+              }
+              title={
+                !inspectData || inspectData.spreadsheetId !== spreadsheetId
+                  ? 'Please complete spreadsheet inspection first'
+                  : selectedTabIds.length === 0
+                  ? 'Select at least one tab'
+                  : 'Start Import'
+              }
+            >
               Start Import <Check className="w-4 h-4 inline ml-1" />
             </ThemeButton>
           </div>

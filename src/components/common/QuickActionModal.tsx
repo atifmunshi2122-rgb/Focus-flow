@@ -20,7 +20,8 @@ import {
   X,
   Wallet,
 } from 'lucide-react';
-import { googleSheetsService } from '../../lib/googleSheetsService.ts';
+import { formatPaymentMethodLabel } from '../../lib/googleSheetsService.ts';
+import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 import {
   ThemeButton,
   ThemeModal,
@@ -507,7 +508,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
             notes: item.notes?.trim() || undefined,
           });
 
-          void googleSheetsService.enqueueMutation(
+          await syncCoordinator.syncMutation(
             'Variable_Expenses',
             [
               createdExp.id,
@@ -515,7 +516,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
               createdExp.description,
               createdExp.categoryName || resolvedCategoryName || 'General',
               createdExp.amountPaise / 100,
-              paymentMethod.replace('_', ' ').toUpperCase(),
+              formatPaymentMethodLabel(paymentMethod, true),
               createdExp.notes || '',
             ],
             'append',
@@ -541,7 +542,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           notes: incomeNotes.trim() || undefined,
         });
 
-        void googleSheetsService.enqueueMutation(
+        await syncCoordinator.syncMutation(
           'Income',
           [
             createdInc.id,
@@ -591,20 +592,23 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           categoryName: resolvedCategoryName,
         } as unknown as Partial<Bill>);
 
-        void googleSheetsService.enqueueMutation(
+        await syncCoordinator.syncMutation(
           'Bills_Payments',
           [
             createdBill.id,
-            createdBill.name,
-            createdBill.amountPaise / 100,
             createdBill.dueDate,
-            createdBill.categoryId,
-            createdBill.status,
+            createdBill.name,
+            resolvedCategoryName,
+            createdBill.amountPaise / 100,
+            'UNPAID',
+            '',
+            '—',
+            createdBill.notes || '',
           ],
           'append',
-          `Bills_append_${createdBill.id}`
+          `Bills_Payments_append_${createdBill.id}`
         );
-        showToast('Bill scheduled successfully', 'success');
+        showToast('Bill scheduled & synchronized', 'success');
       } else if (activeType === 'task') {
         const createdTask = await api.createTask({
           title: taskTitle.trim(),
@@ -614,22 +618,24 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           category: taskCategory.trim() || undefined,
         });
 
-        void googleSheetsService.enqueueMutation(
+        await syncCoordinator.syncMutation(
           'Tasks',
           [
             createdTask.id,
             createdTask.title,
             createdTask.priority,
             createdTask.status,
-            createdTask.dueDate || '',
             createdTask.estimatedPomodoros,
             createdTask.completedPomodoros,
+            createdTask.dueDate || '',
+            createdTask.category || 'General',
+            createdTask.recurrence || 'none',
             createdTask.createdAt,
           ],
           'append',
           `Tasks_append_${createdTask.id}`
         );
-        showToast('Task created successfully', 'success');
+        showToast('Task created & synchronized', 'success');
       } else if (activeType === 'habit') {
         await api.createHabit({
           title: habitTitle.trim(),
@@ -649,13 +655,31 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
         });
         showToast('Budget envelope allocated', 'success');
       } else if (activeType === 'goal') {
-        await api.createSavingsGoal({
+        const targetNum = Number(goalAmount);
+        const createdGoal = await api.createSavingsGoal({
           title: goalTitle.trim(),
-          targetPaise: toPaise(goalAmount),
+          targetPaise: toPaise(targetNum),
           targetDate: goalTargetDate || null,
           color: '#10b981',
         });
-        showToast('Savings goal established', 'success');
+        await syncCoordinator.syncMutation(
+          'Savings_Goals',
+          [
+            createdGoal.id,
+            createdGoal.title,
+            createdGoal.targetPaise / 100,
+            createdGoal.savedPaise / 100,
+            Math.max(0, (createdGoal.targetPaise - createdGoal.savedPaise) / 100),
+            createdGoal.targetDate || 'No Deadline',
+            createdGoal.targetPaise > 0
+              ? `${Math.round((createdGoal.savedPaise / createdGoal.targetPaise) * 100)}%`
+              : '0%',
+            'Active',
+          ],
+          'append',
+          `Savings_Goals_append_${createdGoal.id}`
+        );
+        showToast('Savings goal established & synchronized', 'success');
       }
 
       triggerRefresh();

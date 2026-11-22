@@ -1,0 +1,450 @@
+rules_version = '2';
+
+// ==============================================================================
+// FOCUSFLOW & FINANCE — SOURCE FIRESTORE READ-ONLY FREEZE SECURITY RULESET
+// PHASE 2.2 IMMUTABLE SOURCE PRESERVATION
+// ==============================================================================
+//
+// Purpose:
+//   Candidate freeze ruleset for Phase 2.2 migration cutover. Locks all writes
+//   across all collections, subcollections, and paths (`allow write: if false;`),
+//   while strictly preserving existing tenant privacy, owner-only authorization,
+//   joint-vault membership enforcement, and secure invitation access boundaries.
+//
+// Security Invariants:
+//   1. Default Deny: All unspecified paths explicitly rejected.
+//   2. Zero Write Grants: No client write, create, update, or delete is permitted
+//      anywhere in the entire database (`allow write: if false;`).
+//   3. Zero Data Leakage: Blanket `allow read: if request.auth != null;` is NEVER
+//      used. Reads require authenticated ownership or verified vault membership.
+//   4. Invitation Protection: Enumeration is completely forbidden (`allow list: if false;`).
+//      Point lookup (`get`) is strictly bounded to accepted parties, targeted invitees,
+//      or existing vault members.
+//   5. Bit-Exact Physical Scope: Preserves read permissions for all 49 physical source
+//      collection paths (users, sharedVaults, vaultInvitations, and all subcollections).
+//
+// Assumed Data Models (Read Access Boundaries):
+//   - /test/connection: Public connectivity health-check document.
+//   - /users/{userId} & all subcollections: Scoped exclusively to document owner (request.auth.uid == userId).
+//   - /vaultInvitations/{inviteCode}: Unenumerable (list denied). Point-lookup (get) allowed only
+//     to accepted recipient, valid unexpired targeted invitee, or active member of the referenced vault.
+//   - /sharedVaults/{vaultId} & all subcollections: Scoped to authenticated members of the vault.
+//   - /driveIdempotency/{operationId}: Scoped to authenticated record owner (resource.data.ownerUid == request.auth.uid).
+//
+// ==============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny All: Any document not explicitly matched is denied
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ==========================================
+    // REUSABLE SECURITY & VALIDATION HELPERS
+    // ==========================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Test connection doc for client health-checks
+    match /test/connection {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ==========================================
+    // USER WORKSPACE ROOT
+    // ==========================================
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+
+      // Settings subcollection
+      match /settings/{settingId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Tasks subcollection
+      match /tasks/{taskId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Focus sessions subcollection
+      match /focus_sessions/{sessionId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+
+        // Nested interruptions subcollection (Phase 17)
+        match /interruptions/{eventId} {
+          allow read: if isOwner(userId);
+          allow write: if false;
+        }
+      }
+
+      // Income records subcollection
+      match /income/{incomeId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Recurring expenses subcollection
+      match /recurring_expenses/{recId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Expense transactions subcollection
+      match /expenses/{expenseId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Bills subcollection
+      match /bills/{billId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Payment history subcollection
+      match /payment_history/{payId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Sync queue subcollection (Durable Google Sheets synchronization)
+      match /sync_queue/{queueId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Time blocks subcollection (Daily Time-Block Planner)
+      match /time_blocks/{blockId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Envelopes subcollection (Envelope Budgeting)
+      match /envelopes/{envelopeId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Subscriptions subcollection (Subscription Manager)
+      match /subscriptions/{subId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Audit logs & Data recovery subcollection
+      match /audit_logs/{logId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Habits subcollection (Habit Tracker & Streaks)
+      match /habits/{habitId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study academic tiers subcollection (Custom User Academic Tiers)
+      match /study_tiers/{tierId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study subjects subcollection (Academic Study OS)
+      match /study_subjects/{subId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study topics subcollection (Syllabus & Topic Tracker)
+      match /study_topics/{topicId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study revisions subcollection (Ebbinghaus Spaced Repetition)
+      match /study_revisions/{revId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study mistakes subcollection (Error Log & Golden Rules)
+      match /study_mistakes/{mistakeId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study goals subcollection (Phase 16 Academic Goals & Milestones)
+      match /study_goals/{goalId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study plans subcollection (Phase 16 Structured Study Plans)
+      match /study_plans/{planId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study plan tasks subcollection (Phase 16 Plan Tasks & Calendar)
+      match /study_plan_tasks/{taskId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study resources subcollection (Phase 16 Reference Materials & Links)
+      match /study_resources/{resourceId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study exams subcollection (Phase 16 Exam Schedules & Results)
+      match /study_exams/{examId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study notes subcollection (Phase 16 Topic Notes & Bookmarks)
+      match /study_notes/{noteId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study activity logs subcollection (Phase 16 Append-only Historical Audit)
+      match /study_activity_logs/{logId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study flashcards subcollection (Phase 16 Active Recall & Spaced Repetition)
+      match /study_flashcards/{cardId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Study quizzes subcollection (Phase 16 Self-Assessment & Performance)
+      match /study_quizzes/{quizId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Pomodoro presets subcollection (Phase 17 standard & custom timer intervals)
+      match /pomodoro_presets/{presetId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Pomodoro goals subcollection (Phase 17 multi-goal architecture)
+      match /pomodoro_goals/{goalId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Pomodoro settings subcollection (User timer preferences fallback)
+      match /pomodoro_settings/{settingId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Pomodoro ambient presets subcollection (Custom sound presets)
+      match /pomodoro_ambient_presets/{presetId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Universal Sheet Sync Hub subcollections
+      match /sheet_connections/{connectionId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /sheet_tabs/{tabId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /sheet_row_chunks/{chunkId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /sheet_sync_queue/{opId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /sheet_conflicts/{conflictId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Canonical Private Sheet Ownership Architecture
+      match /sheets/{sheetId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+
+        // Subcollection tabs under sheets/{sheetId}/tabs/{tabId}
+        match /tabs/{tabId} {
+          allow read: if isOwner(userId);
+          allow write: if false;
+
+          // Subcollection rows under tab: sheets/{sheetId}/tabs/{tabId}/rows/{rowId}
+          match /rows/{rowId} {
+            allow read: if isOwner(userId);
+            allow write: if false;
+          }
+
+          // Subcollection row_chunks under tab: sheets/{sheetId}/tabs/{tabId}/row_chunks/{chunkId}
+          match /row_chunks/{chunkId} {
+            allow read: if isOwner(userId);
+            allow write: if false;
+          }
+        }
+
+        // Subcollection rows directly under sheet: sheets/{sheetId}/rows/{rowId}
+        match /rows/{rowId} {
+          allow read: if isOwner(userId);
+          allow write: if false;
+        }
+
+        // Subcollection row_chunks directly under sheet: sheets/{sheetId}/row_chunks/{chunkId}
+        match /row_chunks/{chunkId} {
+          allow read: if isOwner(userId);
+          allow write: if false;
+        }
+      }
+    }
+
+    // ==========================================
+    // JOINT VAULT & INVITATION SHARED HELPERS
+    // ==========================================
+    function getVaultDoc(vId) {
+      return get(/databases/$(database)/documents/sharedVaults/$(vId));
+    }
+
+    function emailMatchesInvite(inviteData) {
+      let invited = inviteData.get('invitedEmail', null);
+      return invited == null
+        || invited == ''
+        || (
+          invited is string
+          && request.auth.token.get('email_verified', false) == true
+          && request.auth.token.get('email', null) is string
+          && request.auth.token.email.lower() == invited.lower()
+        );
+    }
+
+    // Single-get membership check (1 access call instead of exists + get)
+    function isMemberOfVault(vId) {
+      let v = getVaultDoc(vId);
+      return isSignedIn()
+        && v != null
+        && ('memberUids' in v.data)
+        && (request.auth.uid in v.data.memberUids);
+    }
+
+    // ==========================================
+    // CANONICAL TOP-LEVEL VAULT INVITATIONS
+    // ==========================================
+    match /vaultInvitations/{inviteCode} {
+      // Strictly block collection enumeration
+      allow list: if false;
+
+      // Preserve audit trail & prevent write modifications
+      allow write: if false;
+
+      // Point lookup only:
+      // 1. Idempotent re-read by user who already accepted (0 gets)
+      allow get: if isSignedIn()
+        && resource != null
+        && resource.data.status == 'accepted'
+        && resource.data.acceptedByUid == request.auth.uid;
+
+      // 2. Prospective recipient with valid pending unexpired code & email match (0 gets)
+      allow get: if isSignedIn()
+        && resource != null
+        && resource.data.status == 'pending'
+        && resource.data.expiresAtTimestamp is timestamp
+        && request.time < resource.data.expiresAtTimestamp
+        && emailMatchesInvite(resource.data);
+
+      // 3. Active member of target vault (1 get)
+      allow get: if isSignedIn()
+        && resource != null
+        && resource.data.vaultId is string
+        && isValidId(resource.data.vaultId)
+        && isMemberOfVault(resource.data.vaultId);
+    }
+
+    // ==========================================
+    // COUPLE SHARED SAVINGS (JOINT VAULTS) ROOT
+    // ==========================================
+    match /sharedVaults/{vaultId} {
+      // Vault root document
+      allow get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+      allow write: if false;
+
+      // Subcollection: members
+      match /members/{memberUid} {
+        allow read: if isMemberOfVault(vaultId);
+        allow write: if false;
+      }
+
+      // Subcollection: invitations (legacy subcollection retained for backward compatibility)
+      match /invitations/{inviteId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow write: if false;
+      }
+
+      // Subcollection: contributions
+      match /contributions/{contribId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow write: if false;
+      }
+
+      // Subcollection: expenses
+      match /expenses/{expenseId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow write: if false;
+      }
+
+      // Subcollection: settlements
+      match /settlements/{settleId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow write: if false;
+      }
+
+      // Subcollection: activity
+      match /activity/{activityId} {
+        allow read: if isMemberOfVault(vaultId);
+        allow write: if false;
+      }
+    }
+
+    // ==========================================
+    // GOOGLE DRIVE DUPLICATION IDEMPOTENCY
+    // ==========================================
+    // Server-managed durable duplication idempotency records.
+    // Client write is strictly forbidden under all circumstances.
+    // Authenticated users may read their own idempotency records.
+    match /driveIdempotency/{operationId} {
+      allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow write: if false;
+    }
+  }
+}

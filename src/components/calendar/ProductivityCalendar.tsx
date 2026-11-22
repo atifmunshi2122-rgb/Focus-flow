@@ -22,6 +22,9 @@ import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
+import { GoogleCalendarSyncPanel } from './GoogleCalendarSyncPanel.tsx';
+import { googleCalendarClient } from '../../lib/googleCalendarService.ts';
+import type { GoogleCalendarEntry } from '../../types/calendar.ts';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -109,6 +112,8 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
   const [loading, setLoading] = useState(!hasCachedCalendar);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isStale, setIsStale] = useState<boolean>(false);
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEntry[]>([]);
+  const [showGoogleEvents, setShowGoogleEvents] = useState<boolean>(true);
 
   const fetchCalendarData = () => {
     if (!hasCachedCalendar && tasks.length === 0) {
@@ -138,6 +143,7 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
         setHabits(h.filter((item) => !item.deletedAt));
         clientDataCache.setHabits(h);
         setIsStale(false);
+        googleCalendarClient.getEvents().then(setGoogleEvents).catch(() => []);
       })
       .catch((err) => {
         console.error('Failed to load calendar events:', err);
@@ -215,6 +221,11 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
   }, [activeWeekStart, currentMonth, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits]);
 
   const displayedDays = viewMode === 'month' ? monthDays : weekDays;
+
+  const selectedDayGoogleEvents = useMemo(() => {
+    if (!selectedDateStr || !showGoogleEvents) return [];
+    return googleEvents.filter((ge) => (ge.start.date || ge.start.dateTime?.slice(0, 10)) === selectedDateStr);
+  }, [selectedDateStr, showGoogleEvents, googleEvents]);
 
   // Selected day derived dynamically from live state so additions and edits update immediately
   const selectedDay = useMemo(() => {
@@ -338,6 +349,14 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Google Calendar Two-Way Sync Header Panel */}
+      <GoogleCalendarSyncPanel
+        onSyncComplete={fetchCalendarData}
+        showEventsToggle={true}
+        showEvents={showGoogleEvents}
+        onToggleShowEvents={setShowGoogleEvents}
+      />
+
       {/* Top Controls Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -469,6 +488,9 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
           <div className="grid grid-cols-7 gap-2">
         {displayedDays.map((day) => {
           const netPaise = day.incomePaise - day.expensePaise;
+          const dayGoogleEvents = showGoogleEvents
+            ? googleEvents.filter((ge) => (ge.start.date || ge.start.dateTime?.slice(0, 10)) === day.date)
+            : [];
 
           return (
             <button
@@ -556,6 +578,26 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
                 {day.tasks.length > (viewMode === 'week' ? 3 : 2) && (
                   <span className="text-[9px] text-[var(--ff-text-muted)] font-mono pl-1">
                     +{day.tasks.length - (viewMode === 'week' ? 3 : 2)} more tasks
+                  </span>
+                )}
+
+                {/* Google Calendar Events */}
+                {showGoogleEvents &&
+                  dayGoogleEvents.slice(0, viewMode === 'week' ? 3 : 2).map((ge) => (
+                    <div
+                      key={ge.id}
+                      className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded truncate bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium"
+                      title={`${ge.summary || '(Untitled Event)'} ${
+                        ge.managePolicy === 'focusflow_managed' ? '(FocusFlow)' : '(Google Read-Only)'
+                      }`}
+                    >
+                      <CalendarIcon className="w-2.5 h-2.5 shrink-0 text-blue-500" />
+                      <span className="truncate">{ge.summary || '(Untitled Event)'}</span>
+                    </div>
+                  ))}
+                {showGoogleEvents && dayGoogleEvents.length > (viewMode === 'week' ? 3 : 2) && (
+                  <span className="text-[9px] text-[var(--ff-text-muted)] font-mono pl-1">
+                    +{dayGoogleEvents.length - (viewMode === 'week' ? 3 : 2)} more Google events
                   </span>
                 )}
               </div>
@@ -1012,6 +1054,69 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* === GOOGLE CALENDAR EVENTS === */}
+                {showGoogleEvents && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-[var(--ff-text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+                      <CalendarIcon className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Google Calendar ({selectedDayGoogleEvents.length})</span>
+                    </div>
+
+                    {selectedDayGoogleEvents.length === 0 ? (
+                      <div className="p-3 text-center rounded-xl border border-dashed ff-divider text-xs text-[var(--ff-text-muted)]">
+                        No Google Calendar events scheduled for this date
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {selectedDayGoogleEvents.map((ge) => (
+                          <div
+                            key={ge.id}
+                            className="flex items-start justify-between p-2.5 rounded-xl border ff-divider bg-[var(--ff-surface-subtle)] text-xs"
+                          >
+                            <div className="flex flex-col gap-1 min-w-0 pr-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium text-[var(--ff-text-primary)]">
+                                  {ge.summary || '(Untitled Event)'}
+                                </span>
+                                <span
+                                  className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold ${
+                                    ge.managePolicy === 'focusflow_managed'
+                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                      : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                                  }`}
+                                >
+                                  {ge.managePolicy === 'focusflow_managed' ? 'FocusFlow' : 'Google Read-Only'}
+                                </span>
+                              </div>
+                              {ge.description && (
+                                <p className="text-[11px] text-[var(--ff-text-muted)] line-clamp-2">
+                                  {ge.description}
+                                </p>
+                              )}
+                              {ge.start.dateTime && (
+                                <span className="text-[10px] text-[var(--ff-text-muted)] font-mono">
+                                  {new Date(ge.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {ge.end.dateTime && ` - ${new Date(ge.end.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                </span>
+                              )}
+                            </div>
+                            {ge.htmlLink && (
+                              <a
+                                href={ge.htmlLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] font-medium text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 shrink-0 mt-0.5"
+                              >
+                                View ↗
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

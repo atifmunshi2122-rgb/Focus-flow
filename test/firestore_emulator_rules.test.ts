@@ -942,3 +942,90 @@ test('11. Sensitive Collections Update Hardening & Immutable Field Protection', 
   });
   assert.equal(tamperTaskPlanId.status, 403, 'Modifying planId on study_plan_tasks must be strictly rejected');
 });
+
+test('12. Server-Controlled Drive Idempotency (/driveIdempotency/{operationId}) Rules', { skip: skipReason }, async () => {
+  const ownerUid = 'usr_drive_owner_' + Date.now();
+  const otherUid = 'usr_drive_other_' + Date.now();
+  const opId = 'op_drive_copy_' + Date.now();
+
+  // 1. Unauthenticated write must be strictly rejected (403)
+  const unauthWrite = await firestoreRequest(`driveIdempotency/${opId}`, 'PATCH', {
+    data: {
+      operationId: opId,
+      ownerUid: ownerUid,
+      status: 'PROCESSING',
+    },
+  });
+  assert.equal(unauthWrite.status, 403, 'Unauthenticated write to /driveIdempotency must be denied');
+
+  // 2. Authenticated user cannot create/write even their own record (allow write: if false;)
+  const clientCreate = await firestoreRequest(`driveIdempotency/${opId}`, 'PATCH', {
+    uid: ownerUid,
+    data: {
+      operationId: opId,
+      ownerUid: ownerUid,
+      status: 'PROCESSING',
+    },
+  });
+  assert.equal(clientCreate.status, 403, 'Authenticated client write to /driveIdempotency must be denied under all circumstances');
+
+  // 3. Other authenticated user cannot create/write record
+  const otherCreate = await firestoreRequest(`driveIdempotency/${opId}`, 'PATCH', {
+    uid: otherUid,
+    data: {
+      operationId: opId,
+      ownerUid: otherUid,
+      status: 'PROCESSING',
+    },
+  });
+  assert.equal(otherCreate.status, 403, 'Arbitrary authenticated client write to /driveIdempotency must be denied');
+
+  // 4. Seed server-controlled idempotency record via Admin / Bearer owner
+  const seedRes = await fetch(`${BASE_URL}/driveIdempotency/${opId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: 'Bearer owner',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fields: toFirestoreFields({
+        operationId: opId,
+        ownerUid: ownerUid,
+        status: 'COMPLETED',
+        driveFileId: 'file_abc_123',
+        sourceSpreadsheetId: 'sheet_xyz_789',
+        createdAt: '2026-11-21T10:00:00Z',
+      }),
+    }),
+  });
+  assert.equal(seedRes.status, 200, 'Server/Admin write with Bearer owner bypasses rules');
+
+  // 5. Unauthenticated user cannot read the idempotency record (403)
+  const unauthRead = await firestoreRequest(`driveIdempotency/${opId}`, 'GET');
+  assert.equal(unauthRead.status, 403, 'Unauthenticated read to /driveIdempotency must be denied');
+
+  // 6. Other authenticated user (mismatched ownerUid) cannot read the record (403)
+  const otherRead = await firestoreRequest(`driveIdempotency/${opId}`, 'GET', { uid: otherUid });
+  assert.equal(otherRead.status, 403, 'Other authenticated user cannot read idempotency record belonging to another user');
+
+  // 7. Owner authenticated user CAN read their own idempotency record (200)
+  const ownerRead = await firestoreRequest(`driveIdempotency/${opId}`, 'GET', { uid: ownerUid });
+  assert.equal(ownerRead.status, 200, 'Authenticated owner user can read their own idempotency record');
+  assert.equal(ownerRead.data?.fields?.ownerUid?.stringValue, ownerUid, 'Read record contains correct ownerUid');
+
+  // 8. Owner authenticated user cannot update the record (allow write: if false;)
+  const ownerUpdate = await firestoreRequest(`driveIdempotency/${opId}`, 'PATCH', {
+    uid: ownerUid,
+    data: {
+      status: 'TAMPERED',
+    },
+    updateMask: ['status'],
+  });
+  assert.equal(ownerUpdate.status, 403, 'Owner client cannot update server-controlled idempotency record');
+
+  // 9. Owner authenticated user cannot delete the record (allow write: if false;)
+  const ownerDelete = await firestoreRequest(`driveIdempotency/${opId}`, 'DELETE', {
+    uid: ownerUid,
+  });
+  assert.equal(ownerDelete.status, 403, 'Owner client cannot delete server-controlled idempotency record');
+});

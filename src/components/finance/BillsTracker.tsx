@@ -39,7 +39,7 @@ import {
   Check,
   Tag,
 } from 'lucide-react';
-import { googleSheetsService } from '../../lib/googleSheetsService.ts';
+import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 
 export const BillsTracker: React.FC = () => {
   const {
@@ -121,14 +121,32 @@ export const BillsTracker: React.FC = () => {
 
     setCreatingBill(true);
     try {
-      await api.createBill({
+      const created = await api.createBill({
         name: name.trim(),
         amountPaise: toPaise(amount),
         categoryId: categoryId || (categories[0]?.id ?? 'cat_1'),
         dueDate,
         notes,
       });
-      showToast('Bill registered to schedule', 'success');
+      const resolvedCategoryName =
+        categories.find((c) => c.id === created.categoryId)?.name || 'Bill';
+      await syncCoordinator.syncMutation(
+        'Bills_Payments',
+        [
+          created.id,
+          created.dueDate,
+          created.name,
+          resolvedCategoryName,
+          created.amountPaise / 100,
+          'UNPAID',
+          '',
+          '—',
+          created.notes || '',
+        ],
+        'append',
+        `Bills_Payments_append_${created.id}`
+      );
+      showToast('Bill registered to schedule & synchronized', 'success');
       setCreatingBill(false);
       setCreateSuccess(true);
       triggerRefresh();
@@ -159,7 +177,7 @@ export const BillsTracker: React.FC = () => {
       playCashSound(settings?.soundEnabled);
       showToast(`Payment of ${formatCurrency(payingBill.amountPaise, currency)} recorded!`, 'success');
 
-      void googleSheetsService.enqueueMutation(
+      await syncCoordinator.syncMutation(
         'Bills_Payments',
         [
           res.bill.id,
@@ -172,13 +190,9 @@ export const BillsTracker: React.FC = () => {
           formatPaymentMethodLabel(paymentMethod, true),
           paymentNotes || 'Settled via Tracker',
         ],
-        'append',
-        `Bills_Payments_append_${res.bill.id}`
+        'update',
+        `Bills_Payments_update_${res.bill.id}`
       );
-
-      if (googleSpreadsheetId && googleAccessToken) {
-        googleSheetsService.flushQueue(googleSpreadsheetId, googleAccessToken).catch(console.error);
-      }
 
       setPaying(false);
       setPaySuccess(true);
@@ -210,7 +224,26 @@ export const BillsTracker: React.FC = () => {
 
     try {
       await api.undoBillPayment(billId);
-      showToast('Payment undone; bill restored to pending status', 'info');
+      const targetBill = bills.find((b) => b.id === billId);
+      if (targetBill) {
+        await syncCoordinator.syncMutation(
+          'Bills_Payments',
+          [
+            targetBill.id,
+            targetBill.dueDate,
+            targetBill.name,
+            targetBill.categoryName || 'Bill',
+            targetBill.amountPaise / 100,
+            'UNPAID',
+            '',
+            '—',
+            targetBill.notes || '',
+          ],
+          'update',
+          `Bills_Payments_update_${targetBill.id}`
+        );
+      }
+      showToast('Payment undone & synchronized; bill restored to pending status', 'info');
       triggerRefresh();
       loadData();
     } catch (err: unknown) {
@@ -229,7 +262,13 @@ export const BillsTracker: React.FC = () => {
     if (!confirmed) return;
     try {
       await api.deleteBill(bill.id);
-      showToast('Bill moved to Trash', 'info');
+      await syncCoordinator.syncMutation(
+        'Bills_Payments',
+        [bill.id],
+        'delete',
+        `Bills_Payments_delete_${bill.id}`
+      );
+      showToast('Bill moved to Trash & synchronized', 'info');
       triggerRefresh();
       loadData();
     } catch {

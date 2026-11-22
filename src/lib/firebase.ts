@@ -167,11 +167,38 @@ export function createSheetHubDualCopyProvider(loginHint?: string | null): Googl
   return provider;
 }
 
-// In-memory access token caches:
+const SESSION_STORAGE_SHEETS_TOKEN_KEY = 'ff_session_sheets_token';
+
+function readSessionToken(): string | null {
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      return sessionStorage.getItem(SESSION_STORAGE_SHEETS_TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function writeSessionToken(token: string | null): void {
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      if (token) {
+        sessionStorage.setItem(SESSION_STORAGE_SHEETS_TOKEN_KEY, token);
+      } else {
+        sessionStorage.removeItem(SESSION_STORAGE_SHEETS_TOKEN_KEY);
+      }
+    } catch {
+      // ignore storage access errors
+    }
+  }
+}
+
+// In-memory access token caches with ephemeral session-persistence:
 // - cachedLegacyAccessToken: Read/Write token for 23-tab executive workbook sync
 // - cachedSheetHubAccessToken: Strictly Read-Only token for Universal Sheet Hub
 // - cachedSheetHubWriteAccessToken: Least-privilege Spreadsheets write token for Sheet Hub two-way mark/unmark
-let cachedLegacyAccessToken: string | null = null;
+let cachedLegacyAccessToken: string | null = readSessionToken();
 let cachedSheetHubAccessToken: string | null = null;
 let cachedSheetHubWriteAccessToken: string | null = null;
 let isSigningIn = false;
@@ -335,6 +362,7 @@ export const authorizeGoogleSheets = createSingleFlightRunner(
       }
 
       cachedLegacyAccessToken = accessToken;
+      writeSessionToken(accessToken);
       return { user: result.user, accessToken };
     } catch (error) {
       console.error('Google Sheets authorization error:', error);
@@ -447,10 +475,11 @@ export const getAccessToken = async (): Promise<string | null> => {
 
 export const setAccessToken = (token: string | null) => {
   cachedLegacyAccessToken = token;
+  writeSessionToken(token);
 };
 
 export const getSheetHubAccessToken = async (): Promise<string | null> => {
-  return cachedSheetHubAccessToken || cachedSheetHubWriteAccessToken || cachedLegacyAccessToken;
+  return cachedSheetHubAccessToken || cachedSheetHubWriteAccessToken || cachedLegacyAccessToken || readSessionToken();
 };
 
 export const setSheetHubAccessToken = (token: string | null) => {
@@ -458,7 +487,7 @@ export const setSheetHubAccessToken = (token: string | null) => {
 };
 
 export const getSheetHubWriteAccessToken = async (): Promise<string | null> => {
-  return cachedSheetHubWriteAccessToken || cachedLegacyAccessToken;
+  return cachedSheetHubWriteAccessToken || cachedLegacyAccessToken || readSessionToken();
 };
 
 export const setSheetHubWriteAccessToken = (token: string | null) => {
@@ -470,6 +499,7 @@ export const signOut = async (): Promise<void> => {
   cachedLegacyAccessToken = null;
   cachedSheetHubAccessToken = null;
   cachedSheetHubWriteAccessToken = null;
+  writeSessionToken(null);
   initialAuthPromise = null;
 };
 
@@ -479,6 +509,9 @@ export const initAuthListener = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
+      if (!cachedLegacyAccessToken) {
+        cachedLegacyAccessToken = readSessionToken();
+      }
       onAuthSuccess(
         user,
         cachedLegacyAccessToken || cachedSheetHubWriteAccessToken || cachedSheetHubAccessToken
@@ -487,6 +520,7 @@ export const initAuthListener = (
       cachedLegacyAccessToken = null;
       cachedSheetHubAccessToken = null;
       cachedSheetHubWriteAccessToken = null;
+      writeSessionToken(null);
       onAuthFailure();
     }
   });
