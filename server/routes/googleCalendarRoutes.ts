@@ -4,6 +4,37 @@ import type { AuthenticatedRequest } from '../auth.js';
 
 export const googleCalendarRouter = Router();
 
+function handleCalendarError(res: Response, err: unknown, fallbackMessage: string): void {
+  const msg = err instanceof Error ? err.message : fallbackMessage;
+  const isAuthError =
+    msg.includes('authorization expired') ||
+    msg.includes('revoked') ||
+    msg.includes('not connected') ||
+    msg.includes('invalid_grant');
+  const isExternalProtection = msg.includes('EXTERNAL_EVENT_PROTECTION');
+
+  if (isAuthError) {
+    res.status(401).json({
+      error: msg,
+      code: 'AUTH_EXPIRED',
+    });
+    return;
+  }
+
+  if (isExternalProtection) {
+    res.status(403).json({
+      error: msg,
+      code: 'EXTERNAL_EVENT_PROTECTION',
+    });
+    return;
+  }
+
+  res.status(500).json({
+    error: msg,
+    code: 'CALENDAR_ERROR',
+  });
+}
+
 function requireRealUser(req: Request, res: Response, next: NextFunction): void {
   const authReq = req as AuthenticatedRequest;
   if (!authReq.auth || authReq.auth.isGuest || authReq.auth.userId.startsWith('gst_')) {
@@ -50,8 +81,7 @@ googleCalendarRouter.get('/integrations/google-calendar/calendars', async (req: 
     const calendars = await googleCalendarService.listCalendars(authReq.auth.userId);
     res.json({ calendars });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to list calendars';
-    res.status(500).json({ error: msg });
+    handleCalendarError(res, err, 'Failed to list calendars');
   }
 });
 
@@ -70,8 +100,7 @@ googleCalendarRouter.get('/integrations/google-calendar/events', async (req: Req
     });
     res.json({ events });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to list calendar events';
-    res.status(500).json({ error: msg });
+    handleCalendarError(res, err, 'Failed to list calendar events');
   }
 });
 
@@ -95,8 +124,7 @@ googleCalendarRouter.post('/integrations/google-calendar/events', async (req: Re
     });
     res.status(201).json(created);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to create calendar event';
-    res.status(500).json({ error: msg });
+    handleCalendarError(res, err, 'Failed to create calendar event');
   }
 });
 
@@ -114,8 +142,7 @@ googleCalendarRouter.patch('/integrations/google-calendar/events/:eventId', asyn
     );
     res.json(updated);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to update calendar event';
-    res.status(500).json({ error: msg });
+    handleCalendarError(res, err, 'Failed to update calendar event');
   }
 });
 
@@ -129,9 +156,7 @@ googleCalendarRouter.delete('/integrations/google-calendar/events/:eventId', asy
     await googleCalendarService.deleteEvent(authReq.auth.userId, eventId, calendarId);
     res.json({ success: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to delete calendar event';
-    const status = msg.includes('EXTERNAL_EVENT_PROTECTION') ? 403 : 500;
-    res.status(status).json({ error: msg });
+    handleCalendarError(res, err, 'Failed to delete calendar event');
   }
 });
 
@@ -144,8 +169,7 @@ googleCalendarRouter.post('/integrations/google-calendar/sync/tasks', async (req
     const result = await googleCalendarService.syncTasks(authReq.auth.userId, { calendarId });
     res.json({ success: true, ...result });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to sync tasks to calendar';
-    res.status(500).json({ error: msg });
+    handleCalendarError(res, err, 'Failed to sync tasks to calendar');
   }
 });
 
@@ -156,7 +180,6 @@ googleCalendarRouter.delete('/integrations/google-calendar/connection', async (r
     await googleCalendarService.disconnect(authReq.auth.userId);
     res.json({ success: true, connected: false });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to disconnect calendar';
-    res.status(500).json({ error: msg });
+    handleCalendarError(res, err, 'Failed to disconnect calendar');
   }
 });

@@ -78,6 +78,9 @@ export const GoogleCalendarSettings: React.FC = () => {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
       setError(msg);
+      if (msg.toLowerCase().includes('expired') || msg.toLowerCase().includes('revoked') || msg.toLowerCase().includes('reauthorize')) {
+        setStatus((prev) => ({ ...prev, connected: false, revoked: true }));
+      }
     } finally {
       setSyncing(false);
     }
@@ -102,12 +105,38 @@ export const GoogleCalendarSettings: React.FC = () => {
           <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-medium">
             <CheckCircle2 className="w-3.5 h-3.5" /> Connected
           </span>
+        ) : status.revoked ? (
+          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium">
+            <AlertCircle className="w-3.5 h-3.5" /> Reauthorization Required
+          </span>
         ) : (
           <span className="text-xs px-3 py-1 rounded-full bg-slate-500/15 text-slate-500 font-medium">
             Not Connected
           </span>
         )}
       </div>
+
+      {status.revoked && (
+        <div className="flex items-start gap-3 p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 text-xs">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="flex-1">
+            <p className="font-semibold text-amber-900 dark:text-amber-100">
+              Google Calendar Authorization Expired or Revoked
+            </p>
+            <p className="mt-0.5 text-amber-700 dark:text-amber-300">
+              Google has expired or revoked access for this application. Please reconnect and reauthorize FocusFlow to resume automatic task and deadline synchronization.
+            </p>
+            <button
+              onClick={handleConnect}
+              disabled={loading}
+              className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium text-xs transition disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? 'Opening Google Auth...' : 'Reauthorize Google Calendar'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {status.connected ? (
         <div className="space-y-4 pt-2">

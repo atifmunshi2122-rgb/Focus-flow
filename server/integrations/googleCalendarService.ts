@@ -441,7 +441,8 @@ export class GoogleCalendarService {
     });
 
     if (!res.ok) {
-      throw new Error(`Failed to fetch calendars (${res.status}): ${await res.text()}`);
+      console.warn(`[GoogleCalendar] CalendarList endpoint returned ${res.status} (least-privileged calendar.events scope). Falling back to primary calendar.`);
+      return [{ id: 'primary', summary: 'Primary Calendar', primary: true }];
     }
 
     const data = (await res.json()) as {

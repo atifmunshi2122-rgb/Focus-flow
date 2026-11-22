@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import app from '../api/index.ts';
 import { encryptToken, decryptToken, resolveEncryptionKey } from '../server/crypto.ts';
-import { GoogleCalendarService } from '../server/integrations/googleCalendarService.ts';
+import { GoogleCalendarService, googleCalendarService } from '../server/integrations/googleCalendarService.ts';
+import { GOOGLE_DRIVE_SHEETS_SCOPES } from '../src/lib/googleAuthGis.ts';
 
 function createValidToken(uid: string, email = `${uid}@example.com`): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
@@ -238,6 +239,173 @@ describe('Google Calendar OAuth, Crypto & Route Security Suite', () => {
       const json = await res.json();
       assert.equal(json.code, 'INVALID_CALLBACK_PARAMS');
       assert.ok(json.error.includes('Missing code or state'));
+    });
+  });
+
+  describe('6. Least-Privileged Scopes & Scope Isolation (Calendar vs Sheets)', () => {
+    it('Calendar OAuth requests strictly least-privileged calendar.events scope', async () => {
+      const service = new GoogleCalendarService();
+      service.setFirestoreForTesting({
+        collection: () => ({
+          doc: () => ({
+            set: async () => {},
+          }),
+        }),
+      });
+
+      const { authUrl } = await service.startOAuthFlow(testUser);
+      const url = new URL(authUrl);
+      const requestedScope = url.searchParams.get('scope') || '';
+
+      // Must request calendar.events (Sensitive)
+      assert.equal(requestedScope, 'https://www.googleapis.com/auth/calendar.events');
+
+      // Invariant: Must NEVER request restricted scopes
+      assert.ok(!requestedScope.includes('https://www.googleapis.com/auth/calendar '));
+      assert.ok(!requestedScope.endsWith('/calendar'));
+      assert.ok(!requestedScope.includes('drive'));
+      assert.ok(!requestedScope.includes('spreadsheets'));
+    });
+
+    it('Sheets OAuth requests strictly spreadsheets and drive.file scopes (zero Calendar scopes)', () => {
+      assert.deepEqual(GOOGLE_DRIVE_SHEETS_SCOPES, [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive.file',
+      ]);
+
+      // Invariant: Sheets must NEVER request full drive or calendar
+      assert.ok(!GOOGLE_DRIVE_SHEETS_SCOPES.includes('https://www.googleapis.com/auth/drive' as any));
+      assert.ok(!GOOGLE_DRIVE_SHEETS_SCOPES.includes('https://www.googleapis.com/auth/calendar' as any));
+      assert.ok(!GOOGLE_DRIVE_SHEETS_SCOPES.includes('https://www.googleapis.com/auth/calendar.events' as any));
+    });
+  });
+
+  describe('7. Graceful Handling of Expired Refresh Tokens & Revocation', () => {
+    it('marks connection as revoked when refresh token fails with 400 invalid_grant', async () => {
+      const service = new GoogleCalendarService();
+      let updatedData: any = null;
+
+      const encRefresh = encryptToken('expired_or_revoked_refresh_token');
+
+      service.setFirestoreForTesting({
+        collection: (col: string) => ({
+          doc: (docId: string) => ({
+            collection: (subCol: string) => ({
+              doc: (subDocId: string) => ({
+                get: async () => ({
+                  exists: true,
+                  data: () => ({
+                    connected: true,
+                    encryptedRefreshToken: encRefresh.encrypted,
+                    refreshTokenIv: encRefresh.iv,
+                    refreshTokenTag: encRefresh.tag,
+                    tokenExpiresAt: Date.now() - 10000, // expired
+                    revoked: false,
+                  }),
+                }),
+                update: async (data: any) => {
+                  updatedData = data;
+                },
+              }),
+            }),
+          }),
+        }),
+      });
+
+      // Mock Google token endpoint returning invalid_grant
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('oauth2.googleapis.com/token')) {
+          return new Response(
+            JSON.stringify({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return originalFetch(input);
+      };
+
+      try {
+        const token = await service.getValidAccessToken('usr_revoked_test');
+        assert.equal(token, null, 'Must return null when refresh token is rejected');
+        assert.ok(updatedData, 'Must update integration document on revocation');
+        assert.equal(updatedData.connected, false, 'connected must be flipped to false');
+        assert.equal(updatedData.revoked, true, 'revoked must be flagged as true');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('listCalendars falls back gracefully to primary calendar when least-privileged scope returns 403', async () => {
+      const service = new GoogleCalendarService();
+      const encAccess = encryptToken('valid_access_token');
+
+      service.setFirestoreForTesting({
+        collection: (col: string) => ({
+          doc: (docId: string) => ({
+            collection: (subCol: string) => ({
+              doc: (subDocId: string) => ({
+                get: async () => ({
+                  exists: true,
+                  data: () => ({
+                    connected: true,
+                    encryptedAccessToken: encAccess.encrypted,
+                    accessTokenIv: encAccess.iv,
+                    accessTokenTag: encAccess.tag,
+                    tokenExpiresAt: Date.now() + 3600000,
+                    revoked: false,
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      });
+
+      // Mock calendarList endpoint returning 403
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('calendar/v3/users/me/calendarList')) {
+          return new Response(
+            JSON.stringify({ error: { code: 403, message: 'Insufficient Permission' } }),
+            { status: 403, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return originalFetch(input);
+      };
+
+      try {
+        const cals = await service.listCalendars('usr_test_fallback');
+        assert.equal(cals.length, 1);
+        assert.equal(cals[0].id, 'primary');
+        assert.equal(cals[0].primary, true);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('routes return HTTP 401 AUTH_EXPIRED when calendar access token is expired or revoked', async () => {
+      const origGetAccessToken = googleCalendarService.getValidAccessToken.bind(googleCalendarService);
+      (googleCalendarService as any).getValidAccessToken = async () => null;
+
+      try {
+        const res = await fetch(`${baseUrl}/api/integrations/google-calendar/sync/tasks`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${testToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        // Because token is expired / not connected, returns 401 with AUTH_EXPIRED
+        assert.equal(res.status, 401);
+        const json = (await res.json()) as { error: string; code: string };
+        assert.equal(json.code, 'AUTH_EXPIRED');
+        assert.ok(json.error.includes('expired') || json.error.includes('not connected'));
+      } finally {
+        (googleCalendarService as any).getValidAccessToken = origGetAccessToken;
+      }
     });
   });
 });

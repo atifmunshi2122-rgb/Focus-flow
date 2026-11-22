@@ -90,6 +90,9 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to sync tasks';
       setError(msg);
+      if (msg.toLowerCase().includes('expired') || msg.toLowerCase().includes('revoked') || msg.toLowerCase().includes('reauthorize')) {
+        setStatus((prev) => ({ ...prev, connected: false, revoked: true }));
+      }
     } finally {
       setSyncing(false);
     }
@@ -107,6 +110,10 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
             {status.connected ? (
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-medium">
                 <CheckCircle2 className="w-3 h-3" /> Connected
+              </span>
+            ) : status.revoked ? (
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium">
+                <AlertCircle className="w-3 h-3" /> Reauthorization Required
               </span>
             ) : (
               <span className="text-xs px-2 py-0.5 rounded-full bg-slate-500/15 text-slate-500">
@@ -161,10 +168,26 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--ff-accent-color)] text-white hover:opacity-90 disabled:opacity-50 transition"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            {loading ? 'Connecting...' : 'Connect Calendar'}
+            {loading ? 'Connecting...' : status.revoked ? 'Reauthorize Calendar' : 'Connect Calendar'}
           </button>
         )}
       </div>
+
+      {status.revoked && (
+        <div className="w-full flex items-center justify-between gap-2 text-xs text-amber-800 dark:text-amber-200 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-lg mt-1">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>Google authorization expired or revoked. Please reauthorize to resume syncing.</span>
+          </div>
+          <button
+            onClick={handleConnect}
+            disabled={loading}
+            className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white font-medium text-[11px] shrink-0 transition disabled:opacity-50"
+          >
+            Reauthorize
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="w-full flex items-center gap-1.5 text-xs text-rose-500 bg-rose-500/10 p-2 rounded-lg mt-1">
