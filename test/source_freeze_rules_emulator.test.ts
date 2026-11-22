@@ -1,5 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 // Helper to convert plain JS objects into Firestore REST v1 fields
 function toFirestoreFields(obj: Record<string, any>): Record<string, any> {
@@ -107,6 +109,41 @@ const USER_3 = 'qMEx2eXnahelAjbBqNCo4rmSI0B2';
 const USER_4 = 'ulExgQM9Y5gMaOrjLfGk0FdzARm1';
 const USER_5 = 'wrl4anBq9MQme75LQkgp0Lfly4l2';
 const SHARED_VAULT_ID = 'vlt_1794905820679_7sjukb';
+
+before(async () => {
+  if (!isEmulatorRunning) return;
+  const freezeRulesPath = path.resolve(process.cwd(), 'firestore.source-freeze.rules');
+  if (!fs.existsSync(freezeRulesPath)) return;
+  const content = fs.readFileSync(freezeRulesPath, 'utf-8');
+
+  const res = await fetch(`http://${HOST}/emulator/v1/projects/${PROJECT_ID}:securityRules`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ignore_errors: true,
+      rules: {
+        files: [
+          {
+            name: 'firestore.source-freeze.rules',
+            content,
+          },
+        ],
+      },
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Failed to load source-freeze rules into emulator (${res.status}): ${errText}`);
+  }
+});
+
+after(async () => {
+  if (!isEmulatorRunning) return;
+  // Clean up documents in test-freeze-project
+  await fetch(`http://${HOST}/emulator/v1/projects/${PROJECT_ID}/databases/(default)/documents`, {
+    method: 'DELETE',
+  }).catch(() => {});
+});
 
 test('Source Read-Only Freeze — Setup Initial Fixtures via Admin Bypassing Rules', { skip: skipReason }, async () => {
   // Pre-seed User Root Profiles

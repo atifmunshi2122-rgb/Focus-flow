@@ -39,7 +39,7 @@ function createMockFirestoreAndDriveFetch(options?: {
     const method = init?.method || 'GET';
 
     // 1. Simulate Firestore service unavailability (Task 8 - Scenario 6)
-    if (options?.simulateUnavailable && url.includes('firestore.googleapis.com')) {
+    if (options?.simulateUnavailable && (url.includes('firestore.googleapis.com') || url.includes('/databases/'))) {
       return new Response(JSON.stringify({ error: { code: 503, message: 'The service is temporarily unavailable.' } }), {
         status: 503,
         headers: { 'Content-Type': 'application/json' },

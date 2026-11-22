@@ -226,15 +226,26 @@ export class FirestoreTransactionalLedgerRepository implements IdempotencyLedger
   private readonly fetchImpl: typeof fetch;
 
   constructor(config?: FirestoreRepositoryConfig) {
-    this.emulatorHost = config?.emulatorHost ?? process.env.FIRESTORE_EMULATOR_HOST ?? null;
+    if (isProductionEnvironment() && config?.emulatorHost) {
+      throw new SheetHubWorkerError(
+        'CRITICAL CONFIG SAFETY ERROR: FIRESTORE_EMULATOR_HOST cannot be used in production.',
+        500,
+        'EMULATOR_IN_PRODUCTION_VIOLATION'
+      );
+    }
+
+    this.emulatorHost = isProductionEnvironment()
+      ? null
+      : (config?.emulatorHost !== undefined ? config.emulatorHost : (process.env.FIRESTORE_EMULATOR_HOST ?? null));
     this.customAuthToken = config?.authToken ?? null;
     this.fetchImpl = config?.fetchImpl ?? fetch;
 
-    const resolvedProject =
-      config?.projectId ||
-      process.env.FIREBASE_PROJECT_ID ||
-      process.env.VITE_FIREBASE_PROJECT_ID ||
-      (this.emulatorHost ? 'test-rules-project' : PRODUCTION_PROJECT_ID);
+    const resolvedProject = isProductionEnvironment()
+      ? (config?.projectId || PRODUCTION_PROJECT_ID)
+      : (config?.projectId ||
+         process.env.FIREBASE_PROJECT_ID ||
+         process.env.VITE_FIREBASE_PROJECT_ID ||
+         (this.emulatorHost ? 'test-rules-project' : PRODUCTION_PROJECT_ID));
 
     // Security Invariant: Production ledger must never silently use seismic-codex-m01dl
     if (resolvedProject === 'seismic-codex-m01dl') {
@@ -251,15 +262,6 @@ export class FirestoreTransactionalLedgerRepository implements IdempotencyLedger
         `CRITICAL CONFIG SAFETY ERROR: Production idempotency ledger must strictly target ${PRODUCTION_PROJECT_ID}, received '${resolvedProject}'.`,
         500,
         'INVALID_LEDGER_PROJECT'
-      );
-    }
-
-    // In production, emulator host routing is strictly forbidden
-    if (isProductionEnvironment() && this.emulatorHost) {
-      throw new SheetHubWorkerError(
-        'CRITICAL CONFIG SAFETY ERROR: FIRESTORE_EMULATOR_HOST cannot be used in production.',
-        500,
-        'EMULATOR_IN_PRODUCTION_VIOLATION'
       );
     }
 
@@ -1087,14 +1089,12 @@ export class DurableIdempotencyLedger implements IdempotencyLedgerRepository {
           'PRODUCTION_STORAGE_VIOLATION'
         );
       }
-      return this.customRepository || new FirestoreTransactionalLedgerRepository();
+      return this.customRepository || new FirestoreTransactionalLedgerRepository({
+        projectId: PRODUCTION_PROJECT_ID,
+      });
     }
 
     if (this.customRepository) return this.customRepository;
-
-    if (process.env.FIRESTORE_EMULATOR_HOST) {
-      return new FirestoreTransactionalLedgerRepository();
-    }
 
     if (process.env.IDEMPOTENCY_STORAGE === 'firestore') {
       return new FirestoreTransactionalLedgerRepository();
