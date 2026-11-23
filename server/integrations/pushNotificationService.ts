@@ -91,6 +91,9 @@ export class PushNotificationService {
    */
   public async unregisterDevice(userId: string, installationIdOrToken: string): Promise<boolean> {
     if (!userId || userId.startsWith('gst_')) return false;
+    if (!hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !this.customFirestore) {
+      return false;
+    }
 
     const colRef = this.firestore.collection('users').doc(userId).collection('fcm_installations');
 
@@ -345,12 +348,8 @@ export class PushNotificationService {
             this.firestore.collection('users').doc(userId).collection('bills').get(),
             this.firestore.collection('users').doc(userId).collection('settings').doc('preferences').get(),
           ]);
-          if (!tSnap.empty) {
-            tasks = tSnap.docs.map((d: any) => d.data()).filter((t: any) => !t.deletedAt);
-          }
-          if (!bSnap.empty) {
-            bills = bSnap.docs.map((d: any) => d.data()).filter((b: any) => !b.deletedAt);
-          }
+          tasks = tSnap.docs.map((d: any) => d.data()).filter((t: any) => !t.deletedAt);
+          bills = bSnap.docs.map((d: any) => d.data()).filter((b: any) => !b.deletedAt);
           if (sSnap.exists) {
             settings = sSnap.data() as any;
           }

@@ -717,7 +717,7 @@ async function fetchPublicSpreadsheetXlsx(
 
   if (res.status === 404) {
     throw new SheetHubWorkerError(
-      'Google Spreadsheet not found. Verify the spreadsheet URL or ID.',
+      'Google Spreadsheet not found or not shared publicly. If this is a private spreadsheet in your Google Drive, choose Option B (Google Sign-In) or "Browse My Google Drive" below. If you want to use Public Link, set sharing to "Anyone with the link (Viewer)" in Google Sheets.',
       404,
       'SPREADSHEET_NOT_FOUND'
     );

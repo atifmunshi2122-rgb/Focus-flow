@@ -161,12 +161,23 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!response.ok) {
-    let errorMsg = `API Error: ${response.status} ${response.statusText}`;
+    let errorMsg = `API Error: ${response.status} ${response.statusText}`.trim();
     let errorCode: string | undefined;
     try {
-      const errorData = (await response.json()) as { error?: string; code?: string };
-      if (errorData.error) errorMsg = errorData.error;
-      if (typeof errorData.code === 'string') errorCode = errorData.code;
+      const errorText = await response.text();
+      try {
+        const errorData = JSON.parse(errorText) as { error?: string; code?: string; message?: string };
+        if (errorData.error) errorMsg = errorData.error;
+        else if (errorData.message) errorMsg = errorData.message;
+        if (typeof errorData.code === 'string') errorCode = errorData.code;
+      } catch {
+        if (errorText.includes('FUNCTION_INVOCATION_FAILED')) {
+          errorMsg = 'Backend serverless function invocation failed. Please check service health or retry.';
+          errorCode = 'FUNCTION_INVOCATION_FAILED';
+        } else if (errorText && errorText.length < 200 && !errorText.includes('<html')) {
+          errorMsg = errorText.trim();
+        }
+      }
     } catch {
       // ignore non-JSON error body
     }

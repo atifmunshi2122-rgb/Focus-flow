@@ -2,7 +2,7 @@ import './test_bootstrap.ts';
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 import { encryptToken, decryptToken, resolveEncryptionKey } from '../server/crypto.ts';
 import { GoogleCalendarService, googleCalendarService } from '../server/integrations/googleCalendarService.ts';
 import { GOOGLE_DRIVE_SHEETS_SCOPES } from '../src/lib/googleAuthGis.ts';
@@ -387,7 +387,9 @@ describe('Google Calendar OAuth, Crypto & Route Security Suite', () => {
 
     it('routes return HTTP 401 AUTH_EXPIRED when calendar access token is expired or revoked', async () => {
       const origGetAccessToken = googleCalendarService.getValidAccessToken.bind(googleCalendarService);
+      const origFirestore = (googleCalendarService as any).customFirestore;
       (googleCalendarService as any).getValidAccessToken = async () => null;
+      (googleCalendarService as any).setFirestoreForTesting({ collection: () => ({ doc: () => ({}) }) });
 
       try {
         const res = await fetch(`${baseUrl}/api/integrations/google-calendar/sync/tasks`, {
@@ -405,6 +407,7 @@ describe('Google Calendar OAuth, Crypto & Route Security Suite', () => {
         assert.ok(json.error.includes('expired') || json.error.includes('not connected'));
       } finally {
         (googleCalendarService as any).getValidAccessToken = origGetAccessToken;
+        (googleCalendarService as any).setFirestoreForTesting(origFirestore);
       }
     });
   });

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import zlib from 'node:zlib';
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 import {
   isValidGoogleSpreadsheetId,
   parseGoogleSheetUrl,

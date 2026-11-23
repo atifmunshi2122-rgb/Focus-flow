@@ -505,8 +505,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
       if (
         code === 'INVALID_SPREADSHEET_ID' ||
-        code === 'UNSUPPORTED_HOST' ||
-        code === 'SPREADSHEET_NOT_FOUND'
+        code === 'UNSUPPORTED_HOST'
       ) {
         setCurrentStep('url');
       } else {

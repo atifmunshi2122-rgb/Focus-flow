@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 import { DatabaseService, resolveDefaultDataDir, isVercelRuntime } from '../server/db.ts';
 import { generateOpenXmlWorkbook } from '../src/lib/openXmlSpreadsheet.ts';
 

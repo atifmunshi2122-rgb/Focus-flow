@@ -357,6 +357,23 @@ export async function requireUserContext(
     }
   }
 
+  // Allow unauthenticated guest inspection/pull for publicly viewable Google Sheets (Option A: Zero OAuth)
+  const isPublicSheetHubRequest =
+    req.path === '/sheet-hub/sample-semester3' ||
+    req.path === '/sheet-hub/sample-semester3/' ||
+    ((req.path === '/sheet-hub/inspect' || req.path === '/sheet-hub/inspect/') && req.body?.publicAccess === true) ||
+    ((req.path === '/sheet-hub/pull' || req.path === '/sheet-hub/pull/') && req.body?.publicAccess === true);
+
+  if (isPublicSheetHubRequest) {
+    (req as AuthenticatedRequest).auth = {
+      userId: 'usr_guest',
+      email: 'guest@focusflow.local',
+      isGuest: true,
+    };
+    next();
+    return;
+  }
+
   // Enforce authentication: in production, or when explicitly requested
   if (process.env.REQUIRE_AUTH === 'true' || (isProduction && process.env.ALLOW_GUEST !== 'true')) {
     res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });

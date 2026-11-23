@@ -7,7 +7,7 @@ import { db } from '../src/lib/firebase.ts';
 import { sheetHubStore } from '../src/lib/sheetHub/sheetHubStore.ts';
 import { clientDataCache } from '../src/lib/dataCache.ts';
 import type { SheetConnection, SheetSyncedRow, SheetTabSchema } from '../src/types/sheetHub.ts';
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 
 describe('FocusFlow Native Private Spreadsheet System — Multi-User Isolation Matrix', () => {
   const userA = 'uid_Alice_owner_' + Date.now();

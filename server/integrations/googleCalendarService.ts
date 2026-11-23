@@ -691,12 +691,8 @@ export class GoogleCalendarService {
           this.firestore.collection('users').doc(userId).collection('tasks').get(),
           this.firestore.collection('users').doc(userId).collection('timeBlocks').get(),
         ]);
-        if (!tasksSnap.empty) {
-          tasks = tasksSnap.docs.map((d: any) => d.data()).filter((t: any) => !t.deletedAt);
-        }
-        if (!blocksSnap.empty) {
-          timeBlocks = blocksSnap.docs.map((d: any) => d.data()).filter((b: any) => !b.deletedAt);
-        }
+        tasks = tasksSnap.docs.map((d: any) => d.data()).filter((t: any) => !t.deletedAt);
+        timeBlocks = blocksSnap.docs.map((d: any) => d.data()).filter((b: any) => !b.deletedAt);
       } catch (err) {
         console.warn(`[GoogleCalendar] Falling back to local tasks for user ${userId}:`, err);
       }

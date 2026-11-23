@@ -110,7 +110,10 @@ test('BUG-06: escapeSheetTitleForA1 helper properly formats titles with spaces v
 test('BUG-05: Rate limiter middleware is mounted inside apiRouter after requireUserContext', () => {
   const routesContent = fs.readFileSync(path.resolve('server/routes.ts'), 'utf-8');
   const serverContent = fs.readFileSync(path.resolve('server.ts'), 'utf-8');
-  const apiIndexContent = fs.readFileSync(path.resolve('api/index.ts'), 'utf-8');
+  const serverlessPath = fs.existsSync(path.resolve('server/serverless.ts'))
+    ? path.resolve('server/serverless.ts')
+    : path.resolve('api/index.ts');
+  const serverlessContent = fs.readFileSync(serverlessPath, 'utf-8');
 
   // Must be in routes.ts after requireUserContext
   const reqUserCtxIndex = routesContent.indexOf('apiRouter.use(requireUserContext);');
@@ -119,9 +122,9 @@ test('BUG-05: Rate limiter middleware is mounted inside apiRouter after requireU
   assert.ok(reqUserCtxIndex >= 0, 'requireUserContext must be registered');
   assert.ok(rateLimiterIndex > reqUserCtxIndex, 'rateLimiter must be registered after requireUserContext');
 
-  // Must NOT be prematurely mounted on /api in server.ts or api/index.ts
+  // Must NOT be prematurely mounted on /api in server.ts or server/serverless.ts
   assert.ok(!serverContent.includes("app.use('/api', rateLimiter("), 'server.ts should not duplicate rateLimiter');
-  assert.ok(!apiIndexContent.includes("app.use('/api', rateLimiter("), 'api/index.ts should not duplicate rateLimiter');
+  assert.ok(!serverlessContent.includes("app.use('/api', rateLimiter("), 'serverless entrypoint should not duplicate rateLimiter');
 });
 
 test('BUG-09: PUT /finance/expenses/:id and PUT /finance/recurring/:id validate categoryId existence', () => {

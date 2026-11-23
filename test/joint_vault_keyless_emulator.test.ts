@@ -2,7 +2,7 @@ import './test_bootstrap.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 import { generateSecureInviteCode } from '../src/lib/firestoreService.ts';
 
 const PROJECT_ID = 'test-rules-project';

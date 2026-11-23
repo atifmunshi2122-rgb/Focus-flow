@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 import { DatabaseService } from '../server/db.ts';
 import { V18StorageService, StorageOwnershipError } from '../server/v18StorageService.ts';
 import { migrateV18JsonToFirestore } from '../server/migrateV18Data.ts';

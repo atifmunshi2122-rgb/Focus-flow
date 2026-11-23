@@ -1,6 +1,6 @@
 import express from 'express';
-import { apiRouter } from '../server/routes.ts';
-import { securityHeaders, corsHandler, errorHandler, configureTrustProxy } from '../server/security.ts';
+import { apiRouter } from './routes.js';
+import { securityHeaders, corsHandler, errorHandler, configureTrustProxy } from './security.js';
 
 const app = express();
 configureTrustProxy(app, process.env.TRUST_PROXY || 'true');

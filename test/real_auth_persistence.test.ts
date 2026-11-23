@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { terminate } from 'firebase/firestore';
 import { db } from '../src/lib/firebase.ts';
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 import { sheetHubStore } from '../src/lib/sheetHub/sheetHubStore.ts';
 import { clientDataCache } from '../src/lib/dataCache.ts';
 

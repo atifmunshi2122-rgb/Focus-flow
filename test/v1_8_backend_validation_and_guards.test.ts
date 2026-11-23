@@ -2,7 +2,7 @@ import './test_bootstrap.ts';
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 
 function createValidToken(uid: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');

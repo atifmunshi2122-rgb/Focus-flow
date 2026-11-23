@@ -56,18 +56,27 @@ function requireRealUser(req: Request, res: Response, next: NextFunction): void 
   next();
 }
 
+function requireServiceAccount(req: Request, res: Response, next: NextFunction): void {
+  // GET /integrations/google-calendar/status is safe to check without credentials (returns connected: false)
+  if (req.path === '/status' || req.path === '/status/' || req.path.endsWith('/status')) {
+    return next();
+  }
+  if (!hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !(googleCalendarService as any).customFirestore) {
+    res.status(503).json({
+      error: 'Google Calendar integration requires configured Firebase Admin credentials.',
+      code: 'SERVICE_UNAVAILABLE',
+    });
+    return;
+  }
+  next();
+}
+
 googleCalendarRouter.use('/integrations/google-calendar', requireRealUser);
+googleCalendarRouter.use('/integrations/google-calendar', requireServiceAccount);
 
 // 1. GET /integrations/google-calendar/oauth/start
 googleCalendarRouter.get('/integrations/google-calendar/oauth/start', async (req: Request, res: Response) => {
   try {
-    if (!hasServiceAccountCredentials()) {
-      res.status(503).json({
-        error: 'Google Calendar integration requires configured Firebase Admin credentials.',
-        code: 'SERVICE_UNAVAILABLE',
-      });
-      return;
-    }
     const authReq = req as AuthenticatedRequest;
     const redirectUri = req.query.redirectUri as string | undefined;
     const { authUrl, stateId } = await googleCalendarService.startOAuthFlow(authReq.auth.userId, redirectUri);

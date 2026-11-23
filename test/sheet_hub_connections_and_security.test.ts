@@ -5,7 +5,7 @@ import http from 'node:http';
 import path from 'path';
 import os from 'os';
 
-import app from '../api/index.ts';
+import app from '../server/serverless.ts';
 import { DatabaseService, isVercelRuntime } from '../server/db.ts';
 import { pushSheetHubCellUpdates } from '../server/sheetHubWriteWorker.ts';
 import { generateOpenXmlWorkbook } from '../src/lib/openXmlSpreadsheet.ts';
