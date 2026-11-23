@@ -171,7 +171,7 @@ function mapGoogleHttpError(
 
   if (
     status === 401 ||
-    /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials|insufficient authentication scopes/i.test(
+    /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials/i.test(
       message
     )
   ) {
@@ -182,7 +182,12 @@ function mapGoogleHttpError(
       { status, reason, context, originalMessage: message }
     );
   }
-  if (status === 403) {
+  if (
+    status === 403 ||
+    /\b403\b|PERMISSION_DENIED|The caller does not have permission|insufficient authentication scopes/i.test(
+      message
+    )
+  ) {
     const reasonDetail = reason ? ` (Reason: ${reason})` : '';
     return new SheetHubWorkerError(
       `Access denied to Google Spreadsheet (${context}): ${message}${reasonDetail}. Verify that your authorized Google account has permission to view this spreadsheet and that Google Sheets API access is granted.`,

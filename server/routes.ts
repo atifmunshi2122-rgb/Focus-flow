@@ -62,6 +62,7 @@ import {
   pullPublicSpreadsheetTabs,
   SheetHubWorkerError,
 } from './universalSheetsWorker.ts';
+import { isValidGoogleSpreadsheetId } from '../src/lib/sheetHub/urlParser.ts';
 import { pushSheetHubCellUpdates } from './sheetHubWriteWorker.ts';
 import { duplicateGoogleDriveFile } from './driveWorker.ts';
 import { defaultIdempotencyLedger } from './durableIdempotencyLedger.ts';
@@ -3496,7 +3497,76 @@ function sendSheetHubError(res: Response, err: unknown, fallbackMessage: string)
     });
     return;
   }
-  sendSheetsError(res, err, fallbackMessage);
+
+  const rawMessage = err instanceof Error ? err.message : fallbackMessage;
+  const isAuthError =
+    /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials/i.test(
+      rawMessage
+    );
+  if (isAuthError) {
+    res.status(401).json({
+      error: rawMessage,
+      code: 'SHEETS_AUTH_REQUIRED',
+      status: 401,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const isPermissionError =
+    /\b403\b|PERMISSION_DENIED|The caller does not have permission|insufficient authentication scopes/i.test(
+      rawMessage
+    );
+  if (isPermissionError) {
+    res.status(403).json({
+      error: rawMessage,
+      code: 'SHEETS_PERMISSION_DENIED',
+      status: 403,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const isNotFound = /\b404\b|not found|inaccessible/i.test(rawMessage);
+  if (isNotFound) {
+    res.status(404).json({
+      error: rawMessage,
+      code: 'SPREADSHEET_NOT_FOUND',
+      status: 404,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const isRateLimited = /\b429\b|RESOURCE_EXHAUSTED|rate limit/i.test(rawMessage);
+  if (isRateLimited) {
+    res.status(429).json({
+      error: rawMessage,
+      code: 'SHEETS_RATE_LIMITED',
+      status: 429,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const isUpstreamNetwork =
+    /fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network|socket|getaddrinfo/i.test(rawMessage);
+  if (isUpstreamNetwork) {
+    res.status(502).json({
+      error: `Upstream network communication failed: ${rawMessage}`,
+      code: 'SHEETS_UPSTREAM_NETWORK_ERROR',
+      status: 502,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    error: rawMessage,
+    code: 'INTERNAL_ERROR',
+    status: 500,
+    timestamp: new Date().toISOString(),
+  });
 }
 
 apiRouter.post('/sheet-hub/inspect', async (req: Request, res: Response) => {
@@ -3579,9 +3649,9 @@ apiRouter.post('/sheet-hub/pull', async (req: Request, res: Response) => {
     typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
   const tabs = Array.isArray(req.body?.tabs) ? req.body.tabs : [];
 
-  if (!spreadsheetId) {
+  if (!spreadsheetId || !isValidGoogleSpreadsheetId(spreadsheetId)) {
     res.status(400).json({
-      error: 'spreadsheetId is required.',
+      error: 'Valid spreadsheetId is required.',
       code: 'INVALID_SPREADSHEET_ID',
     });
     return;
@@ -3627,9 +3697,9 @@ apiRouter.post('/sheet-hub/push-cells', async (req: Request, res: Response) => {
     typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId.trim() : '';
   const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
 
-  if (!spreadsheetId) {
+  if (!spreadsheetId || !isValidGoogleSpreadsheetId(spreadsheetId)) {
     res.status(400).json({
-      error: 'spreadsheetId is required.',
+      error: 'Valid spreadsheetId is required.',
       code: 'INVALID_SPREADSHEET_ID',
     });
     return;

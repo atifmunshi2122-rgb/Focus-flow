@@ -196,6 +196,11 @@ export const SheetHubView: React.FC = () => {
       conn: SheetConnection,
       updates: SheetHubCellUpdateRequest[]
     ): Promise<{ pushed: boolean; cancelled?: boolean; updatedCells?: number; pushedAt?: string }> => {
+      if (conn.isPublicLink || conn.syncMode === 'sheet_to_app') {
+        showToast('This spreadsheet is connected in Read-Only mode. Write-back to Google Sheets is disabled.', 'info');
+        return { pushed: false };
+      }
+
       if (!firebaseUser) {
         showToast('Please sign in with Google first to sync changes back to Google Sheets.', 'error');
         return { pushed: false };
@@ -238,6 +243,11 @@ export const SheetHubView: React.FC = () => {
   // Toggle sync mode between Read-Only (sheet_to_app), Batch Push (manual_only), and Two-Way Sync (two_way)
   const handleToggleSyncMode = useCallback(async () => {
     if (!activeConnection || activeConnection.spreadsheetId === 'sem3-syllabus-sample') return;
+
+    if (activeConnection.isPublicLink) {
+      showToast('Publicly imported spreadsheets are strictly read-only. To enable write-back, connect using Option B with Google authorization.', 'info');
+      return;
+    }
 
     let nextMode: SheetSyncMode;
     if (activeConnection.syncMode === 'sheet_to_app') {
@@ -316,6 +326,10 @@ export const SheetHubView: React.FC = () => {
   const handleToggleCell = useCallback(
     async (tab: SheetTabSchema, row: SheetSyncedRow, col: SheetColumnMapping, nextValue: boolean) => {
       if (!activeConnection) return;
+      if (activeConnection.isPublicLink || activeConnection.syncMode === 'sheet_to_app') {
+        showToast('This spreadsheet is connected in Read-Only mode. Write-back to Google Sheets is disabled.', 'info');
+        return;
+      }
       if (col.inferredType === 'formula' || col.editable === false) {
         showToast(col.readOnlyReason || 'This column is read-only and cannot be edited.', 'info');
         return;

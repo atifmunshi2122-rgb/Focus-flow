@@ -16,6 +16,7 @@ import {
   Database,
   Lock,
   FolderSync,
+  Eye,
 } from 'lucide-react';
 import type { SheetConnection } from '../../types/sheetHub.ts';
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeModal } from '../ui/ThemePrimitives.tsx';
@@ -215,6 +216,11 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
 
           {/* Status Badge */}
           <div className="flex flex-wrap items-center gap-2 mb-4">
+            {connection.isPublicLink && (
+              <ThemeBadge tone="info" className="text-xs flex items-center gap-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30 font-semibold">
+                <Eye className="w-3 h-3" /> Public (Zero Auth)
+              </ThemeBadge>
+            )}
             {connection.isDualCopy && (
               <ThemeBadge tone="success" className="text-xs flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold">
                 <FolderSync className="w-3 h-3" /> Dual-Copy

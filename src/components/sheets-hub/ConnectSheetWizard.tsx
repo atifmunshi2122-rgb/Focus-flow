@@ -44,7 +44,7 @@ import { ThemeCard, ThemeButton, ThemeBadge, ThemeInput } from '../ui/ThemePrimi
 import { AnimatedProgressBar } from '../ui/MotionPrimitives.tsx';
 import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
 import { GoogleSheetPickerModal, type SelectedGoogleSheet } from './GoogleSheetPickerModal.tsx';
-import { requestGoogleDriveToken } from '../../lib/googleAuthGis.ts';
+import { requestGoogleDriveToken, getGisDualCopyToken, GHOST_PROJECT_ID } from '../../lib/googleAuthGis.ts';
 
 interface ConnectSheetWizardProps {
   onCancel: () => void;
@@ -275,6 +275,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   const handleInspectPublicLink = async (overrideSpreadsheetId?: string, overrideUrl?: string) => {
     setIsDemoMode(false);
     setIsPublicLinkMode(true);
+    setIsDualCopyEnabled(false);
     setSelectedSyncMode('sheet_to_app');
     setAuthLocalError(null);
     setInspectError(null);
@@ -291,6 +292,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setIsAuthorizingWrite(true);
     setIsDemoMode(false);
     setIsPublicLinkMode(false);
+    setIsDualCopyEnabled(true);
     setAuthLocalError(null);
     setInspectError(null);
     setInspectErrorCode(null);
@@ -319,11 +321,12 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     }
   };
 
-  // Step 2B1: Request Google Two-Way Write Authorization (Automatic Checkbox Write-Back)
+  // Step 2B1: Request Google Two-Way Write Authorization (Automatic Checkbox Write-Back via Firebase OAuth)
   const handleAuthorizeGoogleWrite = async () => {
     setIsAuthorizingWrite(true);
     setIsDemoMode(false);
     setIsPublicLinkMode(false);
+    setIsDualCopyEnabled(false);
     setAuthLocalError(null);
     setInspectError(null);
     setInspectErrorCode(null);
@@ -336,7 +339,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         await runInspection(res, false);
       } else {
         setAuthLocalError(
-          `Google Sheets edit authorization did not finish. If Google showed "Access blocked (Error 403)" or the popup closed inside an embedded preview, use "Import Public Link (Zero Auth)" above or open the app in a new browser tab.`
+          `Google Sheets edit authorization did not finish. If Google showed "Access blocked (Error 403)", ensure your email (${firebaseUser?.email || 'your account'}) is added under Test users in Google Cloud project ${activeFirebaseConfig.projectId}, or use "Import Public Link (Zero Auth)" above.`
         );
       }
     } catch (err) {
@@ -350,11 +353,12 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     }
   };
 
-  // Step 2B2: Request Google Read-Only Authorization
+  // Step 2B2: Request Google Read-Only Authorization (via Firebase OAuth)
   const handleAuthorizeGoogleReadOnly = async () => {
     setIsAuthorizing(true);
     setIsDemoMode(false);
     setIsPublicLinkMode(false);
+    setIsDualCopyEnabled(false);
     setAuthLocalError(null);
     setInspectError(null);
     setInspectErrorCode(null);
@@ -367,7 +371,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         await runInspection(res, false);
       } else {
         setAuthLocalError(
-          `Google Sheets authorization did not finish. If Google showed "Access blocked (Error 403)" or the popup closed inside an embedded preview, use "Import Public Link (Zero Auth)" above or open the app in a new browser tab.`
+          `Google Sheets read authorization did not finish. If Google showed "Access blocked (Error 403)", ensure your email (${firebaseUser?.email || 'your account'}) is added under Test users in Google Cloud project ${activeFirebaseConfig.projectId}, or use "Import Public Link (Zero Auth)" above.`
         );
       }
     } catch (err) {
@@ -607,7 +611,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         });
         const pullToken = isPublicLinkMode
           ? null
-          : oauthToken || (await getSheetHubAccessToken());
+          : oauthToken || (await getSheetHubWriteAccessToken()) || (await getSheetHubAccessToken()) || getGisDualCopyToken();
         pullResult = await api.sheetHubPull(
           {
             spreadsheetId,
@@ -714,7 +718,8 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           setDuplicationOpId(effectiveOpId);
         }
 
-        let dualCopyToken = oauthToken || (await getSheetHubWriteAccessToken()) || (await getSheetHubAccessToken());
+        // Isolated GIS Dual-Copy token (strictly separated from standard Firebase tokens)
+        let dualCopyToken = oauthToken || getGisDualCopyToken();
         if (!dualCopyToken) {
           setImportProgress(60);
           setImportStatusText('Requesting Google Drive authorization for duplicate copy...');
@@ -843,6 +848,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         templateHint,
         // Preserves read-only import mode contract (syncMode: 'sheet_to_app')
         syncMode: selectedSyncMode,
+        isPublicLink: isPublicLinkMode,
         pollIntervalSec: null,
         syncOnOpen: true,
         status: 'active',
@@ -1210,30 +1216,66 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
               </div>
             )}
 
-            {/* Google Cloud Testing Mode Guidance (Dynamic Project ID) */}
+            {/* Google Cloud Testing Mode Guidance (Dynamic Project ID & Routing) */}
             <div
-              className="p-3.5 rounded-lg border space-y-1.5 text-xs"
+              className="p-3.5 rounded-lg border space-y-2.5 text-xs"
               style={{
                 background: 'rgba(234, 179, 8, 0.06)',
                 borderColor: 'rgba(234, 179, 8, 0.2)',
               }}
             >
-              <div className="flex items-center gap-1.5 font-semibold text-amber-500">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>Troubleshooting Error 403 (Projects: ghost-7b055 & {activeFirebaseConfig.projectId})</span>
+              <div className="flex items-center justify-between gap-2 font-semibold text-amber-500">
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>OAuth Project Routing & Testing Mode (Error 403)</span>
+                </div>
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                  Dual-Provider Architecture
+                </span>
               </div>
               <p className="text-[11px] text-[var(--ff-text-secondary)] leading-relaxed">
-                If Google displays <em>&ldquo;Access blocked (Error 403: access_denied)&rdquo;</em> for private spreadsheets or Drive duplicate creation, add your email ({firebaseUser?.email || 'your Google account'}) under{' '}
-                <a
-                  href="https://console.cloud.google.com/apis/credentials/consent?project=ghost-7b055"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[var(--ff-accent)] underline font-medium inline-flex items-center gap-0.5"
-                >
-                  Google Cloud OAuth Consent Screen (ghost-7b055) → Test users <ExternalLink className="w-2.5 h-2.5" />
-                </a>
-                , or use <strong>Option A (Public Link)</strong> above with zero OAuth setup.
+                If Google displays <em>&ldquo;Access blocked (Error 403: access_denied)&rdquo;</em> while authorizing, your email ({firebaseUser?.email || 'your Google account'}) must be added to the <strong>Test Users</strong> list of the corresponding Google Cloud project:
               </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2 rounded bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] space-y-1">
+                  <div className="flex items-center justify-between font-semibold text-[var(--ff-text-primary)]">
+                    <span>Direct Write & Read-Only</span>
+                    <span className="font-mono text-[10px] text-emerald-500">{activeFirebaseConfig.projectId}</span>
+                  </div>
+                  <p className="text-[10px] text-[var(--ff-text-muted)]">
+                    Uses Firebase Google OAuth. Required for checkbox write-back & read-only pull.
+                  </p>
+                  <a
+                    href={`https://console.cloud.google.com/apis/credentials/consent?project=${encodeURIComponent(activeFirebaseConfig.projectId)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--ff-accent)] hover:underline font-medium inline-flex items-center gap-0.5 pt-0.5"
+                  >
+                    {activeFirebaseConfig.projectId} Consent Screen → Test users <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                </div>
+
+                <div className="p-2 rounded bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] space-y-1">
+                  <div className="flex items-center justify-between font-semibold text-[var(--ff-text-primary)]">
+                    <span>Dual-Copy & Drive Picker</span>
+                    <span className="font-mono text-[10px] text-blue-500">{GHOST_PROJECT_ID}</span>
+                  </div>
+                  <p className="text-[10px] text-[var(--ff-text-muted)]">
+                    Uses Google Identity Services (GIS). Required for Drive duplication & file picker.
+                  </p>
+                  <a
+                    href={`https://console.cloud.google.com/apis/credentials/consent?project=${encodeURIComponent(GHOST_PROJECT_ID)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--ff-accent)] hover:underline font-medium inline-flex items-center gap-0.5 pt-0.5"
+                  >
+                    {GHOST_PROJECT_ID} Consent Screen → Test users <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                </div>
+              </div>
+              <div className="text-[10px] text-[var(--ff-text-muted)] pt-0.5">
+                💡 Tip: Use <strong>Option A (Public Link)</strong> above for immediate read-only import with zero OAuth or Test Users setup.
+              </div>
             </div>
 
             <div className="pt-1 flex flex-wrap items-center gap-2.5">
@@ -1242,13 +1284,13 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                 onClick={handleAuthorizeGoogleDriveDualCopy}
                 disabled={isAuthorizingWrite || isAuthorizing}
                 className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
-                title="Authorize personal Google Drive copy & live Sheets two-way sync via ghost-7b055 OAuth"
+                title={`Authorize personal Google Drive copy & live Sheets two-way sync via ${GHOST_PROJECT_ID} OAuth`}
               >
                 <FolderSync className="w-4 h-4 mr-1.5" />
                 <span>
                   {isAuthorizingWrite
                     ? 'Authorizing Google Drive...'
-                    : 'Authorize Google Drive & Sheets (Dual-Copy via ghost-7b055)'}
+                    : `Authorize Dual-Copy (${GHOST_PROJECT_ID})`}
                 </span>
               </ThemeButton>
 
@@ -1257,13 +1299,16 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                 onClick={handleAuthorizeGoogleWrite}
                 disabled={isAuthorizingWrite || isAuthorizing}
                 className="w-full sm:w-auto"
-                title="Authorize two-way checkbox writeback to existing Google Sheet without Drive duplication"
+                title={`Authorize two-way checkbox writeback to existing Google Sheet via ${activeFirebaseConfig.projectId}`}
               >
                 <ShieldCheck className="w-4 h-4 mr-1.5 text-emerald-500" />
                 <span>
                   {isAuthorizingWrite
                     ? 'Authorizing Edit Access...'
                     : 'Authorize Two-Way Checkbox Write-Back (Recommended)'}
+                </span>
+                <span className="ml-1.5 font-mono text-[10px] px-1 py-0.5 rounded bg-[var(--ff-surface)] border border-[var(--ff-border-color)] text-emerald-500">
+                  {activeFirebaseConfig.projectId}
                 </span>
               </ThemeButton>
 
@@ -1272,11 +1317,14 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                 onClick={handleAuthorizeGoogleReadOnly}
                 disabled={isAuthorizingWrite || isAuthorizing}
                 className="w-full sm:w-auto"
-                title="Only pull data from Google Sheets into FocusFlow (no write-back)"
+                title={`Only pull data from Google Sheets into FocusFlow via ${activeFirebaseConfig.projectId} (no write-back)`}
               >
                 <Eye className="w-4 h-4 mr-1.5 text-[var(--ff-accent)]" />
                 <span>
                   {isAuthorizing ? 'Authorizing Read-Only...' : 'Authorize Read-Only Access'}
+                </span>
+                <span className="ml-1.5 font-mono text-[10px] px-1 py-0.5 rounded bg-[var(--ff-surface)] border border-[var(--ff-border-color)] text-[var(--ff-accent)]">
+                  {activeFirebaseConfig.projectId}
                 </span>
               </ThemeButton>
 
@@ -1658,16 +1706,22 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                     : 'Google Sheet → FocusFlow (Read-Only)'}
                 </span>
 
-                <select
-                  value={selectedSyncMode}
-                  onChange={(e) => setSelectedSyncMode(e.target.value as SheetSyncMode)}
-                  className="bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] text-xs rounded px-2 py-0.5 outline-none"
-                  aria-label="Select Sync Mode"
-                >
-                  <option value="two_way">FocusFlow → Google Sheet Automatic Checkbox Write-Back</option>
-                  <option value="manual_only">Batch Push (Push Button)</option>
-                  <option value="sheet_to_app">Read-Only (Sheet → App)</option>
-                </select>
+                {isPublicLinkMode ? (
+                  <span className="text-[11px] text-[var(--ff-text-secondary)] italic">
+                    Public link import is strictly read-only (zero OAuth). Write-back is disabled.
+                  </span>
+                ) : (
+                  <select
+                    value={selectedSyncMode}
+                    onChange={(e) => setSelectedSyncMode(e.target.value as SheetSyncMode)}
+                    className="bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] text-xs rounded px-2 py-0.5 outline-none"
+                    aria-label="Select Sync Mode"
+                  >
+                    <option value="two_way">FocusFlow → Google Sheet Automatic Checkbox Write-Back</option>
+                    <option value="manual_only">Batch Push (Push Button)</option>
+                    <option value="sheet_to_app">Read-Only (Sheet → App)</option>
+                  </select>
+                )}
               </div>
             </div>
           </div>

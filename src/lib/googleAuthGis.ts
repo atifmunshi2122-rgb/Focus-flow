@@ -410,6 +410,17 @@ export function loadGoogleIdentityServicesScript(): Promise<void> {
   return gisScriptLoadPromise;
 }
 
+// Isolated ephemeral memory cache for ghost-7b055 GIS tokens (strictly separated from Firebase Auth tokens)
+let cachedGisDualCopyToken: string | null = null;
+
+export function getGisDualCopyToken(): string | null {
+  return cachedGisDualCopyToken;
+}
+
+export function setGisDualCopyToken(token: string | null): void {
+  cachedGisDualCopyToken = token;
+}
+
 /**
  * Requests an OAuth 2.0 Access Token with Google Drive & Google Sheets permissions
  * strictly using the Web Application Client from Google Cloud project `ghost-7b055`.
@@ -487,8 +498,9 @@ export async function requestGoogleDriveToken(options?: {
             }
           }
 
-          // Store in ephemeral memory cache for immediate Sheet Hub worker use
-          setSheetHubWriteAccessToken(res.access_token);
+          // Store in ephemeral memory cache for immediate Sheet Hub GIS Dual-Copy use
+          // Keeps ghost-7b055 GIS credentials isolated from Firebase focus-flow-by-atif credentials
+          setGisDualCopyToken(res.access_token);
           resolve(res.access_token);
         },
         error_callback: (err: unknown) => {

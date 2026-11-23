@@ -121,6 +121,8 @@ export interface SheetConnection {
   lastDriveSyncAt?: string | null;
   driveSyncStatus?: 'synced' | 'pending' | 'conflict' | 'error' | 'not_connected';
   lastDriveModifiedTime?: string | null;
+  /** Public Link (Zero-OAuth) Import flag (strictly read-only) */
+  isPublicLink?: boolean;
 }
 
 export interface SheetHubDriveDuplicateRequest {

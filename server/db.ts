@@ -535,7 +535,7 @@ export class DatabaseService {
       this.load();
     }
     this.ensureBaseDefaults();
-    if (process.env.SEED_DEFAULT_DATA === 'true') {
+    if (process.env.SEED_DEFAULT_DATA === 'true' && process.env.NODE_ENV !== 'production' && !isVercel) {
       this.ensureSeedData();
     }
     this.checkRecurringBills();
@@ -998,6 +998,10 @@ export class DatabaseService {
   }
 
   private ensureSeedData(force = false) {
+    if (process.env.NODE_ENV === 'production' || isVercelRuntime()) {
+      console.log('[DB] Notice: Seeding default user data is skipped in production/Vercel environment.');
+      return;
+    }
     if (this.db.users.some((u) => u.id === 'usr_atif_default') && !force) {
       return;
     }
