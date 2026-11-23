@@ -17,6 +17,31 @@ export interface ZonedDateParts {
   dayOfWeek: number; // 0 (Sun) - 6 (Sat)
 }
 
+// Cache for Intl.DateTimeFormat instances by timezone to avoid heavy instantiation in high-throughput loops
+const zonedFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getZonedFormatter(timezone: string): Intl.DateTimeFormat {
+  let formatter = zonedFormatterCache.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: false,
+      weekday: 'short',
+    });
+    if (zonedFormatterCache.size > 50) {
+      zonedFormatterCache.clear();
+    }
+    zonedFormatterCache.set(timezone, formatter);
+  }
+  return formatter;
+}
+
 /**
  * Extract zoned date parts deterministically via Intl.DateTimeFormat.
  */
@@ -28,17 +53,7 @@ export function getZonedDateParts(
   const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
 
   try {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      second: 'numeric',
-      hour12: false,
-      weekday: 'short',
-    });
+    const formatter = getZonedFormatter(timezone);
 
     const parts = formatter.formatToParts(safeDate);
     const map: Record<string, string> = {};

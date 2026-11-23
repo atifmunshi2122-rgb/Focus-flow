@@ -525,12 +525,13 @@ export function aggregateFocusHoursTrend(
   const end = new Date(endDateStr);
   const days: DailyFocusHourItem[] = [];
 
+  const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
     const cur = new Date(start);
     while (cur <= end) {
       const dateStr = cur.toISOString().slice(0, 10);
       const data = dayMap.get(dateStr) || { minutes: 0, count: 0 };
-      const dayName = cur.toLocaleDateString(undefined, { weekday: 'short' });
+      const dayName = WEEKDAY_NAMES[cur.getDay()];
 
       days.push({
         date: dateStr,

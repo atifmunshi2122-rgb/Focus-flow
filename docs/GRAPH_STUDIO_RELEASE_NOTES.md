@@ -90,3 +90,4 @@ FocusFlow & Finance v1.8.0 introduces the **Advanced Graph Studio**, an executiv
 3. Use the timeframe pills to select your desired analytical horizon or set a custom date window.
 4. Click on any chart card's maximize icon to inspect the verified tabular ledger records behind the visualization.
 5. Click **Print Dossier** in the upper toolbar to produce an executive hardcopy or save as PDF.
+

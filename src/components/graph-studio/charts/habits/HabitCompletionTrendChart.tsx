@@ -262,3 +262,4 @@ export const HabitCompletionTrendChart: React.FC<HabitCompletionTrendChartProps>
     </GraphCard>
   );
 };
+

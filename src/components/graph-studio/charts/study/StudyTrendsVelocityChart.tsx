@@ -209,3 +209,4 @@ export const StudyTrendsVelocityChart: React.FC<StudyTrendsVelocityChartProps> =
     </GraphCard>
   );
 };
+
