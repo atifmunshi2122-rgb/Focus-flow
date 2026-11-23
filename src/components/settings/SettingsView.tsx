@@ -278,6 +278,8 @@ export const SettingsView: React.FC = () => {
 
   // Form states
   const [currency, setCurrency] = useState<CurrencyCode>(settings?.currency || 'INR');
+  const [hourlyRate, setHourlyRate] = useState<string>(String(settings?.hourlyEarningRate || 250));
+  const [timeVsMoney, setTimeVsMoney] = useState<boolean>(settings?.timeVsMoneyEnabled ?? true);
   const [workDuration, setWorkDuration] = useState(String(settings?.pomodoroWorkDuration || 25));
   const [shortBreak, setShortBreak] = useState(String(settings?.shortBreakDuration || 5));
   const [longBreak, setLongBreak] = useState(String(settings?.longBreakDuration || 15));
@@ -342,6 +344,8 @@ export const SettingsView: React.FC = () => {
   useEffect(() => {
     if (settings) {
       setCurrency(settings.currency || 'INR');
+      setHourlyRate(String(settings.hourlyEarningRate || 250));
+      setTimeVsMoney(settings.timeVsMoneyEnabled ?? true);
       setWorkDuration(String(settings.pomodoroWorkDuration || 25));
       setShortBreak(String(settings.shortBreakDuration || 5));
       setLongBreak(String(settings.longBreakDuration || 15));
@@ -378,6 +382,8 @@ export const SettingsView: React.FC = () => {
       setWeeklyGoalMin(String(nextWeekly));
       await updateSettings({
         currency,
+        hourlyEarningRate: parseInt(hourlyRate, 10) || 250,
+        timeVsMoneyEnabled: timeVsMoney,
         pomodoroWorkDuration: nextWork,
         shortBreakDuration: nextShort,
         longBreakDuration: nextLong,
@@ -1193,6 +1199,45 @@ export const SettingsView: React.FC = () => {
                     <span className="text-[11px] text-[var(--ff-text-muted)] block">
                       All calculations use exact integer paise arithmetic ($1.00 = 100 units / cents / paise) with 0.00 drift across 10,000 chained operations.
                     </span>
+                  </div>
+
+                  <div className="pt-3 border-t border-[var(--ff-border-color)] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label htmlFor="pref-time-vs-money" className="block text-xs font-semibold text-[var(--ff-text-secondary)]">
+                          Time-vs-Money True Cost Conversion
+                        </label>
+                        <span className="text-[11px] text-[var(--ff-text-muted)] block">
+                          Automatically converts transaction amounts into equivalent hours of work across financial ledgers.
+                        </span>
+                      </div>
+                      <input
+                        id="pref-time-vs-money"
+                        type="checkbox"
+                        checked={timeVsMoney}
+                        onChange={(e) => setTimeVsMoney(e.target.checked)}
+                        className="rounded text-[var(--ff-accent)] w-4 h-4 cursor-pointer"
+                      />
+                    </div>
+
+                    {timeVsMoney && (
+                      <div>
+                        <label htmlFor="pref-hourly-rate" className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                          Configured Hourly Earning Rate ({currency})
+                        </label>
+                        <ThemeInput
+                          id="pref-hourly-rate"
+                          type="number"
+                          min="1"
+                          max="100000"
+                          value={hourlyRate}
+                          onChange={(e) => setHourlyRate(e.target.value)}
+                        />
+                        <span className="text-[11px] text-[var(--ff-text-muted)] block mt-1">
+                          Example: An expense of ₹3,000 at ₹250/hr represents approximately 12 hours of labor.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </ThemeCard>
               </motion.div>

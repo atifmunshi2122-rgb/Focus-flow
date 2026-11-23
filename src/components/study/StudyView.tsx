@@ -99,7 +99,14 @@ import {
   Pin,
   X,
   Loader2,
+  Binary,
+  GitBranch,
+  PenTool,
 } from 'lucide-react';
+import { CoaMathMicroLab } from './CoaMathMicroLab.tsx';
+import { SkillTreeLab } from './SkillTreeLab.tsx';
+import { WhiteboardCanvas } from './WhiteboardCanvas.tsx';
+import { ExamHallSimulator } from './ExamHallSimulator.tsx';
 
 type StudySubTab =
   | 'syllabus'
@@ -114,7 +121,11 @@ type StudySubTab =
   | 'mistakes'
   | 'habits'
   | 'analytics'
-  | 'activity';
+  | 'activity'
+  | 'microlab'
+  | 'skilltree'
+  | 'whiteboard'
+  | 'simulator';
 
 export const StudyView: React.FC = () => {
   const {
@@ -1486,6 +1497,10 @@ export const StudyView: React.FC = () => {
               { id: 'habits', label: 'Academic Habits', icon: CheckSquare },
               { id: 'analytics', label: 'Analytics & Mastery', icon: TrendingUp },
               { id: 'activity', label: 'Activity Log', icon: History },
+              { id: 'microlab', label: 'COA/Math Lab', icon: Binary },
+              { id: 'skilltree', label: 'Skill Tree', icon: GitBranch },
+              { id: 'whiteboard', label: 'Rough Whiteboard', icon: PenTool },
+              { id: 'simulator', label: 'Exam Simulator', icon: Clock },
             ] as Array<{
               id: StudySubTab;
               label: string;
@@ -2739,6 +2754,26 @@ export const StudyView: React.FC = () => {
       {/* SUB-VIEW 13: ACTIVITY AUDIT TRAIL */}
       {activeSubTab === 'activity' && (
         <StudyActivityTab activityLogs={activityLogs} />
+      )}
+
+      {/* SUB-VIEW 14: COA & MATH MICRO-LAB */}
+      {activeSubTab === 'microlab' && (
+        <CoaMathMicroLab />
+      )}
+
+      {/* SUB-VIEW 15: RPG-STYLE SKILL TREE */}
+      {activeSubTab === 'skilltree' && (
+        <SkillTreeLab onAttachToTopic={(topicName) => setSearchQuery(topicName)} />
+      )}
+
+      {/* SUB-VIEW 16: ROUGH-WORK WHITEBOARD CANVAS */}
+      {activeSubTab === 'whiteboard' && (
+        <WhiteboardCanvas topics={topics} />
+      )}
+
+      {/* SUB-VIEW 17: EXAM HALL SECTIONAL SIMULATOR */}
+      {activeSubTab === 'simulator' && (
+        <ExamHallSimulator />
       )}
 
       {/* MODALS */}

@@ -4305,6 +4305,151 @@ apiRouter.post('/joint-vaults/:vaultId/archive', async (req: Request, res: Respo
 });
 
 // ----------------------------------------------------
+// FocusFlow v1.8 15 Unique Features Routes
+// ----------------------------------------------------
+
+// Skill Tree Nodes
+apiRouter.get('/skill-nodes', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json(dbService.getSkillNodes(auth.userId));
+});
+
+apiRouter.post('/skill-nodes', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const node = { ...req.body, userId: auth.userId };
+  res.json(dbService.saveSkillNode(node));
+});
+
+// Whiteboard Rough-Work Drawings
+apiRouter.get('/whiteboard', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json(dbService.getWhiteboardDrawings(auth.userId));
+});
+
+apiRouter.post('/whiteboard', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const drawing = {
+    id: req.body.id || `wb_${Date.now()}`,
+    userId: auth.userId,
+    title: req.body.title || 'Rough Sketch',
+    dataUrl: req.body.dataUrl,
+    sizeBytes: req.body.sizeBytes || 0,
+    width: req.body.width || 800,
+    height: req.body.height || 600,
+    topicId: req.body.topicId,
+    topicTitle: req.body.topicTitle,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  res.json(dbService.saveWhiteboardDrawing(drawing));
+});
+
+apiRouter.delete('/whiteboard/:id', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const success = dbService.deleteWhiteboardDrawing(req.params.id, auth.userId);
+  res.json({ success });
+});
+
+// Exam Hall Simulator
+apiRouter.get('/exam-simulations', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json(dbService.getExamSimulations(auth.userId));
+});
+
+apiRouter.post('/exam-simulations', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const sim = { ...req.body, userId: auth.userId };
+  res.json(dbService.saveExamSimulation(sim));
+});
+
+// Decision Journal
+apiRouter.get('/decisions', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json(dbService.getDecisionEntries(auth.userId));
+});
+
+apiRouter.post('/decisions', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const decision = {
+    ...req.body,
+    id: req.body.id || `dec_${Date.now()}`,
+    userId: auth.userId,
+    createdAt: req.body.createdAt || new Date().toISOString(),
+  };
+  res.json(dbService.saveDecisionEntry(decision));
+});
+
+// Doomscroll Self-Tax Jar
+apiRouter.get('/doomscroll-tax', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json(dbService.getDoomscrollLogs(auth.userId));
+});
+
+apiRouter.post('/doomscroll-tax', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const log = {
+    ...req.body,
+    id: req.body.id || `tax_${Date.now()}`,
+    userId: auth.userId,
+    createdAt: req.body.createdAt || new Date().toISOString(),
+  };
+  res.json(dbService.saveDoomscrollLog(log));
+});
+
+apiRouter.delete('/doomscroll-tax', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json({ success: dbService.clearDoomscrollLogs(auth.userId) });
+});
+
+// Time Capsule Letters
+apiRouter.get('/time-capsules', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json(dbService.getTimeCapsules(auth.userId));
+});
+
+apiRouter.post('/time-capsules', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const capsule = {
+    ...req.body,
+    id: req.body.id || `cap_${Date.now()}`,
+    userId: auth.userId,
+    createdAt: req.body.createdAt || new Date().toISOString(),
+  };
+  res.json(dbService.saveTimeCapsule(capsule));
+});
+
+apiRouter.delete('/time-capsules/:id', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json({ success: dbService.deleteTimeCapsule(req.params.id, auth.userId) });
+});
+
+// Emergency Profile & Asset Summary
+apiRouter.get('/emergency-profile', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  res.json(
+    dbService.getEmergencyProfile(auth.userId) || {
+      id: `ep_${auth.userId}`,
+      userId: auth.userId,
+      accounts: [],
+      policies: [],
+      emergencyContacts: [],
+      updatedAt: new Date().toISOString(),
+    }
+  );
+});
+
+apiRouter.post('/emergency-profile', (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const profile = {
+    ...req.body,
+    id: req.body.id || `ep_${auth.userId}`,
+    userId: auth.userId,
+    updatedAt: new Date().toISOString(),
+  };
+  res.json(dbService.saveEmergencyProfile(profile));
+});
+
+// ----------------------------------------------------
 // Final 404 handler for unmatched /api routes
 // ----------------------------------------------------
 apiRouter.use((_req: Request, res: Response) => {

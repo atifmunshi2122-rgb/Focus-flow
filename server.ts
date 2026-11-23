@@ -29,7 +29,7 @@ async function startServer() {
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),
       ...(isProd ? {} : { environment: process.env.NODE_ENV || 'development' }),
-      version: '1.7.0',
+      version: '1.8.0',
     });
   };
   app.get('/health', healthCheck);

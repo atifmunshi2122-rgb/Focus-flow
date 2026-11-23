@@ -19,6 +19,16 @@ import type {
   VaultActivity,
   VaultSummary,
 } from '../src/types/vault.ts';
+import type {
+  SkillNode,
+  WhiteboardDrawing,
+  ExamSimulationState,
+  DecisionEntry,
+  DoomscrollTaxEntry,
+  LifeMilestone,
+  TimeCapsuleLetter,
+  EmergencyAssetProfile,
+} from '../src/types/features15.ts';
 import {
   isValidRatio,
   allocateTargetPaise,
@@ -424,6 +434,14 @@ export interface DatabaseSchema {
   vaultExpenses?: VaultExpense[];
   vaultSettlements?: VaultSettlement[];
   vaultActivities?: VaultActivity[];
+  skillNodes?: SkillNode[];
+  whiteboardDrawings?: WhiteboardDrawing[];
+  examSimulations?: ExamSimulationState[];
+  decisionEntries?: DecisionEntry[];
+  doomscrollLogs?: DoomscrollTaxEntry[];
+  lifeMilestones?: LifeMilestone[];
+  timeCapsules?: TimeCapsuleLetter[];
+  emergencyAssetProfiles?: EmergencyAssetProfile[];
 }
 
 const DEFAULT_CATEGORIES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -497,6 +515,14 @@ export class DatabaseService {
     vaultExpenses: [],
     vaultSettlements: [],
     vaultActivities: [],
+    skillNodes: [],
+    whiteboardDrawings: [],
+    examSimulations: [],
+    decisionEntries: [],
+    doomscrollLogs: [],
+    lifeMilestones: [],
+    timeCapsules: [],
+    emergencyAssetProfiles: [],
   };
 
   private writeQueue: Promise<void> = Promise.resolve();
@@ -3227,6 +3253,147 @@ export class DatabaseService {
 
     this.save();
     return vault;
+  }
+
+  // ==========================================
+  // FocusFlow v1.8 15 Unique Features Methods
+  // ==========================================
+
+  public getSkillNodes(userId: string): SkillNode[] {
+    return (this.db.skillNodes || []).filter((n) => !n.userId || n.userId === userId);
+  }
+
+  public saveSkillNode(node: SkillNode): SkillNode {
+    this.db.skillNodes = this.db.skillNodes || [];
+    const idx = this.db.skillNodes.findIndex((n) => n.id === node.id);
+    if (idx >= 0) {
+      this.db.skillNodes[idx] = node;
+    } else {
+      this.db.skillNodes.push(node);
+    }
+    this.save();
+    return node;
+  }
+
+  public getWhiteboardDrawings(userId: string): WhiteboardDrawing[] {
+    return (this.db.whiteboardDrawings || []).filter((d) => d.userId === userId);
+  }
+
+  public saveWhiteboardDrawing(drawing: WhiteboardDrawing): WhiteboardDrawing {
+    this.db.whiteboardDrawings = this.db.whiteboardDrawings || [];
+    const idx = this.db.whiteboardDrawings.findIndex((d) => d.id === drawing.id);
+    if (idx >= 0) {
+      this.db.whiteboardDrawings[idx] = drawing;
+    } else {
+      this.db.whiteboardDrawings.push(drawing);
+    }
+    this.save();
+    return drawing;
+  }
+
+  public deleteWhiteboardDrawing(id: string, userId: string): boolean {
+    if (!this.db.whiteboardDrawings) return false;
+    const initialLen = this.db.whiteboardDrawings.length;
+    this.db.whiteboardDrawings = this.db.whiteboardDrawings.filter(
+      (d) => !(d.id === id && d.userId === userId)
+    );
+    if (this.db.whiteboardDrawings.length !== initialLen) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public getExamSimulations(userId: string): ExamSimulationState[] {
+    return this.db.examSimulations || [];
+  }
+
+  public saveExamSimulation(sim: ExamSimulationState): ExamSimulationState {
+    this.db.examSimulations = this.db.examSimulations || [];
+    const idx = this.db.examSimulations.findIndex((s) => s.id === sim.id);
+    if (idx >= 0) {
+      this.db.examSimulations[idx] = sim;
+    } else {
+      this.db.examSimulations.push(sim);
+    }
+    this.save();
+    return sim;
+  }
+
+  public getDecisionEntries(userId: string): DecisionEntry[] {
+    return (this.db.decisionEntries || []).filter((d) => d.userId === userId);
+  }
+
+  public saveDecisionEntry(entry: DecisionEntry): DecisionEntry {
+    this.db.decisionEntries = this.db.decisionEntries || [];
+    const idx = this.db.decisionEntries.findIndex((d) => d.id === entry.id);
+    if (idx >= 0) {
+      this.db.decisionEntries[idx] = entry;
+    } else {
+      this.db.decisionEntries.unshift(entry);
+    }
+    this.save();
+    return entry;
+  }
+
+  public getDoomscrollLogs(userId: string): DoomscrollTaxEntry[] {
+    return (this.db.doomscrollLogs || []).filter((l) => l.userId === userId);
+  }
+
+  public saveDoomscrollLog(entry: DoomscrollTaxEntry): DoomscrollTaxEntry {
+    this.db.doomscrollLogs = this.db.doomscrollLogs || [];
+    this.db.doomscrollLogs.unshift(entry);
+    this.save();
+    return entry;
+  }
+
+  public clearDoomscrollLogs(userId: string): boolean {
+    this.db.doomscrollLogs = (this.db.doomscrollLogs || []).filter((l) => l.userId !== userId);
+    this.save();
+    return true;
+  }
+
+  public getTimeCapsules(userId: string): TimeCapsuleLetter[] {
+    return (this.db.timeCapsules || []).filter((c) => c.userId === userId);
+  }
+
+  public saveTimeCapsule(letter: TimeCapsuleLetter): TimeCapsuleLetter {
+    this.db.timeCapsules = this.db.timeCapsules || [];
+    const idx = this.db.timeCapsules.findIndex((c) => c.id === letter.id);
+    if (idx >= 0) {
+      this.db.timeCapsules[idx] = letter;
+    } else {
+      this.db.timeCapsules.unshift(letter);
+    }
+    this.save();
+    return letter;
+  }
+
+  public deleteTimeCapsule(id: string, userId: string): boolean {
+    if (!this.db.timeCapsules) return false;
+    const initialLen = this.db.timeCapsules.length;
+    this.db.timeCapsules = this.db.timeCapsules.filter((c) => !(c.id === id && c.userId === userId));
+    if (this.db.timeCapsules.length !== initialLen) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public getEmergencyProfile(userId: string): EmergencyAssetProfile | null {
+    return (this.db.emergencyAssetProfiles || []).find((p) => p.userId === userId) || null;
+  }
+
+  public saveEmergencyProfile(profile: EmergencyAssetProfile): EmergencyAssetProfile {
+    this.db.emergencyAssetProfiles = this.db.emergencyAssetProfiles || [];
+    const idx = this.db.emergencyAssetProfiles.findIndex((p) => p.userId === profile.userId);
+    if (idx >= 0) {
+      this.db.emergencyAssetProfiles[idx] = profile;
+    } else {
+      this.db.emergencyAssetProfiles.push(profile);
+    }
+    this.save();
+    return profile;
   }
 }
 

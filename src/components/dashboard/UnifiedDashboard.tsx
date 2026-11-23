@@ -64,7 +64,18 @@ import {
   Timer,
   TrendingDown,
   TrendingUp,
+  Receipt,
+  Brain,
+  Coins,
+  Compass,
+  Mail,
 } from 'lucide-react';
+import { FocusReceiptModal } from './FocusReceiptModal.tsx';
+import { DecisionJournal } from '../productivity/DecisionJournal.tsx';
+import { DoomscrollTaxJar } from '../productivity/DoomscrollTaxJar.tsx';
+import { LifeInWeeksGrid } from '../productivity/LifeInWeeksGrid.tsx';
+import { TimeCapsuleView } from '../productivity/TimeCapsuleView.tsx';
+import { FocusReceiptData } from '../../types/features15.ts';
 import { GamificationCard } from './GamificationCard.tsx';
 import { TodaysPrioritiesCard } from './TodaysPrioritiesCard.tsx';
 import { ExamPrepCard } from './ExamPrepCard.tsx';
@@ -170,7 +181,40 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [customizeMode, setCustomizeMode] = useState(false);
   const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
+  const [activeProductivitySubTab, setActiveProductivitySubTab] = useState<
+    'overview' | 'decisions' | 'doomscroll' | 'lifegrid' | 'timecapsule'
+  >('overview');
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const studyFetchedForRefreshRef = useRef<number>(-1);
+
+  const focusReceiptData: FocusReceiptData = useMemo(() => {
+    const completedTasksToday = tasks.filter(
+      (t) => t.status === 'completed' || Boolean(t.completedAt)
+    );
+    const focusMins = data?.todayFocusMinutes ?? 0;
+    const streak = data?.focusStreakDays ?? 1;
+
+    return {
+      date: getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE),
+      userName: user?.name || 'Student',
+      totalStudyMinutes:
+        studyTopics.filter((t) => t.theory && t.practice).length * 30 + focusMins,
+      completedTasksCount: completedTasksToday.length,
+      completedTaskTitles: completedTasksToday.map((t) => t.title),
+      pomodoroSessionsCount: data?.completedPomodoroSessions || 0,
+      totalPomodoroMinutes: focusMins,
+      completedHabitsCount: habits.length,
+      currentStreak: streak,
+      productivityScore: Math.min(
+        100,
+        Math.max(50, Math.round(focusMins * 0.5 + completedTasksToday.length * 10 + 40))
+      ),
+      currency: settings?.currency || '₹',
+      hideFinancials: settings?.hideFinancialInReceipt ?? false,
+      dailyExpensePaise: data?.todayExpensesPaise || 0,
+      moneySavedPaise: data?.remainingBalancePaise || 0,
+    };
+  }, [tasks, studyTopics, data, habits, settings, user]);
 
   const layoutConfig = useMemo<DashboardLayoutConfig>(
     () => normalizeDashboardLayout(settings?.dashboardLayout),
@@ -1729,7 +1773,56 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
           </div>
         )}
 
-        {/* Customize, Horizon & Layout Presets Toolbar */}
+        {/* Subtab Switcher & Today's Focus Receipt Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)]">
+          <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]">
+            {[
+              { id: 'overview', label: 'Overview', icon: Sparkles },
+              { id: 'decisions', label: 'Decision Journal', icon: Brain },
+              { id: 'doomscroll', label: 'Self-Tax Jar', icon: Coins },
+              { id: 'lifegrid', label: 'Life in Weeks', icon: Compass },
+              { id: 'timecapsule', label: 'Time Capsule', icon: Mail },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const active = activeProductivitySubTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveProductivitySubTab(tab.id as typeof activeProductivitySubTab)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                    active
+                      ? 'bg-[var(--ff-accent)] text-[var(--ff-accent-contrast)] shadow-sm'
+                      : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <ThemeButton
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsReceiptModalOpen(true)}
+            className="font-bold text-emerald-400"
+          >
+            <Receipt className="w-3.5 h-3.5 mr-1" />
+            <span>Today's Focus Receipt</span>
+          </ThemeButton>
+        </div>
+
+        {/* SUBTAB VIEWS */}
+        {activeProductivitySubTab === 'decisions' && <DecisionJournal />}
+        {activeProductivitySubTab === 'doomscroll' && <DoomscrollTaxJar />}
+        {activeProductivitySubTab === 'lifegrid' && <LifeInWeeksGrid />}
+        {activeProductivitySubTab === 'timecapsule' && <TimeCapsuleView />}
+
+        {activeProductivitySubTab === 'overview' && (
+          <>
+            {/* Customize, Horizon & Layout Presets Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)]">
           <div className="flex flex-wrap items-center gap-2.5 min-w-0">
             {/* Timeframe Filter Pills */}
@@ -1930,6 +2023,15 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
             </div>
           ))}
         </div>
+          </>
+        )}
+
+        {/* Today's Focus Receipt Modal */}
+        <FocusReceiptModal
+          isOpen={isReceiptModalOpen}
+          onClose={() => setIsReceiptModalOpen(false)}
+          data={focusReceiptData}
+        />
       </div>
     </SkeletonCrossfade>
   );

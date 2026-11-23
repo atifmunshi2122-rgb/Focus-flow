@@ -68,7 +68,10 @@ import {
   Bookmark,
   History,
   Check,
+  Code2,
 } from 'lucide-react';
+import { BinauralBeatsController } from './BinauralBeatsController.tsx';
+import { CodeTypingWarmupModal } from './CodeTypingWarmupModal.tsx';
 
 const AMBIENT_OPTIONS: Array<{ id: AmbientPreset; label: string }> = [
   { id: 'off', label: 'Off' },
@@ -138,6 +141,7 @@ export const PomodoroTimer: React.FC = () => {
   const [customError, setCustomError] = useState<string | null>(null);
   const [resetSpinCount, setResetSpinCount] = useState(0);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [isTypingWarmupOpen, setIsTypingWarmupOpen] = useState(false);
   const prevCycleCountRef = useRef(completedCycleCount);
   const { isDisabled, profile } = useMotionPreferences();
 
@@ -1302,9 +1306,23 @@ export const PomodoroTimer: React.FC = () => {
         </div>
       </div>
 
+      {/* Web Audio Binaural Beats Controller */}
+      <div className="relative z-10 w-full mt-3">
+        <BinauralBeatsController />
+      </div>
+
       {/* Quick Settings Toggles & Keyboard Shortcuts Bar */}
       <div className="relative z-10 w-full flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[var(--ff-border-color)] text-xs text-[var(--ff-text-muted)]">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsTypingWarmupOpen(true)}
+            className="flex items-center gap-1.5 hover:text-[var(--ff-text-primary)] transition-colors min-h-[36px] font-semibold text-sky-400"
+          >
+            <Code2 className="w-4 h-4" />
+            <span>60s Typing Warmup</span>
+          </button>
+
           <button
             type="button"
             onClick={toggleSound}
@@ -2233,6 +2251,16 @@ export const PomodoroTimer: React.FC = () => {
           </div>
         </div>
       </ThemeModal>
+
+      {/* 60-Second Code-Typing Mental Warmup Modal */}
+      <CodeTypingWarmupModal
+        isOpen={isTypingWarmupOpen}
+        onClose={() => setIsTypingWarmupOpen(false)}
+        onStartFocus={() => {
+          setIsTypingWarmupOpen(false);
+          startTimer();
+        }}
+      />
     </>
   );
 };

@@ -398,7 +398,7 @@ describe('Vercel Serverless Cold-Start, Filesystem Safety & Sheet Hub Inspection
       const dataRoot = await resRoot.json();
       assert.equal(dataRoot.status, 'healthy');
       assert.equal(dataRoot.platform, 'vercel-serverless');
-      assert.equal(dataRoot.version, '1.7.0');
+      assert.equal(dataRoot.version, '1.8.0');
 
       const resApi = await fetch(`${baseUrl}/api/health`);
       assert.equal(resApi.status, 200);

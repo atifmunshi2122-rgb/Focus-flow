@@ -77,6 +77,16 @@ export interface UserSettings {
   favoriteStyleIds?: string[];
   favoriteThemeIds?: string[];
   keyboardShortcutsEnabled?: boolean;
+  // v1.8 Feature Extensions
+  hourlyEarningRate?: number;
+  timeVsMoneyEnabled?: boolean;
+  doomscrollHourlyTax?: number;
+  birthDate?: string;
+  lifeHorizonYears?: number;
+  binauralBeatsVolume?: number;
+  binauralBeatsPreset?: string;
+  typingWarmupEnabled?: boolean;
+  hideFinancialInReceipt?: boolean;
 }
 
 export interface SubtaskItem {
@@ -522,4 +532,5 @@ export interface OfflineOutboxOperation {
 export * from './study.ts';
 export * from './pomodoro.ts';
 export * from './vault.ts';
+export * from './features15.ts';
 

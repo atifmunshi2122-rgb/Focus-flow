@@ -51,6 +51,16 @@ import {
   VaultSummary,
   ExpenseSplitMode,
 } from '../types/index.ts';
+import type {
+  SkillNode,
+  WhiteboardDrawing,
+  ExamSimulationState,
+  DecisionEntry,
+  DoomscrollTaxEntry,
+  LifeMilestone,
+  TimeCapsuleLetter,
+  EmergencyAssetProfile,
+} from '../types/features15.ts';
 import { auth, getFirebaseIdToken, waitForInitialAuth } from './firebase.ts';
 import { firestoreService } from './firestoreService.ts';
 import { offlineOutbox } from './offlineOutbox.ts';
@@ -3439,6 +3449,147 @@ export const api = {
       api.getJointVault(vaultId).then(onUpdate).catch(() => onUpdate(null));
     }, 4000);
     return () => clearInterval(interval);
+  },
+
+  // ==========================================
+  // FocusFlow v1.8 15 Unique Features Client API
+  // ==========================================
+  getSkillNodes: async (): Promise<SkillNode[]> => {
+    try {
+      return await request<SkillNode[]>('/skill-nodes');
+    } catch {
+      return [];
+    }
+  },
+
+  saveSkillNode: async (node: SkillNode): Promise<SkillNode> => {
+    return await request<SkillNode>('/skill-nodes', {
+      method: 'POST',
+      body: JSON.stringify(node),
+    });
+  },
+
+  getWhiteboardDrawings: async (): Promise<WhiteboardDrawing[]> => {
+    try {
+      return await request<WhiteboardDrawing[]>('/whiteboard');
+    } catch {
+      return [];
+    }
+  },
+
+  saveWhiteboardDrawing: async (drawing: Partial<WhiteboardDrawing>): Promise<WhiteboardDrawing> => {
+    return await request<WhiteboardDrawing>('/whiteboard', {
+      method: 'POST',
+      body: JSON.stringify(drawing),
+    });
+  },
+
+  deleteWhiteboardDrawing: async (id: string): Promise<boolean> => {
+    try {
+      const res = await request<{ success: boolean }>(`/whiteboard/${id}`, {
+        method: 'DELETE',
+      });
+      return Boolean(res?.success);
+    } catch {
+      return false;
+    }
+  },
+
+  getExamSimulations: async (): Promise<ExamSimulationState[]> => {
+    try {
+      return await request<ExamSimulationState[]>('/exam-simulations');
+    } catch {
+      return [];
+    }
+  },
+
+  saveExamSimulation: async (sim: ExamSimulationState): Promise<ExamSimulationState> => {
+    return await request<ExamSimulationState>('/exam-simulations', {
+      method: 'POST',
+      body: JSON.stringify(sim),
+    });
+  },
+
+  getDecisionEntries: async (): Promise<DecisionEntry[]> => {
+    try {
+      return await request<DecisionEntry[]>('/decisions');
+    } catch {
+      return [];
+    }
+  },
+
+  saveDecisionEntry: async (entry: DecisionEntry): Promise<DecisionEntry> => {
+    return await request<DecisionEntry>('/decisions', {
+      method: 'POST',
+      body: JSON.stringify(entry),
+    });
+  },
+
+  getDoomscrollLogs: async (): Promise<DoomscrollTaxEntry[]> => {
+    try {
+      return await request<DoomscrollTaxEntry[]>('/doomscroll-tax');
+    } catch {
+      return [];
+    }
+  },
+
+  saveDoomscrollLog: async (entry: DoomscrollTaxEntry): Promise<DoomscrollTaxEntry> => {
+    return await request<DoomscrollTaxEntry>('/doomscroll-tax', {
+      method: 'POST',
+      body: JSON.stringify(entry),
+    });
+  },
+
+  clearDoomscrollLogs: async (): Promise<boolean> => {
+    try {
+      const res = await request<{ success: boolean }>('/doomscroll-tax', {
+        method: 'DELETE',
+      });
+      return Boolean(res?.success);
+    } catch {
+      return false;
+    }
+  },
+
+  getTimeCapsules: async (): Promise<TimeCapsuleLetter[]> => {
+    try {
+      return await request<TimeCapsuleLetter[]>('/time-capsules');
+    } catch {
+      return [];
+    }
+  },
+
+  saveTimeCapsule: async (letter: TimeCapsuleLetter): Promise<TimeCapsuleLetter> => {
+    return await request<TimeCapsuleLetter>('/time-capsules', {
+      method: 'POST',
+      body: JSON.stringify(letter),
+    });
+  },
+
+  deleteTimeCapsule: async (id: string): Promise<boolean> => {
+    try {
+      const res = await request<{ success: boolean }>(`/time-capsules/${id}`, {
+        method: 'DELETE',
+      });
+      return Boolean(res?.success);
+    } catch {
+      return false;
+    }
+  },
+
+  getEmergencyProfile: async (): Promise<EmergencyAssetProfile | null> => {
+    try {
+      return await request<EmergencyAssetProfile>('/emergency-profile');
+    } catch {
+      return null;
+    }
+  },
+
+  saveEmergencyProfile: async (profile: EmergencyAssetProfile): Promise<EmergencyAssetProfile> => {
+    return await request<EmergencyAssetProfile>('/emergency-profile', {
+      method: 'POST',
+      body: JSON.stringify(profile),
+    });
   },
 };
 

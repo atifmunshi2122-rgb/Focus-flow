@@ -15,7 +15,7 @@ const healthCheck = (_req: express.Request, res: express.Response) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
-    version: '1.7.0',
+    version: '1.8.0',
     platform: 'vercel-serverless',
   });
 };

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
+import { TimeVsMoneyBadge } from './TimeVsMoneyBadge.tsx';
 import {
   ThemeButton,
   ThemeCard,
@@ -568,15 +569,18 @@ export const TransactionsLedger: React.FC = () => {
                           </div>
                         </div>
 
-                        <span
-                          className="text-base font-bold font-mono tabular-nums shrink-0"
-                          style={{
-                            color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
-                          }}
-                        >
-                          {isIncome ? '+' : '-'}
-                          {formatCurrency(t.amountPaise, currency)}
-                        </span>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span
+                            className="text-base font-bold font-mono tabular-nums"
+                            style={{
+                              color: isIncome ? 'var(--ff-success)' : 'var(--ff-text-primary)',
+                            }}
+                          >
+                            {isIncome ? '+' : '-'}
+                            {formatCurrency(t.amountPaise, currency)}
+                          </span>
+                          {!isIncome && <TimeVsMoneyBadge amountPaise={t.amountPaise} />}
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--ff-border-color)] text-[11px] text-[var(--ff-text-muted)]">
@@ -701,9 +705,12 @@ export const TransactionsLedger: React.FC = () => {
                             {isIncome ? '+' : '-'}
                             {formatCurrency(t.amountPaise, currency)}
                           </span>
-                          <span className="block text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
-                            {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
-                          </span>
+                          <div className="flex items-center gap-1.5 justify-end">
+                            <span className="block text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider font-semibold">
+                              {isIncome ? 'Income' : isFixed ? 'Fixed Bill' : 'Variable Spend'}
+                            </span>
+                            {!isIncome && <TimeVsMoneyBadge amountPaise={t.amountPaise} />}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1">
                           <button
@@ -846,6 +853,11 @@ export const TransactionsLedger: React.FC = () => {
               <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mt-1">
                 {selectedTxForDetails.name}
               </h3>
+              {selectedTxForDetails.type !== 'income' && (
+                <div className="mt-1.5 flex justify-center">
+                  <TimeVsMoneyBadge amountPaise={selectedTxForDetails.amountPaise} />
+                </div>
+              )}
             </div>
 
             <div className="divide-y ff-divider text-xs">

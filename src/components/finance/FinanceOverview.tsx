@@ -14,6 +14,9 @@ import { FinancialCalendarView } from './FinancialCalendarView.tsx';
 import { SmartSpendingInsightsCard } from './SmartSpendingInsightsCard.tsx';
 import { FinancialReportsView } from './FinancialReportsView.tsx';
 import { JointVaultsView } from './JointVaultsView.tsx';
+import { WhatIfFinancialSandbox } from './WhatIfFinancialSandbox.tsx';
+import { InflationGoalCalculator } from './InflationGoalCalculator.tsx';
+import { EmergencyAssetSummary } from './EmergencyAssetSummary.tsx';
 import type { ExpenseTransaction, IncomeTransaction } from '../../types/index.ts';
 import {
   ThemeButton,
@@ -60,7 +63,10 @@ type FinanceSubTab =
   | 'expenses'
   | 'savings'
   | 'vaults'
-  | 'reports';
+  | 'reports'
+  | 'sandbox'
+  | 'inflation'
+  | 'emergency';
 
 export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAction }) => {
   const { currency, refreshKey, setTrashModalOpen, setCurrentTab } = useApp();
@@ -215,7 +221,10 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
             { id: 'income', label: 'Income' },
             { id: 'expenses', label: 'Expenses' },
             { id: 'savings', label: 'Savings Goals' },
-            { id: 'vaults', label: 'Joint Vaults (Couple)' },
+            { id: 'vaults', label: 'Joint Vaults' },
+            { id: 'sandbox', label: 'What-If Sandbox' },
+            { id: 'inflation', label: 'Inflation Goals' },
+            { id: 'emergency', label: 'Emergency Sheet' },
             { id: 'reports', label: 'Reports' },
           ]}
         />
@@ -241,6 +250,12 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
         <BudgetSavingsManager showBudgets={false} showSavings={true} />
       ) : subTab === 'vaults' ? (
         <JointVaultsView />
+      ) : subTab === 'sandbox' ? (
+        <WhatIfFinancialSandbox />
+      ) : subTab === 'inflation' ? (
+        <InflationGoalCalculator />
+      ) : subTab === 'emergency' ? (
+        <EmergencyAssetSummary />
       ) : subTab === 'reports' ? (
         <FinancialReportsView />
       ) : (
