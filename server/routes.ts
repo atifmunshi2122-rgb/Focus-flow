@@ -12,7 +12,7 @@ import {
 import { vaultBackendService } from './vaultBackendService.js';
 import { buildDefaultStudyWorkspace } from '../src/data/studySeedData.ts';
 import { AuthenticatedRequest, requireUserContext } from './auth.js';
-import { rateLimiter } from './security.js';
+import { rateLimiter, sanitizeForLogging } from './security.js';
 import {
   DEFAULT_TIMEZONE,
   getTodayDateString,
@@ -3482,8 +3482,18 @@ apiRouter.post('/sheets/flush-queue', async (req: Request, res: Response) => {
 // UNIVERSAL SHEET SYNC HUB — PHASE 1 READ-ONLY ENDPOINTS
 // ----------------------------------------------------
 function sendSheetHubError(res: Response, err: unknown, fallbackMessage: string): void {
+  const sanitized = sanitizeForLogging(
+    err instanceof Error ? { message: err.message, stack: err.stack } : { error: err }
+  );
+  console.error('[SheetHub Error]', JSON.stringify(sanitized));
+
   if (err instanceof SheetHubWorkerError) {
-    res.status(err.status).json({ error: err.message, code: err.code });
+    res.status(err.status).json({
+      error: err.message,
+      code: err.code,
+      status: err.status,
+      timestamp: new Date().toISOString(),
+    });
     return;
   }
   sendSheetsError(res, err, fallbackMessage);

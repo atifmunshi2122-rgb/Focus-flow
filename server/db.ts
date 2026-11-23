@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import os from 'os';
 import {
   DEFAULT_TIMEZONE,
   getTodayDateString,
@@ -31,9 +32,21 @@ import { formatCurrency } from '../src/lib/currency.ts';
 
 // Local JSON fallback store paths (supports DATA_DIR volume mounts for self-hosted deployments;
 // primary persistence for signed-in users lives in Cloud Firestore).
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.env.DATA_DIR)
-  : path.resolve(process.cwd(), 'data');
+export function isVercelRuntime(): boolean {
+  return process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+}
+
+export function resolveDefaultDataDir(): string {
+  if (process.env.DATA_DIR) {
+    return path.resolve(process.env.DATA_DIR);
+  }
+  if (isVercelRuntime()) {
+    return path.join(os.tmpdir(), 'focusflow-data');
+  }
+  return path.resolve(process.cwd(), 'data');
+}
+
+const DATA_DIR = resolveDefaultDataDir();
 const DB_FILE = path.resolve(DATA_DIR, 'database.json');
 
 export interface User {
@@ -495,18 +508,32 @@ export class DatabaseService {
   private persistenceError: Error | null = null;
 
   constructor(customDataDir?: string) {
-    this.dataDir = customDataDir
-      ? path.resolve(customDataDir)
-      : (process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(process.cwd(), 'data'));
+    const isVercel = isVercelRuntime();
+    if (customDataDir) {
+      this.dataDir = path.resolve(customDataDir);
+    } else if (process.env.DATA_DIR) {
+      this.dataDir = path.resolve(process.env.DATA_DIR);
+    } else if (isVercel) {
+      this.dataDir = path.join(os.tmpdir(), 'focusflow-data');
+    } else {
+      this.dataDir = path.resolve(process.cwd(), 'data');
+    }
     this.dbFile = path.resolve(this.dataDir, 'database.json');
 
-    if (process.env.NODE_ENV === 'production' && !process.env.DATA_DIR && !customDataDir) {
+    if (isVercel && !customDataDir) {
+      console.log(
+        `[DB] Vercel serverless environment detected. Local JSON store fallback configured at ${this.dataDir}. Note: /tmp is ephemeral; signed-in users persist authoritatively in Cloud Firestore.`
+      );
+    } else if (process.env.NODE_ENV === 'production' && !process.env.DATA_DIR && !customDataDir) {
       console.warn(
         '[DB] Warning: DATA_DIR is not set in production; using local ./data/database.json fallback (ephemeral on container restarts unless a volume is mounted). Signed-in users persist directly in Cloud Firestore.'
       );
     }
-    this.ensureDataDir();
-    this.load();
+
+    const dirReady = this.ensureDataDir();
+    if (dirReady) {
+      this.load();
+    }
     this.ensureBaseDefaults();
     if (process.env.SEED_DEFAULT_DATA === 'true') {
       this.ensureSeedData();
@@ -514,35 +541,69 @@ export class DatabaseService {
     this.checkRecurringBills();
   }
 
-  private ensureDataDir() {
-    if (!fs.existsSync(this.dataDir)) {
-      fs.mkdirSync(this.dataDir, { recursive: true });
-    } else {
-      // Clean up orphaned .tmp files from previous unexpected process crashes
-      try {
-        const files = fs.readdirSync(this.dataDir);
-        for (const f of files) {
-          if (f.startsWith('.database.') && f.endsWith('.tmp')) {
-            try {
-              fs.unlinkSync(path.resolve(this.dataDir, f));
-            } catch {
-              // Ignore cleanup error of individual file
+  public getDataDir(): string {
+    return this.dataDir;
+  }
+
+  public getDatabaseFile(): string {
+    return this.dbFile;
+  }
+
+  private ensureDataDir(): boolean {
+    try {
+      if (!fs.existsSync(this.dataDir)) {
+        fs.mkdirSync(this.dataDir, { recursive: true });
+      } else {
+        // Clean up orphaned .tmp files from previous unexpected process crashes
+        try {
+          const files = fs.readdirSync(this.dataDir);
+          for (const f of files) {
+            if (f.startsWith('.database.') && f.endsWith('.tmp')) {
+              try {
+                fs.unlinkSync(path.resolve(this.dataDir, f));
+              } catch {
+                // Ignore cleanup error of individual file
+              }
             }
           }
+        } catch {
+          // Ignore directory read error
         }
-      } catch {
-        // Ignore directory read error
       }
+      return true;
+    } catch (err) {
+      this.isPersistenceDegraded = true;
+      this.persistenceError = err instanceof Error ? err : new Error(String(err));
+      console.warn(
+        `[DB] Warning: Failed to initialize data directory at ${this.dataDir} (${this.persistenceError.message}). Operating in degraded in-memory mode.`
+      );
+      return false;
     }
   }
 
   private load() {
-    if (!fs.existsSync(this.dbFile)) {
-      // Missing database file is a valid clean workspace state; start with fresh schema
+    try {
+      if (!fs.existsSync(this.dbFile)) {
+        // Missing database file is a valid clean workspace state; start with fresh schema
+        return;
+      }
+    } catch (err) {
+      this.isPersistenceDegraded = true;
+      this.persistenceError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[DB] Warning: Could not check database file existence at ${this.dbFile}: ${this.persistenceError.message}`);
       return;
     }
 
-    const raw = fs.readFileSync(this.dbFile, 'utf-8');
+    let raw: string;
+    try {
+      raw = fs.readFileSync(this.dbFile, 'utf-8');
+    } catch (err) {
+      this.isPersistenceDegraded = true;
+      this.persistenceError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[DB] Warning: Failed to read database file at ${this.dbFile}: ${this.persistenceError.message}`);
+      return;
+    }
+
     if (raw.trim().length === 0) {
       this.isCorrupted = true;
       this.corruptionError = new DatabaseCorruptError(
@@ -718,6 +779,9 @@ export class DatabaseService {
         opReject(err);
       }
     })();
+
+    // Suppress global unhandled rejection warnings for un-awaited calls while preserving caller error propagation
+    writePromise.catch(() => {});
 
     return writePromise;
   }
@@ -925,7 +989,11 @@ export class DatabaseService {
         userId: 'usr_default',
         ...cat,
       }));
-      this.save();
+      if (!this.isPersistenceDegraded) {
+        this.save().catch((err) => {
+          console.warn(`[DB] Notice: Could not persist base defaults to disk (${err?.message || err}). In-memory defaults active.`);
+        });
+      }
     }
   }
 
@@ -1412,7 +1480,11 @@ export class DatabaseService {
       }
     );
 
-    this.save();
+    if (!this.isPersistenceDegraded) {
+      this.save().catch((err) => {
+        console.warn(`[DB] Notice: Could not persist seed data to disk (${err?.message || err}). In-memory seed active.`);
+      });
+    }
   }
 
   /**
@@ -1492,7 +1564,11 @@ export class DatabaseService {
     }
 
     if (changed) {
-      this.save();
+      if (!this.isPersistenceDegraded) {
+        this.save().catch((err) => {
+          console.warn(`[DB] Notice: Could not persist recurring bills to disk (${err?.message || err}).`);
+        });
+      }
     }
   }
 

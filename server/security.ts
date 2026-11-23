@@ -282,7 +282,7 @@ export function corsHandler(req: Request, res: Response, next: NextFunction): vo
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
-      'Content-Type, Authorization, x-demo-session, x-google-access-token'
+      'Content-Type, Authorization, x-demo-session, x-user-id, x-google-access-token, X-CSRF-Token, X-Requested-With, Accept, Accept-Version'
     );
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Max-Age', '86400');
