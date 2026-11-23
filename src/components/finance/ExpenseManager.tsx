@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { ExpenseTransaction, RecurringExpense, ExpenseCategory } from '../../types/index.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { resolveDefaultCategoryForReason } from '../../lib/expenseReasons.ts';
 import {
   ThemeBadge,
@@ -55,7 +56,7 @@ export const ExpenseManager: React.FC = () => {
   const [editingVar, setEditingVar] = useState<ExpenseTransaction | null>(null);
   const [varDesc, setVarDesc] = useState('');
   const [varAmount, setVarAmount] = useState('');
-  const [varDate, setVarDate] = useState(new Date().toISOString().split('T')[0]);
+  const [varDate, setVarDate] = useState(() => getTodayDateString());
   const [varCategory, setVarCategory] = useState('');
   const [varMethod, setVarMethod] = useState<'credit_card' | 'debit_card' | 'upi_bank' | 'cash'>('credit_card');
   const [varNotes, setVarNotes] = useState('');
@@ -99,7 +100,7 @@ export const ExpenseManager: React.FC = () => {
     setEditingVar(null);
     setVarDesc('');
     setVarAmount('');
-    setVarDate(new Date().toISOString().split('T')[0]);
+    setVarDate(getTodayDateString());
     setVarCategory(categories[0]?.id || '');
     setVarMethod('upi_bank');
     setVarNotes('');

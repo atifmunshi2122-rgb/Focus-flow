@@ -212,7 +212,7 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
     for (let i = 0; i < 7; i++) {
       const d = new Date(baseDate);
       d.setUTCDate(baseDate.getUTCDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = formatDateInTimezone(d, tz);
       const dayNum = d.getUTCDate();
       const isCurrentMonth = d.getUTCMonth() + 1 === currentMonth;
       days.push(buildDaySummary(dateStr, dayNum, isCurrentMonth, todayStr, tz, tasks, bills, sessions, incomes, expenses, habits));
@@ -255,7 +255,7 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
     if (viewMode === 'week') {
       const d = new Date(`${activeWeekStart}T12:00:00Z`);
       d.setUTCDate(d.getUTCDate() - 7);
-      const newWeekStart = d.toISOString().split('T')[0];
+      const newWeekStart = formatDateInTimezone(d, tz);
       setActiveWeekStart(newWeekStart);
 
       // Keep month in sync with the new week's midpoint
@@ -276,7 +276,7 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
     if (viewMode === 'week') {
       const d = new Date(`${activeWeekStart}T12:00:00Z`);
       d.setUTCDate(d.getUTCDate() + 7);
-      const newWeekStart = d.toISOString().split('T')[0];
+      const newWeekStart = formatDateInTimezone(d, tz);
       setActiveWeekStart(newWeekStart);
 
       // Keep month in sync with the new week's midpoint

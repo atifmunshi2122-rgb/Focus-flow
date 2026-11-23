@@ -67,6 +67,7 @@ import { offlineOutbox } from './offlineOutbox.ts';
 import { clientDataCache } from './dataCache.ts';
 import { handleGuestLocalFallback } from './guestLocalStore.ts';
 import { studyImportHistoryStore } from './sheetHub/studyImportHistoryStore.ts';
+import { getTodayDateString } from './dateTime.ts';
 import type { StudyImportSource, StudyImportHistoryRecord } from '../types/study.ts';
 import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
 import type {
@@ -929,7 +930,7 @@ export const api = {
           userId: uid,
           source: data.source || '',
           amountPaise: Number(data.amountPaise) || 0,
-          date: data.date || new Date().toISOString().split('T')[0],
+          date: data.date || getTodayDateString(),
           category: data.category || 'Salary',
           notes: data.notes || '',
           createdAt: new Date().toISOString(),
@@ -1022,7 +1023,7 @@ export const api = {
           categoryId: data.categoryId || 'cat_1',
           categoryName: data.categoryName,
           amountPaise: Number(data.amountPaise) || 0,
-          date: data.date || new Date().toISOString().split('T')[0],
+          date: data.date || getTodayDateString(),
           description: data.description || '',
           paymentMethod: data.paymentMethod || 'upi_bank',
           notes: data.notes || '',
@@ -1220,7 +1221,7 @@ export const api = {
         payload: { id, paidDate, paymentMethod, notes, idempotencyKey: effectiveKey },
         optimisticResult: () => ({
           success: true,
-          bill: { id, status: 'PAID', paymentDate: paidDate || new Date().toISOString().slice(0, 10) } as Bill,
+          bill: { id, status: 'PAID', paymentDate: paidDate || getTodayDateString() } as Bill,
         }),
       }
     );
@@ -2233,8 +2234,8 @@ export const api = {
           topicId: revision.topicId || '',
           subjectCode: revision.subjectCode || 'Sub_General',
           topicTitle: revision.topicTitle || 'Revision Topic',
-          lastStudiedAt: new Date().toISOString().slice(0, 10),
-          nextRevisionAt: new Date().toISOString().slice(0, 10),
+          lastStudiedAt: getTodayDateString(),
+          nextRevisionAt: getTodayDateString(),
           intervalDays: Number(revision.intervalDays) || 1,
           repetition: Number(revision.repetition) || 1,
           difficulty: revision.difficulty || 'medium',
@@ -2305,7 +2306,7 @@ export const api = {
         optimisticResult: (uid) => ({
           id: mistake.id || `mistake_${Date.now()}`,
           userId: uid,
-          date: mistake.date || new Date().toISOString().slice(0, 10),
+          date: mistake.date || getTodayDateString(),
           subjectCode: mistake.subjectCode || 'Sub_General',
           topic: mistake.topic || 'Topic',
           source: mistake.source || 'Practice',
@@ -2495,7 +2496,7 @@ export const api = {
           topicId: task.topicId || null,
           title: task.title || 'Task',
           description: task.description || '',
-          scheduledDate: task.scheduledDate || new Date().toISOString().slice(0, 10),
+          scheduledDate: task.scheduledDate || getTodayDateString(),
           startTime: task.startTime || null,
           endTime: task.endTime || null,
           estimatedMinutes: task.estimatedMinutes || 30,
@@ -2614,7 +2615,7 @@ export const api = {
           title: exam.title || 'Exam',
           examType: exam.examType || 'midterm',
           subjectIds: exam.subjectIds || [],
-          examDate: exam.examDate || new Date().toISOString().slice(0, 10),
+          examDate: exam.examDate || getTodayDateString(),
           startTime: exam.startTime || null,
           durationMinutes: exam.durationMinutes || 60,
           totalMarks: exam.totalMarks || 100,
@@ -3115,7 +3116,7 @@ export const api = {
           subjectId: goal.subjectId || null,
           subjectCode: goal.subjectCode || null,
           topicId: goal.topicId || null,
-          startDate: goal.startDate || new Date().toISOString().split('T')[0],
+          startDate: goal.startDate || getTodayDateString(),
           endDate: goal.endDate || null,
           status: goal.status || 'active',
           isActive: (goal.status || 'active') === 'active',

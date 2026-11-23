@@ -4,6 +4,8 @@ import {
   ExamSimulationState,
   ExamSection,
 } from '../../types/features15.ts';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Clock,
@@ -47,15 +49,17 @@ const PRESET_EXAMS: ExamSimulationConfig[] = [
   },
 ];
 
-const LOCAL_STORAGE_KEY = 'focusflow_exam_sim_state_v1';
-
 export const ExamHallSimulator: React.FC = () => {
+  const { user } = useApp();
+  const activeUid = user?.id || 'usr_guest';
+  const storageKey = `focusflow_${activeUid}_exam_sim_state_v1`;
+
   const [selectedPresetIndex, setSelectedPresetIndex] = useState(0);
   const [customConfig, setCustomConfig] = useState<ExamSimulationConfig>(PRESET_EXAMS[0]);
 
   // Active state
   const [examState, setExamState] = useState<ExamSimulationState | null>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -72,11 +76,29 @@ export const ExamHallSimulator: React.FC = () => {
   const [sectionSpentSeconds, setSectionSpentSeconds] = useState<{ [secId: string]: number }>({});
   const [isFinished, setIsFinished] = useState(false);
 
+  // Sync user state on account switch
+  useEffect(() => {
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.status) {
+          setExamState(parsed);
+          setSectionTimeRemaining(parsed.sectionTimeRemaining || 0);
+          setTotalTimeRemaining(parsed.totalTimeRemaining || 0);
+          setSectionSpentSeconds(parsed.sectionSpentSeconds || {});
+          return;
+        }
+      } catch {}
+    }
+    setExamState(null);
+  }, [storageKey]);
+
   // Sync to localStorage
   useEffect(() => {
     if (examState) {
       localStorage.setItem(
-        LOCAL_STORAGE_KEY,
+        storageKey,
         JSON.stringify({
           ...examState,
           sectionTimeRemaining,
@@ -85,9 +107,9 @@ export const ExamHallSimulator: React.FC = () => {
         })
       );
     } else {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      localStorage.removeItem(storageKey);
     }
-  }, [examState, sectionTimeRemaining, totalTimeRemaining, sectionSpentSeconds]);
+  }, [storageKey, examState, sectionTimeRemaining, totalTimeRemaining, sectionSpentSeconds]);
 
   // Handle Advance Section
   const handleAdvanceSection = () => {
@@ -104,9 +126,11 @@ export const ExamHallSimulator: React.FC = () => {
 
   const handleFinishExam = () => {
     if (!examState) return;
-    setExamState((prev) => (prev ? { ...prev, status: 'completed' } : null));
+    const completedState: ExamSimulationState = { ...examState, status: 'completed' };
+    setExamState(completedState);
     setIsFinished(true);
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    localStorage.removeItem(storageKey);
+    api.saveExamSimulation(completedState).catch(() => {});
   };
 
   // Countdown timer loop
@@ -176,7 +200,7 @@ export const ExamHallSimulator: React.FC = () => {
     if (!window.confirm('Abandon active exam and reset simulation?')) return;
     setExamState(null);
     setIsFinished(false);
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    localStorage.removeItem(storageKey);
   };
 
   // Format seconds to HH:MM:SS

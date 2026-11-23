@@ -63,6 +63,15 @@ import {
   SheetHubWorkerError,
 } from './universalSheetsWorker.ts';
 import { isValidGoogleSpreadsheetId } from '../src/lib/sheetHub/urlParser.ts';
+import type {
+  SkillNode,
+  WhiteboardDrawing,
+  ExamSimulationState,
+  DecisionEntry,
+  DoomscrollTaxEntry,
+  TimeCapsuleLetter,
+  EmergencyAssetProfile,
+} from '../src/types/features15.ts';
 import { pushSheetHubCellUpdates } from './sheetHubWriteWorker.ts';
 import { duplicateGoogleDriveFile } from './driveWorker.ts';
 import { defaultIdempotencyLedger } from './durableIdempotencyLedger.ts';
@@ -4314,10 +4323,43 @@ apiRouter.get('/skill-nodes', (req: Request, res: Response) => {
   res.json(dbService.getSkillNodes(auth.userId));
 });
 
-apiRouter.post('/skill-nodes', (req: Request, res: Response) => {
+apiRouter.post('/skill-nodes', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  const node = { ...req.body, userId: auth.userId };
-  res.json(dbService.saveSkillNode(node));
+  const body = req.body || {};
+  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 128) : '';
+  if (!title) {
+    res.status(400).json({ error: 'title is required and must be a non-empty string' });
+    return;
+  }
+  const allowedStatuses = ['locked', 'available', 'in_progress', 'completed'];
+  const status = allowedStatuses.includes(body.status) ? body.status : 'available';
+  const tier = typeof body.tier === 'number' && body.tier >= 1 && body.tier <= 10 ? Math.floor(body.tier) : 1;
+  const xpPoints = typeof body.xpPoints === 'number' && body.xpPoints >= 0 ? Math.floor(body.xpPoints) : 10;
+
+  const node: SkillNode = {
+    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `sn_${Date.now()}`,
+    userId: auth.userId,
+    trackId: typeof body.trackId === 'string' ? body.trackId.slice(0, 128) : 'default',
+    title,
+    description: typeof body.description === 'string' ? body.description.slice(0, 1000) : '',
+    tier,
+    prerequisites: Array.isArray(body.prerequisites) ? body.prerequisites.filter((p: unknown) => typeof p === 'string').slice(0, 20) : [],
+    status,
+    category: typeof body.category === 'string' ? body.category.slice(0, 64) : 'General',
+    xpPoints,
+    completedAt: body.completedAt ? String(body.completedAt) : null,
+    notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : undefined,
+    icon: typeof body.icon === 'string' ? body.icon.slice(0, 64) : undefined,
+    tags: Array.isArray(body.tags) ? body.tags.filter((t: unknown) => typeof t === 'string').slice(0, 10) : undefined,
+  };
+
+  try {
+    const saved = dbService.saveSkillNode(node);
+    await dbService.flush();
+    res.status(201).json(saved);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // Whiteboard Rough-Work Drawings
@@ -4326,28 +4368,55 @@ apiRouter.get('/whiteboard', (req: Request, res: Response) => {
   res.json(dbService.getWhiteboardDrawings(auth.userId));
 });
 
-apiRouter.post('/whiteboard', (req: Request, res: Response) => {
+apiRouter.post('/whiteboard', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  const drawing = {
-    id: req.body.id || `wb_${Date.now()}`,
+  const body = req.body || {};
+  const dataUrl = typeof body.dataUrl === 'string' ? body.dataUrl.trim() : '';
+
+  // Validate data URL format and bounded size (max 2MB)
+  const isDataUrl = /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ||
+    (dataUrl.startsWith('data:image/') && dataUrl.length <= 2 * 1024 * 1024);
+
+  if (!isDataUrl) {
+    res.status(400).json({
+      error: 'Invalid whiteboard dataUrl: must be a valid base64 image data URL under 2MB',
+      code: 'INVALID_PAYLOAD',
+    });
+    return;
+  }
+
+  const drawing: WhiteboardDrawing = {
+    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `wb_${Date.now()}`,
     userId: auth.userId,
-    title: req.body.title || 'Rough Sketch',
-    dataUrl: req.body.dataUrl,
-    sizeBytes: req.body.sizeBytes || 0,
-    width: req.body.width || 800,
-    height: req.body.height || 600,
-    topicId: req.body.topicId,
-    topicTitle: req.body.topicTitle,
-    createdAt: new Date().toISOString(),
+    title: typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 128) : 'Rough Sketch',
+    dataUrl,
+    sizeBytes: typeof body.sizeBytes === 'number' && body.sizeBytes > 0 ? body.sizeBytes : dataUrl.length,
+    width: typeof body.width === 'number' && body.width > 0 && body.width <= 4096 ? body.width : 800,
+    height: typeof body.height === 'number' && body.height > 0 && body.height <= 4096 ? body.height : 600,
+    topicId: typeof body.topicId === 'string' ? body.topicId.slice(0, 128) : undefined,
+    topicTitle: typeof body.topicTitle === 'string' ? body.topicTitle.slice(0, 128) : undefined,
+    createdAt: typeof body.createdAt === 'string' ? body.createdAt : new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  res.json(dbService.saveWhiteboardDrawing(drawing));
+
+  try {
+    const saved = dbService.saveWhiteboardDrawing(drawing);
+    await dbService.flush();
+    res.status(201).json(saved);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/whiteboard/:id', (req: Request, res: Response) => {
+apiRouter.delete('/whiteboard/:id', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  const success = dbService.deleteWhiteboardDrawing(req.params.id, auth.userId);
-  res.json({ success });
+  try {
+    const success = dbService.deleteWhiteboardDrawing(req.params.id, auth.userId);
+    await dbService.flush();
+    res.json({ success });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // Exam Hall Simulator
@@ -4356,10 +4425,40 @@ apiRouter.get('/exam-simulations', (req: Request, res: Response) => {
   res.json(dbService.getExamSimulations(auth.userId));
 });
 
-apiRouter.post('/exam-simulations', (req: Request, res: Response) => {
+apiRouter.post('/exam-simulations', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  const sim = { ...req.body, userId: auth.userId };
-  res.json(dbService.saveExamSimulation(sim));
+  const body = req.body || {};
+  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 128) : '';
+  if (!title) {
+    res.status(400).json({ error: 'title is required and must be a non-empty string' });
+    return;
+  }
+  const totalDurationMinutes = typeof body.totalDurationMinutes === 'number' && body.totalDurationMinutes > 0
+    ? Math.min(body.totalDurationMinutes, 1440)
+    : 180;
+  const allowedStatuses = ['idle', 'running', 'paused', 'completed', 'in_progress'];
+  const status = allowedStatuses.includes(body.status) ? body.status : 'idle';
+
+  const sim: ExamSimulationState = {
+    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `sim_${Date.now()}`,
+    title,
+    totalDurationMinutes,
+    sections: Array.isArray(body.sections) ? body.sections.slice(0, 20) : [],
+    currentSectionIndex: typeof body.currentSectionIndex === 'number' ? Math.max(0, body.currentSectionIndex) : 0,
+    status,
+    sectionElapsedSeconds: typeof body.sectionElapsedSeconds === 'object' && body.sectionElapsedSeconds !== null ? body.sectionElapsedSeconds : {},
+    totalElapsedSeconds: typeof body.totalElapsedSeconds === 'number' ? Math.max(0, body.totalElapsedSeconds) : 0,
+    startedAt: typeof body.startedAt === 'string' ? body.startedAt : undefined,
+    completedAt: typeof body.completedAt === 'string' ? body.completedAt : undefined,
+  };
+
+  try {
+    const saved = dbService.saveExamSimulation({ ...sim, userId: auth.userId } as any);
+    await dbService.flush();
+    res.status(201).json(saved);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // Decision Journal
@@ -4368,15 +4467,47 @@ apiRouter.get('/decisions', (req: Request, res: Response) => {
   res.json(dbService.getDecisionEntries(auth.userId));
 });
 
-apiRouter.post('/decisions', (req: Request, res: Response) => {
+apiRouter.post('/decisions', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  const decision = {
-    ...req.body,
-    id: req.body.id || `dec_${Date.now()}`,
+  const body = req.body || {};
+  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 256) : '';
+  if (!title) {
+    res.status(400).json({ error: 'title is required and must be a non-empty string' });
+    return;
+  }
+
+  const allowedCategories = ['career', 'academic', 'financial', 'personal', 'health'];
+  const category = allowedCategories.includes(body.category) ? body.category : 'personal';
+  const confidenceScore = typeof body.confidenceScore === 'number' && body.confidenceScore >= 1 && body.confidenceScore <= 10
+    ? Math.floor(body.confidenceScore)
+    : 5;
+
+  const decision: DecisionEntry = {
+    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `dec_${Date.now()}`,
     userId: auth.userId,
-    createdAt: req.body.createdAt || new Date().toISOString(),
+    title,
+    category,
+    rationale: typeof body.rationale === 'string' ? body.rationale.slice(0, 2000) : '',
+    expectedOutcome: typeof body.expectedOutcome === 'string' ? body.expectedOutcome.slice(0, 2000) : '',
+    confidenceScore,
+    expectedReviewDate: typeof body.expectedReviewDate === 'string' ? body.expectedReviewDate.slice(0, 32) : new Date().toISOString().slice(0, 10),
+    reviewIntervalDays: typeof body.reviewIntervalDays === 'number' ? body.reviewIntervalDays : 30,
+    status: body.status === 'reviewed' ? 'reviewed' : 'pending_review',
+    actualOutcome: typeof body.actualOutcome === 'string' ? body.actualOutcome.slice(0, 2000) : undefined,
+    successRating: typeof body.successRating === 'number' ? Math.max(1, Math.min(5, Math.floor(body.successRating))) : undefined,
+    reflection: typeof body.reflection === 'string' ? body.reflection.slice(0, 2000) : undefined,
+    lessonsLearned: typeof body.lessonsLearned === 'string' ? body.lessonsLearned.slice(0, 2000) : undefined,
+    createdAt: typeof body.createdAt === 'string' ? body.createdAt : new Date().toISOString(),
+    reviewedAt: typeof body.reviewedAt === 'string' ? body.reviewedAt : undefined,
   };
-  res.json(dbService.saveDecisionEntry(decision));
+
+  try {
+    const saved = dbService.saveDecisionEntry(decision);
+    await dbService.flush();
+    res.status(201).json(saved);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // Doomscroll Self-Tax Jar
@@ -4385,20 +4516,50 @@ apiRouter.get('/doomscroll-tax', (req: Request, res: Response) => {
   res.json(dbService.getDoomscrollLogs(auth.userId));
 });
 
-apiRouter.post('/doomscroll-tax', (req: Request, res: Response) => {
+apiRouter.post('/doomscroll-tax', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  const log = {
-    ...req.body,
-    id: req.body.id || `tax_${Date.now()}`,
+  const body = req.body || {};
+  const minutes = typeof body.minutes === 'number' && body.minutes > 0 ? Math.floor(body.minutes) : 0;
+  if (minutes <= 0) {
+    res.status(400).json({ error: 'minutes is required and must be a positive number' });
+    return;
+  }
+
+  const log: DoomscrollTaxEntry = {
+    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `tax_${Date.now()}`,
     userId: auth.userId,
-    createdAt: req.body.createdAt || new Date().toISOString(),
+    minutes,
+    durationMinutes: minutes,
+    distractionApp: typeof body.distractionApp === 'string' ? body.distractionApp.slice(0, 64) : 'Social Media',
+    platform: typeof body.platform === 'string' ? body.platform.slice(0, 64) : undefined,
+    ratePerHour: typeof body.ratePerHour === 'number' && body.ratePerHour >= 0 ? body.ratePerHour : 0,
+    amountTaxed: typeof body.amountTaxed === 'number' && body.amountTaxed >= 0 ? body.amountTaxed : 0,
+    taxAmountPaise: typeof body.taxAmountPaise === 'number' && body.taxAmountPaise >= 0 ? body.taxAmountPaise : undefined,
+    currency: typeof body.currency === 'string' ? body.currency.slice(0, 8) : '₹',
+    notes: typeof body.notes === 'string' ? body.notes.slice(0, 500) : undefined,
+    reason: typeof body.reason === 'string' ? body.reason.slice(0, 500) : undefined,
+    linkedSavingsGoalId: typeof body.linkedSavingsGoalId === 'string' ? body.linkedSavingsGoalId.slice(0, 128) : undefined,
+    createdAt: typeof body.createdAt === 'string' ? body.createdAt : new Date().toISOString(),
   };
-  res.json(dbService.saveDoomscrollLog(log));
+
+  try {
+    const saved = dbService.saveDoomscrollLog(log);
+    await dbService.flush();
+    res.status(201).json(saved);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/doomscroll-tax', (req: Request, res: Response) => {
+apiRouter.delete('/doomscroll-tax', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  res.json({ success: dbService.clearDoomscrollLogs(auth.userId) });
+  try {
+    const success = dbService.clearDoomscrollLogs(auth.userId);
+    await dbService.flush();
+    res.json({ success });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // Time Capsule Letters
@@ -4407,20 +4568,50 @@ apiRouter.get('/time-capsules', (req: Request, res: Response) => {
   res.json(dbService.getTimeCapsules(auth.userId));
 });
 
-apiRouter.post('/time-capsules', (req: Request, res: Response) => {
+apiRouter.post('/time-capsules', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  const capsule = {
-    ...req.body,
-    id: req.body.id || `cap_${Date.now()}`,
+  const body = req.body || {};
+  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 256) : '';
+  const content = typeof body.content === 'string' ? body.content.trim().slice(0, 20000) : '';
+  const unlockDate = typeof body.unlockDate === 'string' ? body.unlockDate.trim().slice(0, 32) : '';
+
+  if (!title || !content || !unlockDate) {
+    res.status(400).json({ error: 'title, content, and unlockDate are required' });
+    return;
+  }
+
+  const capsule: TimeCapsuleLetter = {
+    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `cap_${Date.now()}`,
     userId: auth.userId,
-    createdAt: req.body.createdAt || new Date().toISOString(),
+    title,
+    content,
+    unlockDate,
+    isUnlocked: Boolean(body.isUnlocked),
+    isSealed: body.isSealed !== undefined ? Boolean(body.isSealed) : true,
+    sealedAt: typeof body.sealedAt === 'string' ? body.sealedAt : new Date().toISOString(),
+    createdAt: typeof body.createdAt === 'string' ? body.createdAt : new Date().toISOString(),
+    openedAt: typeof body.openedAt === 'string' ? body.openedAt : undefined,
+    tags: Array.isArray(body.tags) ? body.tags.filter((t: unknown) => typeof t === 'string').slice(0, 10) : undefined,
   };
-  res.json(dbService.saveTimeCapsule(capsule));
+
+  try {
+    const saved = dbService.saveTimeCapsule(capsule);
+    await dbService.flush();
+    res.status(201).json(saved);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
-apiRouter.delete('/time-capsules/:id', (req: Request, res: Response) => {
+apiRouter.delete('/time-capsules/:id', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  res.json({ success: dbService.deleteTimeCapsule(req.params.id, auth.userId) });
+  try {
+    const success = dbService.deleteTimeCapsule(req.params.id, auth.userId);
+    await dbService.flush();
+    res.json({ success });
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // Emergency Profile & Asset Summary
@@ -4438,15 +4629,37 @@ apiRouter.get('/emergency-profile', (req: Request, res: Response) => {
   );
 });
 
-apiRouter.post('/emergency-profile', (req: Request, res: Response) => {
+apiRouter.post('/emergency-profile', async (req: Request, res: Response) => {
   const auth = getAuth(req);
-  const profile = {
-    ...req.body,
-    id: req.body.id || `ep_${auth.userId}`,
+  const body = req.body || {};
+
+  const profile: EmergencyAssetProfile = {
+    id: `ep_${auth.userId}`,
     userId: auth.userId,
+    fullName: typeof body.fullName === 'string' ? body.fullName.slice(0, 128) : undefined,
+    bloodGroup: typeof body.bloodGroup === 'string' ? body.bloodGroup.slice(0, 16) : undefined,
+    primaryHospital: typeof body.primaryHospital === 'string' ? body.primaryHospital.slice(0, 256) : undefined,
+    accounts: Array.isArray(body.accounts) ? body.accounts.slice(0, 50) : [],
+    policies: Array.isArray(body.policies) ? body.policies.slice(0, 50) : [],
+    emergencyContacts: Array.isArray(body.emergencyContacts)
+      ? body.emergencyContacts.slice(0, 20)
+      : Array.isArray(body.contacts)
+        ? body.contacts.slice(0, 20)
+        : [],
+    contacts: Array.isArray(body.contacts) ? body.contacts.slice(0, 20) : undefined,
+    importantDocumentLocations: typeof body.importantDocumentLocations === 'string' ? body.importantDocumentLocations.slice(0, 2000) : undefined,
+    instructionsNote: typeof body.instructionsNote === 'string' ? body.instructionsNote.slice(0, 2000) : undefined,
+    notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : undefined,
     updatedAt: new Date().toISOString(),
   };
-  res.json(dbService.saveEmergencyProfile(profile));
+
+  try {
+    const saved = dbService.saveEmergencyProfile(profile);
+    await dbService.flush();
+    res.status(201).json(saved);
+  } catch {
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
 });
 
 // ----------------------------------------------------

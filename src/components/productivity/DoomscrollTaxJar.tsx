@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DoomscrollTaxEntry } from '../../types/features15.ts';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Flame,
@@ -14,8 +16,6 @@ import {
   Coins,
 } from 'lucide-react';
 
-const LOCAL_STORAGE_KEY = 'focusflow_doomscroll_jar_v1';
-
 const PLATFORMS = [
   'Instagram / Reels',
   'TikTok',
@@ -26,10 +26,31 @@ const PLATFORMS = [
   'Gaming / Other',
 ];
 
+const SEED_ENTRIES: DoomscrollTaxEntry[] = [
+  {
+    id: 'tax-1',
+    userId: 'user',
+    minutes: 45,
+    durationMinutes: 45,
+    distractionApp: 'Instagram / Reels',
+    platform: 'Instagram / Reels',
+    ratePerHour: 100,
+    amountTaxed: 75,
+    taxAmountPaise: 7500, // ₹75.00
+    currency: '₹',
+    reason: 'Late night algorithmic reel trap',
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+  },
+];
+
 export const DoomscrollTaxJar: React.FC = () => {
+  const { user } = useApp();
+  const activeUid = user?.id || 'usr_guest';
+  const storageKey = `focusflow_${activeUid}_doomscroll_jar_v1`;
+
   const [taxRatePer15Min, setTaxRatePer15Min] = useState<number>(25); // ₹25 per 15 min default
   const [entries, setEntries] = useState<DoomscrollTaxEntry[]>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -38,23 +59,35 @@ export const DoomscrollTaxJar: React.FC = () => {
         // fallback
       }
     }
-    return [
-      {
-        id: 'tax-1',
-        userId: 'user',
-        minutes: 45,
-        durationMinutes: 45,
-        distractionApp: 'Instagram / Reels',
-        platform: 'Instagram / Reels',
-        ratePerHour: 100,
-        amountTaxed: 75,
-        taxAmountPaise: 7500, // ₹75.00
-        currency: '₹',
-        reason: 'Late night algorithmic reel trap',
-        createdAt: new Date(Date.now() - 86400000).toISOString(),
-      },
-    ];
+    return SEED_ENTRIES;
   });
+
+  // Sync user-scoped storage & backend
+  useEffect(() => {
+    let isMounted = true;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setEntries(parsed);
+      } catch {}
+    } else {
+      setEntries(SEED_ENTRIES);
+    }
+
+    api.getDoomscrollLogs().then((remote) => {
+      if (isMounted && Array.isArray(remote) && remote.length > 0) {
+        setEntries(remote);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(remote));
+        } catch {}
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [storageKey]);
 
   const [platform, setPlatform] = useState(PLATFORMS[0]);
   const [durationMinutes, setDurationMinutes] = useState(30);
@@ -64,7 +97,7 @@ export const DoomscrollTaxJar: React.FC = () => {
   const saveState = (updated: DoomscrollTaxEntry[]) => {
     setEntries(updated);
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem(storageKey, JSON.stringify(updated));
     } catch {
       // ignore
     }
@@ -89,7 +122,7 @@ export const DoomscrollTaxJar: React.FC = () => {
 
     const newEntry: DoomscrollTaxEntry = {
       id: `tax-${Date.now()}`,
-      userId: 'user',
+      userId: activeUid,
       minutes: durationMinutes,
       durationMinutes,
       distractionApp: platform,
@@ -104,6 +137,7 @@ export const DoomscrollTaxJar: React.FC = () => {
     };
 
     saveState([newEntry, ...entries]);
+    api.saveDoomscrollLog(newEntry).catch(() => {});
     setNotes('');
   };
 
@@ -111,12 +145,14 @@ export const DoomscrollTaxJar: React.FC = () => {
     if (!window.confirm('Simulate moving Discipline Jar balance to your Long-Term Savings Goal?')) return;
     setIsTransferredNotice(true);
     saveState([]);
+    api.clearDoomscrollLogs().catch(() => {});
     setTimeout(() => setIsTransferredNotice(false), 5000);
   };
 
   const handleResetHistory = () => {
     if (!window.confirm('Reset all doomscroll tax entries?')) return;
     saveState([]);
+    api.clearDoomscrollLogs().catch(() => {});
   };
 
   return (

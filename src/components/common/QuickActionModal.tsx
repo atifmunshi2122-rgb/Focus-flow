@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { playCashSound } from '../../lib/sound.ts';
 import {
   Receipt,
@@ -132,7 +133,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
   // Common date & payment states
   const [date, setDate] = useState<string>(
-    () => initialDate || new Date().toISOString().split('T')[0]
+    () => initialDate || getTodayDateString()
   );
   const [paymentMethod, setPaymentMethod] = useState<
     'credit_card' | 'debit_card' | 'upi_bank' | 'cash'
@@ -160,7 +161,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   // Bill specific states
   const [billName, setBillName] = useState('');
   const [billAmount, setBillAmount] = useState('');
-  const [billDueDate, setBillDueDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [billDueDate, setBillDueDate] = useState(() => getTodayDateString());
   const [billCategory, setBillCategory] = useState('Bills & Utilities');
 
   // Task specific states
@@ -204,7 +205,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   }, [isOpen, safeInitialType, initialDate]);
 
   const resetFields = () => {
-    const today = initialDate || new Date().toISOString().split('T')[0];
+    const today = initialDate || getTodayDateString();
     setDate(today);
     setPaymentMethod('upi_bank');
     setExpenseEntries([]);
@@ -500,7 +501,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           const createdExp = await api.createExpense({
             description: item.reason.trim(),
             amountPaise: itemAmountPaise,
-            date: date || new Date().toISOString().split('T')[0],
+            date: date || getTodayDateString(),
             paymentMethod,
             categoryId: resolvedCategoryId,
             categoryName: resolvedCategoryName,
@@ -537,7 +538,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
         const createdInc = await api.createIncome({
           source: incomeSource.trim(),
           amountPaise: itemAmountPaise,
-          date: date || new Date().toISOString().split('T')[0],
+          date: date || getTodayDateString(),
           category: incomeCategory.trim() || 'Salary',
           notes: incomeNotes.trim() || undefined,
         });

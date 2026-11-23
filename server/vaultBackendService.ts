@@ -102,6 +102,7 @@ export function resolveServiceAccount(): ServiceAccountConfig | null {
 
   // 1. Check supported environment variables (without logging their values)
   const candidates = [
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
     process.env.FIREBASE_SERVICE_ACCOUNT,
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
     process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,

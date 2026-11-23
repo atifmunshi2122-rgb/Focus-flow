@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 import { SubtaskItem, Task, TaskRecurrence } from '../../types/index.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
 import {
   ThemeBadge,
@@ -146,7 +147,7 @@ export const TaskManager: React.FC = () => {
     setCategory('General');
     setRecurrence('none');
     setEstimatedPomodoros('2');
-    setDueDate(new Date().toISOString().split('T')[0]);
+    setDueDate(getTodayDateString());
     setSubtasks([]);
     setNewSubtaskTitle('');
     setFormError(null);
@@ -323,7 +324,7 @@ export const TaskManager: React.FC = () => {
     if (!cleanTitle || isSubmittingQuick) return;
     setIsSubmittingQuick(true);
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getTodayDateString();
       const created = await api.createTask({
         title: cleanTitle,
         description: '',
@@ -391,7 +392,7 @@ export const TaskManager: React.FC = () => {
     }
   };
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayDateString();
 
   const baseFiltered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { FocusSession, ExpenseTransaction, CurrencyCode } from '../../../../types/index.ts';
 import { getSessionFocusSeconds } from '../../../../lib/pomodoroAnalytics.ts';
 import { formatCurrency } from '../../../../lib/currency.ts';
+import { formatDateInTimezone } from '../../../../lib/dateTime.ts';
 import { GraphCard } from '../../core/GraphCard.tsx';
 import { GitCompare } from 'lucide-react';
 import { exportDatasetToCsv } from '../../core/GraphExport.ts';
@@ -46,7 +47,7 @@ export const FocusVsSpendCorrelationChart: React.FC<FocusVsSpendCorrelationChart
     if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
       const cur = new Date(start);
       while (cur <= end) {
-        const dateStr = cur.toISOString().slice(0, 10);
+        const dateStr = formatDateInTimezone(cur);
         const focusMinutes = focusMap.get(dateStr) || 0;
         const spendPaise = spendMap.get(dateStr) || 0;
 

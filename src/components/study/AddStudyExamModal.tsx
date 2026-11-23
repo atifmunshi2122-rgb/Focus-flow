@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudyExam, StudySubject, StudyTopic } from '../../types/study.ts';
+import { formatDateInTimezone } from '../../lib/dateTime.ts';
 import { GraduationCap } from 'lucide-react';
 
 interface AddStudyExamModalProps {
@@ -21,8 +22,8 @@ export const AddStudyExamModal: React.FC<AddStudyExamModalProps> = ({
   const [title, setTitle] = useState('');
   const [examType, setExamType] = useState('Final Semester');
   const [selectedSubjectCode, setSelectedSubjectCode] = useState(subjects[0]?.code || 'all');
-  const [examDate, setExamDate] = useState(
-    new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+  const [examDate, setExamDate] = useState(() =>
+    formatDateInTimezone(new Date(Date.now() + 14 * 86400000))
   );
   const [startTime, setStartTime] = useState('10:00');
   const [durationMinutes, setDurationMinutes] = useState(180);

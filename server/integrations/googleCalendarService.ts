@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { getAdminFirestore } from '../firebaseAdmin.js';
+import { getAdminFirestore, hasServiceAccountCredentials } from '../firebaseAdmin.js';
 import { encryptToken, decryptToken } from '../crypto.js';
 import { GHOST_OAUTH_CLIENT_ID } from '../../src/lib/googleAuthGis.js';
 import { dbService } from '../db.js';
@@ -248,7 +248,11 @@ export class GoogleCalendarService {
    * Retrieves connection status without leaking sensitive tokens.
    */
   public async getConnectionStatus(userId: string): Promise<GoogleCalendarConnectionStatus> {
-    if (!userId || userId.startsWith('gst_')) {
+    if (
+      !userId ||
+      userId.startsWith('gst_') ||
+      (!hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !this.customFirestore)
+    ) {
       return {
         connected: false,
         calendarId: 'primary',
@@ -677,8 +681,26 @@ export class GoogleCalendarService {
     }
 
     const calendarId = options?.calendarId || 'primary';
-    const tasks = dbService.getRaw().tasks.filter((t: any) => t.userId === userId && !t.deletedAt);
-    const timeBlocks = dbService.getTimeBlocks ? dbService.getTimeBlocks(userId).filter((b: any) => !b.deletedAt) : [];
+    let tasks = dbService.getRaw().tasks.filter((t: any) => t.userId === userId && !t.deletedAt);
+    let timeBlocks = dbService.getTimeBlocks ? dbService.getTimeBlocks(userId).filter((b: any) => !b.deletedAt) : [];
+
+    // On Vercel / Cloud Firestore, load authoritative tasks and time blocks from Firestore
+    if (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore) {
+      try {
+        const [tasksSnap, blocksSnap] = await Promise.all([
+          this.firestore.collection('users').doc(userId).collection('tasks').get(),
+          this.firestore.collection('users').doc(userId).collection('timeBlocks').get(),
+        ]);
+        if (!tasksSnap.empty) {
+          tasks = tasksSnap.docs.map((d: any) => d.data()).filter((t: any) => !t.deletedAt);
+        }
+        if (!blocksSnap.empty) {
+          timeBlocks = blocksSnap.docs.map((d: any) => d.data()).filter((b: any) => !b.deletedAt);
+        }
+      } catch (err) {
+        console.warn(`[GoogleCalendar] Falling back to local tasks for user ${userId}:`, err);
+      }
+    }
 
     const linksRef = this.firestore.collection('users').doc(userId).collection('calendar_event_links');
     const existingLinksSnap = await linksRef.get();

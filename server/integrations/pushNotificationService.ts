@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { getAdminFirestore, getAdminMessaging } from '../firebaseAdmin.js';
+import { getAdminFirestore, getAdminMessaging, hasServiceAccountCredentials } from '../firebaseAdmin.js';
 import { dbService } from '../db.js';
 import { evaluateDeterministicNotifications } from '../../src/lib/notificationsEngine.js';
 
@@ -120,7 +120,11 @@ export class PushNotificationService {
     deviceCount: number;
     devices: Array<{ installationId: string; platform?: string; userAgent?: string; lastSeenAt: string }>;
   }> {
-    if (!userId || userId.startsWith('gst_')) {
+    if (
+      !userId ||
+      userId.startsWith('gst_') ||
+      (!hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !this.customFirestore)
+    ) {
       return { enabled: false, deviceCount: 0, devices: [] };
     }
 
@@ -160,7 +164,17 @@ export class PushNotificationService {
     }
 
     // 1. Check user notification preferences
-    const settings = dbService.getUserSettings(userId);
+    let settings = dbService.getUserSettings(userId);
+    if (!settings && (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore)) {
+      try {
+        const settingsDoc = await this.firestore.collection('users').doc(userId).collection('settings').doc('preferences').get();
+        if (settingsDoc.exists) {
+          settings = settingsDoc.data() as any;
+        }
+      } catch {
+        // Fallback to local
+      }
+    }
     const prefs = (settings?.notificationPrefs as any) || {};
 
     if (prefs.enabled === false) {
@@ -290,20 +304,61 @@ export class PushNotificationService {
     let dispatchedCount = 0;
     let processedUsers = 0;
 
-    // Retrieve active users from local dbService
+    // Retrieve active users from local dbService and Firestore
     const rawDb = dbService.getRaw();
-    const users = rawDb.users;
+    const userIdsSet = new Set<string>();
 
-    for (const user of users) {
-      if (!user.id || user.id.startsWith('gst_')) continue;
+    for (const u of rawDb.users || []) {
+      if (u.id && !u.id.startsWith('gst_')) {
+        userIdsSet.add(u.id);
+      }
+    }
 
-      const deviceStatus = await this.getDeviceStatus(user.id);
+    if (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore) {
+      try {
+        const usersSnap = await this.firestore.collection('users').get();
+        usersSnap.docs.forEach((d: any) => {
+          if (d.id && !d.id.startsWith('gst_')) {
+            userIdsSet.add(d.id);
+          }
+        });
+      } catch (err) {
+        console.warn('[FCM] Error discovering users in Firestore:', err);
+      }
+    }
+
+    const userIds = Array.from(userIdsSet);
+
+    for (const userId of userIds) {
+      const deviceStatus = await this.getDeviceStatus(userId);
       if (!deviceStatus.enabled || deviceStatus.deviceCount === 0) continue;
 
       processedUsers++;
-      const settings = dbService.getUserSettings(user.id) || null;
-      const tasks = rawDb.tasks.filter((t: any) => t.userId === user.id && !t.deletedAt);
-      const bills = rawDb.bills.filter((b: any) => b.userId === user.id && !b.deletedAt);
+      let settings = dbService.getUserSettings(userId) || null;
+      let tasks = rawDb.tasks.filter((t: any) => t.userId === userId && !t.deletedAt);
+      let bills = rawDb.bills.filter((b: any) => b.userId === userId && !b.deletedAt);
+
+      if (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore) {
+        try {
+          const [tSnap, bSnap, sSnap] = await Promise.all([
+            this.firestore.collection('users').doc(userId).collection('tasks').get(),
+            this.firestore.collection('users').doc(userId).collection('bills').get(),
+            this.firestore.collection('users').doc(userId).collection('settings').doc('preferences').get(),
+          ]);
+          if (!tSnap.empty) {
+            tasks = tSnap.docs.map((d: any) => d.data()).filter((t: any) => !t.deletedAt);
+          }
+          if (!bSnap.empty) {
+            bills = bSnap.docs.map((d: any) => d.data()).filter((b: any) => !b.deletedAt);
+          }
+          if (sSnap.exists) {
+            settings = sSnap.data() as any;
+          }
+        } catch (err) {
+          console.warn(`[FCM] Error loading Firestore records for ${userId}:`, err);
+        }
+      }
+
       const dashboard = null;
       const financeSummary = null;
 
@@ -319,7 +374,7 @@ export class PushNotificationService {
         const entryId = `${item.category}_${item.id}_${todayStr}`;
         const ledgerRef = this.firestore
           .collection('users')
-          .doc(user.id)
+          .doc(userId)
           .collection('notification_delivery_ledger')
           .doc(entryId);
 
@@ -329,7 +384,7 @@ export class PushNotificationService {
           continue;
         }
 
-        const res = await this.sendNotification(user.id, {
+        const res = await this.sendNotification(userId, {
           title: item.title,
           body: item.message,
           category: item.category as any,

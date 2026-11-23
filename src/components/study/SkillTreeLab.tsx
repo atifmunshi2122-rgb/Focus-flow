@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   SkillNode,
   SkillTreePreset,
   SkillNodeStatus,
 } from '../../types/features15.ts';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
 import {
   SKILL_TREE_PRESETS,
   resolveNodeStatus,
@@ -34,9 +36,13 @@ interface SkillTreeLabProps {
 }
 
 export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({ onAttachToTopic }) => {
+  const { user } = useApp();
+  const activeUid = user?.id || 'usr_guest';
+  const storageKey = `focusflow_${activeUid}_skill_tree_state`;
+
   const [selectedPresetId, setSelectedPresetId] = useState<string>('cs-foundations');
   const [activePreset, setActivePreset] = useState<SkillTreePreset>(() => {
-    const saved = localStorage.getItem('focusflow_skill_tree_state');
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -47,6 +53,41 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({ onAttachToTopic }) =
     }
     return SKILL_TREE_PRESETS[0];
   });
+
+  // Sync user-scoped storage & backend
+  useEffect(() => {
+    let isMounted = true;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.nodes) setActivePreset(parsed);
+      } catch {}
+    } else {
+      setActivePreset(SKILL_TREE_PRESETS[0]);
+    }
+
+    api.getSkillNodes().then((remoteNodes) => {
+      if (isMounted && Array.isArray(remoteNodes) && remoteNodes.length > 0) {
+        setActivePreset((prev) => {
+          const remoteMap = new Map(remoteNodes.map((rn) => [rn.id, rn]));
+          const mergedNodes = prev.nodes.map((node) => {
+            const remote = remoteMap.get(node.id);
+            return remote ? { ...node, status: remote.status, completedAt: remote.completedAt } : node;
+          });
+          const updated = { ...prev, nodes: mergedNodes };
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [storageKey]);
 
   const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -61,7 +102,7 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({ onAttachToTopic }) =
   const saveState = (updatedPreset: SkillTreePreset) => {
     setActivePreset(updatedPreset);
     try {
-      localStorage.setItem('focusflow_skill_tree_state', JSON.stringify(updatedPreset));
+      localStorage.setItem(storageKey, JSON.stringify(updatedPreset));
     } catch {
       // ignore
     }
@@ -85,13 +126,15 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({ onAttachToTopic }) =
   }, [activePreset.nodes, selectedNodeId]);
 
   const handleStatusChange = (nodeId: string, newStatus: SkillNodeStatus) => {
+    let targetNode: SkillNode | null = null;
     const updatedNodes = activePreset.nodes.map((n) => {
       if (n.id === nodeId) {
-        return {
+        targetNode = {
           ...n,
           status: newStatus,
           completedAt: newStatus === 'completed' ? new Date().toISOString() : undefined,
         };
+        return targetNode;
       }
       return n;
     });
@@ -105,6 +148,9 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({ onAttachToTopic }) =
     }
 
     saveState({ ...activePreset, nodes: updatedNodes });
+    if (targetNode) {
+      api.saveSkillNode(targetNode).catch(() => {});
+    }
   };
 
   const handleResetProgress = () => {
@@ -142,6 +188,7 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({ onAttachToTopic }) =
 
     setCycleError(null);
     saveState({ ...activePreset, nodes: nextNodes });
+    api.saveSkillNode(candidateNode).catch(() => {});
     setIsAddModalOpen(false);
     setNewNodeTitle('');
     setNewNodeCategory('');

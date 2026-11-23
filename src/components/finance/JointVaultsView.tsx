@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency, toPaise as parseCurrencyInput } from '../../lib/currency.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import {
   JointVault,
   VaultMember,
@@ -80,13 +81,13 @@ export const JointVaultsView: React.FC = () => {
 
   // Contribution Form
   const [contribAmount, setContribAmount] = useState('');
-  const [contribDate, setContribDate] = useState(new Date().toISOString().slice(0, 10));
+  const [contribDate, setContribDate] = useState(() => getTodayDateString());
   const [contribDesc, setContribDesc] = useState('');
 
   // Expense Form
   const [expAmount, setExpAmount] = useState('');
   const [expDesc, setExpDesc] = useState('');
-  const [expDate, setExpDate] = useState(new Date().toISOString().slice(0, 10));
+  const [expDate, setExpDate] = useState(() => getTodayDateString());
   const [expSplitMode, setExpSplitMode] = useState<ExpenseSplitMode>('equal');
 
   // Settlement Form

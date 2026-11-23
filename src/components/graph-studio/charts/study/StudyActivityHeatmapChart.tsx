@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { FocusSession } from '../../../../types/index.ts';
 import { StudyActivityLog } from '../../../../types/study.ts';
 import { getSessionFocusSeconds } from '../../../../lib/pomodoroAnalytics.ts';
+import { formatDateInTimezone } from '../../../../lib/dateTime.ts';
 import { GraphCard } from '../../core/GraphCard.tsx';
 import { GraphTooltip } from '../../core/GraphTooltip.tsx';
 import { BookOpen } from 'lucide-react';
@@ -77,7 +78,7 @@ export const StudyActivityHeatmapChart: React.FC<StudyActivityHeatmapChartProps>
 
     const current = new Date(start);
     while (current <= end) {
-      const dateStr = current.toISOString().slice(0, 10);
+      const dateStr = formatDateInTimezone(current);
       const data = dailyMap.get(dateStr);
       cells.push({
         date: dateStr,

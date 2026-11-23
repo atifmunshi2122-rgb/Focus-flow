@@ -13,6 +13,7 @@ import {
   DurableSyncOperation,
   UserSettings,
 } from '../types/index.ts';
+import { getTodayDateString } from './dateTime.ts';
 
 export interface SyncQueueItem {
   id: string;
@@ -1663,7 +1664,7 @@ export function buildSyncValueUpdates(
     values: goalRowsFinance.length > 0 ? goalRowsFinance : [['', '', 0, 0, 0, '', 0, 'IN_PROGRESS']],
   });
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayDateString();
   const todayIncome =
     activeIncomes.filter((i) => i.date === todayStr).reduce((sum, i) => sum + i.amountPaise, 0) / 100;
   const todayExpense =

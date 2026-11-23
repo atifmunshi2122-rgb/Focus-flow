@@ -241,7 +241,7 @@ function computeNextRecurrenceDueDate(
   const baseStr =
     currentDueDate && isIsoDate(currentDueDate)
       ? currentDueDate
-      : new Date().toISOString().slice(0, 10);
+      : getTodayDateString();
   const d = new Date(`${baseStr}T00:00:00.000Z`);
   if (recurrence === 'daily') d.setUTCDate(d.getUTCDate() + 1);
   else if (recurrence === 'weekly') d.setUTCDate(d.getUTCDate() + 7);
@@ -959,7 +959,7 @@ export const firestoreService = {
       userId,
       source,
       amountPaise: Math.round(amount),
-      date: input.date || new Date().toISOString().split('T')[0],
+      date: input.date || getTodayDateString(),
       category: (input.category || 'Salary').trim() || 'Salary',
       notes: (input.notes || '').trim(),
       createdAt: new Date().toISOString(),
@@ -1198,7 +1198,7 @@ export const firestoreService = {
       type: input.type === 'fixed' ? 'fixed' : 'variable',
       categoryId,
       amountPaise: Math.round(amount),
-      date: input.date || new Date().toISOString().split('T')[0],
+      date: input.date || getTodayDateString(),
       description,
       paymentMethod: input.paymentMethod || 'upi_bank',
       notes: (input.notes || '').trim(),

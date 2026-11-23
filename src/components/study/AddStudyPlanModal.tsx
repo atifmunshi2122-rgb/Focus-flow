@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudyPlan, StudyPlanType, StudySubject } from '../../types/study.ts';
+import { getTodayDateString, formatDateInTimezone } from '../../lib/dateTime.ts';
 import { Calendar, Clock } from 'lucide-react';
 
 interface AddStudyPlanModalProps {
@@ -20,9 +21,9 @@ export const AddStudyPlanModal: React.FC<AddStudyPlanModalProps> = ({
   const [description, setDescription] = useState('');
   const [planType, setPlanType] = useState<StudyPlanType>('weekly');
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState(
-    new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+  const [startDate, setStartDate] = useState(() => getTodayDateString());
+  const [endDate, setEndDate] = useState(() =>
+    formatDateInTimezone(new Date(Date.now() + 7 * 86400000))
   );
   const [dailyTargetMinutes, setDailyTargetMinutes] = useState(120);
   const [weeklyTargetMinutes, setWeeklyTargetMinutes] = useState(600);

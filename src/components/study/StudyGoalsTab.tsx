@@ -1,6 +1,7 @@
 import React from 'react';
 import { StudyGoal, StudySubject } from '../../types/study.ts';
 import { computeStudyGoalProgress } from '../../lib/studyIntelligence.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import { Target, Plus, Trash2, Check, Clock, Calendar } from 'lucide-react';
 
@@ -55,7 +56,7 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeGoals.map((goal) => {
             const progress = computeStudyGoalProgress(goal);
-            const today = new Date().toISOString().slice(0, 10);
+            const today = getTodayDateString();
             const daysLeft = Math.ceil(
               (new Date(`${goal.endDate}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) /
                 86400000

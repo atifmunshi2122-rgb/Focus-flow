@@ -364,7 +364,7 @@ export function openPrintableGraphStudioReport(params: GraphStudioReportParams):
   </table>
 
   <div class="footer">
-    <div>FocusFlow &amp; Finance v1.7.0 • Verified Local Ledger Intelligence</div>
+    <div>FocusFlow &amp; Finance v1.8.0 • Verified Local Ledger Intelligence</div>
     <div>Confidential Operational Statement • Page 1 of 1</div>
   </div>
 

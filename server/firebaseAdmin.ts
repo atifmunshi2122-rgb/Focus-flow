@@ -159,8 +159,15 @@ export function getFirebaseAdminApp(): App {
     }
   }
 
-  // 2. Fall back to Application Default Credentials (ADC) where supported (GCP / Cloud Run / App Engine)
-  if (!credential) {
+  // 2. Fall back to Application Default Credentials (ADC) ONLY where supported (GCP / Cloud Run / App Engine / explicit GOOGLE_APPLICATION_CREDENTIALS)
+  const isGcpRuntime = Boolean(
+    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    process.env.K_SERVICE ||
+    process.env.GAE_SERVICE ||
+    process.env.FUNCTION_NAME
+  );
+
+  if (!credential && isGcpRuntime) {
     try {
       credential = applicationDefault();
       source = 'adc';
@@ -168,6 +175,8 @@ export function getFirebaseAdminApp(): App {
       // In local dev/emulator or environments without GCP metadata, fall back to project_id_only
       source = 'project_id_only';
     }
+  } else if (!credential) {
+    source = 'project_id_only';
   }
 
   activeMetadata = {

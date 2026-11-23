@@ -1,4 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Pen,
@@ -29,6 +31,10 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   topics = [],
   onSaveAttachment,
 }) => {
+  const { user } = useApp();
+  const activeUid = user?.id || 'usr_guest';
+  const storageKey = `focusflow_${activeUid}_whiteboard_latest`;
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -294,6 +300,15 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     if (onSaveAttachment) {
       onSaveAttachment(dataUrl, selectedTopicId || undefined);
     }
+    const topic = topics.find((t) => t.id === selectedTopicId);
+    api.saveWhiteboardDrawing({
+      title: topic ? `${topic.subtopic || 'Topic'} Whiteboard Note` : 'Whiteboard Note',
+      dataUrl,
+      topicId: selectedTopicId || undefined,
+    }).catch(() => {});
+    try {
+      localStorage.setItem(storageKey, dataUrl);
+    } catch {}
     setIsSavedToast(true);
     setTimeout(() => setIsSavedToast(false), 3000);
   };

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FocusSession } from '../../../../types/index.ts';
 import { getSessionFocusSeconds } from '../../../../lib/pomodoroAnalytics.ts';
+import { formatDateInTimezone } from '../../../../lib/dateTime.ts';
 import { GraphCard } from '../../core/GraphCard.tsx';
 import { GraphTooltip } from '../../core/GraphTooltip.tsx';
 import { Clock } from 'lucide-react';
@@ -59,7 +60,7 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
     if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
       const cur = new Date(start);
       while (cur <= end) {
-        const dateStr = cur.toISOString().slice(0, 10);
+        const dateStr = formatDateInTimezone(cur);
         const data = dayMap.get(dateStr) || { minutes: 0, count: 0 };
         const dayName = cur.toLocaleDateString(undefined, { weekday: 'short' });
 

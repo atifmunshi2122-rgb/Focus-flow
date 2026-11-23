@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { googleCalendarService } from '../integrations/googleCalendarService.js';
 import type { AuthenticatedRequest } from '../auth.js';
+import { hasServiceAccountCredentials } from '../firebaseAdmin.js';
 
 export const googleCalendarRouter = Router();
 
@@ -12,6 +13,14 @@ function handleCalendarError(res: Response, err: unknown, fallbackMessage: strin
     msg.includes('not connected') ||
     msg.includes('invalid_grant');
   const isExternalProtection = msg.includes('EXTERNAL_EVENT_PROTECTION');
+
+  if (msg.includes('FIREBASE_ADMIN_UNAVAILABLE') || msg.includes('service account')) {
+    res.status(503).json({
+      error: msg,
+      code: 'SERVICE_UNAVAILABLE',
+    });
+    return;
+  }
 
   if (isAuthError) {
     res.status(401).json({
@@ -52,13 +61,19 @@ googleCalendarRouter.use('/integrations/google-calendar', requireRealUser);
 // 1. GET /integrations/google-calendar/oauth/start
 googleCalendarRouter.get('/integrations/google-calendar/oauth/start', async (req: Request, res: Response) => {
   try {
+    if (!hasServiceAccountCredentials()) {
+      res.status(503).json({
+        error: 'Google Calendar integration requires configured Firebase Admin credentials.',
+        code: 'SERVICE_UNAVAILABLE',
+      });
+      return;
+    }
     const authReq = req as AuthenticatedRequest;
     const redirectUri = req.query.redirectUri as string | undefined;
     const { authUrl, stateId } = await googleCalendarService.startOAuthFlow(authReq.auth.userId, redirectUri);
     res.json({ authUrl, stateId });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to start OAuth flow';
-    res.status(500).json({ error: msg });
+    handleCalendarError(res, err, 'Failed to start OAuth flow');
   }
 });
 
@@ -176,6 +191,13 @@ googleCalendarRouter.post('/integrations/google-calendar/sync/tasks', async (req
 // 9. DELETE /integrations/google-calendar/connection
 googleCalendarRouter.delete('/integrations/google-calendar/connection', async (req: Request, res: Response) => {
   try {
+    if (!hasServiceAccountCredentials()) {
+      res.status(503).json({
+        error: 'Google Calendar integration requires configured Firebase Admin credentials.',
+        code: 'SERVICE_UNAVAILABLE',
+      });
+      return;
+    }
     const authReq = req as AuthenticatedRequest;
     await googleCalendarService.disconnect(authReq.auth.userId);
     res.json({ success: true, connected: false });

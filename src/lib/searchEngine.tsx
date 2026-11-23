@@ -12,6 +12,7 @@ import {
   UserSettings,
 } from '../types/index.ts';
 import { formatCurrency } from './currency.ts';
+import { getTodayDateString } from './dateTime.ts';
 import { SETTINGS_CATEGORIES } from '../components/settings/settingsCategories.ts';
 import { COMPLETE_THEME_COLLECTION } from '../theme/presetThemes.ts';
 
@@ -573,7 +574,7 @@ export function getContextualCommandSuggestions(sources: {
   badgeTone: 'accent' | 'success' | 'warning' | 'danger';
   action: () => void;
 }> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getTodayDateString();
   const suggestions = [];
 
   // 1. Today's expenses

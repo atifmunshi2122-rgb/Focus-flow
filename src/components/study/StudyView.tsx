@@ -24,7 +24,7 @@ import {
 } from '../../types/study.ts';
 import { FocusSession } from '../../types/index.ts';
 import { DEFAULT_ACADEMIC_TIERS } from '../../data/studySeedData.ts';
-import { DEFAULT_TIMEZONE } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import {
   categorizeRevisions,
   computeStudyProgressSummary,
@@ -183,7 +183,7 @@ export const StudyView: React.FC = () => {
   // Global search & filters state
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [isBookmarksOnly, setIsBookmarksOnly] = useState(false);
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState(new Date().toISOString().slice(0, 10));
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => getTodayDateString());
 
   // Interactive flashcard deck state
   const [activeFlashcardIdx, setActiveFlashcardIdx] = useState(0);
@@ -802,8 +802,8 @@ export const StudyView: React.FC = () => {
       targetValue: goalData.targetValue || 1,
       currentValue: 0,
       unit: goalData.unit || 'topics',
-      startDate: goalData.startDate || new Date().toISOString().slice(0, 10),
-      endDate: goalData.endDate || new Date().toISOString().slice(0, 10),
+      startDate: goalData.startDate || getTodayDateString(),
+      endDate: goalData.endDate || getTodayDateString(),
       status: 'active',
       priority: goalData.priority || 'medium',
       milestones: goalData.milestones || [],
@@ -856,8 +856,8 @@ export const StudyView: React.FC = () => {
       description: planData.description || '',
       planType: planData.planType || 'weekly',
       subjectIds: planData.subjectIds || [],
-      startDate: planData.startDate || new Date().toISOString().slice(0, 10),
-      endDate: planData.endDate || new Date().toISOString().slice(0, 10),
+      startDate: planData.startDate || getTodayDateString(),
+      endDate: planData.endDate || getTodayDateString(),
       dailyTargetMinutes: planData.dailyTargetMinutes || 120,
       weeklyTargetMinutes: planData.weeklyTargetMinutes || 600,
       recurringPattern: planData.recurringPattern || 'none',
@@ -949,7 +949,7 @@ export const StudyView: React.FC = () => {
       examType: examData.examType || 'Semester Final',
       subjectIds: examData.subjectIds || [],
       syllabusTopicIds: examData.syllabusTopicIds || [],
-      examDate: examData.examDate || new Date().toISOString().slice(0, 10),
+      examDate: examData.examDate || getTodayDateString(),
       startTime: examData.startTime || null,
       durationMinutes: examData.durationMinutes || 180,
       totalMarks: examData.totalMarks || 100,
@@ -1099,7 +1099,7 @@ export const StudyView: React.FC = () => {
       difficulty: cardData.difficulty || 'medium',
       reviewCount: 0,
       lastReviewedAt: null,
-      nextReviewAt: new Date().toISOString().slice(0, 10),
+      nextReviewAt: getTodayDateString(),
       isBookmarked: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -2491,7 +2491,7 @@ export const StudyView: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {studyHabits.map((habit) => {
-                const todayStr = new Date().toISOString().slice(0, 10);
+                const todayStr = getTodayDateString();
                 const isCompletedToday = (habit.completedDates || []).includes(todayStr);
 
                 return (
@@ -2861,7 +2861,7 @@ export const StudyView: React.FC = () => {
             topicId: revisionData.topicId!,
             subjectCode: revisionData.subjectCode!,
             topicTitle: revisionData.topicTitle!,
-            lastStudiedAt: revisionData.lastStudiedAt || new Date().toISOString().slice(0, 10),
+            lastStudiedAt: revisionData.lastStudiedAt || getTodayDateString(),
             nextRevisionAt: revisionData.nextRevisionAt!,
             intervalDays: revisionData.intervalDays || 1,
             repetition: 0,
@@ -2888,7 +2888,7 @@ export const StudyView: React.FC = () => {
           const newMistake: StudyMistake = {
             id: `mistake_${Date.now()}`,
             userId: user?.id || 'guest',
-            date: mistakeData.date || new Date().toISOString().slice(0, 10),
+            date: mistakeData.date || getTodayDateString(),
             subjectCode: mistakeData.subjectCode!,
             subjectName: mistakeData.subjectName,
             topic: mistakeData.topic!,

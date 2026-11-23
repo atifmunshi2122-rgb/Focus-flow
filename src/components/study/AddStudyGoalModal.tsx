@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudyGoal, StudySubject } from '../../types/study.ts';
+import { getTodayDateString, formatDateInTimezone } from '../../lib/dateTime.ts';
 import { Target, Plus, Trash2 } from 'lucide-react';
 
 interface AddStudyGoalModalProps {
@@ -22,9 +23,9 @@ export const AddStudyGoalModal: React.FC<AddStudyGoalModalProps> = ({
   const [subjectCode, setSubjectCode] = useState('all');
   const [targetValue, setTargetValue] = useState(10);
   const [unit, setUnit] = useState('topics');
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState(
-    new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+  const [startDate, setStartDate] = useState(() => getTodayDateString());
+  const [endDate, setEndDate] = useState(() =>
+    formatDateInTimezone(new Date(Date.now() + 30 * 86400000))
   );
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [milestones, setMilestones] = useState<Array<{ id: string; title: string; targetValue: number; completed: boolean }>>([]);

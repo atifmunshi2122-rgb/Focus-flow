@@ -19,10 +19,15 @@ export function resolveEncryptionKey(): Buffer {
     return crypto.createHash('sha256').update(envKey, 'utf8').digest();
   }
 
+  // In production, strictly fail closed if INTEGRATION_ENCRYPTION_KEY is not configured
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[CRITICAL_SECURITY_CONFIG] INTEGRATION_ENCRYPTION_KEY is not configured in production. Refusing to operate with unencrypted or fallback-keyed credentials.'
+    );
+  }
+
   // Development/Test fallback key
-  const fallbackSeed = process.env.NODE_ENV === 'production'
-    ? 'production-fallback-must-override-via-INTEGRATION_ENCRYPTION_KEY'
-    : 'focusflow-development-integration-encryption-key-seed';
+  const fallbackSeed = 'focusflow-development-integration-encryption-key-seed';
   return crypto.createHash('sha256').update(fallbackSeed, 'utf8').digest();
 }
 

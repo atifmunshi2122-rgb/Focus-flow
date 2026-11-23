@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudyFlashcard, StudySubject, StudyTopic } from '../../types/study.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { Sparkles } from 'lucide-react';
 
 interface AddStudyFlashcardModalProps {
@@ -45,7 +46,7 @@ export const AddStudyFlashcardModal: React.FC<AddStudyFlashcardModalProps> = ({
         topicId: topicId || null,
         difficulty,
         reviewCount: 0,
-        nextReviewAt: new Date().toISOString().slice(0, 10),
+        nextReviewAt: getTodayDateString(),
       });
       setQuestion('');
       setAnswer('');

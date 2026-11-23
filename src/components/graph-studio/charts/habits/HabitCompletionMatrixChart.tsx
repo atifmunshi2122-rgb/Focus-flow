@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Habit } from '../../../../types/index.ts';
 import { isHabitScheduledOnDate } from '../../../../lib/productivityIntelligence.ts';
+import { formatDateInTimezone } from '../../../../lib/dateTime.ts';
 import { GraphCard } from '../../core/GraphCard.tsx';
 import { Sparkles, Check, X } from 'lucide-react';
 import { exportDatasetToCsv } from '../../core/GraphExport.ts';
@@ -29,7 +30,7 @@ export const HabitCompletionMatrixChart: React.FC<HabitCompletionMatrixChartProp
     if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
       const cur = new Date(start);
       while (cur <= end) {
-        dates.push(cur.toISOString().slice(0, 10));
+        dates.push(formatDateInTimezone(cur));
         cur.setDate(cur.getDate() + 1);
       }
     }

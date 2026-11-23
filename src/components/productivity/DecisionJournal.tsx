@@ -1,5 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DecisionEntry } from '../../types/features15.ts';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
+import { formatDateInTimezone, getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Scale,
@@ -17,7 +20,6 @@ import {
   History,
 } from 'lucide-react';
 
-const LOCAL_STORAGE_KEY = 'focusflow_decision_journal_v1';
 
 const SEED_DECISIONS: DecisionEntry[] = [
   {
@@ -28,7 +30,7 @@ const SEED_DECISIONS: DecisionEntry[] = [
     rationale: 'Relying purely on cramming before midterms caused high stress and low retention.',
     expectedOutcome: 'Build 4 working portfolio projects, achieve > 8.5 GPA, and master systems programming.',
     confidenceScore: 8,
-    expectedReviewDate: new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0],
+    expectedReviewDate: formatDateInTimezone(new Date(Date.now() + 60 * 86400000)),
     reviewIntervalDays: 90,
     status: 'pending_review',
     createdAt: new Date().toISOString(),
@@ -41,7 +43,7 @@ const SEED_DECISIONS: DecisionEntry[] = [
     rationale: 'Manual investing led to emotional timing and unspent discretionary leaks.',
     expectedOutcome: 'Zero friction wealth accumulation and 20% minimum savings rate achieved automatically.',
     confidenceScore: 9,
-    expectedReviewDate: new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0], // Past review date
+    expectedReviewDate: formatDateInTimezone(new Date(Date.now() - 5 * 86400000)), // Past review date
     reviewIntervalDays: 30,
     status: 'reviewed',
     actualOutcome: 'Transferred 25% of monthly income seamlessly for 3 months without lifestyle constraint.',
@@ -52,8 +54,12 @@ const SEED_DECISIONS: DecisionEntry[] = [
 ];
 
 export const DecisionJournal: React.FC = () => {
+  const { user } = useApp();
+  const activeUid = user?.id || 'usr_guest';
+  const storageKey = `focusflow_${activeUid}_decision_journal_v1`;
+
   const [decisions, setDecisions] = useState<DecisionEntry[]>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -64,6 +70,33 @@ export const DecisionJournal: React.FC = () => {
     }
     return SEED_DECISIONS;
   });
+
+  // Sync with user-scoped storage & backend
+  useEffect(() => {
+    let isMounted = true;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setDecisions(parsed);
+      } catch {}
+    } else {
+      setDecisions(SEED_DECISIONS);
+    }
+
+    api.getDecisionEntries().then((remote) => {
+      if (isMounted && Array.isArray(remote) && remote.length > 0) {
+        setDecisions(remote);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(remote));
+        } catch {}
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [storageKey]);
 
   const [activeTab, setActiveTab] = useState<'pending' | 'reviewed' | 'all'>('pending');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -84,7 +117,7 @@ export const DecisionJournal: React.FC = () => {
   const saveState = (updated: DecisionEntry[]) => {
     setDecisions(updated);
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem(storageKey, JSON.stringify(updated));
     } catch {
       // ignore
     }
@@ -94,11 +127,11 @@ export const DecisionJournal: React.FC = () => {
     e.preventDefault();
     if (!title.trim() || !rationale.trim()) return;
 
-    const reviewDate = new Date(Date.now() + reviewDays * 86400000).toISOString().split('T')[0];
+    const reviewDate = formatDateInTimezone(new Date(Date.now() + reviewDays * 86400000));
 
     const newEntry: DecisionEntry = {
       id: `dec-${Date.now()}`,
-      userId: 'user',
+      userId: activeUid,
       title: title.trim(),
       category,
       rationale: rationale.trim(),
@@ -111,6 +144,7 @@ export const DecisionJournal: React.FC = () => {
     };
 
     saveState([newEntry, ...decisions]);
+    api.saveDecisionEntry(newEntry).catch(() => {});
     setIsAddModalOpen(false);
     setTitle('');
     setRationale('');
@@ -121,20 +155,25 @@ export const DecisionJournal: React.FC = () => {
     e.preventDefault();
     if (!reviewModalEntry) return;
 
+    let updatedEntry: DecisionEntry | null = null;
     const updated = decisions.map((d) => {
       if (d.id === reviewModalEntry.id) {
-        return {
+        updatedEntry = {
           ...d,
           status: 'reviewed' as const,
           actualOutcome: actualOutcome.trim(),
           lessonsLearned: lessonsLearned.trim(),
           reviewedAt: new Date().toISOString(),
         };
+        return updatedEntry;
       }
       return d;
     });
 
     saveState(updated);
+    if (updatedEntry) {
+      api.saveDecisionEntry(updatedEntry).catch(() => {});
+    }
     setReviewModalEntry(null);
     setActualOutcome('');
     setLessonsLearned('');

@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   EmergencyAssetProfile,
   MaskedAccountRecord,
   InsurancePolicyRecord,
   EmergencyContact,
 } from '../../types/features15.ts';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   ShieldAlert,
@@ -20,8 +23,6 @@ import {
   FileText,
   UserCheck,
 } from 'lucide-react';
-
-const LOCAL_STORAGE_KEY = 'focusflow_emergency_sheet_v1';
 
 const SEED_PROFILE: EmergencyAssetProfile = {
   id: 'emergency-profile',
@@ -96,8 +97,12 @@ const SEED_PROFILE: EmergencyAssetProfile = {
 };
 
 export const EmergencyAssetSummary: React.FC = () => {
+  const { user } = useApp();
+  const activeUid = user?.id || 'usr_guest';
+  const storageKey = `focusflow_${activeUid}_emergency_sheet_v1`;
+
   const [profile, setProfile] = useState<EmergencyAssetProfile>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -108,6 +113,33 @@ export const EmergencyAssetSummary: React.FC = () => {
     }
     return SEED_PROFILE;
   });
+
+  // Sync user-scoped storage & backend
+  useEffect(() => {
+    let isMounted = true;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.accounts) setProfile(parsed);
+      } catch {}
+    } else {
+      setProfile(SEED_PROFILE);
+    }
+
+    api.getEmergencyProfile().then((remote) => {
+      if (isMounted && remote && remote.accounts) {
+        setProfile(remote);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(remote));
+        } catch {}
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [storageKey]);
 
   const [showMasked, setShowMasked] = useState(true);
 
@@ -165,7 +197,7 @@ export const EmergencyAssetSummary: React.FC = () => {
             <p className="text-xs text-neutral-600 mt-0.5">FocusFlow & Finance Offline Resilience System</p>
           </div>
           <div className="text-right text-xs font-mono text-neutral-500">
-            <div>DATE: {new Date().toISOString().split('T')[0]}</div>
+            <div>DATE: {getTodayDateString()}</div>
             <div>STATUS: CONFIDENTIAL</div>
           </div>
         </div>

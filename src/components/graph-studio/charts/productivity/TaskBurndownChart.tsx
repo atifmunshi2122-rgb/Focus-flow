@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Task } from '../../../../types/index.ts';
+import { formatDateInTimezone } from '../../../../lib/dateTime.ts';
 import { GraphCard } from '../../core/GraphCard.tsx';
 import { GraphSvgContainer } from '../../core/GraphSvgContainer.tsx';
 import { scaleLinear } from '../../core/GraphScales.ts';
@@ -32,7 +33,7 @@ export const TaskBurndownChart: React.FC<TaskBurndownChartProps> = ({
     if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
       const cur = new Date(start);
       while (cur <= end) {
-        const dateStr = cur.toISOString().slice(0, 10);
+        const dateStr = formatDateInTimezone(cur);
         // Completed on this day
         const completedToday = tasks.filter(
           (t) => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) === dateStr

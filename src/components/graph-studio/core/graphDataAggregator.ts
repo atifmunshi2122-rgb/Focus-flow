@@ -93,7 +93,7 @@ export function aggregateStudyActivityHeatmap(
   if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
     const cur = new Date(start);
     while (cur <= end) {
-      const dateStr = cur.toISOString().slice(0, 10);
+      const dateStr = formatDateInTimezone(cur);
       const data = dayMap.get(dateStr);
       cells.push({
         date: dateStr,
@@ -529,7 +529,7 @@ export function aggregateFocusHoursTrend(
   if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
     const cur = new Date(start);
     while (cur <= end) {
-      const dateStr = cur.toISOString().slice(0, 10);
+      const dateStr = formatDateInTimezone(cur);
       const data = dayMap.get(dateStr) || { minutes: 0, count: 0 };
       const dayName = WEEKDAY_NAMES[cur.getDay()];
 
@@ -646,7 +646,7 @@ export function aggregateHabitCompletionTrends(
   for (let i = 59; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = formatDateInTimezone(d);
 
     const bucketKey = mode === 'weekly' ? getStartOfWeek(dateStr) : dateStr.slice(0, 7);
     const curr = bucketMap.get(bucketKey) || { periodKey: bucketKey, scheduled: 0, completed: 0 };
@@ -726,7 +726,7 @@ export function aggregateFocusVsSpendCorrelation(
   if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
     const cur = new Date(start);
     while (cur <= end) {
-      const dateStr = cur.toISOString().slice(0, 10);
+      const dateStr = formatDateInTimezone(cur);
       pairs.push({
         date: dateStr,
         focusMinutes: focusMap.get(dateStr) || 0,
@@ -957,7 +957,7 @@ export function aggregateTaskCompletionTrend(
   if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
     const cur = new Date(start);
     while (cur <= end) {
-      const d = cur.toISOString().slice(0, 10);
+      const d = formatDateInTimezone(cur);
       const cnt = completedMap.get(d) || 0;
       cum += cnt;
       points.push({ dateStr: d, completedCount: cnt, cumulativeCompleted: cum });
@@ -996,7 +996,7 @@ export function aggregateTaskBurndown(
   if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
     const cur = new Date(start);
     while (cur <= end) {
-      const d = cur.toISOString().slice(0, 10);
+      const d = formatDateInTimezone(cur);
       const completedSoFar = activeTasks.filter(
         (t) => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) <= d
       ).length;

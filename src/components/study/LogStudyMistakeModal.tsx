@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudyMistake, StudySubject } from '../../types/study.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 
 interface LogStudyMistakeModalProps {
   isOpen: boolean;
@@ -57,7 +58,7 @@ export const LogStudyMistakeModal: React.FC<LogStudyMistakeModalProps> = ({
     setError(null);
     try {
       await onAdd({
-        date: new Date().toISOString().slice(0, 10),
+        date: getTodayDateString(),
         subjectCode,
         subjectName: matchedSub ? matchedSub.name : subjectCode,
         topic: topic.trim() || 'General Concept',

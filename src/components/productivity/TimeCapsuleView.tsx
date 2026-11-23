@@ -1,5 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { TimeCapsuleLetter } from '../../types/features15.ts';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
+import { getTodayDateString, formatDateInTimezone } from '../../lib/dateTime.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Mail,
@@ -15,16 +18,34 @@ import {
   Archive,
 } from 'lucide-react';
 
-const LOCAL_STORAGE_KEY = 'focusflow_time_capsules_v1';
+function obfuscateContent(raw: string): string {
+  try {
+    return 'sealed:v1:' + btoa(unescape(encodeURIComponent(raw)));
+  } catch {
+    return raw;
+  }
+}
+
+function revealContent(stored: string): string {
+  if (typeof stored === 'string' && stored.startsWith('sealed:v1:')) {
+    try {
+      return decodeURIComponent(escape(atob(stored.slice(10))));
+    } catch {
+      return stored.slice(10);
+    }
+  }
+  return stored;
+}
 
 const SEED_CAPSULES: TimeCapsuleLetter[] = [
   {
     id: 'capsule-1',
     userId: 'user',
     title: 'Beginning My System Architecture & CS Journey',
-    content:
-      'I am writing this during the early phase of building FocusFlow v1.8. Remember why you started: discipline, craftsmanship, and compounding self-reliance. Did you complete the distributed systems roadmap? Stay humble and keep shipping.',
-    unlockDate: new Date(Date.now() + 180 * 86400000).toISOString().split('T')[0], // 6 months from now
+    content: obfuscateContent(
+      'I am writing this during the early phase of building FocusFlow v1.8. Remember why you started: discipline, craftsmanship, and compounding self-reliance. Did you complete the distributed systems roadmap? Stay humble and keep shipping.'
+    ),
+    unlockDate: formatDateInTimezone(new Date(Date.now() + 180 * 86400000)), // 6 months from now
     isUnlocked: false,
     isSealed: true,
     sealedAt: new Date().toISOString(),
@@ -36,7 +57,7 @@ const SEED_CAPSULES: TimeCapsuleLetter[] = [
     title: 'Reflection on Early Engineering Milestones',
     content:
       'A year ago you worried about getting the fundamentals right. If you are reading this, congratulate yourself on surviving the grind and continuing to write clean, resilient code.',
-    unlockDate: new Date(Date.now() - 2 * 86400000).toISOString().split('T')[0], // Past date (unlocked)
+    unlockDate: formatDateInTimezone(new Date(Date.now() - 2 * 86400000)), // Past date (unlocked)
     isUnlocked: true,
     isSealed: false,
     sealedAt: new Date(Date.now() - 365 * 86400000).toISOString(),
@@ -46,8 +67,13 @@ const SEED_CAPSULES: TimeCapsuleLetter[] = [
 ];
 
 export const TimeCapsuleView: React.FC = () => {
+  const { user } = useApp();
+  const activeUid = user?.id || 'usr_guest';
+  const storageKey = `focusflow_${activeUid}_time_capsules_v1`;
+  const todayStr = getTodayDateString();
+
   const [capsules, setCapsules] = useState<TimeCapsuleLetter[]>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -58,6 +84,33 @@ export const TimeCapsuleView: React.FC = () => {
     }
     return SEED_CAPSULES;
   });
+
+  // Sync user-scoped storage & backend
+  useEffect(() => {
+    let isMounted = true;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setCapsules(parsed);
+      } catch {}
+    } else {
+      setCapsules(SEED_CAPSULES);
+    }
+
+    api.getTimeCapsules().then((remote) => {
+      if (isMounted && Array.isArray(remote) && remote.length > 0) {
+        setCapsules(remote);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(remote));
+        } catch {}
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [storageKey]);
 
   const [isWriteModalOpen, setIsWriteModalOpen] = useState(false);
   const [selectedCapsule, setSelectedCapsule] = useState<TimeCapsuleLetter | null>(null);
@@ -71,7 +124,7 @@ export const TimeCapsuleView: React.FC = () => {
   const saveState = (updated: TimeCapsuleLetter[]) => {
     setCapsules(updated);
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem(storageKey, JSON.stringify(updated));
     } catch {
       // ignore
     }
@@ -84,18 +137,18 @@ export const TimeCapsuleView: React.FC = () => {
     let targetDateStr = customDate;
     const now = Date.now();
     if (unlockPreset === '6m') {
-      targetDateStr = new Date(now + 180 * 86400000).toISOString().split('T')[0];
+      targetDateStr = formatDateInTimezone(new Date(now + 180 * 86400000));
     } else if (unlockPreset === '1y') {
-      targetDateStr = new Date(now + 365 * 86400000).toISOString().split('T')[0];
+      targetDateStr = formatDateInTimezone(new Date(now + 365 * 86400000));
     } else if (unlockPreset === '3y') {
-      targetDateStr = new Date(now + 3 * 365 * 86400000).toISOString().split('T')[0];
+      targetDateStr = formatDateInTimezone(new Date(now + 3 * 365 * 86400000));
     }
 
     const newCapsule: TimeCapsuleLetter = {
       id: `cap-${Date.now()}`,
-      userId: 'user',
+      userId: activeUid,
       title: title.trim(),
-      content: content.trim(),
+      content: obfuscateContent(content.trim()),
       unlockDate: targetDateStr,
       isUnlocked: false,
       isSealed: true,
@@ -104,6 +157,7 @@ export const TimeCapsuleView: React.FC = () => {
     };
 
     saveState([newCapsule, ...capsules]);
+    api.saveTimeCapsule(newCapsule).catch(() => {});
     setIsWriteModalOpen(false);
     setTitle('');
     setContent('');
@@ -112,13 +166,19 @@ export const TimeCapsuleView: React.FC = () => {
   const handleDeleteCapsule = (id: string) => {
     if (!window.confirm('Delete this time capsule permanently?')) return;
     saveState(capsules.filter((c) => c.id !== id));
+    api.deleteTimeCapsule(id).catch(() => {});
     if (selectedCapsule?.id === id) setSelectedCapsule(null);
   };
 
   const calculateDaysRemaining = (unlockDateStr: string) => {
-    const target = new Date(unlockDateStr).getTime();
-    const diff = target - Date.now();
-    return Math.max(0, Math.ceil(diff / (86400000)));
+    if (unlockDateStr <= todayStr) return 0;
+    const [uy, um, ud] = unlockDateStr.split('-').map(Number);
+    const [ty, tm, td] = todayStr.split('-').map(Number);
+    if (!uy || !um || !ud || !ty || !tm || !td) return 0;
+    const targetUtc = Date.UTC(uy, um - 1, ud);
+    const todayUtc = Date.UTC(ty, tm - 1, td);
+    const diffDays = Math.round((targetUtc - todayUtc) / 86400000);
+    return Math.max(0, diffDays);
   };
 
   return (
@@ -243,7 +303,7 @@ export const TimeCapsuleView: React.FC = () => {
             </div>
 
             <div className="p-5 rounded-2xl bg-[#090d16] border border-[var(--ff-border)] text-xs text-[var(--ff-text-primary)] font-serif leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
-              {selectedCapsule.content}
+              {revealContent(selectedCapsule.content)}
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-[var(--ff-border)]">
@@ -310,7 +370,7 @@ export const TimeCapsuleView: React.FC = () => {
                     required
                     value={customDate}
                     onChange={(e) => setCustomDate(e.target.value)}
-                    min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                    min={formatDateInTimezone(new Date(Date.now() + 86400000))}
                     className="w-full px-3 py-2 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)]"
                   />
                 </div>

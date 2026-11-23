@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { TimeBlock, Task } from '../../types/index.ts';
-import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString, formatDateInTimezone } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeButton, ThemeInput, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import { useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
@@ -200,13 +200,13 @@ export const DailyTimeBlockPlanner: React.FC = () => {
   const handlePrevDay = () => {
     const d = new Date(`${selectedDate}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() - 1);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(formatDateInTimezone(d, tz));
   };
 
   const handleNextDay = () => {
     const d = new Date(`${selectedDate}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() + 1);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(formatDateInTimezone(d, tz));
   };
 
   // Detect overlapping blocks

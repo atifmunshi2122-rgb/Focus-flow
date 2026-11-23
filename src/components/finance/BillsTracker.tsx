@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatPaymentMethodLabel } from '../../lib/googleSheetsService.ts';
 import { Bill, PaymentHistory, ExpenseCategory } from '../../types/index.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
 import { playCashSound } from '../../lib/sound.ts';
@@ -64,7 +65,7 @@ export const BillsTracker: React.FC = () => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState(() => getTodayDateString());
   const [notes, setNotes] = useState('');
   const [creatingBill, setCreatingBill] = useState(false);
   const [createSuccess, setCreateSuccess] = useState(false);
@@ -72,7 +73,7 @@ export const BillsTracker: React.FC = () => {
 
   const [payingBill, setPayingBill] = useState<Bill | null>(null);
   const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState<string>('');
-  const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
+  const [payDate, setPayDate] = useState(() => getTodayDateString());
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'debit_card' | 'upi_bank' | 'cash'>('upi_bank');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paying, setPaying] = useState(false);

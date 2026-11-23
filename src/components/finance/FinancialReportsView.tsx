@@ -7,6 +7,7 @@ import {
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency } from '../../lib/currency.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import {
   exportSpecificFinancialReportCsv,
   openPrintableSpecificFinancialReport,
@@ -53,8 +54,7 @@ export const FinancialReportsView: React.FC = () => {
   const activeExpenses = useMemo(() => expenses.filter((e) => !e.deletedAt), [expenses]);
   const activeBills = useMemo(() => bills.filter((b) => !b.deletedAt), [bills]);
 
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
+  const todayStr = getTodayDateString();
   const currentMonthKey = todayStr.slice(0, 7);
 
   const reportPayload = useMemo(() => ({

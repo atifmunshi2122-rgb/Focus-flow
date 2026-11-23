@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { pushNotificationService } from '../integrations/pushNotificationService.js';
 import type { AuthenticatedRequest } from '../auth.js';
+import { hasServiceAccountCredentials } from '../firebaseAdmin.js';
 
 export const pushRouter = Router();
 
@@ -18,6 +19,24 @@ function requireRealUser(req: Request, res: Response, next: NextFunction): void 
 
 pushRouter.use('/devices/fcm', requireRealUser);
 pushRouter.use('/notifications', requireRealUser);
+
+function requireServiceAccount(req: Request, res: Response, next: NextFunction): void {
+  // GET /devices/fcm/status is safe to check without credentials (returns enabled: false, deviceCount: 0)
+  if (req.path === '/status' || req.path === '/status/') {
+    return next();
+  }
+  if (!hasServiceAccountCredentials()) {
+    res.status(503).json({
+      error: 'Push notification service requires configured Firebase Admin credentials.',
+      code: 'SERVICE_UNAVAILABLE',
+    });
+    return;
+  }
+  next();
+}
+
+pushRouter.use('/devices/fcm', requireServiceAccount);
+pushRouter.use('/notifications', requireServiceAccount);
 
 // 1. POST /devices/fcm/register
 pushRouter.post('/devices/fcm/register', async (req: Request, res: Response) => {

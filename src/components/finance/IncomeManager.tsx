@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { IncomeTransaction } from '../../types/index.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
 import { playCashSound } from '../../lib/sound.ts';
 import {
@@ -41,7 +42,7 @@ export const IncomeManager: React.FC = () => {
   const [editingIncome, setEditingIncome] = useState<IncomeTransaction | null>(null);
   const [source, setSource] = useState('');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => getTodayDateString());
   const [category, setCategory] = useState('Salary');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -68,7 +69,7 @@ export const IncomeManager: React.FC = () => {
     setEditingIncome(null);
     setSource('');
     setAmount('');
-    setDate(new Date().toISOString().split('T')[0]);
+    setDate(getTodayDateString());
     setCategory('Salary');
     setNotes('');
     setFormError(null);

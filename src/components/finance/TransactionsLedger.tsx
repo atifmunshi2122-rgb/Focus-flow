@@ -13,6 +13,7 @@ import {
   ThemeSelect,
 } from '../ui/ThemePrimitives.tsx';
 import { buildCsvContent, downloadCsvFile } from '../../lib/exportReports.ts';
+import { getTodayDateString, formatDateInTimezone } from '../../lib/dateTime.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
 import {
   EmptyStateIllustration,
@@ -308,12 +309,12 @@ export const TransactionsLedger: React.FC = () => {
     }
   };
 
-  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayStr = useMemo(() => getTodayDateString(), []);
   const currentMonthStr = useMemo(() => todayStr.slice(0, 7), [todayStr]);
   const oneWeekAgoStr = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 7);
-    return d.toISOString().slice(0, 10);
+    return formatDateInTimezone(d);
   }, []);
 
   const filtered = transactions.filter((t) => {

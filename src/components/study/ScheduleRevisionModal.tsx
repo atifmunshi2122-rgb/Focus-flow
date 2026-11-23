@@ -4,6 +4,7 @@ import { StudySubject, StudyTopic, StudyRevision, RevisionDifficulty } from '../
 import { REVISION_INTERVAL_LADDER, calculateNextRevisionDate } from '../../lib/studyIntelligence.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { Calendar, Repeat, BookOpen, AlertCircle, Clock } from 'lucide-react';
 
 interface ScheduleRevisionModalProps {
@@ -88,7 +89,7 @@ export const ScheduleRevisionModal: React.FC<ScheduleRevisionModalProps> = ({
     setSubmitting(true);
     setError(null);
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getTodayDateString();
 
     try {
       const savedRev = await onSchedule({

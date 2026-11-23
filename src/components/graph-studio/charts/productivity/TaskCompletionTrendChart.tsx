@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Task } from '../../../../types/index.ts';
+import { formatDateInTimezone } from '../../../../lib/dateTime.ts';
 import { GraphCard } from '../../core/GraphCard.tsx';
 import { CheckSquare } from 'lucide-react';
 import { exportDatasetToCsv } from '../../core/GraphExport.ts';
@@ -49,7 +50,7 @@ export const TaskCompletionTrendChart: React.FC<TaskCompletionTrendChartProps> =
     if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
       const cur = new Date(start);
       while (cur <= end) {
-        const dateStr = cur.toISOString().slice(0, 10);
+        const dateStr = formatDateInTimezone(cur);
         const data = dayMap.get(dateStr) || { high: 0, medium: 0, low: 0, total: 0 };
         cum += data.total;
 

@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { LifeMilestone } from '../../types/features15.ts';
+import { useApp } from '../../context/AppContext.tsx';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Calendar,
@@ -12,9 +13,6 @@ import {
   Compass,
 } from 'lucide-react';
 
-const LOCAL_STORAGE_KEY_BIRTH = 'focusflow_life_grid_birth';
-const LOCAL_STORAGE_KEY_MILESTONES = 'focusflow_life_grid_milestones';
-
 const DEFAULT_MILESTONES: LifeMilestone[] = [
   { id: 'm-1', label: 'Birth', title: 'Birth', age: 0, weekIndex: 0, category: 'personal', color: '#10b981' },
   { id: 'm-2', label: 'First Day of School', title: 'First Day of School', age: 5, weekIndex: 5 * 52, category: 'education', color: '#38bdf8' },
@@ -24,12 +22,17 @@ const DEFAULT_MILESTONES: LifeMilestone[] = [
 ];
 
 export const LifeInWeeksGrid: React.FC = () => {
+  const { user } = useApp();
+  const activeUid = user?.id || 'usr_guest';
+  const birthKey = `focusflow_${activeUid}_life_grid_birth`;
+  const milestonesKey = `focusflow_${activeUid}_life_grid_milestones`;
+
   const [birthDate, setBirthDate] = useState<string>(() => {
-    return localStorage.getItem(LOCAL_STORAGE_KEY_BIRTH) || '2003-01-01';
+    return localStorage.getItem(birthKey) || '2003-01-01';
   });
 
   const [milestones, setMilestones] = useState<LifeMilestone[]>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY_MILESTONES);
+    const saved = localStorage.getItem(milestonesKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -41,6 +44,22 @@ export const LifeInWeeksGrid: React.FC = () => {
     return DEFAULT_MILESTONES;
   });
 
+  // Switch data cleanly when user changes
+  useEffect(() => {
+    const savedBirth = localStorage.getItem(birthKey);
+    setBirthDate(savedBirth || '2003-01-01');
+
+    const savedMilestones = localStorage.getItem(milestonesKey);
+    if (savedMilestones) {
+      try {
+        const parsed = JSON.parse(savedMilestones);
+        if (Array.isArray(parsed)) setMilestones(parsed);
+      } catch {}
+    } else {
+      setMilestones(DEFAULT_MILESTONES);
+    }
+  }, [birthKey, milestonesKey]);
+
   const [hoveredWeek, setHoveredWeek] = useState<{ age: number; week: number } | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
   const [newMilestoneAge, setNewMilestoneAge] = useState(25);
@@ -48,12 +67,12 @@ export const LifeInWeeksGrid: React.FC = () => {
 
   const handleBirthDateChange = (date: string) => {
     setBirthDate(date);
-    localStorage.setItem(LOCAL_STORAGE_KEY_BIRTH, date);
+    localStorage.setItem(birthKey, date);
   };
 
   const saveMilestones = (updated: LifeMilestone[]) => {
     setMilestones(updated);
-    localStorage.setItem(LOCAL_STORAGE_KEY_MILESTONES, JSON.stringify(updated));
+    localStorage.setItem(milestonesKey, JSON.stringify(updated));
   };
 
   const stats = useMemo(() => {
