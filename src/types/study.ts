@@ -337,3 +337,118 @@ export interface StudyExportPayload {
   flashcards: StudyFlashcard[];
   quizzes: StudyQuiz[];
 }
+
+// ==========================================
+// SHEET HUB → STUDY OS IMPORT & RE-IMPORT TYPES (STEP 5)
+// ==========================================
+
+export interface StudyImportDetailItem {
+  subjectCode: string;
+  subjectName: string;
+  createdTopics: number;
+  updatedTopics: number;
+  skippedTopics: number;
+  invalidRows: number;
+  duplicateRows: number;
+  theoryCompleted: number;
+}
+
+export interface StudyImportSource {
+  id: string; // e.g. src_sheetId or spreadsheetId
+  userId: string;
+  spreadsheetId: string;
+  spreadsheetTitle: string;
+  spreadsheetUrl?: string | null;
+  targetTierId: string;
+  targetTierName?: string;
+  importedSubjectCodes: string[];
+  lastImportedAt: string;
+  firstImportedAt: string;
+  status: 'active' | 'untracked';
+  totalImportsCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudyImportFailedRecord {
+  subjectCode: string;
+  topic: string;
+  subtopic?: string;
+  reason: string;
+}
+
+export interface StudyImportHistoryRecord {
+  id: string;
+  userId: string;
+  sourceSpreadsheetId: string;
+  sourceSpreadsheetTitle: string;
+  targetTierId: string;
+  targetTierName?: string;
+  selectedTabs: string[];
+  createdSubjectsCount: number;
+  updatedSubjectsCount: number;
+  createdTopicsCount: number;
+  updatedTopicsCount: number;
+  skippedTopicsCount: number;
+  duplicateRowsCount: number;
+  invalidRowsCount: number;
+  theoryCompletedCount: number;
+  status: 'success' | 'partial' | 'failed';
+  importedAt: string;
+  errorMessage?: string | null;
+  details?: StudyImportDetailItem[];
+  failedRecords?: StudyImportFailedRecord[];
+}
+
+export interface TopicConflictAnalysis {
+  newTopics: Array<{
+    subjectCode: string;
+    unit: string;
+    topic: string;
+    subtopic: string;
+    theory: boolean;
+  }>;
+  unchangedTopics: Array<{
+    id: string;
+    subjectCode: string;
+    unit: string;
+    topic: string;
+    subtopic: string;
+  }>;
+  changedTopics: Array<{
+    id: string;
+    subjectCode: string;
+    existing: {
+      unit: string;
+      topic: string;
+      subtopic: string;
+      priority: string;
+      notes?: string;
+    };
+    incoming: {
+      unit: string;
+      topic: string;
+      subtopic: string;
+      priority: string;
+      notes?: string;
+    };
+    diffFields: string[];
+  }>;
+  duplicateSourceRows: Array<{
+    subjectCode: string;
+    unit: string;
+    topic: string;
+    subtopic: string;
+    count: number;
+  }>;
+  missingSourceTopics: Array<{
+    id: string;
+    subjectCode: string;
+    unit: string;
+    topic: string;
+    subtopic: string;
+    practice: boolean;
+    revisionCount: number;
+  }>;
+}
+

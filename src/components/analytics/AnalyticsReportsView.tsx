@@ -29,9 +29,11 @@ import {
 import { AnalyticsCharts } from '../finance/AnalyticsCharts.tsx';
 import { ThemeButton, ThemeCard, ThemeSegmentedControl } from '../ui/ThemePrimitives.tsx';
 import { MotionStaggerGrid, MotionStaggerItem, EmptyStateIllustration } from '../ui/MotionPrimitives.tsx';
+import { GraphStudioView } from '../graph-studio/GraphStudioView.tsx';
 
 export const AnalyticsReportsView: React.FC = () => {
   const { user, currency, refreshKey, showToast, settings, setCurrentTab } = useApp();
+  const [viewMode, setViewMode] = useState<'studio' | 'reports'>('studio');
   const [filter, setFilter] = useState<string>('this_month');
   const [financeSummary, setFinanceSummary] = useState<FinanceSummaryData | null>(null);
   const [focusStats, setFocusStats] = useState<FocusStatsData | null>(null);
@@ -104,147 +106,166 @@ export const AnalyticsReportsView: React.FC = () => {
 
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
-      {/* Export & Date Filter Header */}
-      <ThemeCard className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-[var(--ff-accent-text)]" />
-            <h2 className="ff-heading text-base font-bold text-[var(--ff-text-primary)]">
-              Unified Productivity &amp; Financial Intelligence
-            </h2>
-          </div>
-          <p className="text-xs text-[var(--ff-text-muted)]">
-            100% deterministic analytics derived directly from verified sessions, tasks, and ledger records.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <ThemeButton
-            variant="primary"
-            size="sm"
-            onClick={() => setCurrentTab('exports')}
-            className="flex items-center gap-1.5 shadow-sm"
-          >
-            <Download className="w-3.5 h-3.5" /> Unified Export Center
-          </ThemeButton>
-          <ThemeButton
-            variant="secondary"
-            size="sm"
-            onClick={() => exportFinanceCsv({ incomes, expenses, bills })}
-          >
-            <Download className="w-3.5 h-3.5" /> Finance CSV
-          </ThemeButton>
-          <ThemeButton
-            variant="secondary"
-            size="sm"
-            onClick={() => exportProductivityCsv({ tasks, sessions })}
-          >
-            <Download className="w-3.5 h-3.5" /> Tasks CSV
-          </ThemeButton>
-          <ThemeButton variant="secondary" size="sm" onClick={handlePrintPdf}>
-            <Printer className="w-3.5 h-3.5" /> Quick Print PDF
-          </ThemeButton>
-        </div>
-      </ThemeCard>
-
-      {/* Cross-Domain KPI Comparison */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ThemeSegmentedControl<string>
-          ariaLabel="Analytics timeframe"
-          value={filter}
-          onChange={setFilter}
+      {/* View Mode Switcher: Graph Studio vs Executive Reports */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <ThemeSegmentedControl<'studio' | 'reports'>
+          ariaLabel="Analytics view mode"
+          value={viewMode}
+          onChange={setViewMode}
           options={[
-            { id: 'today', label: 'Today' },
-            { id: 'this_week', label: 'This Week' },
-            { id: 'this_month', label: 'This Month' },
-            { id: 'last_month', label: 'Last Month' },
+            { id: 'studio', label: 'Advanced Graph Studio' },
+            { id: 'reports', label: 'Executive Reports & Statements' },
           ]}
         />
       </div>
 
-      {isPeriodEmpty ? (
-        <ThemeCard className="py-14">
-          <EmptyStateIllustration
-            icon={<BarChart3 className="w-9 h-9 text-[var(--ff-accent-text)]" />}
-            title="No activity recorded in this period"
-            description="Complete tasks, run Pomodoro sessions, or record income & expenses to unlock cross-domain productivity and financial insights."
-            action={
-              <ThemeButton variant="primary" size="sm" onClick={() => setCurrentTab('dashboard')}>
-                Go to Dashboard
-              </ThemeButton>
-            }
-          />
-        </ThemeCard>
+      {viewMode === 'studio' ? (
+        <GraphStudioView />
       ) : (
         <>
-          <MotionStaggerGrid
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
-            style={{ gap: 'var(--ff-grid-gap)' }}
-          >
-            <MotionStaggerItem>
-              <ThemeCard>
-                <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-                  <span>Task Completion Rate</span>
-                  <CheckSquare className="w-4 h-4 text-[var(--ff-accent-text)]" />
-                </div>
-                <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                  {completionRate}%
-                </div>
-                <span className="text-[11px] text-[var(--ff-text-muted)]">
-                  {completedTasks} finished · {pendingTasks} active
-                </span>
-              </ThemeCard>
-            </MotionStaggerItem>
+          {/* Export & Date Filter Header */}
+          <ThemeCard className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                <h2 className="ff-heading text-base font-bold text-[var(--ff-text-primary)]">
+                  Unified Productivity &amp; Financial Intelligence
+                </h2>
+              </div>
+              <p className="text-xs text-[var(--ff-text-muted)]">
+                100% deterministic analytics derived directly from verified sessions, tasks, and ledger records.
+              </p>
+            </div>
 
-            <MotionStaggerItem>
-              <ThemeCard>
-                <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-                  <span>Month Focus Volume</span>
-                  <Clock className="w-4 h-4 text-[var(--ff-accent-text)]" />
-                </div>
-                <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                  {focusStats?.monthMinutes || 0} min
-                </div>
-                <span className="text-[11px] text-[var(--ff-text-muted)]">
-                  {focusStats?.monthSessionsCount || 0} work sessions
-                </span>
-              </ThemeCard>
-            </MotionStaggerItem>
+            <div className="flex flex-wrap items-center gap-2">
+              <ThemeButton
+                variant="primary"
+                size="sm"
+                onClick={() => setCurrentTab('exports')}
+                className="flex items-center gap-1.5 shadow-sm"
+              >
+                <Download className="w-3.5 h-3.5" /> Unified Export Center
+              </ThemeButton>
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                onClick={() => exportFinanceCsv({ incomes, expenses, bills })}
+              >
+                <Download className="w-3.5 h-3.5" /> Finance CSV
+              </ThemeButton>
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                onClick={() => exportProductivityCsv({ tasks, sessions })}
+              >
+                <Download className="w-3.5 h-3.5" /> Tasks CSV
+              </ThemeButton>
+              <ThemeButton variant="secondary" size="sm" onClick={handlePrintPdf}>
+                <Printer className="w-3.5 h-3.5" /> Quick Print PDF
+              </ThemeButton>
+            </div>
+          </ThemeCard>
 
-            <MotionStaggerItem>
-              <ThemeCard>
-                <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-                  <span>Budget Headroom</span>
-                  <Wallet className="w-4 h-4 text-[var(--ff-warning)]" />
-                </div>
-                <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                  {monthlyCap > 0 ? `${budgetAdherence}%` : 'Unbounded'}
-                </div>
-                <span className="text-[11px] text-[var(--ff-text-muted)]">
-                  {monthlyCap > 0
-                    ? `Cap: ${formatCurrency(monthlyCap, currency)}`
-                    : 'Configure cap in Finance'}
-                </span>
-              </ThemeCard>
-            </MotionStaggerItem>
+          {/* Cross-Domain KPI Comparison */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <ThemeSegmentedControl<string>
+              ariaLabel="Analytics timeframe"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { id: 'today', label: 'Today' },
+                { id: 'this_week', label: 'This Week' },
+                { id: 'this_month', label: 'This Month' },
+                { id: 'last_month', label: 'Last Month' },
+              ]}
+            />
+          </div>
 
-            <MotionStaggerItem>
-              <ThemeCard>
-                <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-                  <span>Savings Reserves</span>
-                  <PiggyBank className="w-4 h-4 text-[var(--ff-success)]" />
-                </div>
-                <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                  {formatCurrency(totalSavedPaise, currency)}
-                </div>
-                <span className="text-[11px] text-[var(--ff-text-muted)]">
-                  Across {goals.length} active savings goal{goals.length === 1 ? '' : 's'}
-                </span>
-              </ThemeCard>
-            </MotionStaggerItem>
-          </MotionStaggerGrid>
+          {isPeriodEmpty ? (
+            <ThemeCard className="py-14">
+              <EmptyStateIllustration
+                icon={<BarChart3 className="w-9 h-9 text-[var(--ff-accent-text)]" />}
+                title="No activity recorded in this period"
+                description="Complete tasks, run Pomodoro sessions, or record income & expenses to unlock cross-domain productivity and financial insights."
+                action={
+                  <ThemeButton variant="primary" size="sm" onClick={() => setCurrentTab('dashboard')}>
+                    Go to Dashboard
+                  </ThemeButton>
+                }
+              />
+            </ThemeCard>
+          ) : (
+            <>
+              <MotionStaggerGrid
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+                style={{ gap: 'var(--ff-grid-gap)' }}
+              >
+                <MotionStaggerItem>
+                  <ThemeCard>
+                    <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                      <span>Task Completion Rate</span>
+                      <CheckSquare className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                    </div>
+                    <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                      {completionRate}%
+                    </div>
+                    <span className="text-[11px] text-[var(--ff-text-muted)]">
+                      {completedTasks} finished · {pendingTasks} active
+                    </span>
+                  </ThemeCard>
+                </MotionStaggerItem>
 
-          <AnalyticsCharts data={financeSummary} />
+                <MotionStaggerItem>
+                  <ThemeCard>
+                    <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                      <span>Month Focus Volume</span>
+                      <Clock className="w-4 h-4 text-[var(--ff-accent-text)]" />
+                    </div>
+                    <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                      {focusStats?.monthMinutes || 0} min
+                    </div>
+                    <span className="text-[11px] text-[var(--ff-text-muted)]">
+                      {focusStats?.monthSessionsCount || 0} work sessions
+                    </span>
+                  </ThemeCard>
+                </MotionStaggerItem>
+
+                <MotionStaggerItem>
+                  <ThemeCard>
+                    <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                      <span>Budget Headroom</span>
+                      <Wallet className="w-4 h-4 text-[var(--ff-warning)]" />
+                    </div>
+                    <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                      {monthlyCap > 0 ? `${budgetAdherence}%` : 'Unbounded'}
+                    </div>
+                    <span className="text-[11px] text-[var(--ff-text-muted)]">
+                      {monthlyCap > 0
+                        ? `Cap: ${formatCurrency(monthlyCap, currency)}`
+                        : 'Configure cap in Finance'}
+                    </span>
+                  </ThemeCard>
+                </MotionStaggerItem>
+
+                <MotionStaggerItem>
+                  <ThemeCard>
+                    <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
+                      <span>Savings Reserves</span>
+                      <PiggyBank className="w-4 h-4 text-[var(--ff-success)]" />
+                    </div>
+                    <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                      {formatCurrency(totalSavedPaise, currency)}
+                    </div>
+                    <span className="text-[11px] text-[var(--ff-text-muted)]">
+                      Across {goals.length} active savings goal{goals.length === 1 ? '' : 's'}
+                    </span>
+                  </ThemeCard>
+                </MotionStaggerItem>
+              </MotionStaggerGrid>
+
+              <AnalyticsCharts data={financeSummary} />
+            </>
+          )}
         </>
       )}
     </div>

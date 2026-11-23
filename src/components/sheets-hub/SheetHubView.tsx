@@ -15,6 +15,8 @@ import {
   SlidersHorizontal,
   Trash2,
   Lock,
+  GraduationCap,
+  History,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -42,6 +44,8 @@ import { DynamicOverviewPanel } from './DynamicOverviewPanel.tsx';
 import { ConnectSheetWizard } from './ConnectSheetWizard.tsx';
 import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
 import { NativeSpreadsheetEditor } from './NativeSpreadsheetEditor.tsx';
+import { ImportToStudyModal } from './ImportToStudyModal.tsx';
+import { StudyImportHistoryModal } from './StudyImportHistoryModal.tsx';
 import { flushPendingWritebacks } from '../../lib/sheetHub/sheetStudySyncService.ts';
 import type { SheetTemplateHint } from '../../types/sheetHub.ts';
 
@@ -70,6 +74,9 @@ export const SheetHubView: React.FC = () => {
   const [syncingRowUids, setSyncingRowUids] = useState<Record<string, boolean>>({});
   const [wizardOpen, setWizardOpen] = useState(false);
   const [schemaModalOpen, setSchemaModalOpen] = useState(false);
+  const [importToStudyOpen, setImportToStudyOpen] = useState(false);
+  const [importTargetConnection, setImportTargetConnection] = useState<SheetConnection | null>(null);
+  const [studyHistoryModalOpen, setStudyHistoryModalOpen] = useState(false);
 
   // Native Sheet Creation State
   const [createSheetModalOpen, setCreateSheetModalOpen] = useState(false);
@@ -983,6 +990,31 @@ export const SheetHubView: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <ThemeButton
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setImportTargetConnection(activeConnection);
+                setImportToStudyOpen(true);
+              }}
+              className="flex items-center gap-1.5"
+              title="Import syllabus tabs and topics into Study OS"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Import to Study OS</span>
+            </ThemeButton>
+
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={() => setStudyHistoryModalOpen(true)}
+              className="flex items-center gap-1.5"
+              title="View Study OS import history and manage syllabus sources"
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Import History</span>
+            </ThemeButton>
+
+            <ThemeButton
               variant="secondary"
               size="sm"
               onClick={() => setSchemaModalOpen(true)}
@@ -1187,6 +1219,16 @@ export const SheetHubView: React.FC = () => {
 
           <ThemeButton
             variant="secondary"
+            onClick={() => setStudyHistoryModalOpen(true)}
+            className="flex items-center gap-2"
+            title="View Study OS import history and manage syllabus sources"
+          >
+            <History className="w-4 h-4 text-blue-500" />
+            <span>Study Import History</span>
+          </ThemeButton>
+
+          <ThemeButton
+            variant="secondary"
             onClick={() => setWizardOpen(true)}
             className="flex items-center gap-2"
           >
@@ -1338,6 +1380,10 @@ export const SheetHubView: React.FC = () => {
                 onTogglePause={(id) => handleTogglePause(id)}
                 onReconnect={() => handleReconnect(conn)}
                 onRemove={(id, purge) => handleRemoveConnection(id, purge)}
+                onImportToStudy={(c) => {
+                  setImportTargetConnection(c);
+                  setImportToStudyOpen(true);
+                }}
                 isPulling={isPulling}
               />
             ))}
@@ -1453,6 +1499,43 @@ export const SheetHubView: React.FC = () => {
           </div>
         </div>
       </ThemeModal>
+
+      {/* IMPORT TO STUDY OS WIZARD & PREVIEW MODAL */}
+      {importToStudyOpen && (importTargetConnection || activeConnection) && (
+        <ImportToStudyModal
+          isOpen={importToStudyOpen}
+          onClose={() => {
+            setImportToStudyOpen(false);
+            setImportTargetConnection(null);
+          }}
+          connection={(importTargetConnection || activeConnection)!}
+          userId={activeUserId}
+        />
+      )}
+
+      {/* STUDY OS IMPORT HISTORY & SOURCE MANAGEMENT MODAL */}
+      {studyHistoryModalOpen && (
+        <StudyImportHistoryModal
+          isOpen={studyHistoryModalOpen}
+          onClose={() => setStudyHistoryModalOpen(false)}
+          userId={activeUserId}
+          onReimportSource={(source) => {
+            const conn = connections.find(
+              (c) =>
+                c.id === source.spreadsheetId ||
+                c.id === source.id ||
+                c.sourceSpreadsheetId === source.spreadsheetId
+            );
+            if (conn) {
+              setImportTargetConnection(conn);
+              setImportToStudyOpen(true);
+            } else {
+              showToast('Spreadsheet connection not found in active list.', 'error');
+            }
+          }}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 };

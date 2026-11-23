@@ -17,6 +17,7 @@ import {
   Lock,
   FolderSync,
   Eye,
+  GraduationCap,
 } from 'lucide-react';
 import type { SheetConnection } from '../../types/sheetHub.ts';
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeModal } from '../ui/ThemePrimitives.tsx';
@@ -30,6 +31,7 @@ interface SheetConnectionCardProps {
   onTogglePause: (connectionId: string) => void;
   onReconnect: (connectionId: string) => void;
   onRemove: (connectionId: string, purgeCache: boolean) => void;
+  onImportToStudy?: (connection: SheetConnection) => void;
   isPulling?: boolean;
 }
 
@@ -42,6 +44,7 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
   onTogglePause,
   onReconnect,
   onRemove,
+  onImportToStudy,
   isPulling = false,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -155,6 +158,21 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
                       <ShieldCheck className="w-3.5 h-3.5 text-[var(--ff-accent)]" />
                       <span>Check Google Auth</span>
                     </button>
+
+                    {onImportToStudy && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onImportToStudy(connection);
+                        }}
+                        className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-primary)]"
+                        title="Import syllabus tabs and topics into Study OS"
+                      >
+                        <GraduationCap className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Import to Study OS</span>
+                      </button>
+                    )}
 
                     {connection.isDualCopy && connection.driveFileId && (
                       <a

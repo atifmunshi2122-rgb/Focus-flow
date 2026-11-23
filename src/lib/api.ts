@@ -66,6 +66,8 @@ import { firestoreService } from './firestoreService.ts';
 import { offlineOutbox } from './offlineOutbox.ts';
 import { clientDataCache } from './dataCache.ts';
 import { handleGuestLocalFallback } from './guestLocalStore.ts';
+import { studyImportHistoryStore } from './sheetHub/studyImportHistoryStore.ts';
+import type { StudyImportSource, StudyImportHistoryRecord } from '../types/study.ts';
 import type { SheetsSnapshotPayload } from './sheetsSpec.ts';
 import type {
   AppsScriptWritebackRequest,
@@ -2866,6 +2868,64 @@ export const api = {
         dedupeKey: `del_quiz_${quizId}`,
         optimisticResult: () => true,
       }
+    ),
+
+  // --- STUDY OS SHEET IMPORT HISTORY & SOURCES (STEP 5) ---
+  getStudyImportSources: () =>
+    withPrimaryRead(
+      (uid) => studyImportHistoryStore.getImportSources(uid),
+      () => Promise.resolve([])
+    ),
+
+  saveStudyImportSource: (source: StudyImportSource) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await studyImportHistoryStore.saveImportSource(uid, source);
+        return source;
+      },
+      () => Promise.resolve(source)
+    ),
+
+  setStudyImportSourceUntracked: (sourceId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await studyImportHistoryStore.setSourceUntracked(uid, sourceId);
+        return true;
+      },
+      () => Promise.resolve(true)
+    ),
+
+  deleteStudyImportSource: (sourceId: string) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await studyImportHistoryStore.deleteImportSource(uid, sourceId);
+        return true;
+      },
+      () => Promise.resolve(true)
+    ),
+
+  getStudyImportHistory: (sourceSpreadsheetId?: string) =>
+    withPrimaryRead(
+      (uid) => studyImportHistoryStore.getImportHistory(uid, sourceSpreadsheetId),
+      () => Promise.resolve([])
+    ),
+
+  recordStudyImportHistory: (record: StudyImportHistoryRecord) =>
+    withPrimaryWrite(
+      async (uid) => {
+        await studyImportHistoryStore.recordImportHistory(uid, record);
+        return record;
+      },
+      () => Promise.resolve(record)
+    ),
+
+  clearStudyImportHistory: () =>
+    withPrimaryWrite(
+      async (uid) => {
+        await studyImportHistoryStore.clearImportHistory(uid);
+        return true;
+      },
+      () => Promise.resolve(true)
     ),
 
   // --- POMODORO PRESETS & GOALS ---
