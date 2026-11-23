@@ -4,9 +4,12 @@
   "version": "1.8.0",
   "description": "Unified Executive Productivity, Financial Management and Academic Study OS with Premium 23-Worksheet Google Sheets Integration",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "tsc --noEmit && vite build && esbuild server/serverless.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=api/index.js",
+    "build": "tsc --noEmit && vite build && esbuild server/serverless.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=api/index.js",
     "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rimraf dist server.js api/index.js",
@@ -15,7 +18,7 @@
     "test": "node --import tsx --import ./test/test_bootstrap.ts --test test/**/*.test.ts",
     "test:rules": "firebase emulators:exec --only firestore \"node --import tsx --test test/firestore_emulator_rules.test.ts test/joint_vault_keyless_emulator.test.ts test/sheet_hub_rules_emulator.test.ts\"",
     "validate": "npm run typecheck && npm test",
-    "build:prod": "npm run clean && tsc --noEmit && vite build && esbuild server/serverless.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=api/index.js"
+    "build:prod": "npm run clean && tsc --noEmit && vite build && esbuild server/serverless.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=api/index.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

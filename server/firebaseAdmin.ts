@@ -1,7 +1,8 @@
 import { getApps, initializeApp, cert, applicationDefault, deleteApp, type App, type AppOptions } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getMessaging, type Messaging } from 'firebase-admin/messaging';
-import { getAuth, type Auth } from 'firebase-admin/auth';
+import type { Auth } from 'firebase-admin/auth';
+import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import { resolveServerFirebaseProjectId } from './auth.js';
@@ -218,10 +219,12 @@ export function getAdminMessaging(): Messaging {
 }
 
 /**
- * Returns Firebase Admin Auth instance.
+ * Returns Firebase Admin Auth instance (lazy-loaded to avoid pulling jwks-rsa/jose on cold start).
  */
 export function getAdminAuth(): Auth {
   const app = getFirebaseAdminApp();
+  const req = createRequire(import.meta.url);
+  const { getAuth } = req('firebase-admin/auth') as typeof import('firebase-admin/auth');
   return getAuth(app);
 }
 

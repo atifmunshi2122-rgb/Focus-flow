@@ -8380,7 +8380,6 @@ import crypto8 from "crypto";
 import { getApps, initializeApp, cert, applicationDefault, deleteApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
-import { getAuth } from "firebase-admin/auth";
 import fs5 from "fs";
 import path4 from "path";
 var initializedApp = null;
@@ -12455,15 +12454,15 @@ apiRouter.use(requireUserContext);
 apiRouter.use(rateLimiter({ maxRequests: 300, windowMs: 6e4 }));
 apiRouter.use(googleCalendarRouter);
 apiRouter.use(pushRouter);
-var getAuth2 = (req) => req.auth;
+var getAuth = (req) => req.auth;
 var canAccess = (itemUserId, authUserId) => itemUserId === authUserId;
 apiRouter.get("/auth/me", (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { user, settings } = dbService.ensureUserWorkspace(auth.userId, auth);
   res.json({ user, settings });
 });
 apiRouter.put("/settings", async (req, res, next) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { settings } = dbService.ensureUserWorkspace(auth.userId, auth);
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const {
@@ -12661,7 +12660,7 @@ apiRouter.put("/settings", async (req, res, next) => {
   }
 });
 apiRouter.post("/reseed", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   try {
     dbService.reseed(userId);
     await dbService.flush();
@@ -12671,7 +12670,7 @@ apiRouter.post("/reseed", async (req, res, next) => {
   }
 });
 apiRouter.get("/dashboard", (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const userId = auth.userId;
   dbService.ensureUserWorkspace(userId, auth);
   dbService.checkRecurringBills(userId);
@@ -12769,13 +12768,13 @@ apiRouter.get("/dashboard", (req, res) => {
   });
 });
 apiRouter.get("/focus/sessions", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const sessions = db.focusSessions.filter((s) => s.userId === userId).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   res.json(sessions);
 });
 apiRouter.post("/focus/sessions", async (req, res, _next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const {
@@ -12910,7 +12909,7 @@ apiRouter.post("/focus/sessions", async (req, res, _next) => {
   }
 });
 apiRouter.patch("/focus/sessions/:id", async (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const { id } = req.params;
   const db = dbService.getRaw();
   const session = db.focusSessions.find((s) => s.id === id && s.userId === userId);
@@ -13008,7 +13007,7 @@ apiRouter.patch("/focus/sessions/:id", async (req, res) => {
   }
 });
 apiRouter.get("/focus/stats", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const userSettings = db.userSettings.find((s) => s.userId === userId);
   const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
@@ -13069,7 +13068,7 @@ apiRouter.get("/focus/stats", (req, res) => {
   });
 });
 apiRouter.get("/tasks", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const tasks = db.tasks.filter((t) => t.userId === userId && !t.deletedAt).sort((a, b) => {
     if (typeof a.order === "number" && typeof b.order === "number" && a.order !== b.order) {
@@ -13080,7 +13079,7 @@ apiRouter.get("/tasks", (req, res) => {
   res.json(tasks);
 });
 apiRouter.post("/tasks", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { title, description, priority, status, estimatedPomodoros, dueDate, category, subtasks, recurrence, order } = body;
@@ -13166,7 +13165,7 @@ apiRouter.post("/tasks", async (req, res, next) => {
   }
 });
 apiRouter.put("/tasks/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const task = db.tasks.find((t) => t.id === req.params.id && t.userId === userId && !t.deletedAt);
   if (!task) {
@@ -13314,7 +13313,7 @@ apiRouter.put("/tasks/:id", async (req, res, next) => {
   }
 });
 apiRouter.delete("/tasks/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const task = db.tasks.find(
     (t) => t.id === req.params.id && canAccess(t.userId, userId) && !t.deletedAt
@@ -13333,14 +13332,14 @@ apiRouter.delete("/tasks/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/finance/categories", (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   dbService.ensureUserWorkspace(auth.userId, auth);
   const db = dbService.getRaw();
   const categories = db.categories.filter((c) => c.userId === auth.userId || c.userId === "system");
   res.json(categories);
 });
 apiRouter.post("/finance/categories", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { name, type, icon, color } = body;
@@ -13371,7 +13370,7 @@ apiRouter.post("/finance/categories", async (req, res, next) => {
   }
 });
 apiRouter.get("/finance/summary", (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const userId = auth.userId;
   dbService.ensureUserWorkspace(userId, auth);
   dbService.checkRecurringBills(userId);
@@ -13487,13 +13486,13 @@ apiRouter.get("/finance/summary", (req, res) => {
   });
 });
 apiRouter.get("/finance/income", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const incomes = db.incomeTransactions.filter((inc) => inc.userId === userId && !inc.deletedAt).sort((a, b) => b.date.localeCompare(a.date));
   res.json(incomes);
 });
 apiRouter.post("/finance/income", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { source, amountPaise, date, category, notes } = body;
@@ -13542,7 +13541,7 @@ apiRouter.post("/finance/income", async (req, res, next) => {
   }
 });
 apiRouter.put("/finance/income/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const income = db.incomeTransactions.find(
     (inc) => inc.id === req.params.id && inc.userId === userId && !inc.deletedAt
@@ -13601,7 +13600,7 @@ apiRouter.put("/finance/income/:id", async (req, res, next) => {
   }
 });
 apiRouter.delete("/finance/income/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const income = db.incomeTransactions.find(
     (inc) => inc.id === req.params.id && canAccess(inc.userId, userId) && !inc.deletedAt
@@ -13619,7 +13618,7 @@ apiRouter.delete("/finance/income/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/finance/expenses", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const typeFilter = req.query.type;
   let expenses = db.expenseTransactions.filter((e) => e.userId === userId && !e.deletedAt);
@@ -13638,7 +13637,7 @@ apiRouter.get("/finance/expenses", (req, res) => {
   res.json(mapped);
 });
 apiRouter.post("/finance/expenses", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { categoryId, amountPaise, date, description, paymentMethod, notes, type } = body;
@@ -13727,7 +13726,7 @@ apiRouter.post("/finance/expenses", async (req, res, next) => {
   }
 });
 apiRouter.put("/finance/expenses/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const expense = db.expenseTransactions.find(
     (e) => e.id === req.params.id && e.userId === userId && !e.deletedAt
@@ -13811,7 +13810,7 @@ apiRouter.put("/finance/expenses/:id", async (req, res, next) => {
   }
 });
 apiRouter.delete("/finance/expenses/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const expense = db.expenseTransactions.find(
     (e) => e.id === req.params.id && canAccess(e.userId, userId) && !e.deletedAt
@@ -13829,7 +13828,7 @@ apiRouter.delete("/finance/expenses/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/finance/recurring", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const recurring = db.recurringExpenses.filter((r) => r.userId === userId).map((r) => ({
     ...r,
@@ -13838,7 +13837,7 @@ apiRouter.get("/finance/recurring", (req, res) => {
   res.json(recurring);
 });
 apiRouter.post("/finance/recurring", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { name, amountPaise, categoryId, recurrence, dueDay, notes } = body;
@@ -13923,7 +13922,7 @@ apiRouter.post("/finance/recurring", async (req, res, next) => {
   }
 });
 apiRouter.put("/finance/recurring/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const rec = db.recurringExpenses.find((r) => r.id === req.params.id && r.userId === userId);
   if (!rec) {
@@ -14006,7 +14005,7 @@ apiRouter.put("/finance/recurring/:id", async (req, res, next) => {
   }
 });
 apiRouter.delete("/finance/recurring/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const index = db.recurringExpenses.findIndex(
     (r) => r.id === req.params.id && canAccess(r.userId, userId)
@@ -14024,7 +14023,7 @@ apiRouter.delete("/finance/recurring/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/finance/bills", (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const userId = auth.userId;
   dbService.ensureUserWorkspace(userId, auth);
   dbService.checkRecurringBills(userId);
@@ -14046,7 +14045,7 @@ apiRouter.get("/finance/bills", (req, res) => {
   res.json(mapped);
 });
 apiRouter.post("/finance/bills", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { name, amountPaise, categoryId, dueDate, notes } = body;
@@ -14131,7 +14130,7 @@ apiRouter.post("/finance/bills", async (req, res, next) => {
   }
 });
 apiRouter.post("/finance/bills/:id/pay", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { paidDate, paymentMethod, notes, idempotencyKey } = body;
   let validPaidDate;
@@ -14182,7 +14181,7 @@ apiRouter.post("/finance/bills/:id/pay", async (req, res, next) => {
   }
 });
 apiRouter.post("/finance/bills/:id/undo", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   try {
     const result = dbService.undoBillPayment(userId, req.params.id);
     if (!result.success) {
@@ -14204,7 +14203,7 @@ apiRouter.post("/finance/bills/:id/undo", async (req, res, next) => {
   }
 });
 apiRouter.delete("/finance/bills/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const bill = db.bills.find(
     (b) => b.id === req.params.id && canAccess(b.userId, userId) && !b.deletedAt
@@ -14229,19 +14228,19 @@ apiRouter.delete("/finance/bills/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/finance/payments-history", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const history = db.paymentHistory.filter((p) => p.userId === userId).sort((a, b) => b.paidDate.localeCompare(a.paidDate));
   res.json(history);
 });
 apiRouter.get("/finance/savings-goals", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const goals = db.savingsGoals.filter((g) => g.userId === userId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   res.json(goals);
 });
 apiRouter.post("/finance/savings-goals", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const { title, targetPaise, savedPaise, targetDate, color } = body;
@@ -14289,7 +14288,7 @@ apiRouter.post("/finance/savings-goals", async (req, res, next) => {
   }
 });
 apiRouter.put("/finance/savings-goals/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const goal = db.savingsGoals.find((g) => g.id === req.params.id && g.userId === userId);
   if (!goal) {
@@ -14346,7 +14345,7 @@ apiRouter.put("/finance/savings-goals/:id", async (req, res, next) => {
   }
 });
 apiRouter.post("/finance/savings-goals/:id/contribute", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const goal = db.savingsGoals.find((g) => g.id === req.params.id && g.userId === userId);
   if (!goal) {
@@ -14373,7 +14372,7 @@ apiRouter.post("/finance/savings-goals/:id/contribute", async (req, res, next) =
   }
 });
 apiRouter.delete("/finance/savings-goals/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const idx = db.savingsGoals.findIndex(
     (g) => g.id === req.params.id && canAccess(g.userId, userId)
@@ -14391,7 +14390,7 @@ apiRouter.delete("/finance/savings-goals/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/trash", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const items = [
     ...db.tasks.filter((t) => t.userId === userId && t.deletedAt).map((t) => ({
@@ -14452,7 +14451,7 @@ apiRouter.get("/trash", (req, res) => {
   res.json(items);
 });
 apiRouter.post("/trash/:entityType/:id/restore", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const { entityType, id } = req.params;
   const db = dbService.getRaw();
   if (entityType === "task") {
@@ -14525,7 +14524,7 @@ apiRouter.post("/trash/:entityType/:id/restore", async (req, res, next) => {
   }
 });
 apiRouter.delete("/trash/:entityType/:id", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const { entityType, id } = req.params;
   const db = dbService.getRaw();
   if (entityType === "task") {
@@ -14596,14 +14595,14 @@ apiRouter.delete("/trash/:entityType/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/time-blocks", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const date = typeof req.query.date === "string" ? req.query.date : void 0;
   const blocks = dbService.getTimeBlocks(userId, date);
   res.json(blocks);
 });
 apiRouter.post("/time-blocks", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const body = req.body || {};
     const block = dbService.saveTimeBlock(userId, body);
     await dbService.flush();
@@ -14614,7 +14613,7 @@ apiRouter.post("/time-blocks", async (req, res, next) => {
 });
 apiRouter.put("/time-blocks/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const { id } = req.params;
     const body = req.body || {};
     const block = dbService.saveTimeBlock(userId, { ...body, id });
@@ -14626,7 +14625,7 @@ apiRouter.put("/time-blocks/:id", async (req, res, next) => {
 });
 apiRouter.delete("/time-blocks/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const { id } = req.params;
     const ok = dbService.deleteTimeBlock(userId, id);
     if (!ok) {
@@ -14640,14 +14639,14 @@ apiRouter.delete("/time-blocks/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/envelopes", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const monthKey = typeof req.query.monthKey === "string" ? req.query.monthKey : void 0;
   const envelopes = dbService.getEnvelopes(userId, monthKey);
   res.json(envelopes);
 });
 apiRouter.post("/envelopes", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const body = req.body || {};
     const env = dbService.saveEnvelope(userId, body);
     await dbService.flush();
@@ -14658,7 +14657,7 @@ apiRouter.post("/envelopes", async (req, res, next) => {
 });
 apiRouter.put("/envelopes/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const { id } = req.params;
     const body = req.body || {};
     const env = dbService.saveEnvelope(userId, { ...body, id });
@@ -14670,7 +14669,7 @@ apiRouter.put("/envelopes/:id", async (req, res, next) => {
 });
 apiRouter.delete("/envelopes/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const { id } = req.params;
     const ok = dbService.deleteEnvelope(userId, id);
     if (!ok) {
@@ -14684,7 +14683,7 @@ apiRouter.delete("/envelopes/:id", async (req, res, next) => {
   }
 });
 apiRouter.post("/envelopes/transfer", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const { fromId, toId, amountPaise } = req.body || {};
   const parsedFromId = parseNonEmptyString(fromId, 128);
   const parsedToId = parseNonEmptyString(toId, 128);
@@ -14710,13 +14709,13 @@ apiRouter.post("/envelopes/transfer", async (req, res, next) => {
   }
 });
 apiRouter.get("/subscriptions", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const subs = dbService.getSubscriptions(userId);
   res.json(subs);
 });
 apiRouter.post("/subscriptions", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const body = req.body || {};
     const sub = dbService.saveSubscription(userId, body);
     await dbService.flush();
@@ -14727,7 +14726,7 @@ apiRouter.post("/subscriptions", async (req, res, next) => {
 });
 apiRouter.put("/subscriptions/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const { id } = req.params;
     const body = req.body || {};
     const sub = dbService.saveSubscription(userId, { ...body, id });
@@ -14739,7 +14738,7 @@ apiRouter.put("/subscriptions/:id", async (req, res, next) => {
 });
 apiRouter.delete("/subscriptions/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const { id } = req.params;
     const ok = dbService.deleteSubscription(userId, id);
     if (!ok) {
@@ -14754,7 +14753,7 @@ apiRouter.delete("/subscriptions/:id", async (req, res, next) => {
 });
 apiRouter.post("/workspace/clear", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     dbService.clearWorkspace(userId);
     await dbService.flush();
     res.json({ success: true, message: "All transactions, tasks, bills, and demo data cleared successfully" });
@@ -14763,12 +14762,12 @@ apiRouter.post("/workspace/clear", async (req, res, next) => {
   }
 });
 apiRouter.get("/study/tiers", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const tiers = dbService.getStudyTiers(userId);
   res.json(tiers);
 });
 apiRouter.post("/study/tiers", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const name = parseNonEmptyString(body.name, 128);
   if (!name) {
@@ -14792,7 +14791,7 @@ apiRouter.post("/study/tiers", async (req, res, next) => {
 });
 apiRouter.delete("/study/tiers/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const success = dbService.deleteStudyTier(userId, req.params.id);
     if (!success) {
       res.status(404).json({ error: "Tier not found" });
@@ -14806,7 +14805,7 @@ apiRouter.delete("/study/tiers/:id", async (req, res, next) => {
 });
 apiRouter.delete("/study/all", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     dbService.clearStudyData(userId);
     await dbService.flush();
     res.json({ success: true, message: "All study subjects and topics cleared" });
@@ -14815,12 +14814,12 @@ apiRouter.delete("/study/all", async (req, res, next) => {
   }
 });
 apiRouter.get("/study/subjects", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const subjects = dbService.getStudySubjects(userId);
   res.json(subjects);
 });
 apiRouter.post("/study/subjects", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const code = parseNonEmptyString(body.code, 64);
   if (!code || !/^[A-Za-z0-9_-]+$/.test(code)) {
@@ -14855,7 +14854,7 @@ apiRouter.post("/study/subjects", async (req, res, next) => {
   }
 });
 apiRouter.delete("/study/subjects/:code", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   try {
     const result = dbService.deleteStudySubject(userId, req.params.code);
     if (!result.success) {
@@ -14874,13 +14873,13 @@ apiRouter.delete("/study/subjects/:code", async (req, res, next) => {
   }
 });
 apiRouter.get("/study/topics", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const subjectCode = typeof req.query.subjectCode === "string" ? req.query.subjectCode : void 0;
   const topics = dbService.getStudyTopics(userId, subjectCode);
   res.json(topics);
 });
 apiRouter.post("/study/topics", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const topicId = parseOptionalString(body.id, 128) || void 0;
   const existingTopic = topicId ? dbService.getStudyTopics(userId).find((t) => t.id === topicId) : void 0;
@@ -14926,7 +14925,7 @@ apiRouter.post("/study/topics", async (req, res, next) => {
 });
 apiRouter.delete("/study/topics/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const success = dbService.deleteStudyTopic(userId, req.params.id);
     if (!success) {
       res.status(404).json({ error: "Topic not found" });
@@ -14939,12 +14938,12 @@ apiRouter.delete("/study/topics/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/study/revisions", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const revisions = dbService.getStudyRevisions(userId);
   res.json(revisions);
 });
 apiRouter.post("/study/revisions", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const topicId = parseNonEmptyString(body.topicId, 128);
   if (!topicId) {
@@ -14989,7 +14988,7 @@ apiRouter.post("/study/revisions", async (req, res, next) => {
   }
 });
 apiRouter.post("/study/revisions/:id/recall", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const difficulty = req.body.difficulty;
   if (!difficulty || !["easy", "medium", "hard"].includes(difficulty)) {
     res.status(400).json({ error: "Invalid difficulty. Must be easy, medium, or hard" });
@@ -15009,7 +15008,7 @@ apiRouter.post("/study/revisions/:id/recall", async (req, res, next) => {
 });
 apiRouter.delete("/study/revisions/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const success = dbService.deleteStudyRevision(userId, req.params.id);
     if (!success) {
       res.status(404).json({ error: "Revision not found" });
@@ -15022,12 +15021,12 @@ apiRouter.delete("/study/revisions/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/study/mistakes", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const mistakes = dbService.getStudyMistakes(userId);
   res.json(mistakes);
 });
 apiRouter.post("/study/mistakes", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const subjectCode = parseNonEmptyString(body.subjectCode, 64);
   if (!subjectCode) {
@@ -15076,7 +15075,7 @@ apiRouter.post("/study/mistakes", async (req, res, next) => {
 });
 apiRouter.delete("/study/mistakes/:id", async (req, res, next) => {
   try {
-    const { userId } = getAuth2(req);
+    const { userId } = getAuth(req);
     const success = dbService.deleteStudyMistake(userId, req.params.id);
     if (!success) {
       res.status(404).json({ error: "Mistake not found" });
@@ -15089,18 +15088,18 @@ apiRouter.delete("/study/mistakes/:id", async (req, res, next) => {
   }
 });
 apiRouter.get("/audit-logs", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
   const logs = dbService.getAuditLogs(userId, limit);
   res.json(logs);
 });
 apiRouter.get("/sync/queue", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const queue = dbService.getSyncQueue(userId);
   res.json(queue);
 });
 apiRouter.post("/sync/queue/enqueue", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const body = req.body || {};
   if (!body.entityType || !body.action || !body.sheetName) {
     res.status(400).json({ error: "entityType, action, and sheetName are required" });
@@ -15115,7 +15114,7 @@ apiRouter.post("/sync/queue/enqueue", async (req, res, next) => {
   }
 });
 apiRouter.post("/sync/queue/:id/status", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const { id } = req.params;
   const { status, errorMessage, nextRetryAt, attempts } = req.body || {};
   const updates = {
@@ -15265,7 +15264,7 @@ apiRouter.post("/sheets/historical-resync", async (req, res) => {
   }
 });
 apiRouter.post("/sheets/flush-queue", async (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const accessToken = extractGoogleAccessToken(req);
   if (!accessToken) {
     res.status(401).json({ error: "Google authorization token header is required.", code: "SHEETS_AUTH_REQUIRED" });
@@ -15372,7 +15371,7 @@ function sendSheetHubError(res, err, fallbackMessage) {
 }
 apiRouter.post("/sheet-hub/inspect", async (req, res) => {
   const publicAccess = req.body?.publicAccess === true;
-  const authCtx = getAuth2(req);
+  const authCtx = getAuth(req);
   const accessToken = extractGoogleAccessToken(req);
   if (!publicAccess) {
     if (!authCtx || authCtx.isGuest) {
@@ -15412,7 +15411,7 @@ apiRouter.post("/sheet-hub/inspect", async (req, res) => {
 });
 apiRouter.post("/sheet-hub/pull", async (req, res) => {
   const publicAccess = req.body?.publicAccess === true;
-  const authCtx = getAuth2(req);
+  const authCtx = getAuth(req);
   const accessToken = extractGoogleAccessToken(req);
   if (!publicAccess) {
     if (!authCtx || authCtx.isGuest) {
@@ -15454,7 +15453,7 @@ apiRouter.post("/sheet-hub/pull", async (req, res) => {
   }
 });
 apiRouter.post("/sheet-hub/push-cells", async (req, res) => {
-  const authCtx = getAuth2(req);
+  const authCtx = getAuth(req);
   if (!authCtx || authCtx.isGuest) {
     res.status(401).json({
       error: "Signed-in FocusFlow authentication is required to sync changes to Google Sheets.",
@@ -15494,7 +15493,7 @@ apiRouter.post("/sheet-hub/push-cells", async (req, res) => {
   }
 });
 apiRouter.post("/sheet-hub/drive-duplicate", async (req, res) => {
-  const authCtx = getAuth2(req);
+  const authCtx = getAuth(req);
   if (!authCtx || authCtx.isGuest) {
     res.status(401).json({
       error: "Signed-in FocusFlow authentication is required to create a Google Drive duplicate.",
@@ -15544,7 +15543,7 @@ apiRouter.post("/sheet-hub/drive-duplicate", async (req, res) => {
   }
 });
 apiRouter.post("/sheet-hub/drive-duplicate/reconcile", async (req, res) => {
-  const authCtx = getAuth2(req);
+  const authCtx = getAuth(req);
   if (!authCtx || authCtx.isGuest) {
     res.status(401).json({
       error: "Signed-in FocusFlow authentication is required.",
@@ -15582,7 +15581,7 @@ apiRouter.post("/sheet-hub/drive-duplicate/reconcile", async (req, res) => {
   }
 });
 apiRouter.post("/sheet-hub/apps-script-writeback", async (req, res) => {
-  const authCtx = getAuth2(req);
+  const authCtx = getAuth(req);
   if (!authCtx || authCtx.isGuest) {
     res.status(401).json({
       error: "Signed-in FocusFlow authentication is required for Apps Script write-back.",
@@ -15698,12 +15697,12 @@ apiRouter.get("/sheet-hub/sample-semester3", async (_req, res) => {
   }
 });
 apiRouter.get("/backup/export", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const backup = dbService.exportUserData(userId);
   res.json(backup);
 });
 apiRouter.post("/backup/restore", async (req, res, next) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const body = req.body;
   const result = dbService.restoreUserData(userId, body);
   if (!result.success) {
@@ -15718,12 +15717,12 @@ apiRouter.post("/backup/restore", async (req, res, next) => {
   }
 });
 apiRouter.get("/joint-vaults", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const vaults = dbService.getJointVaultsForUser(userId);
   res.json(vaults);
 });
 apiRouter.post("/joint-vaults", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const body = req.body || {};
   if (!body.name || typeof body.name !== "string" || !body.name.trim()) {
     res.status(400).json({ error: "Vault name is required" });
@@ -15756,7 +15755,7 @@ apiRouter.post("/joint-vaults", async (req, res) => {
   }
 });
 apiRouter.get("/joint-vaults/:vaultId", (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const { vaultId } = req.params;
   const summary = dbService.getVaultSummary(vaultId, userId);
   if (!summary) {
@@ -15766,7 +15765,7 @@ apiRouter.get("/joint-vaults/:vaultId", (req, res) => {
   res.json(summary);
 });
 apiRouter.post("/joint-vaults/:vaultId/invitations", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { vaultId } = req.params;
   const body = req.body || {};
   const { invitedEmail, id, inviteCode } = body;
@@ -15785,7 +15784,7 @@ apiRouter.post("/joint-vaults/:vaultId/invitations", async (req, res) => {
   }
 });
 apiRouter.post("/joint-vaults/invitations/accept", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { inviteCode } = req.body || {};
   if (!inviteCode || typeof inviteCode !== "string") {
     res.status(400).json({ error: "Invite code is required" });
@@ -15811,7 +15810,7 @@ apiRouter.post("/joint-vaults/invitations/accept", async (req, res) => {
   }
 });
 apiRouter.post("/joint-vaults/invitations/reject", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { inviteCode } = req.body || {};
   if (!inviteCode || typeof inviteCode !== "string") {
     res.status(400).json({ error: "Invite code is required" });
@@ -15835,7 +15834,7 @@ apiRouter.post("/joint-vaults/invitations/reject", async (req, res) => {
   }
 });
 apiRouter.post("/joint-vaults/:vaultId/invitations/:inviteId/revoke", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { vaultId, inviteId } = req.params;
   try {
     const result = await vaultBackendService.revokeVaultInvitation(vaultId, inviteId, {
@@ -15854,7 +15853,7 @@ apiRouter.post("/joint-vaults/:vaultId/invitations/:inviteId/revoke", async (req
   }
 });
 apiRouter.post("/joint-vaults/:vaultId/contributions", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { vaultId } = req.params;
   const body = req.body || {};
   try {
@@ -15876,7 +15875,7 @@ apiRouter.post("/joint-vaults/:vaultId/contributions", async (req, res) => {
   }
 });
 apiRouter.post("/joint-vaults/:vaultId/contributions/:id/reverse", async (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const { vaultId, id } = req.params;
   const { reason } = req.body || {};
   try {
@@ -15890,7 +15889,7 @@ apiRouter.post("/joint-vaults/:vaultId/contributions/:id/reverse", async (req, r
   }
 });
 apiRouter.post("/joint-vaults/:vaultId/expenses", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { vaultId } = req.params;
   const body = req.body || {};
   try {
@@ -15914,7 +15913,7 @@ apiRouter.post("/joint-vaults/:vaultId/expenses", async (req, res) => {
   }
 });
 apiRouter.post("/joint-vaults/:vaultId/expenses/:id/reverse", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { vaultId, id } = req.params;
   const { reason } = req.body || {};
   try {
@@ -15937,7 +15936,7 @@ apiRouter.post("/joint-vaults/:vaultId/expenses/:id/reverse", async (req, res) =
   }
 });
 apiRouter.post("/joint-vaults/:vaultId/settlements", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { vaultId } = req.params;
   const body = req.body || {};
   try {
@@ -15961,7 +15960,7 @@ apiRouter.post("/joint-vaults/:vaultId/settlements", async (req, res) => {
   }
 });
 apiRouter.patch("/joint-vaults/:vaultId/ratio", async (req, res) => {
-  const { userId } = getAuth2(req);
+  const { userId } = getAuth(req);
   const { vaultId } = req.params;
   const { targetRatio } = req.body || {};
   try {
@@ -15975,7 +15974,7 @@ apiRouter.patch("/joint-vaults/:vaultId/ratio", async (req, res) => {
   }
 });
 apiRouter.post("/joint-vaults/:vaultId/leave", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { vaultId } = req.params;
   try {
     const result = await vaultBackendService.leaveVault(vaultId, {
@@ -15996,7 +15995,7 @@ apiRouter.post("/joint-vaults/:vaultId/leave", async (req, res) => {
   }
 });
 apiRouter.post("/joint-vaults/:vaultId/archive", async (req, res) => {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   const { vaultId } = req.params;
   try {
     const vault = await vaultBackendService.archiveVault(vaultId, {
@@ -16017,7 +16016,7 @@ apiRouter.post("/joint-vaults/:vaultId/archive", async (req, res) => {
   }
 });
 function requireAuthUser(req, res) {
-  const auth = getAuth2(req);
+  const auth = getAuth(req);
   if (!auth || !auth.userId || auth.isGuest) {
     res.status(401).json({
       error: "Signed-in FocusFlow authentication is required for this resource.",
