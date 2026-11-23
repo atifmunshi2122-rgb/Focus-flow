@@ -99,10 +99,11 @@ export const DailyTimeBlockPlanner: React.FC = () => {
     setFormTitle('');
     setFormCategory('Focus');
     setFormStartTime(startTime);
-    // End time 1 hour later
+    // End time 1 hour later (capped at 23:59 for late night)
     const [h, m] = startTime.split(':').map(Number);
-    const endH = Math.min(23, h + 1);
-    setFormEndTime(`${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+    const endH = h >= 23 ? 23 : h + 1;
+    const endM = h >= 23 ? 59 : m;
+    setFormEndTime(`${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`);
     setFormTaskId('');
     setFormNotes('');
     setIsModalOpen(true);
@@ -226,8 +227,8 @@ export const DailyTimeBlockPlanner: React.FC = () => {
     return conflicts;
   }, [blocks]);
 
-  // Timeline hours from 06:00 to 23:00 (18 hours)
-  const timelineHours = Array.from({ length: 18 }, (_, i) => i + 6);
+  // Full 24-hour timeline from 00:00 to 23:00 (24 hours)
+  const timelineHours = Array.from({ length: 24 }, (_, i) => i);
 
   const totalPlannedMinutes = blocks.reduce((sum, b) => sum + (b.endMinute - b.startMinute), 0);
   const completedMinutes = blocks
