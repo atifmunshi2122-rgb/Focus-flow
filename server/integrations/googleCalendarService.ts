@@ -251,7 +251,7 @@ export class GoogleCalendarService {
     if (
       !userId ||
       userId.startsWith('gst_') ||
-      (!hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !this.customFirestore)
+      (!hasServiceAccountCredentials() && !this.customFirestore)
     ) {
       return {
         connected: false,
@@ -685,7 +685,7 @@ export class GoogleCalendarService {
     let timeBlocks = dbService.getTimeBlocks ? dbService.getTimeBlocks(userId).filter((b: any) => !b.deletedAt) : [];
 
     // On Vercel / Cloud Firestore, load authoritative tasks and time blocks from Firestore
-    if (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore) {
+    if (hasServiceAccountCredentials() || this.customFirestore) {
       try {
         const [tasksSnap, blocksSnap] = await Promise.all([
           this.firestore.collection('users').doc(userId).collection('tasks').get(),

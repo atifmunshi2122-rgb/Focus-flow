@@ -11084,7 +11084,7 @@ var GoogleCalendarService = class {
    * Retrieves connection status without leaking sensitive tokens.
    */
   async getConnectionStatus(userId) {
-    if (!userId || userId.startsWith("gst_") || !hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !this.customFirestore) {
+    if (!userId || userId.startsWith("gst_") || !hasServiceAccountCredentials() && !this.customFirestore) {
       return {
         connected: false,
         calendarId: "primary",
@@ -11398,7 +11398,7 @@ var GoogleCalendarService = class {
     const calendarId = options?.calendarId || "primary";
     let tasks = dbService.getRaw().tasks.filter((t) => t.userId === userId && !t.deletedAt);
     let timeBlocks = dbService.getTimeBlocks ? dbService.getTimeBlocks(userId).filter((b) => !b.deletedAt) : [];
-    if (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore) {
+    if (hasServiceAccountCredentials() || this.customFirestore) {
       try {
         const [tasksSnap, blocksSnap] = await Promise.all([
           this.firestore.collection("users").doc(userId).collection("tasks").get(),
@@ -11615,7 +11615,7 @@ function requireServiceAccount(req, res, next) {
   if (req.path === "/status" || req.path === "/status/" || req.path.endsWith("/status")) {
     return next();
   }
-  if (!hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !googleCalendarService.customFirestore) {
+  if (!hasServiceAccountCredentials() && !googleCalendarService.customFirestore) {
     res.status(503).json({
       error: "Google Calendar integration requires configured Firebase Admin credentials.",
       code: "SERVICE_UNAVAILABLE"
@@ -12077,7 +12077,7 @@ var PushNotificationService = class {
    */
   async unregisterDevice(userId, installationIdOrToken) {
     if (!userId || userId.startsWith("gst_")) return false;
-    if (!hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !this.customFirestore) {
+    if (!hasServiceAccountCredentials() && !this.customFirestore) {
       return false;
     }
     const colRef = this.firestore.collection("users").doc(userId).collection("fcm_installations");
@@ -12098,7 +12098,7 @@ var PushNotificationService = class {
    * Returns device registration status and connected devices count.
    */
   async getDeviceStatus(userId) {
-    if (!userId || userId.startsWith("gst_") || !hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !this.customFirestore) {
+    if (!userId || userId.startsWith("gst_") || !hasServiceAccountCredentials() && !this.customFirestore) {
       return { enabled: false, deviceCount: 0, devices: [] };
     }
     const snap = await this.firestore.collection("users").doc(userId).collection("fcm_installations").get();
@@ -12126,7 +12126,7 @@ var PushNotificationService = class {
       return { delivered: 0, failed: 0, skipped: true };
     }
     let settings = dbService.getUserSettings(userId);
-    if (!settings && (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore)) {
+    if (!settings && (hasServiceAccountCredentials() || this.customFirestore)) {
       try {
         const settingsDoc = await this.firestore.collection("users").doc(userId).collection("settings").doc("preferences").get();
         if (settingsDoc.exists) {
@@ -12240,7 +12240,7 @@ var PushNotificationService = class {
         userIdsSet.add(u.id);
       }
     }
-    if (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore) {
+    if (hasServiceAccountCredentials() || this.customFirestore) {
       try {
         const usersSnap = await this.firestore.collection("users").get();
         usersSnap.docs.forEach((d) => {
@@ -12260,7 +12260,7 @@ var PushNotificationService = class {
       let settings = dbService.getUserSettings(userId) || null;
       let tasks = rawDb.tasks.filter((t) => t.userId === userId && !t.deletedAt);
       let bills = rawDb.bills.filter((b) => b.userId === userId && !b.deletedAt);
-      if (hasServiceAccountCredentials() || process.env.FIRESTORE_EMULATOR_HOST || this.customFirestore) {
+      if (hasServiceAccountCredentials() || this.customFirestore) {
         try {
           const [tSnap, bSnap, sSnap] = await Promise.all([
             this.firestore.collection("users").doc(userId).collection("tasks").get(),

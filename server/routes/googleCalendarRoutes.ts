@@ -61,7 +61,7 @@ function requireServiceAccount(req: Request, res: Response, next: NextFunction):
   if (req.path === '/status' || req.path === '/status/' || req.path.endsWith('/status')) {
     return next();
   }
-  if (!hasServiceAccountCredentials() && !process.env.FIRESTORE_EMULATOR_HOST && !(googleCalendarService as any).customFirestore) {
+  if (!hasServiceAccountCredentials() && !(googleCalendarService as any).customFirestore) {
     res.status(503).json({
       error: 'Google Calendar integration requires configured Firebase Admin credentials.',
       code: 'SERVICE_UNAVAILABLE',
