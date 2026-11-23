@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { LifeMilestone } from '../../types/features15.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Calendar,
@@ -58,6 +59,13 @@ export const LifeInWeeksGrid: React.FC = () => {
     } else {
       setMilestones(DEFAULT_MILESTONES);
     }
+
+    api.getLifeMilestones().then((remote) => {
+      if (Array.isArray(remote) && remote.length > 0) {
+        setMilestones(remote);
+        localStorage.setItem(milestonesKey, JSON.stringify(remote));
+      }
+    }).catch(() => {});
   }, [birthKey, milestonesKey]);
 
   const [hoveredWeek, setHoveredWeek] = useState<{ age: number; week: number } | null>(null);
@@ -73,6 +81,10 @@ export const LifeInWeeksGrid: React.FC = () => {
   const saveMilestones = (updated: LifeMilestone[]) => {
     setMilestones(updated);
     localStorage.setItem(milestonesKey, JSON.stringify(updated));
+    const latest = updated[updated.length - 1];
+    if (latest) {
+      api.saveLifeMilestone(latest).catch(() => {});
+    }
   };
 
   const stats = useMemo(() => {

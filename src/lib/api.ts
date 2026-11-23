@@ -3613,11 +3613,11 @@ export const api = {
   },
 
   getTimeCapsules: async (): Promise<TimeCapsuleLetter[]> => {
-    try {
-      return await request<TimeCapsuleLetter[]>('/time-capsules');
-    } catch {
-      return [];
-    }
+    return await request<TimeCapsuleLetter[]>('/time-capsules');
+  },
+
+  getTimeCapsule: async (id: string): Promise<TimeCapsuleLetter> => {
+    return await request<TimeCapsuleLetter>(`/time-capsules/${id}`);
   },
 
   saveTimeCapsule: async (letter: TimeCapsuleLetter): Promise<TimeCapsuleLetter> => {
@@ -3628,8 +3628,30 @@ export const api = {
   },
 
   deleteTimeCapsule: async (id: string): Promise<boolean> => {
+    const res = await request<{ success: boolean }>(`/time-capsules/${id}`, {
+      method: 'DELETE',
+    });
+    return Boolean(res?.success);
+  },
+
+  getLifeMilestones: async (): Promise<LifeMilestone[]> => {
     try {
-      const res = await request<{ success: boolean }>(`/time-capsules/${id}`, {
+      return await request<LifeMilestone[]>('/life-milestones');
+    } catch {
+      return [];
+    }
+  },
+
+  saveLifeMilestone: async (milestone: LifeMilestone): Promise<LifeMilestone> => {
+    return await request<LifeMilestone>('/life-milestones', {
+      method: 'POST',
+      body: JSON.stringify(milestone),
+    });
+  },
+
+  deleteLifeMilestone: async (id: string): Promise<boolean> => {
+    try {
+      const res = await request<{ success: boolean }>(`/life-milestones/${id}`, {
         method: 'DELETE',
       });
       return Boolean(res?.success);
@@ -3639,11 +3661,7 @@ export const api = {
   },
 
   getEmergencyProfile: async (): Promise<EmergencyAssetProfile | null> => {
-    try {
-      return await request<EmergencyAssetProfile>('/emergency-profile');
-    } catch {
-      return null;
-    }
+    return await request<EmergencyAssetProfile>('/emergency-profile');
   },
 
   saveEmergencyProfile: async (profile: EmergencyAssetProfile): Promise<EmergencyAssetProfile> => {
@@ -3651,6 +3669,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(profile),
     });
+  },
+
+  deleteEmergencyProfile: async (): Promise<boolean> => {
+    const res = await request<{ success: boolean }>('/emergency-profile', {
+      method: 'DELETE',
+    });
+    return Boolean(res?.success);
   },
 };
 

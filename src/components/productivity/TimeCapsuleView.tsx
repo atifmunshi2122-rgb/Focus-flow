@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TimeCapsuleLetter } from '../../types/features15.ts';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -13,20 +13,19 @@ import {
   Plus,
   Trash2,
   Sparkles,
-  Heart,
   Eye,
-  Archive,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 
-function obfuscateContent(raw: string): string {
-  try {
-    return 'sealed:v1:' + btoa(unescape(encodeURIComponent(raw)));
-  } catch {
-    return raw;
+/**
+ * Letter content formatter:
+ * Handles sealed format or displays direct text.
+ */
+export function revealContent(stored: string): string {
+  if (!stored || stored.trim() === '') {
+    return '🔒 This letter is sealed until its unlock date. Content is locked on the server and cannot be viewed yet.';
   }
-}
-
-function revealContent(stored: string): string {
   if (typeof stored === 'string' && stored.startsWith('sealed:v1:')) {
     try {
       return decodeURIComponent(escape(atob(stored.slice(10))));
@@ -37,35 +36,6 @@ function revealContent(stored: string): string {
   return stored;
 }
 
-const SEED_CAPSULES: TimeCapsuleLetter[] = [
-  {
-    id: 'capsule-1',
-    userId: 'user',
-    title: 'Beginning My System Architecture & CS Journey',
-    content: obfuscateContent(
-      'I am writing this during the early phase of building FocusFlow v1.8. Remember why you started: discipline, craftsmanship, and compounding self-reliance. Did you complete the distributed systems roadmap? Stay humble and keep shipping.'
-    ),
-    unlockDate: formatDateInTimezone(new Date(Date.now() + 180 * 86400000)), // 6 months from now
-    isUnlocked: false,
-    isSealed: true,
-    sealedAt: new Date().toISOString(),
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'capsule-2',
-    userId: 'user',
-    title: 'Reflection on Early Engineering Milestones',
-    content:
-      'A year ago you worried about getting the fundamentals right. If you are reading this, congratulate yourself on surviving the grind and continuing to write clean, resilient code.',
-    unlockDate: formatDateInTimezone(new Date(Date.now() - 2 * 86400000)), // Past date (unlocked)
-    isUnlocked: true,
-    isSealed: false,
-    sealedAt: new Date(Date.now() - 365 * 86400000).toISOString(),
-    createdAt: new Date(Date.now() - 365 * 86400000).toISOString(),
-    openedAt: new Date().toISOString(),
-  },
-];
-
 export const TimeCapsuleView: React.FC = () => {
   const { user } = useApp();
   const activeUid = user?.id || 'usr_guest';
@@ -73,47 +43,21 @@ export const TimeCapsuleView: React.FC = () => {
   const todayStr = getTodayDateString();
 
   const [capsules, setCapsules] = useState<TimeCapsuleLetter[]>(() => {
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
-      } catch {
-        // fallback
       }
-    }
-    return SEED_CAPSULES;
+    } catch {}
+    return [];
   });
 
-  // Sync user-scoped storage & backend
-  useEffect(() => {
-    let isMounted = true;
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) setCapsules(parsed);
-      } catch {}
-    } else {
-      setCapsules(SEED_CAPSULES);
-    }
-
-    api.getTimeCapsules().then((remote) => {
-      if (isMounted && Array.isArray(remote) && remote.length > 0) {
-        setCapsules(remote);
-        try {
-          localStorage.setItem(storageKey, JSON.stringify(remote));
-        } catch {}
-      }
-    }).catch(() => {});
-
-    return () => {
-      isMounted = false;
-    };
-  }, [storageKey]);
-
+  const [isLoading, setIsLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [isWriteModalOpen, setIsWriteModalOpen] = useState(false);
   const [selectedCapsule, setSelectedCapsule] = useState<TimeCapsuleLetter | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form State
   const [title, setTitle] = useState('');
@@ -121,16 +65,38 @@ export const TimeCapsuleView: React.FC = () => {
   const [unlockPreset, setUnlockPreset] = useState<'6m' | '1y' | '3y' | 'custom'>('1y');
   const [customDate, setCustomDate] = useState('');
 
+  // Sync user-scoped storage & backend
+  const loadCapsules = async () => {
+    setIsLoading(true);
+    setApiError(null);
+    try {
+      const remote = await api.getTimeCapsules();
+      if (Array.isArray(remote)) {
+        setCapsules(remote);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(remote));
+        } catch {}
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to load time capsules from server';
+      setApiError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCapsules();
+  }, [storageKey]);
+
   const saveState = (updated: TimeCapsuleLetter[]) => {
     setCapsules(updated);
     try {
       localStorage.setItem(storageKey, JSON.stringify(updated));
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  const handleCreateCapsule = (e: React.FormEvent) => {
+  const handleCreateCapsule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !content.trim()) return;
 
@@ -144,30 +110,54 @@ export const TimeCapsuleView: React.FC = () => {
       targetDateStr = formatDateInTimezone(new Date(now + 3 * 365 * 86400000));
     }
 
+    if (!targetDateStr) {
+      setApiError('Please select a valid unlock date.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setApiError(null);
+
     const newCapsule: TimeCapsuleLetter = {
       id: `cap-${Date.now()}`,
       userId: activeUid,
       title: title.trim(),
-      content: obfuscateContent(content.trim()),
+      content: content.trim(),
       unlockDate: targetDateStr,
-      isUnlocked: false,
-      isSealed: true,
+      isUnlocked: targetDateStr <= todayStr,
+      isSealed: targetDateStr > todayStr,
       sealedAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
     };
 
-    saveState([newCapsule, ...capsules]);
-    api.saveTimeCapsule(newCapsule).catch(() => {});
-    setIsWriteModalOpen(false);
-    setTitle('');
-    setContent('');
+    try {
+      const saved = await api.saveTimeCapsule(newCapsule);
+      const updated = [saved, ...capsules.filter((c) => c.id !== saved.id)];
+      saveState(updated);
+      setIsWriteModalOpen(false);
+      setTitle('');
+      setContent('');
+      setCustomDate('');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save time capsule letter';
+      setApiError(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDeleteCapsule = (id: string) => {
-    if (!window.confirm('Delete this time capsule permanently?')) return;
-    saveState(capsules.filter((c) => c.id !== id));
-    api.deleteTimeCapsule(id).catch(() => {});
-    if (selectedCapsule?.id === id) setSelectedCapsule(null);
+  const handleDeleteCapsule = async (id: string) => {
+    if (!window.confirm('Delete this time capsule letter permanently?')) return;
+    setApiError(null);
+    try {
+      await api.deleteTimeCapsule(id);
+      const updated = capsules.filter((c) => c.id !== id);
+      saveState(updated);
+      if (selectedCapsule?.id === id) setSelectedCapsule(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete time capsule letter';
+      setApiError(msg);
+    }
   };
 
   const calculateDaysRemaining = (unlockDateStr: string) => {
@@ -190,11 +180,13 @@ export const TimeCapsuleView: React.FC = () => {
             <span className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
               <Mail className="w-5 h-5" />
             </span>
-            <h2 className="text-lg font-bold text-[var(--ff-text-primary)]">Time Capsule: Letters to Future Self</h2>
-            <ThemeBadge tone="accent">Sealed Reflections</ThemeBadge>
+            <h2 className="text-lg font-bold text-[var(--ff-text-primary)]">
+              Time Capsule: Letters to Future Self
+            </h2>
+            <ThemeBadge tone="accent">Date-Restricted Reminders</ThemeBadge>
           </div>
           <p className="text-xs text-[var(--ff-text-muted)]">
-            Write reflective letters to your future self. Content remains sealed and tamper-proof until the target unlock date.
+            Write reflective letters to your future self. Content is date-restricted and sealed until your chosen unlock date arrives.
           </p>
         </div>
 
@@ -204,78 +196,117 @@ export const TimeCapsuleView: React.FC = () => {
         </ThemeButton>
       </div>
 
+      {/* Error Banner */}
+      {apiError && (
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span>{apiError}</span>
+          </div>
+          <button
+            onClick={loadCapsules}
+            className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 font-semibold transition-colors flex items-center gap-1 text-[11px]"
+          >
+            <RefreshCw className="w-3 h-3" />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Genuine Empty State */}
+      {capsules.length === 0 && !isLoading && (
+        <div className="text-center py-12 px-4 rounded-2xl bg-[var(--ff-surface)] border border-dashed border-[var(--ff-border)] space-y-3">
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-[var(--ff-surface-muted)] flex items-center justify-center text-[var(--ff-text-muted)]">
+            <Mail className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">No Sealed Letters Yet</h3>
+            <p className="text-xs text-[var(--ff-text-muted)] max-w-sm mx-auto">
+              Write a date-restricted personal reflection to your future self. It will remain locked until your selected unlock date arrives.
+            </p>
+          </div>
+          <ThemeButton variant="primary" size="sm" onClick={() => setIsWriteModalOpen(true)}>
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            Seal Your First Letter
+          </ThemeButton>
+        </div>
+      )}
+
       {/* Capsules Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-        {capsules.map((c) => {
-          const daysLeft = calculateDaysRemaining(c.unlockDate);
-          const isUnlocked = daysLeft === 0;
+      {capsules.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {capsules.map((c) => {
+            const daysLeft = calculateDaysRemaining(c.unlockDate);
+            // Trust server-provided isUnlocked status
+            const isUnlocked = Boolean(c.isUnlocked) || daysLeft === 0;
 
-          return (
-            <div
-              key={c.id}
-              className={`p-5 rounded-2xl bg-[var(--ff-surface)] border transition-all space-y-4 flex flex-col justify-between ${
-                isUnlocked
-                  ? 'border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                  : 'border-[var(--ff-border)] hover:border-amber-500/40'
-              }`}
-            >
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
-                      isUnlocked ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
-                    }`}
-                  >
-                    {isUnlocked ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                    {isUnlocked ? 'Capsule Unlocked' : `Sealed: ${daysLeft} Days Left`}
-                  </span>
+            return (
+              <div
+                key={c.id}
+                className={`p-5 rounded-2xl bg-[var(--ff-surface)] border transition-all space-y-4 flex flex-col justify-between ${
+                  isUnlocked
+                    ? 'border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                    : 'border-[var(--ff-border)] hover:border-amber-500/40'
+                }`}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                        isUnlocked ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
+                      }`}
+                    >
+                      {isUnlocked ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                      {isUnlocked ? 'Capsule Unlocked' : `Sealed: ${daysLeft} Days Left`}
+                    </span>
 
-                  <button
-                    onClick={() => handleDeleteCapsule(c.id)}
-                    className="p-1 text-[var(--ff-text-muted)] hover:text-rose-400 transition-colors"
-                    title="Delete Capsule"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                    <button
+                      onClick={() => handleDeleteCapsule(c.id)}
+                      className="p-1 text-[var(--ff-text-muted)] hover:text-rose-400 transition-colors"
+                      title="Delete Capsule"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <h3 className="text-sm font-bold text-[var(--ff-text-primary)] line-clamp-2">{c.title}</h3>
+
+                  <div className="text-[11px] text-[var(--ff-text-muted)] space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3 h-3" />
+                      <span>Sealed on: {c.createdAt ? c.createdAt.split('T')[0] : 'Recently'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3 h-3" />
+                      <span>Target Date: {c.unlockDate}</span>
+                    </div>
+                  </div>
                 </div>
 
-                <h3 className="text-sm font-bold text-[var(--ff-text-primary)] line-clamp-2">{c.title}</h3>
-
-                <div className="text-[11px] text-[var(--ff-text-muted)] space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="w-3 h-3" />
-                    <span>Sealed on: {c.createdAt.split('T')[0]}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="w-3 h-3" />
-                    <span>Target Date: {c.unlockDate}</span>
-                  </div>
+                {/* Action Button */}
+                <div className="pt-3 border-t border-[var(--ff-border)]">
+                  {isUnlocked ? (
+                    <ThemeButton
+                      variant="primary"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setSelectedCapsule(c)}
+                    >
+                      <Eye className="w-3.5 h-3.5 mr-1" />
+                      Open Unlocked Letter
+                    </ThemeButton>
+                  ) : (
+                    <div className="text-center py-1 text-xs text-[var(--ff-text-muted)] font-mono flex items-center justify-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Sealed until {c.unlockDate}</span>
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {/* Action Button */}
-              <div className="pt-3 border-t border-[var(--ff-border)]">
-                {isUnlocked ? (
-                  <ThemeButton
-                    variant="primary"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => setSelectedCapsule(c)}
-                  >
-                    <Eye className="w-3.5 h-3.5 mr-1" />
-                    Open Unlocked Letter
-                  </ThemeButton>
-                ) : (
-                  <div className="text-center py-1 text-xs text-[var(--ff-text-muted)] font-mono flex items-center justify-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Sealed until {c.unlockDate}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Read Unlocked Capsule Modal */}
       {selectedCapsule && (
@@ -289,7 +320,7 @@ export const TimeCapsuleView: React.FC = () => {
                 <div>
                   <h3 className="text-base font-bold text-[var(--ff-text-primary)]">{selectedCapsule.title}</h3>
                   <span className="text-[10px] text-[var(--ff-text-muted)]">
-                    Written on {selectedCapsule.createdAt.split('T')[0]}
+                    Written on {selectedCapsule.createdAt ? selectedCapsule.createdAt.split('T')[0] : 'Past Date'} • Unlocked on {selectedCapsule.unlockDate}
                   </span>
                 </div>
               </div>
@@ -391,11 +422,17 @@ export const TimeCapsuleView: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--ff-border)]">
-                <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsWriteModalOpen(false)}>
+                <ThemeButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsWriteModalOpen(false)}
+                  disabled={isSubmitting}
+                >
                   Cancel
                 </ThemeButton>
-                <ThemeButton type="submit" variant="primary" size="sm">
-                  Seal Capsule
+                <ThemeButton type="submit" variant="primary" size="sm" disabled={isSubmitting}>
+                  {isSubmitting ? 'Sealing...' : 'Seal Capsule'}
                 </ThemeButton>
               </div>
             </form>

@@ -69,9 +69,15 @@ import type {
   ExamSimulationState,
   DecisionEntry,
   DoomscrollTaxEntry,
+  LifeMilestone,
   TimeCapsuleLetter,
   EmergencyAssetProfile,
+  MaskedAccountRecord,
+  InsurancePolicyRecord,
+  NomineeContactRecord,
 } from '../src/types/features15.ts';
+import crypto from 'crypto';
+import { v18StorageService, StorageOwnershipError, StorageNotFoundError } from './v18StorageService.js';
 import { pushSheetHubCellUpdates } from './sheetHubWriteWorker.ts';
 import { duplicateGoogleDriveFile } from './driveWorker.ts';
 import { defaultIdempotencyLedger } from './durableIdempotencyLedger.ts';
@@ -4314,17 +4320,57 @@ apiRouter.post('/joint-vaults/:vaultId/archive', async (req: Request, res: Respo
 });
 
 // ----------------------------------------------------
-// FocusFlow v1.8 15 Unique Features Routes
+// FocusFlow v1.8 Multi-Tenant Routes (Hardened)
 // ----------------------------------------------------
 
-// Skill Tree Nodes
-apiRouter.get('/skill-nodes', (req: Request, res: Response) => {
+function requireAuthUser(req: Request, res: Response) {
   const auth = getAuth(req);
-  res.json(dbService.getSkillNodes(auth.userId));
+  if (!auth || !auth.userId || auth.isGuest) {
+    res.status(401).json({
+      error: 'Signed-in FocusFlow authentication is required for this resource.',
+      code: 'AUTH_REQUIRED',
+    });
+    return null;
+  }
+  return auth;
+}
+
+// -------------------------------------------------------------
+// 1. Skill Tree Nodes
+// -------------------------------------------------------------
+apiRouter.get('/skill-nodes', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const nodes = await v18StorageService.getSkillNodes(auth.userId);
+    res.json(nodes);
+  } catch {
+    res.status(500).json({ error: 'Failed to retrieve skill nodes' });
+  }
+});
+
+apiRouter.get('/skill-nodes/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const node = await v18StorageService.getSkillNode(auth.userId, req.params.id);
+    if (!node) {
+      res.status(404).json({ error: 'Skill node not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json(node);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to retrieve skill node' });
+  }
 });
 
 apiRouter.post('/skill-nodes', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   const body = req.body || {};
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 128) : '';
   if (!title) {
@@ -4336,8 +4382,10 @@ apiRouter.post('/skill-nodes', async (req: Request, res: Response) => {
   const tier = typeof body.tier === 'number' && body.tier >= 1 && body.tier <= 10 ? Math.floor(body.tier) : 1;
   const xpPoints = typeof body.xpPoints === 'number' && body.xpPoints >= 0 ? Math.floor(body.xpPoints) : 10;
 
+  const recordId = typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `sn_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+
   const node: SkillNode = {
-    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `sn_${Date.now()}`,
+    id: recordId,
     userId: auth.userId,
     trackId: typeof body.trackId === 'string' ? body.trackId.slice(0, 128) : 'default',
     title,
@@ -4354,26 +4402,97 @@ apiRouter.post('/skill-nodes', async (req: Request, res: Response) => {
   };
 
   try {
-    const saved = dbService.saveSkillNode(node);
+    const saved = await v18StorageService.saveSkillNode(auth.userId, node);
     await dbService.flush();
     res.status(201).json(saved);
-  } catch {
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
   }
 });
 
-// Whiteboard Rough-Work Drawings
-apiRouter.get('/whiteboard', (req: Request, res: Response) => {
-  const auth = getAuth(req);
-  res.json(dbService.getWhiteboardDrawings(auth.userId));
+apiRouter.put('/skill-nodes/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const updated = await v18StorageService.updateSkillNode(auth.userId, req.params.id, req.body || {});
+    await dbService.flush();
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof StorageNotFoundError) {
+      res.status(404).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to update skill node' });
+  }
+});
+
+apiRouter.delete('/skill-nodes/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const success = await v18StorageService.deleteSkillNode(auth.userId, req.params.id);
+    await dbService.flush();
+    if (!success) {
+      res.status(404).json({ error: 'Skill node not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+// -------------------------------------------------------------
+// 2. Whiteboard Rough-Work Drawings
+// -------------------------------------------------------------
+apiRouter.get('/whiteboard', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const drawings = await v18StorageService.getWhiteboardDrawings(auth.userId);
+    res.json(drawings);
+  } catch {
+    res.status(500).json({ error: 'Failed to retrieve whiteboard drawings' });
+  }
+});
+
+apiRouter.get('/whiteboard/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const drawing = await v18StorageService.getWhiteboardDrawing(auth.userId, req.params.id);
+    if (!drawing) {
+      res.status(404).json({ error: 'Whiteboard drawing not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json(drawing);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to retrieve whiteboard drawing' });
+  }
 });
 
 apiRouter.post('/whiteboard', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   const body = req.body || {};
   const dataUrl = typeof body.dataUrl === 'string' ? body.dataUrl.trim() : '';
 
-  // Validate data URL format and bounded size (max 2MB)
   const isDataUrl = /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ||
     (dataUrl.startsWith('data:image/') && dataUrl.length <= 2 * 1024 * 1024);
 
@@ -4385,8 +4504,10 @@ apiRouter.post('/whiteboard', async (req: Request, res: Response) => {
     return;
   }
 
+  const recordId = typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `wb_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+
   const drawing: WhiteboardDrawing = {
-    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `wb_${Date.now()}`,
+    id: recordId,
     userId: auth.userId,
     title: typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 128) : 'Rough Sketch',
     dataUrl,
@@ -4400,33 +4521,94 @@ apiRouter.post('/whiteboard', async (req: Request, res: Response) => {
   };
 
   try {
-    const saved = dbService.saveWhiteboardDrawing(drawing);
+    const saved = await v18StorageService.saveWhiteboardDrawing(auth.userId, drawing);
     await dbService.flush();
     res.status(201).json(saved);
-  } catch {
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.put('/whiteboard/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const updated = await v18StorageService.updateWhiteboardDrawing(auth.userId, req.params.id, req.body || {});
+    await dbService.flush();
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof StorageNotFoundError) {
+      res.status(404).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to update whiteboard drawing' });
   }
 });
 
 apiRouter.delete('/whiteboard/:id', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   try {
-    const success = dbService.deleteWhiteboardDrawing(req.params.id, auth.userId);
+    const success = await v18StorageService.deleteWhiteboardDrawing(auth.userId, req.params.id);
     await dbService.flush();
-    res.json({ success });
-  } catch {
+    if (!success) {
+      res.status(404).json({ error: 'Whiteboard drawing not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
   }
 });
 
-// Exam Hall Simulator
-apiRouter.get('/exam-simulations', (req: Request, res: Response) => {
-  const auth = getAuth(req);
-  res.json(dbService.getExamSimulations(auth.userId));
+// -------------------------------------------------------------
+// 3. Exam Hall Simulator Sessions
+// -------------------------------------------------------------
+apiRouter.get('/exam-simulations', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const sims = await v18StorageService.getExamSimulations(auth.userId);
+    res.json(sims);
+  } catch {
+    res.status(500).json({ error: 'Failed to retrieve exam simulations' });
+  }
+});
+
+apiRouter.get('/exam-simulations/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const sim = await v18StorageService.getExamSimulation(auth.userId, req.params.id);
+    if (!sim) {
+      res.status(404).json({ error: 'Exam simulation not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json(sim);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to retrieve exam simulation' });
+  }
 });
 
 apiRouter.post('/exam-simulations', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   const body = req.body || {};
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 128) : '';
   if (!title) {
@@ -4439,8 +4621,10 @@ apiRouter.post('/exam-simulations', async (req: Request, res: Response) => {
   const allowedStatuses = ['idle', 'running', 'paused', 'completed', 'in_progress'];
   const status = allowedStatuses.includes(body.status) ? body.status : 'idle';
 
+  const recordId = typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `sim_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+
   const sim: ExamSimulationState = {
-    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `sim_${Date.now()}`,
+    id: recordId,
     title,
     totalDurationMinutes,
     sections: Array.isArray(body.sections) ? body.sections.slice(0, 20) : [],
@@ -4453,22 +4637,94 @@ apiRouter.post('/exam-simulations', async (req: Request, res: Response) => {
   };
 
   try {
-    const saved = dbService.saveExamSimulation({ ...sim, userId: auth.userId } as any);
+    const saved = await v18StorageService.saveExamSimulation(auth.userId, sim);
     await dbService.flush();
     res.status(201).json(saved);
-  } catch {
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
   }
 });
 
-// Decision Journal
-apiRouter.get('/decisions', (req: Request, res: Response) => {
-  const auth = getAuth(req);
-  res.json(dbService.getDecisionEntries(auth.userId));
+apiRouter.put('/exam-simulations/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const updated = await v18StorageService.updateExamSimulation(auth.userId, req.params.id, req.body || {});
+    await dbService.flush();
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof StorageNotFoundError) {
+      res.status(404).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to update exam simulation' });
+  }
+});
+
+apiRouter.delete('/exam-simulations/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const success = await v18StorageService.deleteExamSimulation(auth.userId, req.params.id);
+    await dbService.flush();
+    if (!success) {
+      res.status(404).json({ error: 'Exam simulation not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+// -------------------------------------------------------------
+// 4. Decision Journal
+// -------------------------------------------------------------
+apiRouter.get('/decisions', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const decisions = await v18StorageService.getDecisionEntries(auth.userId);
+    res.json(decisions);
+  } catch {
+    res.status(500).json({ error: 'Failed to retrieve decision entries' });
+  }
+});
+
+apiRouter.get('/decisions/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const decision = await v18StorageService.getDecisionEntry(auth.userId, req.params.id);
+    if (!decision) {
+      res.status(404).json({ error: 'Decision entry not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json(decision);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to retrieve decision entry' });
+  }
 });
 
 apiRouter.post('/decisions', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   const body = req.body || {};
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 256) : '';
   if (!title) {
@@ -4482,8 +4738,10 @@ apiRouter.post('/decisions', async (req: Request, res: Response) => {
     ? Math.floor(body.confidenceScore)
     : 5;
 
+  const recordId = typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `dec_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+
   const decision: DecisionEntry = {
-    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `dec_${Date.now()}`,
+    id: recordId,
     userId: auth.userId,
     title,
     category,
@@ -4502,22 +4760,94 @@ apiRouter.post('/decisions', async (req: Request, res: Response) => {
   };
 
   try {
-    const saved = dbService.saveDecisionEntry(decision);
+    const saved = await v18StorageService.saveDecisionEntry(auth.userId, decision);
     await dbService.flush();
     res.status(201).json(saved);
-  } catch {
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
   }
 });
 
-// Doomscroll Self-Tax Jar
-apiRouter.get('/doomscroll-tax', (req: Request, res: Response) => {
-  const auth = getAuth(req);
-  res.json(dbService.getDoomscrollLogs(auth.userId));
+apiRouter.put('/decisions/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const updated = await v18StorageService.updateDecisionEntry(auth.userId, req.params.id, req.body || {});
+    await dbService.flush();
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof StorageNotFoundError) {
+      res.status(404).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to update decision entry' });
+  }
+});
+
+apiRouter.delete('/decisions/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const success = await v18StorageService.deleteDecisionEntry(auth.userId, req.params.id);
+    await dbService.flush();
+    if (!success) {
+      res.status(404).json({ error: 'Decision entry not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+// -------------------------------------------------------------
+// 5. Doomscroll Self-Tax Jar
+// -------------------------------------------------------------
+apiRouter.get('/doomscroll-tax', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const logs = await v18StorageService.getDoomscrollLogs(auth.userId);
+    res.json(logs);
+  } catch {
+    res.status(500).json({ error: 'Failed to retrieve doomscroll logs' });
+  }
+});
+
+apiRouter.get('/doomscroll-tax/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const log = await v18StorageService.getDoomscrollLog(auth.userId, req.params.id);
+    if (!log) {
+      res.status(404).json({ error: 'Doomscroll log not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json(log);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to retrieve doomscroll log' });
+  }
 });
 
 apiRouter.post('/doomscroll-tax', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   const body = req.body || {};
   const minutes = typeof body.minutes === 'number' && body.minutes > 0 ? Math.floor(body.minutes) : 0;
   if (minutes <= 0) {
@@ -4525,8 +4855,10 @@ apiRouter.post('/doomscroll-tax', async (req: Request, res: Response) => {
     return;
   }
 
+  const recordId = typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `tax_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+
   const log: DoomscrollTaxEntry = {
-    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `tax_${Date.now()}`,
+    id: recordId,
     userId: auth.userId,
     minutes,
     durationMinutes: minutes,
@@ -4543,18 +4875,63 @@ apiRouter.post('/doomscroll-tax', async (req: Request, res: Response) => {
   };
 
   try {
-    const saved = dbService.saveDoomscrollLog(log);
+    const saved = await v18StorageService.saveDoomscrollLog(auth.userId, log);
     await dbService.flush();
     res.status(201).json(saved);
-  } catch {
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.put('/doomscroll-tax/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const updated = await v18StorageService.updateDoomscrollLog(auth.userId, req.params.id, req.body || {});
+    await dbService.flush();
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof StorageNotFoundError) {
+      res.status(404).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to update doomscroll log' });
+  }
+});
+
+apiRouter.delete('/doomscroll-tax/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const success = await v18StorageService.deleteDoomscrollLog(auth.userId, req.params.id);
+    await dbService.flush();
+    if (!success) {
+      res.status(404).json({ error: 'Doomscroll log not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
   }
 });
 
 apiRouter.delete('/doomscroll-tax', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   try {
-    const success = dbService.clearDoomscrollLogs(auth.userId);
+    const success = await v18StorageService.clearDoomscrollLogs(auth.userId);
     await dbService.flush();
     res.json({ success });
   } catch {
@@ -4562,14 +4939,85 @@ apiRouter.delete('/doomscroll-tax', async (req: Request, res: Response) => {
   }
 });
 
-// Time Capsule Letters
-apiRouter.get('/time-capsules', (req: Request, res: Response) => {
-  const auth = getAuth(req);
-  res.json(dbService.getTimeCapsules(auth.userId));
+// -------------------------------------------------------------
+// 6. Time Capsule Letters (Date-Restricted Reflections)
+// -------------------------------------------------------------
+function getTrustedServerToday(req: Request): string {
+  const tz = (req.query.tz as string) || (req.headers['x-timezone'] as string) || DEFAULT_TIMEZONE;
+  return getTodayDateString(tz);
+}
+
+function isTimeCapsuleUnlockedOnServer(capsule: { unlockDate?: string }, serverToday: string): boolean {
+  if (!capsule.unlockDate) return true;
+  return capsule.unlockDate <= serverToday;
+}
+
+function sanitizeTimeCapsuleForResponse(capsule: TimeCapsuleLetter, serverToday: string): TimeCapsuleLetter {
+  const isUnlocked = isTimeCapsuleUnlockedOnServer(capsule, serverToday);
+  if (isUnlocked) {
+    return {
+      ...capsule,
+      isUnlocked: true,
+      isSealed: false,
+      openedAt: capsule.openedAt || new Date().toISOString(),
+    };
+  }
+
+  // Strictly redact content for locked letters; return only safe metadata
+  return {
+    id: capsule.id,
+    userId: capsule.userId,
+    title: capsule.title,
+    content: '', // Redacted on server! Content never leaves server until unlock date
+    unlockDate: capsule.unlockDate,
+    isUnlocked: false,
+    isSealed: true,
+    sealedAt: capsule.sealedAt || capsule.createdAt,
+    createdAt: capsule.createdAt,
+    tags: capsule.tags,
+  };
+}
+
+apiRouter.get('/time-capsules', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const serverToday = getTrustedServerToday(req);
+    const capsules = await v18StorageService.getTimeCapsules(auth.userId);
+    const sanitized = capsules.map((c) => sanitizeTimeCapsuleForResponse(c, serverToday));
+    res.json(sanitized);
+  } catch {
+    res.status(500).json({ error: 'Failed to retrieve time capsules' });
+  }
+});
+
+apiRouter.get('/time-capsules/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const serverToday = getTrustedServerToday(req);
+    const capsule = await v18StorageService.getTimeCapsule(auth.userId, req.params.id);
+    if (!capsule) {
+      res.status(404).json({ error: 'Time capsule not found', code: 'NOT_FOUND' });
+      return;
+    }
+    if (capsule.userId !== auth.userId) {
+      res.status(403).json({ error: 'Cross-user access forbidden', code: 'FORBIDDEN' });
+      return;
+    }
+    res.json(sanitizeTimeCapsuleForResponse(capsule, serverToday));
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to retrieve time capsule' });
+  }
 });
 
 apiRouter.post('/time-capsules', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   const body = req.body || {};
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 256) : '';
   const content = typeof body.content === 'string' ? body.content.trim().slice(0, 20000) : '';
@@ -4580,83 +5028,415 @@ apiRouter.post('/time-capsules', async (req: Request, res: Response) => {
     return;
   }
 
+  const serverToday = getTrustedServerToday(req);
+  // Never trust client-provided isUnlocked. Calculate strictly using trusted server time!
+  const isUnlocked = isTimeCapsuleUnlockedOnServer({ unlockDate }, serverToday);
+
+  const recordId = typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `cap_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+
   const capsule: TimeCapsuleLetter = {
-    id: typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `cap_${Date.now()}`,
+    id: recordId,
     userId: auth.userId,
     title,
-    content,
+    content, // Stored safely in authoritative database
     unlockDate,
-    isUnlocked: Boolean(body.isUnlocked),
-    isSealed: body.isSealed !== undefined ? Boolean(body.isSealed) : true,
+    isUnlocked,
+    isSealed: !isUnlocked,
     sealedAt: typeof body.sealedAt === 'string' ? body.sealedAt : new Date().toISOString(),
     createdAt: typeof body.createdAt === 'string' ? body.createdAt : new Date().toISOString(),
-    openedAt: typeof body.openedAt === 'string' ? body.openedAt : undefined,
+    openedAt: isUnlocked ? (typeof body.openedAt === 'string' ? body.openedAt : new Date().toISOString()) : undefined,
     tags: Array.isArray(body.tags) ? body.tags.filter((t: unknown) => typeof t === 'string').slice(0, 10) : undefined,
   };
 
   try {
-    const saved = dbService.saveTimeCapsule(capsule);
+    const saved = await v18StorageService.saveTimeCapsule(auth.userId, capsule);
     await dbService.flush();
-    res.status(201).json(saved);
-  } catch {
+    // Return sanitized response: if locked, content is redacted
+    res.status(201).json(sanitizeTimeCapsuleForResponse(saved, serverToday));
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.put('/time-capsules/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const serverToday = getTrustedServerToday(req);
+    const existing = await v18StorageService.getTimeCapsule(auth.userId, req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: 'Time capsule not found', code: 'NOT_FOUND' });
+      return;
+    }
+    if (existing.userId !== auth.userId) {
+      res.status(403).json({ error: 'Cross-user write forbidden', code: 'FORBIDDEN' });
+      return;
+    }
+
+    const body = req.body || {};
+    const effectiveUnlockDate = typeof body.unlockDate === 'string' && body.unlockDate.trim()
+      ? body.unlockDate.trim().slice(0, 32)
+      : existing.unlockDate;
+    const isUnlocked = isTimeCapsuleUnlockedOnServer({ unlockDate: effectiveUnlockDate }, serverToday);
+
+    const updates: Partial<TimeCapsuleLetter> = {
+      unlockDate: effectiveUnlockDate,
+      isUnlocked,
+      isSealed: !isUnlocked,
+    };
+    if (typeof body.title === 'string') updates.title = body.title.trim().slice(0, 256);
+    if (Array.isArray(body.tags)) updates.tags = body.tags.filter((t: unknown) => typeof t === 'string').slice(0, 10);
+
+    // If client sent non-empty content, update it; otherwise preserve existing content
+    if (typeof body.content === 'string' && body.content.trim()) {
+      updates.content = body.content.trim().slice(0, 20000);
+    }
+
+    const updated = await v18StorageService.updateTimeCapsule(auth.userId, req.params.id, updates);
+    await dbService.flush();
+    res.json(sanitizeTimeCapsuleForResponse(updated, serverToday));
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof StorageNotFoundError) {
+      res.status(404).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to update time capsule' });
   }
 });
 
 apiRouter.delete('/time-capsules/:id', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   try {
-    const success = dbService.deleteTimeCapsule(req.params.id, auth.userId);
+    const existing = await v18StorageService.getTimeCapsule(auth.userId, req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: 'Time capsule not found', code: 'NOT_FOUND' });
+      return;
+    }
+    if (existing.userId !== auth.userId) {
+      res.status(403).json({ error: 'Cross-user delete forbidden', code: 'FORBIDDEN' });
+      return;
+    }
+
+    const success = await v18StorageService.deleteTimeCapsule(auth.userId, req.params.id);
     await dbService.flush();
-    res.json({ success });
-  } catch {
+    if (!success) {
+      res.status(404).json({ error: 'Time capsule not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
   }
 });
 
-// Emergency Profile & Asset Summary
-apiRouter.get('/emergency-profile', (req: Request, res: Response) => {
-  const auth = getAuth(req);
-  res.json(
-    dbService.getEmergencyProfile(auth.userId) || {
-      id: `ep_${auth.userId}`,
-      userId: auth.userId,
-      accounts: [],
-      policies: [],
-      emergencyContacts: [],
-      updatedAt: new Date().toISOString(),
+// -------------------------------------------------------------
+// 7. Life Milestones (Life-in-Weeks Grid)
+// -------------------------------------------------------------
+apiRouter.get('/life-milestones', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const milestones = await v18StorageService.getLifeMilestones(auth.userId);
+    res.json(milestones);
+  } catch {
+    res.status(500).json({ error: 'Failed to retrieve life milestones' });
+  }
+});
+
+apiRouter.get('/life-milestones/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const milestone = await v18StorageService.getLifeMilestone(auth.userId, req.params.id);
+    if (!milestone) {
+      res.status(404).json({ error: 'Life milestone not found', code: 'NOT_FOUND' });
+      return;
     }
-  );
+    res.json(milestone);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to retrieve life milestone' });
+  }
+});
+
+apiRouter.post('/life-milestones', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  const body = req.body || {};
+  const label = typeof body.label === 'string' ? body.label.trim().slice(0, 128) : '';
+  if (!label) {
+    res.status(400).json({ error: 'label is required and must be a non-empty string' });
+    return;
+  }
+  const allowedCategories = ['education', 'career', 'personal', 'health', 'target'];
+  const category = allowedCategories.includes(body.category) ? body.category : 'personal';
+  const age = typeof body.age === 'number' && body.age >= 0 && body.age <= 120 ? Math.floor(body.age) : 25;
+  const weekIndex = typeof body.weekIndex === 'number' && body.weekIndex >= 0 ? Math.floor(body.weekIndex) : age * 52;
+
+  const recordId = typeof body.id === 'string' && body.id ? body.id.slice(0, 128) : `m_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+
+  const milestone: LifeMilestone = {
+    id: recordId,
+    weekIndex,
+    age,
+    label,
+    title: typeof body.title === 'string' ? body.title.trim().slice(0, 128) : label,
+    category,
+    date: typeof body.date === 'string' ? body.date.slice(0, 32) : undefined,
+    color: typeof body.color === 'string' ? body.color.slice(0, 32) : undefined,
+  };
+
+  try {
+    const saved = await v18StorageService.saveLifeMilestone(auth.userId, milestone);
+    await dbService.flush();
+    res.status(201).json(saved);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.put('/life-milestones/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const updated = await v18StorageService.updateLifeMilestone(auth.userId, req.params.id, req.body || {});
+    await dbService.flush();
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof StorageNotFoundError) {
+      res.status(404).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to update life milestone' });
+  }
+});
+
+apiRouter.delete('/life-milestones/:id', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const success = await v18StorageService.deleteLifeMilestone(auth.userId, req.params.id);
+    await dbService.flush();
+    if (!success) {
+      res.status(404).json({ error: 'Life milestone not found', code: 'NOT_FOUND' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+// -------------------------------------------------------------
+// 8. Emergency Profile & Asset Summary
+// -------------------------------------------------------------
+function sanitizeMaskedAccount(raw: any, index: number): MaskedAccountRecord {
+  const institution = typeof raw?.institution === 'string' ? raw.institution.trim().slice(0, 128) : 'Financial Institution';
+  const nickname = typeof raw?.nickname === 'string' ? raw.nickname.trim().slice(0, 128) : 'Account';
+  const rawNum = typeof raw?.maskedNumber === 'string' ? raw.maskedNumber.trim() : (typeof raw?.accountNumber === 'string' ? raw.accountNumber.trim() : '');
+  const digits = rawNum.replace(/\s+/g, '');
+  const last4 = digits.length > 4 ? digits.slice(-4) : (digits || '••••');
+  const maskedNumber = last4.startsWith('••••') ? last4 : `•••• ${last4}`;
+
+  const validTypes = ['Savings', 'Checking', 'Fixed Deposit', 'Demat/Brokerage', 'Credit Card'];
+  const accountType = validTypes.includes(raw?.accountType) ? raw.accountType : 'Savings';
+  const nomineeName = typeof raw?.nomineeName === 'string' && raw.nomineeName.trim() ? raw.nomineeName.trim().slice(0, 128) : undefined;
+  const notes = typeof raw?.notes === 'string' && raw.notes.trim() ? raw.notes.trim().slice(0, 500) : undefined;
+
+  return {
+    id: typeof raw?.id === 'string' && raw.id ? raw.id.slice(0, 64) : `acc_${Date.now()}_${index}`,
+    institution,
+    nickname,
+    maskedNumber,
+    accountType,
+    nomineeName,
+    notes,
+  };
+}
+
+function sanitizeInsurancePolicy(raw: any, index: number): InsurancePolicyRecord {
+  const provider = typeof raw?.provider === 'string' ? raw.provider.trim().slice(0, 128) : 'Insurance Provider';
+  const rawNum = typeof raw?.policyNumber === 'string' ? raw.policyNumber.trim() : (typeof raw?.policyRef === 'string' ? raw.policyRef.trim() : '');
+  const digits = rawNum.replace(/\s+/g, '');
+  const last4 = digits.length > 4 ? digits.slice(-4) : (digits || '••••');
+  const policyNumber = last4.startsWith('••••') ? last4 : `•••• ${last4}`;
+
+  const policyType = typeof raw?.policyType === 'string' && raw.policyType.trim() ? raw.policyType.trim().slice(0, 64) : 'Health Insurance';
+  const coverageAmountPaise = typeof raw?.coverageAmountPaise === 'number' && Number.isFinite(raw.coverageAmountPaise) && raw.coverageAmountPaise >= 0
+    ? Math.min(raw.coverageAmountPaise, 100000000000)
+    : 0;
+  const emergencyHelpline = typeof raw?.emergencyHelpline === 'string' ? raw.emergencyHelpline.trim().slice(0, 64) : '';
+  const nomineeName = typeof raw?.nomineeName === 'string' ? raw.nomineeName.trim().slice(0, 128) : '';
+
+  return {
+    id: typeof raw?.id === 'string' && raw.id ? raw.id.slice(0, 64) : `pol_${Date.now()}_${index}`,
+    provider,
+    policyNumber,
+    policyType,
+    coverageAmountPaise,
+    emergencyHelpline,
+    nomineeName,
+  };
+}
+
+function sanitizeEmergencyContact(raw: any, index: number): NomineeContactRecord {
+  return {
+    id: typeof raw?.id === 'string' && raw.id ? raw.id.slice(0, 64) : `c_${Date.now()}_${index}`,
+    name: typeof raw?.name === 'string' ? raw.name.trim().slice(0, 128) : 'Contact',
+    relationship: typeof raw?.relationship === 'string' ? raw.relationship.trim().slice(0, 64) : 'Next-of-Kin',
+    phone: typeof raw?.phone === 'string' ? raw.phone.trim().slice(0, 32) : '',
+    email: typeof raw?.email === 'string' && raw.email.trim() ? raw.email.trim().slice(0, 128) : undefined,
+    isPrimary: Boolean(raw?.isPrimary),
+  };
+}
+
+apiRouter.get('/emergency-profile', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const profile = await v18StorageService.getEmergencyProfile(auth.userId);
+    res.json(
+      profile || {
+        id: `ep_${auth.userId}`,
+        userId: auth.userId,
+        accounts: [],
+        policies: [],
+        emergencyContacts: [],
+        updatedAt: new Date().toISOString(),
+      }
+    );
+  } catch {
+    res.status(500).json({ error: 'Failed to retrieve emergency profile' });
+  }
 });
 
 apiRouter.post('/emergency-profile', async (req: Request, res: Response) => {
-  const auth = getAuth(req);
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
   const body = req.body || {};
+
+  const rawAccounts = Array.isArray(body.accounts) ? body.accounts.slice(0, 50) : [];
+  const rawPolicies = Array.isArray(body.policies) ? body.policies.slice(0, 50) : [];
+  const rawContacts = Array.isArray(body.emergencyContacts)
+    ? body.emergencyContacts.slice(0, 20)
+    : Array.isArray(body.contacts)
+      ? body.contacts.slice(0, 20)
+      : [];
+
+  const sanitizedAccounts = rawAccounts.map(sanitizeMaskedAccount);
+  const sanitizedPolicies = rawPolicies.map(sanitizeInsurancePolicy);
+  const sanitizedContacts = rawContacts.map(sanitizeEmergencyContact);
 
   const profile: EmergencyAssetProfile = {
     id: `ep_${auth.userId}`,
     userId: auth.userId,
-    fullName: typeof body.fullName === 'string' ? body.fullName.slice(0, 128) : undefined,
-    bloodGroup: typeof body.bloodGroup === 'string' ? body.bloodGroup.slice(0, 16) : undefined,
-    primaryHospital: typeof body.primaryHospital === 'string' ? body.primaryHospital.slice(0, 256) : undefined,
-    accounts: Array.isArray(body.accounts) ? body.accounts.slice(0, 50) : [],
-    policies: Array.isArray(body.policies) ? body.policies.slice(0, 50) : [],
-    emergencyContacts: Array.isArray(body.emergencyContacts)
-      ? body.emergencyContacts.slice(0, 20)
-      : Array.isArray(body.contacts)
-        ? body.contacts.slice(0, 20)
-        : [],
-    contacts: Array.isArray(body.contacts) ? body.contacts.slice(0, 20) : undefined,
-    importantDocumentLocations: typeof body.importantDocumentLocations === 'string' ? body.importantDocumentLocations.slice(0, 2000) : undefined,
-    instructionsNote: typeof body.instructionsNote === 'string' ? body.instructionsNote.slice(0, 2000) : undefined,
-    notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : undefined,
+    fullName: typeof body.fullName === 'string' && body.fullName.trim() ? body.fullName.trim().slice(0, 128) : undefined,
+    bloodGroup: typeof body.bloodGroup === 'string' && body.bloodGroup.trim() ? body.bloodGroup.trim().slice(0, 16) : undefined,
+    primaryHospital: typeof body.primaryHospital === 'string' && body.primaryHospital.trim() ? body.primaryHospital.trim().slice(0, 256) : undefined,
+    accounts: sanitizedAccounts,
+    policies: sanitizedPolicies,
+    emergencyContacts: sanitizedContacts,
+    contacts: sanitizedContacts,
+    importantDocumentLocations: typeof body.importantDocumentLocations === 'string' && body.importantDocumentLocations.trim() ? body.importantDocumentLocations.trim().slice(0, 2000) : undefined,
+    instructionsNote: typeof body.instructionsNote === 'string' && body.instructionsNote.trim() ? body.instructionsNote.trim().slice(0, 2000) : undefined,
+    notes: typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim().slice(0, 2000) : undefined,
     updatedAt: new Date().toISOString(),
   };
 
   try {
-    const saved = dbService.saveEmergencyProfile(profile);
+    const saved = await v18StorageService.saveEmergencyProfile(auth.userId, profile);
     await dbService.flush();
     res.status(201).json(saved);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.put('/emergency-profile', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  const body = req.body || {};
+
+  const rawAccounts = Array.isArray(body.accounts) ? body.accounts.slice(0, 50) : [];
+  const rawPolicies = Array.isArray(body.policies) ? body.policies.slice(0, 50) : [];
+  const rawContacts = Array.isArray(body.emergencyContacts)
+    ? body.emergencyContacts.slice(0, 20)
+    : Array.isArray(body.contacts)
+      ? body.contacts.slice(0, 20)
+      : [];
+
+  const sanitizedAccounts = rawAccounts.map(sanitizeMaskedAccount);
+  const sanitizedPolicies = rawPolicies.map(sanitizeInsurancePolicy);
+  const sanitizedContacts = rawContacts.map(sanitizeEmergencyContact);
+
+  const profile: EmergencyAssetProfile = {
+    id: `ep_${auth.userId}`,
+    userId: auth.userId,
+    fullName: typeof body.fullName === 'string' && body.fullName.trim() ? body.fullName.trim().slice(0, 128) : undefined,
+    bloodGroup: typeof body.bloodGroup === 'string' && body.bloodGroup.trim() ? body.bloodGroup.trim().slice(0, 16) : undefined,
+    primaryHospital: typeof body.primaryHospital === 'string' && body.primaryHospital.trim() ? body.primaryHospital.trim().slice(0, 256) : undefined,
+    accounts: sanitizedAccounts,
+    policies: sanitizedPolicies,
+    emergencyContacts: sanitizedContacts,
+    contacts: sanitizedContacts,
+    importantDocumentLocations: typeof body.importantDocumentLocations === 'string' && body.importantDocumentLocations.trim() ? body.importantDocumentLocations.trim().slice(0, 2000) : undefined,
+    instructionsNote: typeof body.instructionsNote === 'string' && body.instructionsNote.trim() ? body.instructionsNote.trim().slice(0, 2000) : undefined,
+    notes: typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim().slice(0, 2000) : undefined,
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    const saved = await v18StorageService.saveEmergencyProfile(auth.userId, profile);
+    await dbService.flush();
+    res.json(saved);
+  } catch (err) {
+    if (err instanceof StorageOwnershipError) {
+      res.status(403).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: 'Database persistence failed' });
+  }
+});
+
+apiRouter.delete('/emergency-profile', async (req: Request, res: Response) => {
+  const auth = requireAuthUser(req, res);
+  if (!auth) return;
+  try {
+    const success = await v18StorageService.deleteEmergencyProfile(auth.userId);
+    await dbService.flush();
+    res.json({ success });
   } catch {
     res.status(500).json({ error: 'Database persistence failed' });
   }

@@ -187,6 +187,7 @@ export interface ExamSimulationConfig {
 
 export interface ExamSimulationState {
   id: string;
+  userId?: string;
   title: string;
   totalDurationMinutes: number;
   sections: ExamSection[];
@@ -247,6 +248,7 @@ export interface DoomscrollTaxEntry {
 // ==========================================
 export interface LifeMilestone {
   id: string;
+  userId?: string;
   weekIndex: number; // 0 to TotalWeeks
   age: number;
   label: string;

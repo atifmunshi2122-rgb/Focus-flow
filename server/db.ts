@@ -532,6 +532,39 @@ export class DatabaseService {
   private corruptionError: DatabaseCorruptError | null = null;
   private isPersistenceDegraded = false;
   private persistenceError: Error | null = null;
+  private quarantinedRecords: Array<{
+    collection: string;
+    recordId: string;
+    reason: string;
+    data: any;
+    quarantinedAt: string;
+  }> = [];
+
+  public getQuarantinedRecords() {
+    return [...this.quarantinedRecords];
+  }
+
+  private sanitizeAndQuarantineRecords<T extends { userId?: string }>(items: unknown, colName: string): T[] {
+    if (!Array.isArray(items)) return [];
+    const valid: T[] = [];
+    for (const item of items) {
+      if (item && typeof item === 'object') {
+        const u = (item as any).userId;
+        if (typeof u === 'string' && u.trim() !== '') {
+          valid.push(item as T);
+        } else {
+          this.quarantinedRecords.push({
+            collection: colName,
+            recordId: (item as any).id || 'unknown',
+            reason: 'Legacy unowned record: missing or empty userId',
+            data: item,
+            quarantinedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+    return valid;
+  }
 
   constructor(customDataDir?: string) {
     const isVercel = isVercelRuntime();
@@ -673,6 +706,14 @@ export class DatabaseService {
         vaultExpenses: Array.isArray(parsed.vaultExpenses) ? parsed.vaultExpenses : [],
         vaultSettlements: Array.isArray(parsed.vaultSettlements) ? parsed.vaultSettlements : [],
         vaultActivities: Array.isArray(parsed.vaultActivities) ? parsed.vaultActivities : [],
+        skillNodes: this.sanitizeAndQuarantineRecords<SkillNode>(parsed.skillNodes, 'skillNodes'),
+        whiteboardDrawings: this.sanitizeAndQuarantineRecords<WhiteboardDrawing>(parsed.whiteboardDrawings, 'whiteboardDrawings'),
+        examSimulations: this.sanitizeAndQuarantineRecords<ExamSimulationState>(parsed.examSimulations, 'examSimulations'),
+        decisionEntries: this.sanitizeAndQuarantineRecords<DecisionEntry>(parsed.decisionEntries, 'decisionEntries'),
+        doomscrollLogs: this.sanitizeAndQuarantineRecords<DoomscrollTaxEntry>(parsed.doomscrollLogs, 'doomscrollLogs'),
+        lifeMilestones: this.sanitizeAndQuarantineRecords<LifeMilestone>(parsed.lifeMilestones, 'lifeMilestones'),
+        timeCapsules: this.sanitizeAndQuarantineRecords<TimeCapsuleLetter>(parsed.timeCapsules, 'timeCapsules'),
+        emergencyAssetProfiles: this.sanitizeAndQuarantineRecords<EmergencyAssetProfile>(parsed.emergencyAssetProfiles, 'emergencyAssetProfiles'),
       };
     } catch (err) {
       this.isCorrupted = true;
@@ -3256,16 +3297,85 @@ export class DatabaseService {
   }
 
   // ==========================================
-  // FocusFlow v1.8 15 Unique Features Methods
+  // FocusFlow v1.8 Multi-Tenant Layer (Hardened)
   // ==========================================
 
+  private verifyNoCrossUserCollision<T extends { id: string; userId?: string }>(
+    collection: T[] | undefined,
+    id: string,
+    userId: string,
+    entityName: string
+  ): T | null {
+    if (!collection) return null;
+    const existing = collection.find((item) => item.id === id);
+    if (!existing) return null;
+    if (!existing.userId || existing.userId !== userId) {
+      throw new Error(`Forbidden: Cannot overwrite a ${entityName} owned by another user`);
+    }
+    return existing;
+  }
+
+  private deleteOwnedRecord<T extends { id: string; userId?: string }>(
+    collection: T[] | undefined,
+    id: string,
+    userId: string,
+    entityName: string
+  ): boolean {
+    if (!collection || !id || !userId) return false;
+    const existing = collection.find((item) => item.id === id);
+    if (!existing) return false;
+    if (!existing.userId || existing.userId !== userId) {
+      throw new Error(`Forbidden: Cannot delete a ${entityName} owned by another user`);
+    }
+    const idx = collection.findIndex((item) => item.id === id && item.userId === userId);
+    if (idx >= 0) {
+      collection.splice(idx, 1);
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  private getOwnedRecord<T extends { id: string; userId?: string }>(
+    collection: T[] | undefined,
+    id: string,
+    userId: string,
+    entityName: string
+  ): T | null {
+    if (!collection || !id || !userId) return null;
+    const existing = collection.find((item) => item.id === id);
+    if (!existing) return null;
+    if (!existing.userId || existing.userId !== userId) {
+      throw new Error(`Forbidden: Access denied to a ${entityName} owned by another user`);
+    }
+    return existing;
+  }
+
+  public findAnyRecordOwner(collectionName: string, id: string): { userId?: string } | null {
+    const col = (this.db as any)[collectionName];
+    if (!Array.isArray(col)) return null;
+    const found = col.find((item: any) => item.id === id);
+    if (!found) return null;
+    return { userId: found.userId };
+  }
+
+  // 1. Skill Nodes
   public getSkillNodes(userId: string): SkillNode[] {
-    return (this.db.skillNodes || []).filter((n) => !n.userId || n.userId === userId);
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') return [];
+    return (this.db.skillNodes || []).filter((n) => typeof n.userId === 'string' && n.userId.trim() !== '' && n.userId === userId);
+  }
+
+  public getSkillNode(id: string, userId: string): SkillNode | null {
+    return this.getOwnedRecord(this.db.skillNodes, id, userId, 'skill node');
   }
 
   public saveSkillNode(node: SkillNode): SkillNode {
     this.db.skillNodes = this.db.skillNodes || [];
-    const idx = this.db.skillNodes.findIndex((n) => n.id === node.id);
+    if (!node.userId) {
+      throw new Error('Forbidden: Cannot save a skill node without userId');
+    }
+    this.verifyNoCrossUserCollision(this.db.skillNodes, node.id, node.userId, 'skill node');
+    const idx = this.db.skillNodes.findIndex((n) => n.id === node.id && n.userId === node.userId);
     if (idx >= 0) {
       this.db.skillNodes[idx] = node;
     } else {
@@ -3275,13 +3385,24 @@ export class DatabaseService {
     return node;
   }
 
+  public deleteSkillNode(id: string, userId: string): boolean {
+    return this.deleteOwnedRecord(this.db.skillNodes, id, userId, 'skill node');
+  }
+
+  // 2. Whiteboard Drawings
   public getWhiteboardDrawings(userId: string): WhiteboardDrawing[] {
-    return (this.db.whiteboardDrawings || []).filter((d) => d.userId === userId);
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') return [];
+    return (this.db.whiteboardDrawings || []).filter((d) => typeof d.userId === 'string' && d.userId.trim() !== '' && d.userId === userId);
+  }
+
+  public getWhiteboardDrawing(id: string, userId: string): WhiteboardDrawing | null {
+    return this.getOwnedRecord(this.db.whiteboardDrawings, id, userId, 'whiteboard drawing');
   }
 
   public saveWhiteboardDrawing(drawing: WhiteboardDrawing): WhiteboardDrawing {
     this.db.whiteboardDrawings = this.db.whiteboardDrawings || [];
-    const idx = this.db.whiteboardDrawings.findIndex((d) => d.id === drawing.id);
+    this.verifyNoCrossUserCollision(this.db.whiteboardDrawings, drawing.id, drawing.userId, 'whiteboard drawing');
+    const idx = this.db.whiteboardDrawings.findIndex((d) => d.id === drawing.id && d.userId === drawing.userId);
     if (idx >= 0) {
       this.db.whiteboardDrawings[idx] = drawing;
     } else {
@@ -3292,25 +3413,26 @@ export class DatabaseService {
   }
 
   public deleteWhiteboardDrawing(id: string, userId: string): boolean {
-    if (!this.db.whiteboardDrawings) return false;
-    const initialLen = this.db.whiteboardDrawings.length;
-    this.db.whiteboardDrawings = this.db.whiteboardDrawings.filter(
-      (d) => !(d.id === id && d.userId === userId)
-    );
-    if (this.db.whiteboardDrawings.length !== initialLen) {
-      this.save();
-      return true;
-    }
-    return false;
+    return this.deleteOwnedRecord(this.db.whiteboardDrawings, id, userId, 'whiteboard drawing');
   }
 
+  // 3. Exam Hall Simulations
   public getExamSimulations(userId: string): ExamSimulationState[] {
-    return this.db.examSimulations || [];
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') return [];
+    return (this.db.examSimulations || []).filter((s: any) => typeof s.userId === 'string' && s.userId.trim() !== '' && s.userId === userId);
   }
 
-  public saveExamSimulation(sim: ExamSimulationState): ExamSimulationState {
+  public getExamSimulation(id: string, userId: string): ExamSimulationState | null {
+    return this.getOwnedRecord(this.db.examSimulations as any, id, userId, 'exam simulation');
+  }
+
+  public saveExamSimulation(sim: ExamSimulationState & { userId?: string }): ExamSimulationState {
     this.db.examSimulations = this.db.examSimulations || [];
-    const idx = this.db.examSimulations.findIndex((s) => s.id === sim.id);
+    if (!sim.userId) {
+      throw new Error('Forbidden: Cannot save an exam simulation without userId');
+    }
+    this.verifyNoCrossUserCollision(this.db.examSimulations as any, sim.id, sim.userId, 'exam simulation');
+    const idx = (this.db.examSimulations as any[]).findIndex((s) => s.id === sim.id && s.userId === sim.userId);
     if (idx >= 0) {
       this.db.examSimulations[idx] = sim;
     } else {
@@ -3320,13 +3442,24 @@ export class DatabaseService {
     return sim;
   }
 
+  public deleteExamSimulation(id: string, userId: string): boolean {
+    return this.deleteOwnedRecord(this.db.examSimulations as any, id, userId, 'exam simulation');
+  }
+
+  // 4. Decision Journal
   public getDecisionEntries(userId: string): DecisionEntry[] {
-    return (this.db.decisionEntries || []).filter((d) => d.userId === userId);
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') return [];
+    return (this.db.decisionEntries || []).filter((d) => typeof d.userId === 'string' && d.userId.trim() !== '' && d.userId === userId);
+  }
+
+  public getDecisionEntry(id: string, userId: string): DecisionEntry | null {
+    return this.getOwnedRecord(this.db.decisionEntries, id, userId, 'decision entry');
   }
 
   public saveDecisionEntry(entry: DecisionEntry): DecisionEntry {
     this.db.decisionEntries = this.db.decisionEntries || [];
-    const idx = this.db.decisionEntries.findIndex((d) => d.id === entry.id);
+    this.verifyNoCrossUserCollision(this.db.decisionEntries, entry.id, entry.userId, 'decision entry');
+    const idx = this.db.decisionEntries.findIndex((d) => d.id === entry.id && d.userId === entry.userId);
     if (idx >= 0) {
       this.db.decisionEntries[idx] = entry;
     } else {
@@ -3336,30 +3469,85 @@ export class DatabaseService {
     return entry;
   }
 
+  public deleteDecisionEntry(id: string, userId: string): boolean {
+    return this.deleteOwnedRecord(this.db.decisionEntries, id, userId, 'decision entry');
+  }
+
+  // 5. Doomscroll Tax Jar
   public getDoomscrollLogs(userId: string): DoomscrollTaxEntry[] {
-    return (this.db.doomscrollLogs || []).filter((l) => l.userId === userId);
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') return [];
+    return (this.db.doomscrollLogs || []).filter((l) => typeof l.userId === 'string' && l.userId.trim() !== '' && l.userId === userId);
+  }
+
+  public getDoomscrollLog(id: string, userId: string): DoomscrollTaxEntry | null {
+    return this.getOwnedRecord(this.db.doomscrollLogs, id, userId, 'doomscroll log');
   }
 
   public saveDoomscrollLog(entry: DoomscrollTaxEntry): DoomscrollTaxEntry {
     this.db.doomscrollLogs = this.db.doomscrollLogs || [];
-    this.db.doomscrollLogs.unshift(entry);
+    this.verifyNoCrossUserCollision(this.db.doomscrollLogs, entry.id, entry.userId, 'doomscroll log');
+    const idx = this.db.doomscrollLogs.findIndex((l) => l.id === entry.id && l.userId === entry.userId);
+    if (idx >= 0) {
+      this.db.doomscrollLogs[idx] = entry;
+    } else {
+      this.db.doomscrollLogs.unshift(entry);
+    }
     this.save();
     return entry;
   }
 
+  public deleteDoomscrollLog(id: string, userId: string): boolean {
+    return this.deleteOwnedRecord(this.db.doomscrollLogs, id, userId, 'doomscroll log');
+  }
+
   public clearDoomscrollLogs(userId: string): boolean {
+    if (!userId) return false;
     this.db.doomscrollLogs = (this.db.doomscrollLogs || []).filter((l) => l.userId !== userId);
     this.save();
     return true;
   }
 
+  // 6. Life Milestones
+  public getLifeMilestones(userId: string): (LifeMilestone & { userId?: string })[] {
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') return [];
+    return (this.db.lifeMilestones || []).filter((m: any) => typeof m.userId === 'string' && m.userId.trim() !== '' && m.userId === userId);
+  }
+
+  public getLifeMilestone(id: string, userId: string): LifeMilestone | null {
+    return this.getOwnedRecord(this.db.lifeMilestones as any, id, userId, 'life milestone');
+  }
+
+  public saveLifeMilestone(milestone: LifeMilestone & { userId: string }): LifeMilestone {
+    this.db.lifeMilestones = this.db.lifeMilestones || [];
+    this.verifyNoCrossUserCollision(this.db.lifeMilestones as any, milestone.id, milestone.userId, 'life milestone');
+    const idx = (this.db.lifeMilestones as any[]).findIndex((m) => m.id === milestone.id && m.userId === milestone.userId);
+    if (idx >= 0) {
+      this.db.lifeMilestones[idx] = milestone;
+    } else {
+      this.db.lifeMilestones.push(milestone);
+    }
+    this.save();
+    return milestone;
+  }
+
+  public deleteLifeMilestone(id: string, userId: string): boolean {
+    return this.deleteOwnedRecord(this.db.lifeMilestones as any, id, userId, 'life milestone');
+  }
+
+  // 7. Time Capsules
   public getTimeCapsules(userId: string): TimeCapsuleLetter[] {
-    return (this.db.timeCapsules || []).filter((c) => c.userId === userId);
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') return [];
+    return (this.db.timeCapsules || []).filter((c) => typeof c.userId === 'string' && c.userId.trim() !== '' && c.userId === userId);
+  }
+
+  public getTimeCapsule(id: string, userId: string): TimeCapsuleLetter | null {
+    return this.getOwnedRecord(this.db.timeCapsules, id, userId, 'time capsule');
   }
 
   public saveTimeCapsule(letter: TimeCapsuleLetter): TimeCapsuleLetter {
     this.db.timeCapsules = this.db.timeCapsules || [];
-    const idx = this.db.timeCapsules.findIndex((c) => c.id === letter.id);
+    this.verifyNoCrossUserCollision(this.db.timeCapsules, letter.id, letter.userId, 'time capsule');
+    const idx = this.db.timeCapsules.findIndex((c) => c.id === letter.id && c.userId === letter.userId);
     if (idx >= 0) {
       this.db.timeCapsules[idx] = letter;
     } else {
@@ -3370,22 +3558,21 @@ export class DatabaseService {
   }
 
   public deleteTimeCapsule(id: string, userId: string): boolean {
-    if (!this.db.timeCapsules) return false;
-    const initialLen = this.db.timeCapsules.length;
-    this.db.timeCapsules = this.db.timeCapsules.filter((c) => !(c.id === id && c.userId === userId));
-    if (this.db.timeCapsules.length !== initialLen) {
-      this.save();
-      return true;
-    }
-    return false;
+    return this.deleteOwnedRecord(this.db.timeCapsules, id, userId, 'time capsule');
   }
 
+  // 8. Emergency Profile
   public getEmergencyProfile(userId: string): EmergencyAssetProfile | null {
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') return null;
     return (this.db.emergencyAssetProfiles || []).find((p) => p.userId === userId) || null;
   }
 
   public saveEmergencyProfile(profile: EmergencyAssetProfile): EmergencyAssetProfile {
     this.db.emergencyAssetProfiles = this.db.emergencyAssetProfiles || [];
+    const existing = this.db.emergencyAssetProfiles.find((p) => p.id === profile.id || p.userId === profile.userId);
+    if (existing && existing.userId !== profile.userId) {
+      throw new Error('Forbidden: Cannot overwrite an emergency profile owned by another user');
+    }
     const idx = this.db.emergencyAssetProfiles.findIndex((p) => p.userId === profile.userId);
     if (idx >= 0) {
       this.db.emergencyAssetProfiles[idx] = profile;
@@ -3394,6 +3581,17 @@ export class DatabaseService {
     }
     this.save();
     return profile;
+  }
+
+  public deleteEmergencyProfile(userId: string): boolean {
+    if (!userId || !this.db.emergencyAssetProfiles) return false;
+    const initialLen = this.db.emergencyAssetProfiles.length;
+    this.db.emergencyAssetProfiles = this.db.emergencyAssetProfiles.filter((p) => p.userId !== userId);
+    if (this.db.emergencyAssetProfiles.length !== initialLen) {
+      this.save();
+      return true;
+    }
+    return false;
   }
 }
 

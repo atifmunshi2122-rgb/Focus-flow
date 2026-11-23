@@ -1456,6 +1456,478 @@ service cloud.firestore {
         }
       }
 
+      // ===============================================================
+      // V1.8.0 ZERO-AI FEATURE SUITE (8 USER-OWNED SUBCOLLECTIONS)
+      // ===============================================================
+      // Assumed Data Models (Hardware-Enforced Tenant Isolation):
+      //
+      // 1. users/{userId}/skill_nodes/{nodeId}
+      //    - id: string (doc ID, 1..128) [immutable]
+      //    - userId: string (== userId) [immutable]
+      //    - trackId: optional string (1..128)
+      //    - title: string (1..128)
+      //    - description: optional string (<= 1000)
+      //    - tier: integer (1..10)
+      //    - prerequisites: optional list of string node IDs (<= 50)
+      //    - status: 'locked' | 'available' | 'in_progress' | 'completed'
+      //    - category: optional string (1..64)
+      //    - xpPoints: number (0..100000)
+      //    - completedAt: optional ISO date string or null (<= 64)
+      //    - notes: optional string (<= 2000)
+      //    - icon: optional string (<= 64)
+      //    - position: optional map (<= 4 keys)
+      //    - estimatedHours: optional number (0..10000)
+      //    - tags: optional list of strings (<= 20)
+      //    - createdAt: optional ISO date string (<= 64) [immutable]
+      //    - updatedAt: optional ISO date string (<= 64)
+      //    - deletedAt: optional ISO date string or null (<= 64)
+      //
+      // 2. users/{userId}/whiteboard_drawings/{drawingId}
+      //    - id: string (doc ID, 1..128) [immutable]
+      //    - userId: string (== userId) [immutable]
+      //    - title: string (1..128)
+      //    - topicId: optional string (<= 128)
+      //    - topicTitle: optional string (<= 128)
+      //    - dataUrl: string (data:image/... base64, 1..2097152 bytes)
+      //    - sizeBytes: number (0..10485760)
+      //    - width: integer (1..4096)
+      //    - height: integer (1..4096)
+      //    - createdAt: ISO date string (1..64) [immutable]
+      //    - updatedAt: ISO date string (1..64)
+      //    - deletedAt: optional ISO date string or null (<= 64)
+      //
+      // 3. users/{userId}/exam_simulations/{simId}
+      //    - id: string (doc ID, 1..128) [immutable]
+      //    - userId: string (== userId) [immutable]
+      //    - title: string (1..128)
+      //    - totalDurationMinutes: integer (1..1440)
+      //    - sections: list of exam sections (<= 20)
+      //    - currentSectionIndex: integer (0..100)
+      //    - status: 'idle' | 'running' | 'paused' | 'completed' | 'in_progress'
+      //    - sectionElapsedSeconds: map of elapsed seconds per section (<= 50)
+      //    - totalElapsedSeconds: integer (0..86400)
+      //    - flaggedQuestions: optional map (<= 50)
+      //    - attemptedQuestions: optional map (<= 50)
+      //    - startedAt: optional ISO date string (<= 64)
+      //    - completedAt: optional ISO date string (<= 64)
+      //    - createdAt: optional ISO date string (<= 64) [immutable]
+      //    - updatedAt: optional ISO date string (<= 64)
+      //    - deletedAt: optional ISO date string or null (<= 64)
+      //
+      // 4. users/{userId}/decision_entries/{entryId}
+      //    - id: string (doc ID, 1..128) [immutable]
+      //    - userId: string (== userId) [immutable]
+      //    - title: string (1..256)
+      //    - category: 'career' | 'academic' | 'financial' | 'personal' | 'health'
+      //    - rationale: optional string (<= 2000)
+      //    - expectedOutcome: optional string (<= 2000)
+      //    - confidenceScore: integer (1..10)
+      //    - expectedReviewDate: string (1..32)
+      //    - reviewIntervalDays: integer (1..3650)
+      //    - status: 'pending_review' | 'reviewed'
+      //    - actualOutcome: optional string (<= 2000)
+      //    - successRating: optional integer (1..5) or null
+      //    - reflection: optional string (<= 2000)
+      //    - lessonsLearned: optional string (<= 2000)
+      //    - createdAt: ISO date string (1..64) [immutable]
+      //    - reviewedAt: optional ISO date string (<= 64)
+      //    - updatedAt: optional ISO date string (<= 64)
+      //    - deletedAt: optional ISO date string or null (<= 64)
+      //
+      // 5. users/{userId}/doomscroll_logs/{logId}
+      //    - id: string (doc ID, 1..128) [immutable]
+      //    - userId: string (== userId) [immutable]
+      //    - minutes: integer (1..1440)
+      //    - durationMinutes: optional integer (1..1440)
+      //    - distractionApp: string (1..64)
+      //    - platform: optional string (<= 64)
+      //    - ratePerHour: number (0..1000000)
+      //    - amountTaxed: number (0..100000000)
+      //    - taxAmountPaise: optional number (0..10000000000)
+      //    - currency: string (1..8)
+      //    - notes: optional string (<= 500)
+      //    - reason: optional string (<= 500)
+      //    - linkedSavingsGoalId: optional string (<= 128)
+      //    - createdAt: ISO date string (1..64) [immutable]
+      //    - updatedAt: optional ISO date string (<= 64)
+      //    - deletedAt: optional ISO date string or null (<= 64)
+      //
+      // 6. users/{userId}/life_milestones/{milestoneId}
+      //    - id: string (doc ID, 1..128) [immutable]
+      //    - userId: string (== userId) [immutable]
+      //    - weekIndex: integer (0..6000)
+      //    - age: number (0..120)
+      //    - label: optional string (<= 128) [either label or title present]
+      //    - title: optional string (<= 128)
+      //    - category: 'education' | 'career' | 'personal' | 'health' | 'target'
+      //    - date: optional string (<= 64)
+      //    - color: optional string (<= 32)
+      //    - createdAt: optional ISO date string (<= 64) [immutable]
+      //    - updatedAt: optional ISO date string (<= 64)
+      //    - deletedAt: optional ISO date string or null (<= 64)
+      //
+      // 7. users/{userId}/time_capsules/{capsuleId}
+      //    - id: string (doc ID, 1..128) [immutable]
+      //    - userId: string (== userId) [immutable]
+      //    - title: string (1..256)
+      //    - content: string (1..20000)
+      //    - unlockDate: string (1..32)
+      //    - isUnlocked: boolean
+      //    - isSealed: optional boolean
+      //    - sealedAt: optional ISO date string (<= 64)
+      //    - openedAt: optional ISO date string (<= 64)
+      //    - tags: optional list of strings (<= 20)
+      //    - createdAt: ISO date string (1..64) [immutable]
+      //    - updatedAt: optional ISO date string (<= 64)
+      //    - deletedAt: optional ISO date string or null (<= 64)
+      //
+      // 8. users/{userId}/emergency_profile/{profileId}
+      //    - id: optional string (<= 128) [immutable]
+      //    - userId: string (== userId) [immutable]
+      //    - fullName: optional string (<= 128)
+      //    - bloodGroup: optional string (<= 16)
+      //    - primaryHospital: optional string (<= 256)
+      //    - accounts: list of masked accounts (<= 50)
+      //    - policies: list of insurance policies (<= 50)
+      //    - emergencyContacts: optional list of contacts (<= 20)
+      //    - contacts: optional list of contacts (<= 20)
+      //    - importantDocumentLocations: optional string (<= 2000)
+      //    - instructionsNote: optional string (<= 2000)
+      //    - notes: optional string (<= 2000)
+      //    - createdAt: optional ISO date string (<= 64) [immutable]
+      //    - updatedAt: ISO date string (1..64)
+      //    - deletedAt: optional ISO date string or null (<= 64)
+      // ===============================================================
+
+      function isValidSkillNode(data, nodeId, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'trackId', 'title', 'description', 'tier',
+            'prerequisites', 'status', 'category', 'xpPoints', 'completedAt',
+            'notes', 'icon', 'position', 'estimatedHours', 'tags',
+            'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && data.userId == uid
+          && (!('id' in data) || data.id == nodeId)
+          && isNonEmptyString(data.title, 128)
+          && (!('trackId' in data) || isNonEmptyString(data.trackId, 128))
+          && isBoundedInt(data.tier, 1, 10)
+          && (data.status in ['locked', 'available', 'in_progress', 'completed'])
+          && ((data.xpPoints is int || data.xpPoints is float) && data.xpPoints >= 0 && data.xpPoints <= 100000)
+          && (!('category' in data) || isNonEmptyString(data.category, 64))
+          && (!('prerequisites' in data) || (data.prerequisites is list && data.prerequisites.size() <= 50))
+          && (!('description' in data) || isOptionalString(data.description, 1000))
+          && (!('completedAt' in data) || data.completedAt == null || (data.completedAt is string && data.completedAt.size() <= 64))
+          && (!('notes' in data) || isOptionalString(data.notes, 2000))
+          && (!('icon' in data) || isOptionalString(data.icon, 64))
+          && (!('position' in data) || (data.position is map && data.position.size() <= 4))
+          && (!('estimatedHours' in data) || ((data.estimatedHours is int || data.estimatedHours is float) && data.estimatedHours >= 0 && data.estimatedHours <= 10000))
+          && (!('tags' in data) || (data.tags is list && data.tags.size() <= 20))
+          && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64))
+          && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64))
+          && (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64));
+      }
+
+      function isValidWhiteboardDrawing(data, drawingId, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'title', 'topicId', 'topicTitle',
+            'dataUrl', 'sizeBytes', 'width', 'height',
+            'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && data.userId == uid
+          && (!('id' in data) || data.id == drawingId)
+          && isNonEmptyString(data.title, 128)
+          && (data.dataUrl is string && data.dataUrl.size() > 0 && data.dataUrl.size() <= 2097152)
+          && ((data.sizeBytes is int || data.sizeBytes is float) && data.sizeBytes >= 0 && data.sizeBytes <= 10485760)
+          && isBoundedInt(data.width, 1, 4096)
+          && isBoundedInt(data.height, 1, 4096)
+          && (!('topicId' in data) || isOptionalString(data.topicId, 128))
+          && (!('topicTitle' in data) || isOptionalString(data.topicTitle, 128))
+          && isNonEmptyString(data.createdAt, 64)
+          && isNonEmptyString(data.updatedAt, 64)
+          && (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64));
+      }
+
+      function isValidExamSimulation(data, simId, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'title', 'totalDurationMinutes', 'sections',
+            'currentSectionIndex', 'status', 'sectionElapsedSeconds',
+            'totalElapsedSeconds', 'flaggedQuestions', 'attemptedQuestions',
+            'startedAt', 'completedAt', 'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && data.userId == uid
+          && (!('id' in data) || data.id == simId)
+          && isNonEmptyString(data.title, 128)
+          && isBoundedInt(data.totalDurationMinutes, 1, 1440)
+          && (data.status in ['idle', 'running', 'paused', 'completed', 'in_progress'])
+          && (data.sections is list && data.sections.size() <= 20)
+          && isBoundedInt(data.currentSectionIndex, 0, 100)
+          && isBoundedInt(data.totalElapsedSeconds, 0, 86400)
+          && (data.sectionElapsedSeconds is map && data.sectionElapsedSeconds.size() <= 50)
+          && (!('flaggedQuestions' in data) || (data.flaggedQuestions is map && data.flaggedQuestions.size() <= 50))
+          && (!('attemptedQuestions' in data) || (data.attemptedQuestions is map && data.attemptedQuestions.size() <= 50))
+          && (!('startedAt' in data) || isOptionalString(data.startedAt, 64))
+          && (!('completedAt' in data) || isOptionalString(data.completedAt, 64))
+          && (!('createdAt' in data) || isOptionalString(data.createdAt, 64))
+          && (!('updatedAt' in data) || isOptionalString(data.updatedAt, 64))
+          && (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64));
+      }
+
+      function isValidDecisionEntry(data, entryId, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'title', 'category', 'rationale', 'expectedOutcome',
+            'confidenceScore', 'expectedReviewDate', 'reviewIntervalDays', 'status',
+            'actualOutcome', 'successRating', 'reflection', 'lessonsLearned',
+            'createdAt', 'reviewedAt', 'updatedAt', 'deletedAt'
+          ])
+          && data.userId == uid
+          && (!('id' in data) || data.id == entryId)
+          && isNonEmptyString(data.title, 256)
+          && (data.category in ['career', 'academic', 'financial', 'personal', 'health'])
+          && isBoundedInt(data.confidenceScore, 1, 10)
+          && isNonEmptyString(data.expectedReviewDate, 32)
+          && isBoundedInt(data.reviewIntervalDays, 1, 3650)
+          && (data.status in ['pending_review', 'reviewed'])
+          && (!('rationale' in data) || isOptionalString(data.rationale, 2000))
+          && (!('expectedOutcome' in data) || isOptionalString(data.expectedOutcome, 2000))
+          && (!('actualOutcome' in data) || isOptionalString(data.actualOutcome, 2000))
+          && (!('successRating' in data) || data.successRating == null || isBoundedInt(data.successRating, 1, 5))
+          && (!('reflection' in data) || isOptionalString(data.reflection, 2000))
+          && (!('lessonsLearned' in data) || isOptionalString(data.lessonsLearned, 2000))
+          && isNonEmptyString(data.createdAt, 64)
+          && (!('reviewedAt' in data) || isOptionalString(data.reviewedAt, 64))
+          && (!('updatedAt' in data) || isOptionalString(data.updatedAt, 64))
+          && (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64));
+      }
+
+      function isValidDoomscrollLog(data, logId, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'minutes', 'durationMinutes', 'distractionApp',
+            'platform', 'ratePerHour', 'amountTaxed', 'taxAmountPaise',
+            'currency', 'notes', 'reason', 'linkedSavingsGoalId',
+            'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && data.userId == uid
+          && (!('id' in data) || data.id == logId)
+          && isBoundedInt(data.minutes, 1, 1440)
+          && isNonEmptyString(data.distractionApp, 64)
+          && ((data.ratePerHour is int || data.ratePerHour is float) && data.ratePerHour >= 0 && data.ratePerHour <= 1000000)
+          && ((data.amountTaxed is int || data.amountTaxed is float) && data.amountTaxed >= 0 && data.amountTaxed <= 100000000)
+          && isNonEmptyString(data.currency, 8)
+          && isNonEmptyString(data.createdAt, 64)
+          && (!('durationMinutes' in data) || isBoundedInt(data.durationMinutes, 1, 1440))
+          && (!('platform' in data) || isOptionalString(data.platform, 64))
+          && (!('taxAmountPaise' in data) || ((data.taxAmountPaise is int || data.taxAmountPaise is float) && data.taxAmountPaise >= 0 && data.taxAmountPaise <= 10000000000))
+          && (!('notes' in data) || isOptionalString(data.notes, 500))
+          && (!('reason' in data) || isOptionalString(data.reason, 500))
+          && (!('linkedSavingsGoalId' in data) || isOptionalString(data.linkedSavingsGoalId, 128))
+          && (!('updatedAt' in data) || isOptionalString(data.updatedAt, 64))
+          && (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64));
+      }
+
+      function isValidLifeMilestone(data, milestoneId, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'weekIndex', 'age', 'label', 'title',
+            'category', 'date', 'color', 'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && data.userId == uid
+          && (!('id' in data) || data.id == milestoneId)
+          && isBoundedInt(data.weekIndex, 0, 6000)
+          && ((data.age is int || data.age is float) && data.age >= 0 && data.age <= 120)
+          && (data.category in ['education', 'career', 'personal', 'health', 'target'])
+          && (
+            ('label' in data && isNonEmptyString(data.label, 128)) ||
+            ('title' in data && isNonEmptyString(data.title, 128))
+          )
+          && (!('label' in data) || isOptionalString(data.label, 128))
+          && (!('title' in data) || isOptionalString(data.title, 128))
+          && (!('date' in data) || isOptionalString(data.date, 64))
+          && (!('color' in data) || isOptionalString(data.color, 32))
+          && (!('createdAt' in data) || isOptionalString(data.createdAt, 64))
+          && (!('updatedAt' in data) || isOptionalString(data.updatedAt, 64))
+          && (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64));
+      }
+
+      function isValidTimeCapsule(data, capsuleId, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'title', 'content', 'createdAt', 'unlockDate',
+            'isUnlocked', 'isSealed', 'sealedAt', 'openedAt', 'tags',
+            'updatedAt', 'deletedAt'
+          ])
+          && data.userId == uid
+          && (!('id' in data) || data.id == capsuleId)
+          && isNonEmptyString(data.title, 256)
+          && isNonEmptyString(data.content, 20000)
+          && isNonEmptyString(data.unlockDate, 32)
+          && data.isUnlocked is bool
+          && isNonEmptyString(data.createdAt, 64)
+          && (!('isSealed' in data) || data.isSealed is bool)
+          && (!('sealedAt' in data) || isOptionalString(data.sealedAt, 64))
+          && (!('openedAt' in data) || isOptionalString(data.openedAt, 64))
+          && (!('tags' in data) || (data.tags is list && data.tags.size() <= 20))
+          && (!('updatedAt' in data) || isOptionalString(data.updatedAt, 64))
+          && (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64));
+      }
+
+      function isValidEmergencyProfile(data, uid) {
+        return data.keys().hasOnly([
+            'id', 'userId', 'fullName', 'bloodGroup', 'primaryHospital',
+            'accounts', 'policies', 'emergencyContacts', 'contacts',
+            'importantDocumentLocations', 'instructionsNote', 'notes',
+            'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && data.userId == uid
+          && (!('id' in data) || (data.id is string && data.id.size() <= 128))
+          && (data.accounts is list && data.accounts.size() <= 50)
+          && (data.policies is list && data.policies.size() <= 50)
+          && (!('emergencyContacts' in data) || (data.emergencyContacts is list && data.emergencyContacts.size() <= 20))
+          && (!('contacts' in data) || (data.contacts is list && data.contacts.size() <= 20))
+          && (!('fullName' in data) || isOptionalString(data.fullName, 128))
+          && (!('bloodGroup' in data) || isOptionalString(data.bloodGroup, 16))
+          && (!('primaryHospital' in data) || isOptionalString(data.primaryHospital, 256))
+          && (!('importantDocumentLocations' in data) || isOptionalString(data.importantDocumentLocations, 2000))
+          && (!('instructionsNote' in data) || isOptionalString(data.instructionsNote, 2000))
+          && (!('notes' in data) || isOptionalString(data.notes, 2000))
+          && (!('createdAt' in data) || isOptionalString(data.createdAt, 64))
+          && isNonEmptyString(data.updatedAt, 64)
+          && (!('deletedAt' in data) || data.deletedAt == null || (data.deletedAt is string && data.deletedAt.size() <= 64));
+      }
+
+      // ==========================================
+      // 1. RPG SKILL TREE NODES (v1.8)
+      // ==========================================
+      match /skill_nodes/{nodeId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(nodeId)
+          && request.resource.data.userId == userId
+          && isValidSkillNode(request.resource.data, nodeId, userId);
+        allow update: if isOwner(userId)
+          && isValidSkillNode(request.resource.data, nodeId, userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+        allow delete: if isOwner(userId);
+      }
+
+      // ==========================================
+      // 2. WHITEBOARD ROUGH-WORK DRAWINGS (v1.8)
+      // ==========================================
+      match /whiteboard_drawings/{drawingId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(drawingId)
+          && request.resource.data.userId == userId
+          && isValidWhiteboardDrawing(request.resource.data, drawingId, userId);
+        allow update: if isOwner(userId)
+          && isValidWhiteboardDrawing(request.resource.data, drawingId, userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+        allow delete: if isOwner(userId);
+      }
+
+      // ==========================================
+      // 3. EXAM HALL SECTIONAL SIMULATOR (v1.8)
+      // ==========================================
+      match /exam_simulations/{simId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(simId)
+          && request.resource.data.userId == userId
+          && isValidExamSimulation(request.resource.data, simId, userId);
+        allow update: if isOwner(userId)
+          && isValidExamSimulation(request.resource.data, simId, userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+        allow delete: if isOwner(userId);
+      }
+
+      // ==========================================
+      // 4. DECISION JOURNAL ENTRIES (v1.8)
+      // ==========================================
+      match /decision_entries/{entryId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(entryId)
+          && request.resource.data.userId == userId
+          && isValidDecisionEntry(request.resource.data, entryId, userId);
+        allow update: if isOwner(userId)
+          && isValidDecisionEntry(request.resource.data, entryId, userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+        allow delete: if isOwner(userId);
+      }
+
+      // ==========================================
+      // 5. DOOMSCROLL SELF-TAX JAR LOGS (v1.8)
+      // ==========================================
+      match /doomscroll_logs/{logId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(logId)
+          && request.resource.data.userId == userId
+          && isValidDoomscrollLog(request.resource.data, logId, userId);
+        allow update: if isOwner(userId)
+          && isValidDoomscrollLog(request.resource.data, logId, userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+        allow delete: if isOwner(userId);
+      }
+
+      // ==========================================
+      // 6. LIFE-IN-WEEKS MILESTONES (v1.8)
+      // ==========================================
+      match /life_milestones/{milestoneId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(milestoneId)
+          && request.resource.data.userId == userId
+          && isValidLifeMilestone(request.resource.data, milestoneId, userId);
+        allow update: if isOwner(userId)
+          && isValidLifeMilestone(request.resource.data, milestoneId, userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+        allow delete: if isOwner(userId);
+      }
+
+      // ==========================================
+      // 7. TIME CAPSULE LETTERS TO FUTURE SELF (v1.8)
+      // ==========================================
+      match /time_capsules/{capsuleId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(capsuleId)
+          && request.resource.data.userId == userId
+          && isValidTimeCapsule(request.resource.data, capsuleId, userId);
+        allow update: if isOwner(userId)
+          && isValidTimeCapsule(request.resource.data, capsuleId, userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+        allow delete: if isOwner(userId);
+      }
+
+      // ==========================================
+      // 8. PRINTABLE EMERGENCY & ASSET PROFILE (v1.8)
+      // ==========================================
+      match /emergency_profile/{profileId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(profileId)
+          && request.resource.data.userId == userId
+          && isValidEmergencyProfile(request.resource.data, userId);
+        allow update: if isOwner(userId)
+          && isValidEmergencyProfile(request.resource.data, userId)
+          && request.resource.data.userId == resource.data.userId
+          && (!('id' in resource.data) || request.resource.data.id == resource.data.id)
+          && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+        allow delete: if isOwner(userId);
+      }
+
       // ==========================================
       // SERVER-MANAGED INTEGRATIONS & PUSH TOKENS
       // ==========================================

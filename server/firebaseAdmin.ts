@@ -200,7 +200,13 @@ export function getFirebaseAdminApp(): App {
  */
 export function getAdminFirestore(): Firestore {
   const app = getFirebaseAdminApp();
-  return getFirestore(app);
+  const db = getFirestore(app);
+  try {
+    db.settings({ ignoreUndefinedProperties: true });
+  } catch {
+    // Settings can only be set once per Firestore instance
+  }
+  return db;
 }
 
 /**

@@ -17,6 +17,8 @@ import { auth, db } from '../firebase.ts';
 import type {
   StudyImportHistoryRecord,
   StudyImportSource,
+  StudyImportSession,
+  StudyTopicSourceMapping,
 } from '../../types/study.ts';
 
 const MAX_HISTORY_ITEMS = 100;
@@ -32,6 +34,14 @@ function getLocalSourcesKey(userId: string): string {
 
 function getLocalHistoryKey(userId: string): string {
   return `ff_study_import_history_${userId}`;
+}
+
+function getLocalSessionsKey(userId: string): string {
+  return `ff_study_import_sessions_${userId}`;
+}
+
+function getLocalMappingsKey(userId: string): string {
+  return `ff_study_topic_source_mappings_${userId}`;
 }
 
 function safeReadJson<T>(key: string, fallback: T): T {
@@ -288,5 +298,118 @@ export const studyImportHistoryStore = {
         console.warn('[studyImportHistoryStore] Failed to clear import history from Firestore:', err);
       }
     }
+  },
+
+  /**
+   * Retrieves registered Study OS topic source mappings.
+   */
+  async getTopicSourceMappings(userId: string): Promise<StudyTopicSourceMapping[]> {
+    if (!userId) return [];
+
+    if (isSignedInAs(userId)) {
+      try {
+        const ref = doc(db, `users/${userId}/settings/study_topic_source_mappings`);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (Array.isArray(data?.mappings)) {
+            safeWriteJson(getLocalMappingsKey(userId), data.mappings);
+            return data.mappings as StudyTopicSourceMapping[];
+          }
+        }
+      } catch (err) {
+        console.warn('[studyImportHistoryStore] Failed to read topic source mappings from Firestore:', err);
+      }
+    }
+
+    return safeReadJson<StudyTopicSourceMapping[]>(getLocalMappingsKey(userId), []);
+  },
+
+  /**
+   * Persists updated topic source mappings for a user.
+   */
+  async saveTopicSourceMappings(userId: string, newMappings: StudyTopicSourceMapping[]): Promise<void> {
+    if (!userId || !newMappings.length) return;
+
+    const existing = await this.getTopicSourceMappings(userId);
+    const mappingMap = new Map<string, StudyTopicSourceMapping>();
+    for (const m of existing) {
+      mappingMap.set(m.mappingKey, m);
+    }
+    for (const m of newMappings) {
+      mappingMap.set(m.mappingKey, m);
+    }
+
+    const merged = Array.from(mappingMap.values());
+    safeWriteJson(getLocalMappingsKey(userId), merged);
+
+    if (isSignedInAs(userId)) {
+      try {
+        const ref = doc(db, `users/${userId}/settings/study_topic_source_mappings`);
+        await setDoc(ref, { mappings: merged, updatedAt: new Date().toISOString() }, { merge: true });
+      } catch (err) {
+        console.warn('[studyImportHistoryStore] Failed to persist topic source mappings to Firestore:', err);
+      }
+    }
+  },
+
+  /**
+   * Retrieves an import session by ID.
+   */
+  async getImportSession(userId: string, sessionId: string): Promise<StudyImportSession | null> {
+    if (!userId || !sessionId) return null;
+
+    if (isSignedInAs(userId)) {
+      try {
+        const ref = doc(db, `users/${userId}/settings/study_import_sessions`);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const data = snap.data();
+          const list = Array.isArray(data?.sessions) ? (data.sessions as StudyImportSession[]) : [];
+          safeWriteJson(getLocalSessionsKey(userId), list);
+          const found = list.find((s) => s.sessionId === sessionId);
+          if (found) return found;
+        }
+      } catch (err) {
+        console.warn('[studyImportHistoryStore] Failed to read import session from Firestore:', err);
+      }
+    }
+
+    const localList = safeReadJson<StudyImportSession[]>(getLocalSessionsKey(userId), []);
+    return localList.find((s) => s.sessionId === sessionId) || null;
+  },
+
+  /**
+   * Saves or updates a recoverable import session.
+   */
+  async saveImportSession(userId: string, session: StudyImportSession): Promise<void> {
+    if (!userId || !session.sessionId) return;
+
+    const existingSessions = safeReadJson<StudyImportSession[]>(getLocalSessionsKey(userId), []);
+    const cleanSession = stripUndefined({
+      ...session,
+      updatedAt: new Date().toISOString(),
+    }) as StudyImportSession;
+
+    const updated = [cleanSession, ...existingSessions.filter((s) => s.sessionId !== session.sessionId)].slice(0, 50);
+    safeWriteJson(getLocalSessionsKey(userId), updated);
+
+    if (isSignedInAs(userId)) {
+      try {
+        const ref = doc(db, `users/${userId}/settings/study_import_sessions`);
+        await setDoc(ref, { sessions: updated, updatedAt: new Date().toISOString() }, { merge: true });
+      } catch (err) {
+        console.warn('[studyImportHistoryStore] Failed to persist import session to Firestore:', err);
+      }
+    }
+  },
+
+  /**
+   * Finds any pending or partial session for a source spreadsheet to offer recovery.
+   */
+  async getLatestPendingSession(userId: string, sourceSpreadsheetId: string): Promise<StudyImportSession | null> {
+    if (!userId || !sourceSpreadsheetId) return null;
+    const existing = safeReadJson<StudyImportSession[]>(getLocalSessionsKey(userId), []);
+    return existing.find((s) => s.sourceSpreadsheetId === sourceSpreadsheetId && (s.status === 'pending' || s.status === 'partial' || s.status === 'in_progress')) || null;
   },
 };

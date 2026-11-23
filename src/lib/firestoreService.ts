@@ -90,6 +90,16 @@ import {
   VaultSummary,
   ExpenseSplitMode,
 } from '../types/vault.ts';
+import type {
+  SkillNode,
+  WhiteboardDrawing,
+  ExamSimulationState,
+  DecisionEntry,
+  DoomscrollTaxEntry,
+  LifeMilestone,
+  TimeCapsuleLetter,
+  EmergencyAssetProfile,
+} from '../types/features15.ts';
 import {
   isValidRatio,
   splitExpense,
@@ -4866,5 +4876,175 @@ export const firestoreService = {
 
       onUpdate(buildVaultSummary(vault, members, contributions, expenses, settlements, activities));
     });
+  },
+
+  // ==========================================
+  // FocusFlow v1.8 15 Unique Features Persistence
+  // ==========================================
+  async getSkillNodes(userId: string): Promise<SkillNode[]> {
+    return listSubcollection<SkillNode>(`users/${userId}/skill_nodes`);
+  },
+
+  async saveSkillNode(userId: string, node: SkillNode): Promise<void> {
+    const p = `users/${userId}/skill_nodes/${node.id}`;
+    try {
+      await setDoc(doc(db, p), stripUndefined({ ...node, userId }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, p);
+    }
+  },
+
+  async deleteSkillNode(userId: string, id: string): Promise<void> {
+    const p = `users/${userId}/skill_nodes/${id}`;
+    try {
+      await deleteDoc(doc(db, p));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, p);
+    }
+  },
+
+  async getWhiteboardDrawings(userId: string): Promise<WhiteboardDrawing[]> {
+    return listSubcollection<WhiteboardDrawing>(`users/${userId}/whiteboard_drawings`);
+  },
+
+  async saveWhiteboardDrawing(userId: string, drawing: WhiteboardDrawing): Promise<void> {
+    const p = `users/${userId}/whiteboard_drawings/${drawing.id}`;
+    try {
+      await setDoc(doc(db, p), stripUndefined({ ...drawing, userId }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, p);
+    }
+  },
+
+  async deleteWhiteboardDrawing(userId: string, id: string): Promise<void> {
+    const p = `users/${userId}/whiteboard_drawings/${id}`;
+    try {
+      await deleteDoc(doc(db, p));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, p);
+    }
+  },
+
+  async getExamSimulations(userId: string): Promise<ExamSimulationState[]> {
+    return listSubcollection<ExamSimulationState>(`users/${userId}/exam_simulations`);
+  },
+
+  async saveExamSimulation(userId: string, sim: ExamSimulationState): Promise<void> {
+    const p = `users/${userId}/exam_simulations/${sim.id}`;
+    try {
+      await setDoc(doc(db, p), stripUndefined({ ...sim, userId }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, p);
+    }
+  },
+
+  async getDecisionEntries(userId: string): Promise<DecisionEntry[]> {
+    return listSubcollection<DecisionEntry>(`users/${userId}/decision_entries`);
+  },
+
+  async saveDecisionEntry(userId: string, entry: DecisionEntry): Promise<void> {
+    const p = `users/${userId}/decision_entries/${entry.id}`;
+    try {
+      await setDoc(doc(db, p), stripUndefined({ ...entry, userId }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, p);
+    }
+  },
+
+  async getDoomscrollLogs(userId: string): Promise<DoomscrollTaxEntry[]> {
+    return listSubcollection<DoomscrollTaxEntry>(`users/${userId}/doomscroll_logs`);
+  },
+
+  async saveDoomscrollLog(userId: string, log: DoomscrollTaxEntry): Promise<void> {
+    const p = `users/${userId}/doomscroll_logs/${log.id}`;
+    try {
+      await setDoc(doc(db, p), stripUndefined({ ...log, userId }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, p);
+    }
+  },
+
+  async clearDoomscrollLogs(userId: string): Promise<void> {
+    const p = `users/${userId}/doomscroll_logs`;
+    try {
+      const snap = await getDocs(collection(db, p));
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, p);
+    }
+  },
+
+  async getLifeMilestones(userId: string): Promise<LifeMilestone[]> {
+    return listSubcollection<LifeMilestone>(`users/${userId}/life_milestones`);
+  },
+
+  async saveLifeMilestone(userId: string, milestone: LifeMilestone): Promise<void> {
+    const p = `users/${userId}/life_milestones/${milestone.id}`;
+    try {
+      await setDoc(doc(db, p), stripUndefined({ ...milestone, userId }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, p);
+    }
+  },
+
+  async deleteLifeMilestone(userId: string, id: string): Promise<void> {
+    const p = `users/${userId}/life_milestones/${id}`;
+    try {
+      await deleteDoc(doc(db, p));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, p);
+    }
+  },
+
+  async getTimeCapsules(userId: string): Promise<TimeCapsuleLetter[]> {
+    return listSubcollection<TimeCapsuleLetter>(`users/${userId}/time_capsules`);
+  },
+
+  async saveTimeCapsule(userId: string, capsule: TimeCapsuleLetter): Promise<void> {
+    const p = `users/${userId}/time_capsules/${capsule.id}`;
+    try {
+      await setDoc(doc(db, p), stripUndefined({ ...capsule, userId }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, p);
+    }
+  },
+
+  async deleteTimeCapsule(userId: string, id: string): Promise<void> {
+    const p = `users/${userId}/time_capsules/${id}`;
+    try {
+      await deleteDoc(doc(db, p));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, p);
+    }
+  },
+
+  async getEmergencyProfile(userId: string): Promise<EmergencyAssetProfile | null> {
+    const p = `users/${userId}/emergency_profile/default`;
+    try {
+      const snap = await getDoc(doc(db, p));
+      return snap.exists() ? (snap.data() as EmergencyAssetProfile) : null;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, p);
+    }
+  },
+
+  async saveEmergencyProfile(userId: string, profile: EmergencyAssetProfile): Promise<void> {
+    const p = `users/${userId}/emergency_profile/default`;
+    try {
+      await setDoc(doc(db, p), stripUndefined({ ...profile, userId, id: `ep_${userId}` }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, p);
+    }
+  },
+
+  async deleteEmergencyProfile(userId: string): Promise<void> {
+    const p = `users/${userId}/emergency_profile/default`;
+    try {
+      await deleteDoc(doc(db, p));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, p);
+    }
   },
 };

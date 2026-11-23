@@ -782,5 +782,21 @@ export function handleGuestLocalFallback(
     }
   }
 
+  // Emergency Profile local guest fallback
+  if (pathname === '/emergency-profile') {
+    if (method === 'GET') {
+      return readBucket<any>(sessionId, 'emergency_profile', null);
+    }
+    if (method === 'POST' || method === 'PUT') {
+      const saved = { ...body, id: `ep_${sessionId}`, userId: sessionId, updatedAt: nowIso };
+      writeBucket(sessionId, 'emergency_profile', saved);
+      return saved;
+    }
+    if (method === 'DELETE') {
+      writeBucket(sessionId, 'emergency_profile', null);
+      return { success: true };
+    }
+  }
+
   return undefined;
 }

@@ -219,6 +219,18 @@ export function inferInitialColumnMappings(columns: SheetColumnMapping[]): Colum
 }
 
 /**
+ * Computes canonical source mapping key linking a spreadsheet row to a Study OS topic.
+ * Format: srowmap_<spreadsheetId>|<sheetId>|<sourceRowId>
+ */
+export function computeSourceMappingKey(
+  spreadsheetId: string,
+  sheetId: number | string,
+  sourceRowId: string
+): string {
+  return `srowmap_${spreadsheetId.trim()}|${String(sheetId).trim()}|${sourceRowId.trim()}`;
+}
+
+/**
  * Computes deterministic 32-hex FNV-1a composite key for a topic row.
  * Format: srow_<hash(spreadsheetId | sheetId | subjectCode | unit | topic | subtopic)>
  */
@@ -293,8 +305,8 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
     // Index by subjectCode|unit|topic|subtopic
     const nameKey = `${t.subjectCode.toUpperCase()}|${(t.unit || 'general').trim().toLowerCase()}|${t.topic.trim().toLowerCase()}|${t.subtopic.trim().toLowerCase()}`;
     existingTopicNameMap.set(nameKey, t);
-    // Index by subjectCode|topic::subtopic
-    const conceptKey = `${t.subjectCode.toUpperCase()}|${t.topic.trim().toLowerCase()}::${t.subtopic.trim().toLowerCase()}`;
+    // Index by subjectCode|unit|topic::subtopic (Concept-level matching MUST include Unit)
+    const conceptKey = `${t.subjectCode.toUpperCase()}|${(t.unit || 'general').trim().toLowerCase()}|${t.topic.trim().toLowerCase()}::${t.subtopic.trim().toLowerCase()}`;
     existingTopicConceptMap.set(conceptKey, t);
   }
 
@@ -396,7 +408,8 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
 
       // Check match in existing Study OS topics
       const nameKey = `${mapping.targetSubjectCode.toUpperCase()}|${unit.toLowerCase()}|${topic.trim().toLowerCase()}|${subtopic.trim().toLowerCase()}`;
-      const conceptKey = `${mapping.targetSubjectCode.toUpperCase()}|${topic.trim().toLowerCase()}::${subtopic.trim().toLowerCase()}`;
+      // Concept-level matching strictly includes unit
+      const conceptKey = `${mapping.targetSubjectCode.toUpperCase()}|${unit.toLowerCase()}|${topic.trim().toLowerCase()}::${subtopic.trim().toLowerCase()}`;
       const existingMatch = existingTopicKeyMap.get(sourceRowKey) || existingTopicNameMap.get(nameKey) || existingTopicConceptMap.get(conceptKey);
 
       const isDone = parseBooleanDone(rawDone);

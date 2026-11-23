@@ -13,18 +13,63 @@ import {
   Redo2,
   Trash2,
   Download,
-  Share2,
   Bookmark,
   Check,
-  Maximize2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { StudyTopic } from '../../types/study.ts';
 
-type DrawingTool = 'pen' | 'highlighter' | 'eraser' | 'line' | 'rect' | 'circle';
+export type DrawingTool = 'pen' | 'highlighter' | 'eraser' | 'line' | 'rect' | 'circle';
 
-interface WhiteboardCanvasProps {
+export interface WhiteboardCanvasProps {
   topics?: StudyTopic[];
   onSaveAttachment?: (dataUrl: string, topicId?: string) => void;
+}
+
+/**
+ * Shared coordinate normalizer converting client coordinates to canvas backing dimensions.
+ * Accounts for device pixel ratio, CSS layout scaling, and mobile pinch/scroll bounding boxes.
+ */
+export function getCanvasCoordinates(
+  clientX: number,
+  clientY: number,
+  canvas: HTMLCanvasElement
+): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return { x: 0, y: 0 };
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: Math.round((clientX - rect.left) * scaleX),
+    y: Math.round((clientY - rect.top) * scaleY),
+  };
+}
+
+/**
+ * Dedicated blank-canvas rendering function.
+ * Completely resets canvas background and renders an engineering/math dot-grid
+ * without restoring any old buffer or previous drawings.
+ */
+export function renderBlankCanvas(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number
+): void {
+  // Dark slate background default
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, width, height);
+
+  // Grid dots for engineering / math scratchpad
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.12)';
+  const gridSize = 24;
+  for (let x = gridSize; x < width; x += gridSize) {
+    for (let y = gridSize; y < height; y += gridSize) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
 }
 
 export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
@@ -38,14 +83,19 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Offscreen buffer canvas to preserve pixels across resize events
+  // Offscreen buffer canvas to preserve pixels across intentional window resize events
   const bufferCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [activeTool, setActiveTool] = useState<DrawingTool>('pen');
   const [strokeColor, setStrokeColor] = useState<string>('#38bdf8'); // sky-400
   const [strokeWidth, setStrokeWidth] = useState<number>(3);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('');
-  const [isSavedToast, setIsSavedToast] = useState(false);
+
+  // Save status states
+  const [saveStatus, setSaveStatus] = useState<
+    'idle' | 'saving' | 'saved' | 'saved_local_only' | 'error'
+  >('idle');
+  const [saveMessage, setSaveMessage] = useState<string>('');
 
   // Undo / Redo history
   const undoStackRef = useRef<ImageData[]>([]);
@@ -90,9 +140,9 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
 
     const rect = container.getBoundingClientRect();
     const width = Math.max(600, Math.floor(rect.width));
-    const height = Math.max(450, Math.floor(rect.height || 550));
+    const height = Math.max(450, Math.floor(rect.height || 540));
 
-    // Save existing canvas into buffer
+    // Save existing canvas into buffer before resizing
     if (canvas.width > 0 && canvas.height > 0) {
       buffer.width = canvas.width;
       buffer.height = canvas.height;
@@ -107,65 +157,63 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
 
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      // Dark slate background default
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, width, height);
+      renderBlankCanvas(ctx, width, height);
 
-      // Grid dots for engineering / math scratchpad
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.12)';
-      const gridSize = 24;
-      for (let x = gridSize; x < width; x += gridSize) {
-        for (let y = gridSize; y < height; y += gridSize) {
-          ctx.beginPath();
-          ctx.arc(x, y, 1, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Restore buffered drawing
+      // Restore buffered drawing if buffer has content
       if (buffer.width > 0 && buffer.height > 0) {
         ctx.drawImage(buffer, 0, 0);
       }
     }
   }, []);
 
+  // Load existing drawing from local storage if available
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', handleResize);
+
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved && saved.startsWith('data:image/')) {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = canvasRef.current;
+          const buffer = bufferCanvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0);
+          }
+          if (buffer) {
+            buffer.width = canvas.width;
+            buffer.height = canvas.height;
+            const bCtx = buffer.getContext('2d');
+            if (bCtx) {
+              bCtx.drawImage(canvas, 0, 0);
+            }
+          }
+        };
+        img.src = saved;
+      }
+    } catch {}
+
     return () => window.removeEventListener('resize', handleResize);
-  }, [handleResize]);
+  }, [handleResize, storageKey]);
 
-  // Coordinate normalizer
-  const getPointerPos = (e: React.MouseEvent | React.TouchEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-
-    if ('touches' in e && e.touches.length > 0) {
-      return {
-        x: e.touches[0].clientX - rect.left,
-        y: e.touches[0].clientY - rect.top,
-      };
-    } else if ('clientX' in e) {
-      return {
-        x: (e as React.MouseEvent).clientX - rect.left,
-        y: (e as React.MouseEvent).clientY - rect.top,
-      };
-    }
-    return { x: 0, y: 0 };
-  };
-
-  // Drawing event handlers
-  const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+  // Pointer event handlers with device pixel ratio & backing scale accuracy
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {}
+
     pushUndoState();
 
     isDrawingRef.current = true;
-    const pos = getPointerPos(e);
+    const pos = getCanvasCoordinates(e.clientX, e.clientY, canvas);
     startPosRef.current = pos;
 
     snapshotRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -174,14 +222,14 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     ctx.moveTo(pos.x, pos.y);
   };
 
-  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawingRef.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const pos = getPointerPos(e);
+    const pos = getCanvasCoordinates(e.clientX, e.clientY, canvas);
 
     if (activeTool === 'pen') {
       ctx.strokeStyle = strokeColor;
@@ -233,14 +281,35 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     }
   };
 
-  const stopDrawing = () => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDrawingRef.current = false;
+    try {
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+    } catch {}
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.globalAlpha = 1.0;
     }
+
+    // Sync buffer canvas with latest drawing
+    const buffer = bufferCanvasRef.current;
+    if (buffer && canvas.width > 0 && canvas.height > 0) {
+      buffer.width = canvas.width;
+      buffer.height = canvas.height;
+      const bCtx = buffer.getContext('2d');
+      if (bCtx) {
+        bCtx.drawImage(canvas, 0, 0);
+      }
+    }
+
+    // Auto-save local draft
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      localStorage.setItem(storageKey, dataUrl);
+    } catch {}
   };
 
   // Undo / Redo operations
@@ -256,6 +325,17 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
 
     const prev = undoStackRef.current.pop()!;
     ctx.putImageData(prev, 0, 0);
+
+    // Sync buffer with restored image
+    const buffer = bufferCanvasRef.current;
+    if (buffer) {
+      buffer.width = canvas.width;
+      buffer.height = canvas.height;
+      const bCtx = buffer.getContext('2d');
+      if (bCtx) {
+        bCtx.drawImage(canvas, 0, 0);
+      }
+    }
 
     setCanUndo(undoStackRef.current.length > 0);
     setCanRedo(true);
@@ -273,14 +353,56 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     const next = redoStackRef.current.pop()!;
     ctx.putImageData(next, 0, 0);
 
+    // Sync buffer with redone image
+    const buffer = bufferCanvasRef.current;
+    if (buffer) {
+      buffer.width = canvas.width;
+      buffer.height = canvas.height;
+      const bCtx = buffer.getContext('2d');
+      if (bCtx) {
+        bCtx.drawImage(canvas, 0, 0);
+      }
+    }
+
     setCanUndo(true);
     setCanRedo(redoStackRef.current.length > 0);
   };
 
+  /**
+   * Dedicated Clear Handler:
+   * 1. Preserves current drawing in undo stack.
+   * 2. Clears offscreen buffer so resize does NOT restore the old content.
+   * 3. Renders dedicated blank canvas with dot grid.
+   * 4. Updates undo/redo state so Undo can restore it.
+   */
   const handleClear = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
     if (!window.confirm('Clear entire scratchpad?')) return;
+
+    // Save previous drawing state into undo stack
     pushUndoState();
-    handleResize();
+
+    // Reset buffer canvas completely so resize doesn't restore old drawing
+    const buffer = bufferCanvasRef.current;
+    if (buffer) {
+      buffer.width = 0;
+      buffer.height = 0;
+    }
+
+    // Render pure blank canvas
+    renderBlankCanvas(ctx, canvas.width, canvas.height);
+
+    // Clear local storage
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {}
+
+    setSaveStatus('idle');
+    setSaveMessage('');
   };
 
   const handleDownload = () => {
@@ -293,24 +415,58 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     link.click();
   };
 
-  const handleAttach = () => {
+  /**
+   * Remote Save & Topic Linkage:
+   * 1. Preserves local drawing first so drawing is never lost during network drops.
+   * 2. Awaits remote API save before showing confirmation.
+   * 3. Sets "saved_local_only" state with Retry if remote fails.
+   * 4. Confirms topic linkage with topicId and topicTitle.
+   */
+  const handleAttachAndSave = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dataUrl = canvas.toDataURL('image/png');
-    if (onSaveAttachment) {
-      onSaveAttachment(dataUrl, selectedTopicId || undefined);
-    }
     const topic = topics.find((t) => t.id === selectedTopicId);
-    api.saveWhiteboardDrawing({
-      title: topic ? `${topic.subtopic || 'Topic'} Whiteboard Note` : 'Whiteboard Note',
-      dataUrl,
-      topicId: selectedTopicId || undefined,
-    }).catch(() => {});
+    const title = topic
+      ? `${topic.subtopic || topic.topic || 'Topic'} Whiteboard Note`
+      : 'Whiteboard Note';
+
+    // Preserve local drawing first
     try {
       localStorage.setItem(storageKey, dataUrl);
     } catch {}
-    setIsSavedToast(true);
-    setTimeout(() => setIsSavedToast(false), 3000);
+
+    if (onSaveAttachment) {
+      onSaveAttachment(dataUrl, selectedTopicId || undefined);
+    }
+
+    setSaveStatus('saving');
+    setSaveMessage('Saving note to cloud...');
+
+    try {
+      await api.saveWhiteboardDrawing({
+        title,
+        dataUrl,
+        topicId: selectedTopicId || undefined,
+        topicTitle: topic ? (topic.subtopic || topic.topic) : undefined,
+        width: canvas.width,
+        height: canvas.height,
+      });
+
+      setSaveStatus('saved');
+      setSaveMessage(
+        topic
+          ? `Whiteboard saved and attached to "${topic.subtopic || topic.topic}" successfully!`
+          : 'Whiteboard snapshot saved to cloud successfully!'
+      );
+      setTimeout(() => {
+        setSaveStatus((curr) => (curr === 'saved' ? 'idle' : curr));
+      }, 4000);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Network error';
+      setSaveStatus('saved_local_only');
+      setSaveMessage(`Saved on this device — sync pending/failed (${errMsg})`);
+    }
   };
 
   const COLORS = [
@@ -478,15 +634,20 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
               <option value="">Attach to topic...</option>
               {topics.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.topic}
+                  {t.subtopic ? `${t.topic} — ${t.subtopic}` : t.topic}
                 </option>
               ))}
             </select>
           )}
 
-          <ThemeButton variant="secondary" size="sm" onClick={handleAttach}>
+          <ThemeButton
+            variant="secondary"
+            size="sm"
+            onClick={handleAttachAndSave}
+            disabled={saveStatus === 'saving'}
+          >
             <Bookmark className="w-3.5 h-3.5 mr-1" />
-            Attach Note
+            {saveStatus === 'saving' ? 'Saving...' : 'Save & Attach'}
           </ThemeButton>
 
           <ThemeButton variant="ghost" size="sm" onClick={handleDownload} title="Download PNG">
@@ -495,33 +656,47 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
         </div>
       </div>
 
-      {/* Save Notification */}
-      {isSavedToast && (
+      {/* Save Notification / Offline Status Banner */}
+      {saveStatus === 'saved' && (
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
-          <Check className="w-4 h-4" />
-          <span>Whiteboard snapshot attached to study topic successfully!</span>
+          <Check className="w-4 h-4 flex-shrink-0" />
+          <span>{saveMessage}</span>
         </div>
       )}
 
-      {/* Canvas Drawing Area */}
+      {saveStatus === 'saved_local_only' && (
+        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span>{saveMessage}</span>
+          </div>
+          <button
+            onClick={handleAttachAndSave}
+            className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-semibold transition-colors flex items-center gap-1 flex-shrink-0"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry Sync
+          </button>
+        </div>
+      )}
+
+      {/* Canvas Drawing Area with Pointer Events & Touch-Action None */}
       <div
         ref={containerRef}
         className="relative w-full h-[540px] rounded-2xl border border-[var(--ff-border)] overflow-hidden shadow-inner bg-[#0f172a] touch-none select-none cursor-crosshair"
       >
         <canvas
           ref={canvasRef}
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
-          className="absolute inset-0 block w-full h-full"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+          className="absolute inset-0 block w-full h-full touch-none"
         />
 
         <div className="absolute bottom-3 right-3 pointer-events-none text-[10px] text-slate-500/70 font-mono">
-          FocusFlow Whiteboard Canvas • Resize-Safe Buffer Active
+          FocusFlow Whiteboard Canvas • Pointer Events & Resize-Safe Buffer Active
         </div>
       </div>
     </div>

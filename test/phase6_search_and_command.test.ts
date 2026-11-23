@@ -11,6 +11,7 @@ import {
   UniversalSearchSources,
 } from '../src/lib/searchEngine.tsx';
 import { SHORTCUTS_REGISTRY } from '../src/components/common/KeyboardShortcutsModal.tsx';
+import { getTodayDateString } from '../src/lib/dateTime.ts';
 import { Task, ExpenseTransaction, IncomeTransaction, Bill, Habit, BudgetEnvelope, SavingsGoal, UserSettings } from '../src/types/index.ts';
 
 // Helper mock storage
@@ -348,7 +349,7 @@ test('Phase 6 — Command Suggestions: Derived Purely from Real Stored State', (
         categoryId: 'food',
         categoryName: 'Food',
         amountPaise: 125000, // ₹1,250
-        date: new Date().toISOString().slice(0, 10),
+        date: getTodayDateString(),
         description: 'Lunch with clients',
         paymentMethod: 'credit_card',
         notes: '',

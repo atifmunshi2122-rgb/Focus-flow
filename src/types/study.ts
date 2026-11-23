@@ -51,6 +51,52 @@ export interface StudyTopic {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  // Source mapping & tracking metadata (v1.8 Step 4)
+  sourceOrigin?: 'google_sheet' | 'manual' | 'csv';
+  sourceSpreadsheetId?: string;
+  sourceSheetId?: number | string;
+  sourceRowId?: string;
+  sourceRowKey?: string;
+  sourceMappingKey?: string;
+  sourceContentHash?: string;
+  importedAt?: string;
+  lastImportedAt?: string;
+}
+
+export interface StudyTopicSourceMapping {
+  mappingKey: string; // `${spreadsheetId}|${sheetId}|${sourceRowId}`
+  spreadsheetId: string;
+  sheetId: number | string;
+  sourceRowId: string;
+  studyTopicId: string;
+  subjectCode: string;
+  unit: string;
+  topic: string;
+  subtopic?: string;
+  lastImportedAt: string;
+}
+
+export interface StudyImportSession {
+  sessionId: string;
+  userId: string;
+  sourceSpreadsheetId: string;
+  sourceSpreadsheetTitle: string;
+  targetTierId: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'partial' | 'failed';
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  plannedSubjectsCount: number;
+  plannedTopicsCount: number;
+  committedSubjectIds: string[];
+  committedTopicIds: string[];
+  failedOperations: Array<{
+    type: 'subject' | 'topic';
+    id: string;
+    codeOrTitle: string;
+    error: string;
+  }>;
+  errorMessage?: string;
 }
 
 export type RevisionDifficulty = 'easy' | 'medium' | 'hard';
