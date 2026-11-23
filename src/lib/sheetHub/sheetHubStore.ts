@@ -624,16 +624,14 @@ export const sheetHubStore = {
     dequeuePendingOp(userId, connectionId);
 
     if (isSignedInAs(userId)) {
-      let discoveryError: Error | null = null;
-
-      // Discover any additional tabs in Firestore across flat and nested paths
+      // Discover any additional tabs in Firestore across flat and nested paths (best-effort so unused/restricted paths never block parent removal)
       try {
         const qTabs = await getDocs(
           query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs)), where('connectionId', '==', connectionId))
         );
         for (const d of qTabs.docs) tabIds.add(d.id);
-      } catch (err: any) {
-        discoveryError = discoveryError || err;
+      } catch (err) {
+        console.warn('[SheetHub] Best-effort sheet_tabs discovery warning:', err);
       }
 
       try {
@@ -641,8 +639,8 @@ export const sheetHubStore = {
           collection(db, `users/${userId}/sheets/${connectionId}/tabs`)
         );
         for (const d of nestedTabsSnap.docs) tabIds.add(d.id);
-      } catch (err: any) {
-        discoveryError = discoveryError || err;
+      } catch (err) {
+        console.warn('[SheetHub] Best-effort nested tabs discovery warning:', err);
       }
 
       const childRefsToDelete: any[] = [];
@@ -657,8 +655,8 @@ export const sheetHubStore = {
             query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('tabId', '==', tId))
           );
           for (const d of chunksSnap.docs) childRefsToDelete.push(d.ref);
-        } catch (err: any) {
-          discoveryError = discoveryError || err;
+        } catch (err) {
+          console.warn('[SheetHub] Best-effort rowChunks discovery warning:', err);
         }
 
         try {
@@ -666,8 +664,8 @@ export const sheetHubStore = {
             collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/row_chunks`)
           );
           for (const d of nestedChunksSnap.docs) childRefsToDelete.push(d.ref);
-        } catch (err: any) {
-          discoveryError = discoveryError || err;
+        } catch (err) {
+          console.warn('[SheetHub] Best-effort nested row_chunks discovery warning:', err);
         }
 
         try {
@@ -675,8 +673,8 @@ export const sheetHubStore = {
             collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/rows`)
           );
           for (const d of nestedRowsSnap.docs) childRefsToDelete.push(d.ref);
-        } catch (err: any) {
-          discoveryError = discoveryError || err;
+        } catch (err) {
+          console.warn('[SheetHub] Best-effort nested rows discovery warning:', err);
         }
       }
 
@@ -686,8 +684,8 @@ export const sheetHubStore = {
           query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('connectionId', '==', connectionId))
         );
         for (const d of connChunksSnap.docs) childRefsToDelete.push(d.ref);
-      } catch (err: any) {
-        discoveryError = discoveryError || err;
+      } catch (err) {
+        console.warn('[SheetHub] Best-effort connection rowChunks discovery warning:', err);
       }
 
       // 3. Associated sync queue items
@@ -696,8 +694,8 @@ export const sheetHubStore = {
           query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.syncQueue)), where('connectionId', '==', connectionId))
         );
         for (const d of queueSnap.docs) childRefsToDelete.push(d.ref);
-      } catch (err: any) {
-        discoveryError = discoveryError || err;
+      } catch (err) {
+        console.warn('[SheetHub] Best-effort syncQueue discovery warning:', err);
       }
 
       // 4. Associated conflict items
@@ -706,42 +704,40 @@ export const sheetHubStore = {
           query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts)), where('connectionId', '==', connectionId))
         );
         for (const d of conflictSnap.docs) childRefsToDelete.push(d.ref);
-      } catch (err: any) {
-        discoveryError = discoveryError || err;
+      } catch (err) {
+        console.warn('[SheetHub] Best-effort conflicts discovery warning:', err);
       }
 
-      if (discoveryError) {
-        throw new SheetHubPersistenceError(
-          `Cascade deletion aborted: could not query all child records: ${(discoveryError as Error).message}`,
-          'DELETION_INCOMPLETE',
-          connectionId
-        );
-      }
-
-      // Delete child records FIRST in batches of <= 400
+      // Delete child records FIRST in batches of <= 400; fall back to individual deletes if a batch fails
       for (let i = 0; i < childRefsToDelete.length; i += 400) {
         const slice = childRefsToDelete.slice(i, i + 400);
-        const batch = writeBatch(db);
-        for (const ref of slice) batch.delete(ref);
-        await batch.commit();
+        try {
+          const batch = writeBatch(db);
+          for (const ref of slice) batch.delete(ref);
+          await batch.commit();
+        } catch (batchErr) {
+          console.warn('[SheetHub] Child batch delete warning, retrying individually:', batchErr);
+          await Promise.allSettled(slice.map((ref) => deleteDoc(ref)));
+        }
       }
 
-      // Delete parent documents LAST to ensure idempotency and resumability
-      const parentBatch = writeBatch(db);
-      parentBatch.delete(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId));
-      parentBatch.delete(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId));
-      await parentBatch.commit();
+      // Delete parent documents independently so a failure on one path never blocks the other
+      const connRef = doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId);
+      const sheetRef = doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId);
+      await Promise.allSettled([deleteDoc(connRef), deleteDoc(sheetRef)]);
 
       // Post-deletion verification check: verify parent documents are gone
-      const verifyConnSnap = await getDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId)
-      );
-      const verifySheetSnap = await getDoc(
-        doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId)
-      );
-      if (verifyConnSnap.exists() || verifySheetSnap.exists()) {
+      let connStillExists = false;
+      let sheetStillExists = false;
+      try {
+        connStillExists = (await getDoc(connRef)).exists();
+      } catch {}
+      try {
+        sheetStillExists = (await getDoc(sheetRef)).exists();
+      } catch {}
+      if (connStillExists || sheetStillExists) {
         throw new SheetHubPersistenceError(
-          'Cascade deletion incomplete: parent spreadsheet records still exist.',
+          'Could not delete spreadsheet from Cloud Firestore. Check Firestore security rules or sign-in status.',
           'DELETION_INCOMPLETE',
           connectionId
         );

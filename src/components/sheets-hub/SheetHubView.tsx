@@ -879,14 +879,20 @@ export const SheetHubView: React.FC = () => {
   };
 
   const handleRemoveConnection = async (connId: string, purgeCache: boolean) => {
-    await sheetHubStore.deleteConnection(activeUserId, connId, purgeCache);
-    if (activeConnectionId === connId) {
-      setActiveConnectionId(null);
-      setTabs([]);
-      setRowsByTabId({});
+    try {
+      await sheetHubStore.deleteConnection(activeUserId, connId, purgeCache);
+      setConnections((prev) => prev.filter((c) => c.id !== connId));
+      if (activeConnectionId === connId) {
+        setActiveConnectionId(null);
+        setTabs([]);
+        setRowsByTabId({});
+      }
+      await loadConnections(Boolean(firebaseUser?.uid));
+      showToast('Spreadsheet connection unlinked cleanly.', 'success');
+    } catch (err: any) {
+      console.error('[SheetHubView] Failed to remove connection:', err);
+      showToast(err?.message || 'Failed to remove spreadsheet connection.', 'error');
     }
-    await loadConnections();
-    showToast('Spreadsheet connection unlinked cleanly.', 'success');
   };
 
   const handleCreateNativeSheet = async () => {

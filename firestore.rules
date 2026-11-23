@@ -915,7 +915,7 @@ service cloud.firestore {
             'lastSyncedAt', 'lastSuccessfulPullAt', 'lastSuccessfulPushAt', 'lastError',
             'pendingChangesCount', 'conflictCount', 'tabOrder',
             'createdAt', 'updatedAt', 'deletedAt',
-            'ownerUid', 'schemaVersion', 'sortOrder', 'isNative',
+            'ownerUid', 'schemaVersion', 'sortOrder', 'isNative', 'isPublicLink',
             'writeMode', 'writeAuthStatus', 'writeAuthorizedAt',
             'isDualCopy', 'driveFileId', 'sourceSpreadsheetId', 'nativeSheetId',
             'lastDriveSyncAt', 'driveSyncStatus', 'lastDriveModifiedTime'
@@ -928,6 +928,7 @@ service cloud.firestore {
           && (data.get('schemaVersion', null) == null || isBoundedInt(data.schemaVersion, 1, 100))
           && (data.get('sortOrder', null) == null || isBoundedInt(data.sortOrder, 0, 100000))
           && (data.get('isNative', null) == null || data.isNative is bool)
+          && (data.get('isPublicLink', null) == null || data.isPublicLink is bool)
           && (data.get('writeMode', null) == null || data.writeMode in ['native_oauth', 'apps_script', 'none'])
           && (data.get('writeAuthStatus', null) == null || data.writeAuthStatus in ['authorized', 'not_requested', 'expired', 'denied'])
           && isOptionalBoundedIsoDate(data.get('writeAuthorizedAt', null))
@@ -1090,7 +1091,7 @@ service cloud.firestore {
               'status', 'lastSyncedAt', 'lastSuccessfulPullAt', 'lastSuccessfulPushAt',
               'lastError', 'pendingChangesCount', 'conflictCount', 'tabOrder',
               'createdAt', 'updatedAt', 'deletedAt',
-              'ownerUid', 'schemaVersion', 'sortOrder', 'isNative',
+              'ownerUid', 'schemaVersion', 'sortOrder', 'isNative', 'isPublicLink',
               'writeMode', 'writeAuthStatus', 'writeAuthorizedAt',
               'isDualCopy', 'driveFileId', 'sourceSpreadsheetId', 'nativeSheetId',
               'lastDriveSyncAt', 'driveSyncStatus', 'lastDriveModifiedTime'
@@ -1103,6 +1104,7 @@ service cloud.firestore {
             && (data.get('schemaVersion', null) == null || isBoundedInt(data.schemaVersion, 1, 100))
             && (data.get('sortOrder', null) == null || isBoundedInt(data.sortOrder, 0, 100000))
             && (data.get('isNative', null) == null || data.isNative is bool)
+            && (data.get('isPublicLink', null) == null || data.isPublicLink is bool)
             && (data.get('writeMode', null) == null || data.writeMode in ['native_oauth', 'apps_script', 'none'])
             && (data.get('writeAuthStatus', null) == null || data.writeAuthStatus in ['authorized', 'not_requested', 'expired', 'denied'])
             && isOptionalBoundedIsoDate(data.get('writeAuthorizedAt', null))
