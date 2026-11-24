@@ -19,8 +19,8 @@ import firebaseManifest from '../../firebase-applet-config.json';
 
 export const GHOST_OAUTH_CLIENT_ID =
   '965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com';
-export const GHOST_PROJECT_ID = 'ghost-7b055';
-export const GHOST_PROJECT_NUMBER = '965140210258';
+export const GHOST_PROJECT_ID = 'focus-flow-by-atif';
+export const GHOST_PROJECT_NUMBER = '1010159085609';
 
 export const GOOGLE_DRIVE_SHEETS_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
@@ -465,7 +465,7 @@ export async function requestGoogleDriveToken(options?: {
             if (res.error === 'access_denied') {
               reject(
                 new Error(
-                  `Google authorization was denied (access_denied: ${errMsg}). Ensure your Google account is added under Test Users in Google Cloud project ghost-7b055 and all requested scopes are granted.`
+                  `Google authorization was denied (access_denied: ${errMsg}). Ensure your Google account is added under Test Users in Google Cloud project ${GHOST_PROJECT_ID} and all requested scopes are granted.`
                 )
               );
             } else if (res.error === 'popup_closed_by_user') {

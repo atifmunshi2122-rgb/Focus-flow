@@ -307,7 +307,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
         await runInspection(res, false);
       } else {
         setAuthLocalError(
-          `Google Drive authorization did not finish. If Google showed "Access blocked (Error 403)", ensure your email (${firebaseUser?.email || 'your account'}) is added under Test users in Google Cloud project ghost-7b055.`
+          `Google Drive authorization did not finish. If Google showed "Access blocked (Error 403)", ensure your email (${firebaseUser?.email || 'your account'}) is added under Test users in Google Cloud project ${GHOST_PROJECT_ID}.`
         );
       }
     } catch (err) {
@@ -727,7 +727,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           });
         }
         if (!dualCopyToken) {
-          throw new Error('Google authorization with Google Drive access (project ghost-7b055) is required to duplicate to your Google Drive.');
+          throw new Error(`Google authorization with Google Drive access (project ${GHOST_PROJECT_ID}) is required to duplicate to your Google Drive.`);
         }
 
         let driveDup: { driveFileId: string; driveUrl: string; sourceSpreadsheetId?: string };

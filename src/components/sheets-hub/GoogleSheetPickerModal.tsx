@@ -251,7 +251,7 @@ export const GoogleSheetPickerModal: React.FC<GoogleSheetPickerModalProps> = ({
         )}
 
         <div className="pt-2 border-t border-[var(--ff-border-color)] flex items-center justify-between text-[11px] text-[var(--ff-text-muted)]">
-          <span>Project: ghost-7b055 (App: 965140210258)</span>
+          <span>Project: focus-flow-by-atif (App: 1010159085609)</span>
           <a
             href="https://developers.google.com/drive/picker/guides/overview"
             target="_blank"
