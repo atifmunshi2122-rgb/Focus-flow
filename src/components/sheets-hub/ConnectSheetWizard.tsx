@@ -19,6 +19,7 @@ import {
   HelpCircle,
   FolderSync,
   Copy,
+  Zap,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -170,6 +171,8 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   const [importProgress, setImportProgress] = useState(0);
   const [importStatusText, setImportStatusText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
+  const [importErrorCode, setImportErrorCode] = useState<string | null>(null);
+  const [wasSelectedViaPicker, setWasSelectedViaPicker] = useState(false);
 
   // Step 1: Validate URL
   const handleValidateUrl = (overrideUrl?: string) => {
@@ -185,6 +188,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     }
     setUrlError(null);
     setSpreadsheetId(parsed.spreadsheetId);
+    setWasSelectedViaPicker(false);
     return true;
   };
 
@@ -240,6 +244,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   // Step 1: Select via Google Picker Dialog (Grants drive.file permission to existing private spreadsheet)
   const handleSelectPickedSheet = async (picked: SelectedGoogleSheet, tokenFromPicker?: string) => {
     setIsPickerOpen(false);
+    setWasSelectedViaPicker(true);
     const pickedId = (picked.id || '').trim();
     const pickedUrl = (picked.url || '').trim() || `https://docs.google.com/spreadsheets/d/${encodeURIComponent(pickedId)}/edit`;
     setUrlInput(pickedUrl);
@@ -538,11 +543,12 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   };
 
   // Step 8: Execute Import Pipeline
-  const executeImportPipeline = async () => {
+  const executeImportPipeline = async (forceDirect = false) => {
     // Bug 3 & Bug 6: Prevent Confirm & Import from proceeding on invalid state
     if (!inspectData) {
       const noDataErr = 'No spreadsheet inspection data available. Please inspect the spreadsheet first.';
       setImportError(noDataErr);
+      setImportErrorCode(null);
       showToast(noDataErr, 'error');
       setCurrentStep('url');
       return;
@@ -550,6 +556,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     if (inspectData.spreadsheetId !== spreadsheetId) {
       const mismatchMsg = `Spreadsheet ID mismatch: inspected sheet (${inspectData.spreadsheetId}) does not match current selection (${spreadsheetId}). Please re-inspect before importing.`;
       setImportError(mismatchMsg);
+      setImportErrorCode(null);
       showToast(mismatchMsg, 'error');
       setInspectData(null);
       setSelectedTabIds([]);
@@ -559,6 +566,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     if (selectedTabIds.length === 0) {
       const tabErr = 'Please select at least one tab to import.';
       setImportError(tabErr);
+      setImportErrorCode(null);
       showToast(tabErr, 'error');
       setCurrentStep('tabs');
       return;
@@ -568,6 +576,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       if (!activeToken) {
         const tokenMsg = 'Google authorization is required for private sheet import. Please authorize access.';
         setImportError(tokenMsg);
+        setImportErrorCode(null);
         showToast(tokenMsg, 'error');
         setCurrentStep('auth');
         return;
@@ -578,9 +587,14 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     setImportProgress(10);
     setImportStatusText('Preparing spreadsheet connection metadata...');
     setImportError(null);
+    setImportErrorCode(null);
+
+    if (forceDirect) {
+      setIsDualCopyEnabled(false);
+    }
 
     const activeUserId = firebaseUser?.uid || auth.currentUser?.uid || user?.id || 'usr_guest';
-    const isDualCopy = Boolean(isDualCopyEnabled && !isDemoMode && !isPublicLinkMode);
+    const isDualCopy = Boolean(!forceDirect && isDualCopyEnabled && !isDemoMode && !isPublicLinkMode);
     const standardConnectionId = `conn_${spreadsheetId.slice(0, 24)}_${Date.now().toString(36)}`;
 
     try {
@@ -929,6 +943,14 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       console.error('[ConnectSheetWizard] Import pipeline failed:', err);
       setImportProgress(0);
       setImportError(err?.message || 'Import pipeline failed.');
+      setImportErrorCode(
+        err?.code ||
+        (err?.message?.includes('drive.file') ||
+        err?.message?.includes('was not found or is not accessible') ||
+        err?.message?.includes('Google Drive duplicate')
+          ? 'DRIVE_FILE_NOT_FOUND'
+          : null)
+      );
       setCurrentStep('confirm');
     }
   };
@@ -1809,6 +1831,11 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                       Creates a private native spreadsheet in Cloud Firestore with full offline support, fast checklist views, and two-way writeback.
                     </p>
                   </div>
+                  {!wasSelectedViaPicker && (
+                    <div className="col-span-full p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                      💡 <strong>Note for private spreadsheets:</strong> Google&apos;s security model requires private files to be selected using <strong>&ldquo;Browse My Google Drive&rdquo;</strong> (Google Picker) to grant duplication rights under <code className="font-mono">drive.file</code>. If you pasted the link directly, you can either <strong>uncheck &ldquo;Enable Dual-Copy&rdquo;</strong> to connect directly, or set your Google Sheet to <strong>&ldquo;Anyone with the link (Viewer)&rdquo;</strong>.
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-xs text-[var(--ff-text-muted)]">
@@ -1828,9 +1855,72 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           )}
 
           {importError && (
-            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{importError}</span>
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-500 space-y-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="space-y-1 flex-1">
+                  <p className="font-semibold text-rose-600 dark:text-rose-400">
+                    {importErrorCode === 'DRIVE_FILE_NOT_FOUND' || importError.includes('drive.file')
+                      ? 'Google Drive Per-File Authorization Required for Dual-Copy'
+                      : 'Import Pipeline Error'}
+                  </p>
+                  <p className="leading-relaxed">{importError}</p>
+                </div>
+              </div>
+
+              {(importErrorCode === 'DRIVE_FILE_NOT_FOUND' ||
+                importErrorCode === 'DRIVE_PERMISSION_DENIED' ||
+                importError.includes('drive.file') ||
+                importError.includes('Browse My Google Drive') ||
+                importError.includes('was not found or is not accessible')) && (
+                <div className="pt-2 border-t border-rose-500/20 space-y-2.5">
+                  <p className="text-[11px] font-semibold text-[var(--ff-text-primary)]">
+                    Choose how to proceed:
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ThemeButton
+                      variant="primary"
+                      size="sm"
+                      type="button"
+                      onClick={() => executeImportPipeline(true)}
+                      className="text-xs"
+                    >
+                      <Zap className="w-3.5 h-3.5 mr-1 text-amber-300" />
+                      Connect Directly without Google Drive Duplicate (Recommended)
+                    </ThemeButton>
+
+                    <ThemeButton
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      onClick={() => setIsPickerOpen(true)}
+                      className="text-xs"
+                    >
+                      <FolderSync className="w-3.5 h-3.5 mr-1 text-[var(--ff-accent)]" />
+                      Select via Browse My Google Drive (Google Picker)
+                    </ThemeButton>
+
+                    <ThemeButton
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      onClick={() => handleInspectPublicLink(spreadsheetId, urlInput)}
+                      className="text-xs"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                      Switch to Public Viewer Link Mode
+                    </ThemeButton>
+                  </div>
+                  <div className="text-[10px] text-[var(--ff-text-muted)] space-y-1 pt-1 leading-relaxed">
+                    <p>
+                      &bull; <strong>Direct Connection:</strong> Immediately imports and syncs your syllabus with Study OS without requiring Google Drive file duplication permissions.
+                    </p>
+                    <p>
+                      &bull; <strong>Browse My Google Drive:</strong> Grants explicit per-file copy authorization under Google&apos;s least-privilege security model (<code className="font-mono">drive.file</code>).
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1841,7 +1931,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
             <ThemeButton
               variant="primary"
-              onClick={executeImportPipeline}
+              onClick={() => executeImportPipeline()}
               disabled={
                 !inspectData ||
                 inspectData.spreadsheetId !== spreadsheetId ||
