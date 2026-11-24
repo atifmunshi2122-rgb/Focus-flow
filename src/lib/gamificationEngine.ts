@@ -4,6 +4,7 @@ import type {
   SavingsGoal,
   Task,
 } from '../types/index.ts';
+import { DEFAULT_TIMEZONE, formatDateInTimezone, getStartOfWeek, getTodayDateString } from './dateTime.ts';
 
 export interface GamificationBadge {
   id: string;
@@ -82,13 +83,8 @@ export function computeGamificationState(input: {
     dailyFocusGoalMinutes = 100,
   } = input;
 
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  const day = now.getDay();
-  const diffToMonday = (day + 6) % 7;
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - diffToMonday);
-  const weekStartStr = weekStart.toISOString().slice(0, 10);
+  const todayStr = getTodayDateString(DEFAULT_TIMEZONE);
+  const weekStartStr = getStartOfWeek(todayStr, DEFAULT_TIMEZONE);
 
   const workSessions = sessions.filter((s) => s.completed && s.mode === 'work');
   const totalFocusMinutes = Math.round(
@@ -96,22 +92,22 @@ export function computeGamificationState(input: {
   );
   const todayFocusMinutes = Math.round(
     workSessions
-      .filter((s) => s.startedAt.startsWith(todayStr))
+      .filter((s) => formatDateInTimezone(s.startedAt, DEFAULT_TIMEZONE) === todayStr)
       .reduce((acc, s) => acc + s.durationSeconds, 0) / 60
   );
   const weekFocusMinutes = Math.round(
     workSessions
-      .filter((s) => s.startedAt.slice(0, 10) >= weekStartStr)
+      .filter((s) => formatDateInTimezone(s.startedAt, DEFAULT_TIMEZONE) >= weekStartStr)
       .reduce((acc, s) => acc + s.durationSeconds, 0) / 60
   );
 
   const activeTasks = tasks.filter((t) => !t.deletedAt);
   const completedTasks = activeTasks.filter((t) => t.status === 'completed');
-  const todayCompletedTasks = completedTasks.filter((t) =>
-    (t.completedAt || t.updatedAt).startsWith(todayStr)
+  const todayCompletedTasks = completedTasks.filter(
+    (t) => formatDateInTimezone(t.completedAt || t.updatedAt, DEFAULT_TIMEZONE) === todayStr
   ).length;
   const weekCompletedTasks = completedTasks.filter(
-    (t) => (t.completedAt || t.updatedAt).slice(0, 10) >= weekStartStr
+    (t) => formatDateInTimezone(t.completedAt || t.updatedAt, DEFAULT_TIMEZONE) >= weekStartStr
   ).length;
 
   const activeBills = bills.filter((b) => !b.deletedAt);

@@ -61,9 +61,9 @@ function getDeviceTimezone(): string {
   }
 }
 
-function loadPrefs(fallbackTimezone: string): RealClockPrefs {
+function loadPrefs(fallbackTimezone: string, storageKey: string): RealClockPrefs {
   try {
-    const raw = localStorage.getItem(PREFS_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey) ?? localStorage.getItem(PREFS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<RealClockPrefs>;
       return {
@@ -87,10 +87,10 @@ function loadPrefs(fallbackTimezone: string): RealClockPrefs {
   };
 }
 
-function loadWorldClocks(primaryTimezone: string): string[] {
+function loadWorldClocks(primaryTimezone: string, storageKey: string): string[] {
   const defaults = ['UTC', 'America/New_York', 'Europe/London', 'Asia/Tokyo', 'Asia/Dubai'];
   try {
-    const raw = localStorage.getItem(WORLD_CLOCKS_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey) ?? localStorage.getItem(WORLD_CLOCKS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) {
@@ -184,11 +184,15 @@ import { AnalogClockDial, type AnalogClockDialProps } from './AnalogClockDial.ts
 export { AnalogClockDial, type AnalogClockDialProps };
 
 export const RealClock: React.FC = () => {
-  const { settings, setCurrentTab, isRunning, timeLeft } = useApp();
+  const { user, firebaseUser, settings, setCurrentTab, isRunning, timeLeft } = useApp();
   const { isDisabled } = useMotionPreferences();
 
+  const storageScope = firebaseUser?.uid || user?.id || 'guest';
+  const prefsStorageKey = `${PREFS_STORAGE_KEY}_${storageScope}`;
+  const worldClocksStorageKey = `${WORLD_CLOCKS_STORAGE_KEY}_${storageScope}`;
+
   const defaultTimezone = settings?.timezone || getDeviceTimezone() || DEFAULT_TIMEZONE;
-  const initialPrefs = useMemo(() => loadPrefs(defaultTimezone), [defaultTimezone]);
+  const initialPrefs = useMemo(() => loadPrefs(defaultTimezone, prefsStorageKey), [defaultTimezone, prefsStorageKey]);
 
   const [displayMode, setDisplayMode] = useState<ClockDisplayMode>(initialPrefs.displayMode);
   const [hourFormat, setHourFormat] = useState<ClockFormat>(initialPrefs.hourFormat);
@@ -197,13 +201,23 @@ export const RealClock: React.FC = () => {
     initialPrefs.primaryTimezone || defaultTimezone
   );
   const [worldClocks, setWorldClocks] = useState<string[]>(() =>
-    loadWorldClocks(initialPrefs.primaryTimezone || defaultTimezone)
+    loadWorldClocks(initialPrefs.primaryTimezone || defaultTimezone, worldClocksStorageKey)
   );
   const [cityToAdd, setCityToAdd] = useState<string>('');
   const [fullScreenClock, setFullScreenClock] = useState(false);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
-  // Persist user clock preferences
+  // Reload clock preferences when switching user accounts
+  useEffect(() => {
+    const scopedPrefs = loadPrefs(defaultTimezone, prefsStorageKey);
+    setDisplayMode(scopedPrefs.displayMode);
+    setHourFormat(scopedPrefs.hourFormat);
+    setSecondMotion(scopedPrefs.secondMotion);
+    setPrimaryTimezone(scopedPrefs.primaryTimezone || defaultTimezone);
+    setWorldClocks(loadWorldClocks(scopedPrefs.primaryTimezone || defaultTimezone, worldClocksStorageKey));
+  }, [prefsStorageKey, worldClocksStorageKey, defaultTimezone]);
+
+  // Persist user-scoped clock preferences
   useEffect(() => {
     try {
       const prefs: RealClockPrefs = {
@@ -212,19 +226,19 @@ export const RealClock: React.FC = () => {
         secondMotion,
         primaryTimezone,
       };
-      localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
+      localStorage.setItem(prefsStorageKey, JSON.stringify(prefs));
     } catch {
       // ignore storage errors
     }
-  }, [displayMode, hourFormat, secondMotion, primaryTimezone]);
+  }, [displayMode, hourFormat, secondMotion, primaryTimezone, prefsStorageKey]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(WORLD_CLOCKS_STORAGE_KEY, JSON.stringify(worldClocks));
+      localStorage.setItem(worldClocksStorageKey, JSON.stringify(worldClocks));
     } catch {
       // ignore storage errors
     }
-  }, [worldClocks]);
+  }, [worldClocks, worldClocksStorageKey]);
 
   // Escape exits full-screen ambient desk clock
   useEffect(() => {

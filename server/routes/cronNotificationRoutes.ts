@@ -21,16 +21,14 @@ function verifyCronSecret(req: Request, res: Response): boolean {
 
   const authHeader = req.headers.authorization;
   const cronHeader = req.headers['x-cron-secret'];
-  const querySecret = req.query.secret as string;
 
   const bearerMatch = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
     ? authHeader.slice(7).trim() === expectedSecret
     : false;
 
   const headerMatch = cronHeader === expectedSecret;
-  const queryMatch = querySecret === expectedSecret;
 
-  if (!bearerMatch && !headerMatch && !queryMatch) {
+  if (!bearerMatch && !headerMatch) {
     res.status(401).json({ error: 'Unauthorized: Invalid or missing CRON_SECRET' });
     return false;
   }

@@ -3,6 +3,7 @@ import type {
   IncomeTransaction,
   UserSettings,
 } from '../types/index.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from './dateTime.ts';
 
 export interface CategoryComparison {
   name: string;
@@ -74,8 +75,7 @@ export function computeSpendingInsights(input: {
   todayStr?: string;
 }): SpendingInsightsResult {
   const { expenses, settings } = input;
-  const now = new Date();
-  const todayStr = input.todayStr || now.toISOString().slice(0, 10);
+  const todayStr = input.todayStr || getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE);
   const baseDate = new Date(`${todayStr}T12:00:00Z`);
   const currentMonthKey = todayStr.slice(0, 7);
 

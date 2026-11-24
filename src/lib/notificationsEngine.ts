@@ -10,6 +10,7 @@ import type {
   UserSettings,
 } from '../types/index.ts';
 import { formatCurrency } from './currency.ts';
+import { DEFAULT_TIMEZONE, addDays, getTodayDateString } from './dateTime.ts';
 import { isHabitScheduledOnDate } from './productivityIntelligence.ts';
 
 export type NotificationSeverity = 'info' | 'warning' | 'danger' | 'success';
@@ -55,8 +56,9 @@ export function evaluateDeterministicNotifications(input: {
   if (!prefs.enabled) return [];
 
   const items: AppNotificationItem[] = [];
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const tz = input.settings?.timezone || DEFAULT_TIMEZONE;
+  const currency = input.settings?.currency;
+  const todayStr = getTodayDateString(tz);
 
   if (prefs.overdueBills) {
     const overdue = input.bills.filter((b) => !b.deletedAt && b.status === 'OVERDUE');
@@ -67,7 +69,7 @@ export function evaluateDeterministicNotifications(input: {
         severity: 'danger',
         category: 'bill',
         title: `${overdue.length} Overdue Bill${overdue.length > 1 ? 's' : ''}`,
-        message: `${formatCurrency(total)} past due (${overdue[0].name}${overdue.length > 1 ? ` +${overdue.length - 1} more` : ''}).`,
+        message: `${formatCurrency(total, currency)} past due (${overdue[0].name}${overdue.length > 1 ? ` +${overdue.length - 1} more` : ''}).`,
         targetTab: 'bills',
         actionLabel: 'Pay Bills',
       });
@@ -75,9 +77,7 @@ export function evaluateDeterministicNotifications(input: {
   }
 
   if (prefs.upcomingBills) {
-    const horizon = new Date(today);
-    horizon.setDate(horizon.getDate() + Math.max(1, prefs.billLeadDays || 3));
-    const horizonStr = horizon.toISOString().slice(0, 10);
+    const horizonStr = addDays(todayStr, Math.max(1, prefs.billLeadDays || 3));
 
     const upcoming = input.bills.filter(
       (b) =>
@@ -93,7 +93,7 @@ export function evaluateDeterministicNotifications(input: {
         severity: 'warning',
         category: 'bill',
         title: `${upcoming.length} Bill${upcoming.length > 1 ? 's' : ''} Due Soon`,
-        message: `${formatCurrency(total)} due within ${prefs.billLeadDays} days.`,
+        message: `${formatCurrency(total, currency)} due within ${prefs.billLeadDays} days.`,
         targetTab: 'bills',
         actionLabel: 'Review Schedule',
       });
@@ -136,7 +136,7 @@ export function evaluateDeterministicNotifications(input: {
         severity: 'danger',
         category: 'budget',
         title: 'Monthly Budget Exceeded',
-        message: `Spent ${formatCurrency(spent)} of ${formatCurrency(cap)} (${pct}%).`,
+        message: `Spent ${formatCurrency(spent, currency)} of ${formatCurrency(cap, currency)} (${pct}%).`,
         targetTab: 'finance',
         actionLabel: 'Inspect Budgets',
       });
@@ -146,7 +146,7 @@ export function evaluateDeterministicNotifications(input: {
         severity: 'warning',
         category: 'budget',
         title: `Budget at ${pct}% Capacity`,
-        message: `${formatCurrency(cap - spent)} remaining in your monthly spending limit.`,
+        message: `${formatCurrency(cap - spent, currency)} remaining in your monthly spending limit.`,
         targetTab: 'finance',
         actionLabel: 'View Budgets',
       });
@@ -163,7 +163,7 @@ export function evaluateDeterministicNotifications(input: {
           severity: pct >= 100 ? 'danger' : 'warning',
           category: 'budget',
           title: `${cat.name}: ${pct}% of Budget`,
-          message: `${formatCurrency(cat.amountPaise)} spent vs ${formatCurrency(cap)} target.`,
+          message: `${formatCurrency(cat.amountPaise, currency)} spent vs ${formatCurrency(cap, currency)} target.`,
           targetTab: 'finance',
           actionLabel: 'Manage Budgets',
         });
@@ -186,7 +186,7 @@ export function evaluateDeterministicNotifications(input: {
         severity: 'danger',
         category: 'budget',
         title: 'Daily Spending Limit Reached',
-        message: `Spent ${formatCurrency(spentToday)} today against your ${formatCurrency(dailyLimit)} daily ceiling.`,
+        message: `Spent ${formatCurrency(spentToday, currency)} today against your ${formatCurrency(dailyLimit, currency)} daily ceiling.`,
         targetTab: 'finance',
         actionLabel: 'Inspect Spending',
       });
@@ -201,9 +201,7 @@ export function evaluateDeterministicNotifications(input: {
     input.expenses
   ) {
     const weeklyLimit = input.settings.weeklySpendingLimitPaise;
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
+    const sevenDaysAgoStr = addDays(todayStr, -6);
     const spentWeek = input.expenses
       .filter((e) => !e.deletedAt && e.date >= sevenDaysAgoStr && e.date <= todayStr)
       .reduce((sum, e) => sum + e.amountPaise, 0);
@@ -215,7 +213,7 @@ export function evaluateDeterministicNotifications(input: {
         severity: 'danger',
         category: 'budget',
         title: 'Weekly Budget Exceeded',
-        message: `Spent ${formatCurrency(spentWeek)} this week against your ${formatCurrency(weeklyLimit)} budget (${pct}%).`,
+        message: `Spent ${formatCurrency(spentWeek, currency)} this week against your ${formatCurrency(weeklyLimit, currency)} budget (${pct}%).`,
         targetTab: 'finance',
         actionLabel: 'View Budgets',
       });
@@ -225,7 +223,7 @@ export function evaluateDeterministicNotifications(input: {
         severity: 'warning',
         category: 'budget',
         title: `Weekly Budget at ${pct}%`,
-        message: `${formatCurrency(weeklyLimit - spentWeek)} remaining in this week's spending allowance.`,
+        message: `${formatCurrency(weeklyLimit - spentWeek, currency)} remaining in this week's spending allowance.`,
         targetTab: 'finance',
         actionLabel: 'View Budgets',
       });
@@ -243,7 +241,7 @@ export function evaluateDeterministicNotifications(input: {
             severity: 'success',
             category: 'budget',
             title: `Goal Achieved: ${goal.title}!`,
-            message: `Congratulations! You've reached 100% of your ${formatCurrency(goal.targetPaise)} target.`,
+            message: `Congratulations! You've reached 100% of your ${formatCurrency(goal.targetPaise, currency)} target.`,
             targetTab: 'finance',
             actionLabel: 'View Goals',
           });
@@ -262,7 +260,7 @@ export function evaluateDeterministicNotifications(input: {
           severity: 'info',
           category: 'budget',
           title: 'Large Expense Recorded',
-          message: `${exp.description}: ${formatCurrency(exp.amountPaise)} logged today.`,
+          message: `${exp.description}: ${formatCurrency(exp.amountPaise, currency)} logged today.`,
           targetTab: 'finance',
           actionLabel: 'Inspect Ledger',
         });

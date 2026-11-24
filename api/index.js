@@ -11468,9 +11468,79 @@ FocusFlow Task ID: ${task.id}`;
         }
       }
     }
+    const formatMinutesToIso = (dateStr, totalMinutes) => {
+      const clamped = Math.max(0, Math.min(24 * 60 - 1, Math.floor(totalMinutes)));
+      const hh = String(Math.floor(clamped / 60)).padStart(2, "0");
+      const mm = String(clamped % 60).padStart(2, "0");
+      return `${dateStr}T${hh}:${mm}:00+05:30`;
+    };
+    for (const block of timeBlocks) {
+      if (!block || !block.id || !block.date || typeof block.startMinute !== "number" || typeof block.endMinute !== "number" || block.endMinute <= block.startMinute) {
+        continue;
+      }
+      const title = `[Focus Block] ${block.title || "Scheduled Block"}`;
+      const description = `Category: ${block.category || "General"}
+Status: ${block.completed ? "Completed" : "Planned"}
+FocusFlow TimeBlock ID: ${block.id}`;
+      const startIso = formatMinutesToIso(block.date, block.startMinute);
+      const endIso = formatMinutesToIso(block.date, block.endMinute);
+      const checksum = crypto6.createHash("sha256").update(`${title}|${startIso}|${endIso}|${block.completed ? "1" : "0"}|${block.category || ""}`).digest("hex");
+      const linkKey = `tb_${block.id}`;
+      const existingLink = linkMap.get(linkKey) || linkMap.get(block.id);
+      if (!existingLink) {
+        try {
+          const created = await this.createEvent(userId, {
+            summary: title,
+            description,
+            start: { dateTime: startIso, timeZone: "Asia/Kolkata" },
+            end: { dateTime: endIso, timeZone: "Asia/Kolkata" },
+            calendarId
+          });
+          await linksRef.doc(linkKey).set({
+            sourceId: linkKey,
+            sourceType: "timeblock",
+            googleEventId: created.id,
+            calendarId,
+            lastSyncedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            checksum,
+            managePolicy: "focusflow_managed"
+          });
+          synced++;
+        } catch (err) {
+          console.warn(`[GoogleCalendarSync] Failed to create event for time block ${block.id}:`, err);
+        }
+      } else if (existingLink.checksum !== checksum) {
+        try {
+          await this.updateEvent(userId, existingLink.googleEventId, {
+            summary: title,
+            description,
+            start: { dateTime: startIso, timeZone: "Asia/Kolkata" },
+            end: { dateTime: endIso, timeZone: "Asia/Kolkata" },
+            calendarId
+          });
+          await linksRef.doc(existingLink.sourceId).update({
+            checksum,
+            lastSyncedAt: (/* @__PURE__ */ new Date()).toISOString()
+          });
+          updated++;
+        } catch (err) {
+          console.warn(`[GoogleCalendarSync] Failed to update event for time block ${block.id}:`, err);
+        }
+      }
+    }
     for (const [sourceId, link] of linkMap.entries()) {
       if (link.sourceType === "task") {
         const stillActive = tasks.some((t) => t.id === sourceId);
+        if (!stillActive) {
+          try {
+            await this.deleteEvent(userId, link.googleEventId, link.calendarId);
+            removed++;
+          } catch {
+          }
+        }
+      } else if (link.sourceType === "timeblock") {
+        const rawBlockId = sourceId.startsWith("tb_") ? sourceId.slice(3) : sourceId;
+        const stillActive = timeBlocks.some((b) => b.id === rawBlockId);
         if (!stillActive) {
           try {
             await this.deleteEvent(userId, link.googleEventId, link.calendarId);
@@ -11749,9 +11819,11 @@ import { Router as Router3 } from "express";
 // server/integrations/pushNotificationService.ts
 import crypto7 from "crypto";
 init_db();
+init_dateTime2();
 
 // src/lib/notificationsEngine.ts
 init_currency();
+init_dateTime();
 
 // src/lib/productivityIntelligence.ts
 init_dateTime();
@@ -11794,8 +11866,9 @@ function evaluateDeterministicNotifications(input) {
   };
   if (!prefs.enabled) return [];
   const items = [];
-  const today = /* @__PURE__ */ new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const tz = input.settings?.timezone || DEFAULT_TIMEZONE;
+  const currency = input.settings?.currency;
+  const todayStr = getTodayDateString(tz);
   if (prefs.overdueBills) {
     const overdue = input.bills.filter((b) => !b.deletedAt && b.status === "OVERDUE");
     if (overdue.length > 0) {
@@ -11805,16 +11878,14 @@ function evaluateDeterministicNotifications(input) {
         severity: "danger",
         category: "bill",
         title: `${overdue.length} Overdue Bill${overdue.length > 1 ? "s" : ""}`,
-        message: `${formatCurrency(total)} past due (${overdue[0].name}${overdue.length > 1 ? ` +${overdue.length - 1} more` : ""}).`,
+        message: `${formatCurrency(total, currency)} past due (${overdue[0].name}${overdue.length > 1 ? ` +${overdue.length - 1} more` : ""}).`,
         targetTab: "bills",
         actionLabel: "Pay Bills"
       });
     }
   }
   if (prefs.upcomingBills) {
-    const horizon = new Date(today);
-    horizon.setDate(horizon.getDate() + Math.max(1, prefs.billLeadDays || 3));
-    const horizonStr = horizon.toISOString().slice(0, 10);
+    const horizonStr = addDays(todayStr, Math.max(1, prefs.billLeadDays || 3));
     const upcoming = input.bills.filter(
       (b) => !b.deletedAt && b.status === "UNPAID" && b.dueDate >= todayStr && b.dueDate <= horizonStr
     );
@@ -11825,7 +11896,7 @@ function evaluateDeterministicNotifications(input) {
         severity: "warning",
         category: "bill",
         title: `${upcoming.length} Bill${upcoming.length > 1 ? "s" : ""} Due Soon`,
-        message: `${formatCurrency(total)} due within ${prefs.billLeadDays} days.`,
+        message: `${formatCurrency(total, currency)} due within ${prefs.billLeadDays} days.`,
         targetTab: "bills",
         actionLabel: "Review Schedule"
       });
@@ -11859,7 +11930,7 @@ function evaluateDeterministicNotifications(input) {
         severity: "danger",
         category: "budget",
         title: "Monthly Budget Exceeded",
-        message: `Spent ${formatCurrency(spent)} of ${formatCurrency(cap)} (${pct}%).`,
+        message: `Spent ${formatCurrency(spent, currency)} of ${formatCurrency(cap, currency)} (${pct}%).`,
         targetTab: "finance",
         actionLabel: "Inspect Budgets"
       });
@@ -11869,7 +11940,7 @@ function evaluateDeterministicNotifications(input) {
         severity: "warning",
         category: "budget",
         title: `Budget at ${pct}% Capacity`,
-        message: `${formatCurrency(cap - spent)} remaining in your monthly spending limit.`,
+        message: `${formatCurrency(cap - spent, currency)} remaining in your monthly spending limit.`,
         targetTab: "finance",
         actionLabel: "View Budgets"
       });
@@ -11885,7 +11956,7 @@ function evaluateDeterministicNotifications(input) {
           severity: pct >= 100 ? "danger" : "warning",
           category: "budget",
           title: `${cat.name}: ${pct}% of Budget`,
-          message: `${formatCurrency(cat.amountPaise)} spent vs ${formatCurrency(cap)} target.`,
+          message: `${formatCurrency(cat.amountPaise, currency)} spent vs ${formatCurrency(cap, currency)} target.`,
           targetTab: "finance",
           actionLabel: "Manage Budgets"
         });
@@ -11901,7 +11972,7 @@ function evaluateDeterministicNotifications(input) {
         severity: "danger",
         category: "budget",
         title: "Daily Spending Limit Reached",
-        message: `Spent ${formatCurrency(spentToday)} today against your ${formatCurrency(dailyLimit)} daily ceiling.`,
+        message: `Spent ${formatCurrency(spentToday, currency)} today against your ${formatCurrency(dailyLimit, currency)} daily ceiling.`,
         targetTab: "finance",
         actionLabel: "Inspect Spending"
       });
@@ -11909,9 +11980,7 @@ function evaluateDeterministicNotifications(input) {
   }
   if (prefs.budgetWarnings && input.settings?.weeklySpendingLimitPaise && input.settings.weeklySpendingLimitPaise > 0 && input.expenses) {
     const weeklyLimit = input.settings.weeklySpendingLimitPaise;
-    const sevenDaysAgo = /* @__PURE__ */ new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
+    const sevenDaysAgoStr = addDays(todayStr, -6);
     const spentWeek = input.expenses.filter((e) => !e.deletedAt && e.date >= sevenDaysAgoStr && e.date <= todayStr).reduce((sum, e) => sum + e.amountPaise, 0);
     const pct = Math.round(spentWeek / weeklyLimit * 100);
     const threshold = Math.max(50, Math.min(100, prefs.budgetWarningPercent || 80));
@@ -11921,7 +11990,7 @@ function evaluateDeterministicNotifications(input) {
         severity: "danger",
         category: "budget",
         title: "Weekly Budget Exceeded",
-        message: `Spent ${formatCurrency(spentWeek)} this week against your ${formatCurrency(weeklyLimit)} budget (${pct}%).`,
+        message: `Spent ${formatCurrency(spentWeek, currency)} this week against your ${formatCurrency(weeklyLimit, currency)} budget (${pct}%).`,
         targetTab: "finance",
         actionLabel: "View Budgets"
       });
@@ -11931,7 +12000,7 @@ function evaluateDeterministicNotifications(input) {
         severity: "warning",
         category: "budget",
         title: `Weekly Budget at ${pct}%`,
-        message: `${formatCurrency(weeklyLimit - spentWeek)} remaining in this week's spending allowance.`,
+        message: `${formatCurrency(weeklyLimit - spentWeek, currency)} remaining in this week's spending allowance.`,
         targetTab: "finance",
         actionLabel: "View Budgets"
       });
@@ -11947,7 +12016,7 @@ function evaluateDeterministicNotifications(input) {
             severity: "success",
             category: "budget",
             title: `Goal Achieved: ${goal.title}!`,
-            message: `Congratulations! You've reached 100% of your ${formatCurrency(goal.targetPaise)} target.`,
+            message: `Congratulations! You've reached 100% of your ${formatCurrency(goal.targetPaise, currency)} target.`,
             targetTab: "finance",
             actionLabel: "View Goals"
           });
@@ -11964,7 +12033,7 @@ function evaluateDeterministicNotifications(input) {
           severity: "info",
           category: "budget",
           title: "Large Expense Recorded",
-          message: `${exp.description}: ${formatCurrency(exp.amountPaise)} logged today.`,
+          message: `${exp.description}: ${formatCurrency(exp.amountPaise, currency)} logged today.`,
           targetTab: "finance",
           actionLabel: "Inspect Ledger"
         });
@@ -12229,7 +12298,7 @@ var PushNotificationService = class {
    * Employs the notification_delivery_ledger for at-most-once idempotency.
    */
   async processScheduledNotifications() {
-    const todayStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const todayStr = getTodayDateString(DEFAULT_TIMEZONE);
     let dispatchedCount = 0;
     let processedUsers = 0;
     const rawDb = dbService.getRaw();
@@ -12418,11 +12487,9 @@ function verifyCronSecret(req, res) {
   }
   const authHeader = req.headers.authorization;
   const cronHeader = req.headers["x-cron-secret"];
-  const querySecret = req.query.secret;
   const bearerMatch = typeof authHeader === "string" && authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() === expectedSecret : false;
   const headerMatch = cronHeader === expectedSecret;
-  const queryMatch = querySecret === expectedSecret;
-  if (!bearerMatch && !headerMatch && !queryMatch) {
+  if (!bearerMatch && !headerMatch) {
     res.status(401).json({ error: "Unauthorized: Invalid or missing CRON_SECRET" });
     return false;
   }

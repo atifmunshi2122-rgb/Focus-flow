@@ -25,6 +25,7 @@ import {
   getSheetHubWriteAccessToken,
   setSheetHubWriteAccessToken,
 } from '../../lib/firebase.ts';
+import { getGisDualCopyToken, requestGoogleDriveToken, setGisDualCopyToken } from '../../lib/googleAuthGis.ts';
 import { sheetHubStore } from '../../lib/sheetHub/sheetHubStore.ts';
 import type {
   SheetColumnMapping,
@@ -228,9 +229,22 @@ export const SheetHubView: React.FC = () => {
         return { pushed: false };
       }
 
-      let writeToken = await getSheetHubWriteAccessToken();
+      const requestFreshWriteToken = async (): Promise<string | null> => {
+        if (conn.isDualCopy) {
+          try {
+            return await requestGoogleDriveToken({ loginHint: firebaseUser.email });
+          } catch {
+            return null;
+          }
+        }
+        return authorizeSheetHubWrite();
+      };
+
+      let writeToken = conn.isDualCopy
+        ? getGisDualCopyToken() || (await getSheetHubWriteAccessToken())
+        : await getSheetHubWriteAccessToken();
       if (!writeToken) {
-        writeToken = await authorizeSheetHubWrite();
+        writeToken = await requestFreshWriteToken();
         if (!writeToken) {
           return { pushed: false, cancelled: true };
         }
@@ -245,8 +259,12 @@ export const SheetHubView: React.FC = () => {
       } catch (err: any) {
         const code = err?.code;
         if (code === 'SHEETS_AUTH_REQUIRED' || err?.status === 401) {
-          setSheetHubWriteAccessToken(null);
-          const freshToken = await authorizeSheetHubWrite();
+          if (conn.isDualCopy) {
+            setGisDualCopyToken(null);
+          } else {
+            setSheetHubWriteAccessToken(null);
+          }
+          const freshToken = await requestFreshWriteToken();
           if (!freshToken) {
             return { pushed: false, cancelled: true };
           }
@@ -765,7 +783,20 @@ export const SheetHubView: React.FC = () => {
           headerRowIndex: t.headerRowIndex || 1,
         }));
 
-        let activeToken = await getSheetHubAccessToken();
+        const requestFreshReadToken = async (): Promise<string | null> => {
+          if (conn.isDualCopy) {
+            try {
+              return await requestGoogleDriveToken({ loginHint: firebaseUser?.email || null });
+            } catch {
+              return null;
+            }
+          }
+          return authorizeSheetHubReadOnly();
+        };
+
+        let activeToken = conn.isDualCopy
+          ? getGisDualCopyToken() || (await getSheetHubAccessToken())
+          : await getSheetHubAccessToken();
         let res;
 
         if (activeToken) {
@@ -784,7 +815,8 @@ export const SheetHubView: React.FC = () => {
                   null
                 );
               } catch {
-                activeToken = await authorizeSheetHubReadOnly();
+                if (conn.isDualCopy) setGisDualCopyToken(null);
+                activeToken = await requestFreshReadToken();
                 if (!activeToken) {
                   throw new Error('Google Sheets authorization is required to refresh this private spreadsheet.');
                 }
@@ -805,7 +837,7 @@ export const SheetHubView: React.FC = () => {
             );
           } catch (publicErr: any) {
             if (publicErr?.code === 'SHEET_PRIVATE_AUTH_REQUIRED') {
-              activeToken = await authorizeSheetHubReadOnly();
+              activeToken = await requestFreshReadToken();
               if (!activeToken) {
                 throw new Error('This spreadsheet is private. Authorize Google Sheets read-only access or share as "Anyone with the link (Viewer)".');
               }

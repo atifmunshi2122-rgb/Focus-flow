@@ -57,18 +57,18 @@ import {
 
 const FAVORITES_STORAGE_KEY = 'ff_fav_palettes_v1';
 
-function getStoredFavorites(): string[] {
+function getStoredFavorites(storageKey: string): string[] {
   try {
-    const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey) ?? localStorage.getItem(FAVORITES_STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function setStoredFavorites(favs: string[]): void {
+function setStoredFavorites(storageKey: string, favs: string[]): void {
   try {
-    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favs));
+    localStorage.setItem(storageKey, JSON.stringify(favs));
   } catch {
     // ignore
   }
@@ -93,18 +93,22 @@ export const ColorEcosystemStudio: React.FC<ColorEcosystemStudioProps> = ({
   stopFullAppPreview,
   showToast,
 }) => {
-  const { currency } = useApp();
+  const { user, firebaseUser, currency } = useApp();
+  const favStorageKey = `${FAVORITES_STORAGE_KEY}_${firebaseUser?.uid || user?.id || 'guest'}`;
   // Navigation sub-tab inside Color Ecosystem
   const [activeSubTab, setActiveSubTab] = useState<'library' | 'harmony' | '3d-gradient'>('library');
   const [previewTimerPaused, setPreviewTimerPaused] = useState(false);
 
-  // Favorites state
-  const [favoriteIds, setFavoriteIds] = useState<string[]>(getStoredFavorites);
+  // Favorites state (scoped per user account)
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => getStoredFavorites(favStorageKey));
+  React.useEffect(() => {
+    setFavoriteIds(getStoredFavorites(favStorageKey));
+  }, [favStorageKey]);
   const toggleFavorite = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setFavoriteIds((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      setStoredFavorites(next);
+      setStoredFavorites(favStorageKey, next);
       return next;
     });
   };

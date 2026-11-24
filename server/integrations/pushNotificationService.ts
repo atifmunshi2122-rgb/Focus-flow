@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { getAdminFirestore, getAdminMessaging, hasServiceAccountCredentials } from '../firebaseAdmin.js';
 import { dbService } from '../db.js';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../dateTime.js';
 import { evaluateDeterministicNotifications } from '../../src/lib/notificationsEngine.js';
 
 export interface FcmInstallation {
@@ -303,7 +304,7 @@ export class PushNotificationService {
     processedUsers: number;
     dispatchedCount: number;
   }> {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getTodayDateString(DEFAULT_TIMEZONE);
     let dispatchedCount = 0;
     let processedUsers = 0;
 

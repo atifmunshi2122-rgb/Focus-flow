@@ -769,10 +769,97 @@ export class GoogleCalendarService {
       }
     }
 
-    // 2. Remove mapped events for deleted or completed tasks if needed
+    // 2. Sync Active Daily Time Blocks
+    const formatMinutesToIso = (dateStr: string, totalMinutes: number): string => {
+      const clamped = Math.max(0, Math.min(24 * 60 - 1, Math.floor(totalMinutes)));
+      const hh = String(Math.floor(clamped / 60)).padStart(2, '0');
+      const mm = String(clamped % 60).padStart(2, '0');
+      return `${dateStr}T${hh}:${mm}:00+05:30`;
+    };
+
+    for (const block of timeBlocks) {
+      if (
+        !block ||
+        !block.id ||
+        !block.date ||
+        typeof block.startMinute !== 'number' ||
+        typeof block.endMinute !== 'number' ||
+        block.endMinute <= block.startMinute
+      ) {
+        continue;
+      }
+
+      const title = `[Focus Block] ${block.title || 'Scheduled Block'}`;
+      const description = `Category: ${block.category || 'General'}\nStatus: ${block.completed ? 'Completed' : 'Planned'}\nFocusFlow TimeBlock ID: ${block.id}`;
+      const startIso = formatMinutesToIso(block.date, block.startMinute);
+      const endIso = formatMinutesToIso(block.date, block.endMinute);
+      const checksum = crypto
+        .createHash('sha256')
+        .update(`${title}|${startIso}|${endIso}|${block.completed ? '1' : '0'}|${block.category || ''}`)
+        .digest('hex');
+
+      const linkKey = `tb_${block.id}`;
+      const existingLink = linkMap.get(linkKey) || linkMap.get(block.id);
+
+      if (!existingLink) {
+        try {
+          const created = await this.createEvent(userId, {
+            summary: title,
+            description,
+            start: { dateTime: startIso, timeZone: 'Asia/Kolkata' },
+            end: { dateTime: endIso, timeZone: 'Asia/Kolkata' },
+            calendarId,
+          });
+
+          await linksRef.doc(linkKey).set({
+            sourceId: linkKey,
+            sourceType: 'timeblock',
+            googleEventId: created.id,
+            calendarId,
+            lastSyncedAt: new Date().toISOString(),
+            checksum,
+            managePolicy: 'focusflow_managed',
+          });
+          synced++;
+        } catch (err) {
+          console.warn(`[GoogleCalendarSync] Failed to create event for time block ${block.id}:`, err);
+        }
+      } else if (existingLink.checksum !== checksum) {
+        try {
+          await this.updateEvent(userId, existingLink.googleEventId, {
+            summary: title,
+            description,
+            start: { dateTime: startIso, timeZone: 'Asia/Kolkata' },
+            end: { dateTime: endIso, timeZone: 'Asia/Kolkata' },
+            calendarId,
+          });
+
+          await linksRef.doc(existingLink.sourceId).update({
+            checksum,
+            lastSyncedAt: new Date().toISOString(),
+          });
+          updated++;
+        } catch (err) {
+          console.warn(`[GoogleCalendarSync] Failed to update event for time block ${block.id}:`, err);
+        }
+      }
+    }
+
+    // 3. Remove mapped events for deleted tasks or time blocks
     for (const [sourceId, link] of linkMap.entries()) {
       if (link.sourceType === 'task') {
         const stillActive = tasks.some((t: any) => t.id === sourceId);
+        if (!stillActive) {
+          try {
+            await this.deleteEvent(userId, link.googleEventId, link.calendarId);
+            removed++;
+          } catch {
+            // Already deleted or gone
+          }
+        }
+      } else if (link.sourceType === 'timeblock') {
+        const rawBlockId = sourceId.startsWith('tb_') ? sourceId.slice(3) : sourceId;
+        const stillActive = timeBlocks.some((b: any) => b.id === rawBlockId);
         if (!stillActive) {
           try {
             await this.deleteEvent(userId, link.googleEventId, link.calendarId);

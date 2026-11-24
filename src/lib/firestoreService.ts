@@ -22,6 +22,7 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType } from './firebase.ts';
 import {
   DEFAULT_TIMEZONE,
+  addDays,
   getTodayDateString,
   getDaysInMonth,
   getStartOfWeek,
@@ -3606,9 +3607,9 @@ export const firestoreService = {
     if (!snap.exists()) return null;
     const existing = snap.data() as StudyFlashcard;
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    const todayStr = getTodayDateString(DEFAULT_TIMEZONE);
     const ladderDays = difficulty === 'easy' ? 7 : difficulty === 'medium' ? 3 : 1;
-    const nextDate = new Date(now.getTime() + ladderDays * 86400000).toISOString().slice(0, 10);
+    const nextDate = addDays(todayStr, ladderDays);
 
     const updated: Partial<StudyFlashcard> = {
       ...existing,
