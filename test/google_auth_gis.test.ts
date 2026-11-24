@@ -11,10 +11,10 @@ import {
 
 describe('Google Identity Services (GIS) Token Client & Credential Security', () => {
   // --------------------------------------------------------------------------
-  // 1. Project ghost-7b055 Client ID Verification
+  // 1. Project focus-flow-by-atif Client ID Verification
   // --------------------------------------------------------------------------
-  it('1. binds strictly to project ghost-7b055 and Web Application Client ID', () => {
-    assert.equal(GHOST_PROJECT_ID, 'ghost-7b055');
+  it('1. binds strictly to project focus-flow-by-atif and Web Application Client ID', () => {
+    assert.equal(GHOST_PROJECT_ID, 'focus-flow-by-atif');
     assert.equal(
       GHOST_OAUTH_CLIENT_ID,
       '965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com'

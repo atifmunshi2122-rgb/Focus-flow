@@ -109,9 +109,9 @@ describe('Google Picker API Integration & Invariants (Mocked Tests)', () => {
   // --------------------------------------------------------------------------
   // 1. Picker Configuration & Project Number Verification
   // --------------------------------------------------------------------------
-  it('1. configures PickerBuilder with ghost-7b055 Project Number (965140210258) and developer key from env', async () => {
-    assert.equal(GHOST_PROJECT_NUMBER, '965140210258');
-    assert.equal(getGhostProjectNumber(), '965140210258');
+  it('1. configures PickerBuilder with focus-flow-by-atif Project Number (1010159085609) and developer key from env', async () => {
+    assert.equal(GHOST_PROJECT_NUMBER, '1010159085609');
+    assert.equal(getGhostProjectNumber(), '1010159085609');
 
     // Test missing environment variable throws clear configuration error
     delete process.env.VITE_GOOGLE_PICKER_API_KEY;
@@ -133,7 +133,7 @@ describe('Google Picker API Integration & Invariants (Mocked Tests)', () => {
     });
 
     const config = (globalThis as any).window.google.picker.__getBuilderConfig();
-    assert.equal(config.appId, '965140210258', 'Picker AppId must be numeric Google project number');
+    assert.equal(config.appId, '1010159085609', 'Picker AppId must be numeric Google project number');
     assert.equal(config.token, 'test-oauth-token');
     assert.equal(config.apiKey, 'test-env-picker-key-12345');
     assert.equal(config.feature, 'SUPPORT_DRIVES');
