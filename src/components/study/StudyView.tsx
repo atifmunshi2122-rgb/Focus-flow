@@ -57,6 +57,7 @@ import { AddStudyResourceModal } from './AddStudyResourceModal.tsx';
 import { AddStudyFlashcardModal } from './AddStudyFlashcardModal.tsx';
 import { TakeStudyQuizModal } from './TakeStudyQuizModal.tsx';
 import { ExportRestoreStudyModal } from './ExportRestoreStudyModal.tsx';
+import { SmartSyllabusTaskModal } from './SmartSyllabusTaskModal.tsx';
 import { StudyPlansTab } from './StudyPlansTab.tsx';
 import { StudyGoalsTab } from './StudyGoalsTab.tsx';
 import { StudyExamsTab } from './StudyExamsTab.tsx';
@@ -204,6 +205,7 @@ export const StudyView: React.FC = () => {
   const [isAddResourceOpen, setIsAddResourceOpen] = useState(false);
   const [isAddFlashcardOpen, setIsAddFlashcardOpen] = useState(false);
   const [isExportRestoreOpen, setIsExportRestoreOpen] = useState(false);
+  const [isSmartSyllabusModalOpen, setIsSmartSyllabusModalOpen] = useState(false);
   const [selectedQuizForAttempt, setSelectedQuizForAttempt] = useState<StudyQuiz | null>(null);
 
   // User isolation & cancellation tracker (FIX 1 & FIX 2)
@@ -1353,6 +1355,17 @@ export const StudyView: React.FC = () => {
           </ThemeButton>
 
           <ThemeButton
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsSmartSyllabusModalOpen(true)}
+            className="flex items-center gap-1.5"
+            title="Convert Syllabus Goals into Tasks"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-accent-indigo" />
+            <span>Syllabus to Tasks</span>
+          </ThemeButton>
+
+          <ThemeButton
             variant="primary"
             size="sm"
             onClick={() => setIsAddSubjectOpen(true)}
@@ -1836,14 +1849,26 @@ export const StudyView: React.FC = () => {
                   </span>
                 </div>
 
-                <ThemeButton
-                  variant="primary"
-                  size="sm"
-                  onClick={() => handleOpenAddTopic(selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined)}
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1" />
-                  Add Topic
-                </ThemeButton>
+                <div className="flex items-center gap-2">
+                  <ThemeButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setIsSmartSyllabusModalOpen(true)}
+                    className="flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-accent-indigo" />
+                    <span>Syllabus to Tasks</span>
+                  </ThemeButton>
+
+                  <ThemeButton
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleOpenAddTopic(selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined)}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    Add Topic
+                  </ThemeButton>
+                </div>
               </div>
             </div>
 
@@ -2965,6 +2990,19 @@ export const StudyView: React.FC = () => {
         onClose={() => setIsExportRestoreOpen(false)}
         exportData={handleExportWorkspace}
         onRestore={handleRestoreWorkspace}
+      />
+
+      <SmartSyllabusTaskModal
+        isOpen={isSmartSyllabusModalOpen}
+        onClose={() => setIsSmartSyllabusModalOpen(false)}
+        subjects={subjects}
+        topics={topics}
+        tasks={clientDataCache.getTasks() || []}
+        defaultSubjectCode={selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined}
+        onSuccess={() => {
+          void loadData();
+          triggerRefresh();
+        }}
       />
     </div>
   );

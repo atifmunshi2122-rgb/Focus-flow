@@ -4,8 +4,11 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 import { SubtaskItem, Task, TaskRecurrence } from '../../types/index.ts';
+import { StudySubject, StudyTopic } from '../../types/study.ts';
 import { getTodayDateString } from '../../lib/dateTime.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
+import { SmartSyllabusTaskModal } from '../study/SmartSyllabusTaskModal.tsx';
+import { syncStudyProgressFromTask } from '../../lib/study/studyTaskIntegration.ts';
 import {
   ThemeBadge,
   ThemeButton,
@@ -48,6 +51,7 @@ import {
   X,
   AlertCircle,
   RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import { getOverdueTasks } from '../../lib/productivityIntelligence.ts';
 import { playTaskCompleteSound } from '../../lib/sound.ts';
@@ -107,6 +111,13 @@ export const TaskManager: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [isSubmittingQuick, setIsSubmittingQuick] = useState(false);
+  const [syllabusModalOpen, setSyllabusModalOpen] = useState(false);
+  const [studySubjects, setStudySubjects] = useState<StudySubject[]>(
+    () => clientDataCache.getStudySubjects() || []
+  );
+  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>(
+    () => clientDataCache.getStudyTopics() || []
+  );
 
   const loadTasks = () => {
     if (!clientDataCache.getTasks() && tasks.length === 0) {
@@ -136,6 +147,16 @@ export const TaskManager: React.FC = () => {
 
   useEffect(() => {
     loadTasks();
+    if (studySubjects.length === 0 || studyTopics.length === 0) {
+      Promise.all([api.getStudySubjects(), api.getStudyTopics()])
+        .then(([subs, tops]) => {
+          clientDataCache.setStudySubjects(subs);
+          clientDataCache.setStudyTopics(tops);
+          setStudySubjects(subs);
+          setStudyTopics(tops);
+        })
+        .catch(() => {});
+    }
   }, [refreshKey]);
 
   const openCreateModal = () => {
@@ -264,6 +285,29 @@ export const TaskManager: React.FC = () => {
       if (nextStatus === 'completed') {
         playTaskCompleteSound(settings?.soundEnabled ?? true, settings?.soundVolume);
       }
+      // If task is linked to study syllabus, sync progress
+      if (
+        nextStatus === 'completed' &&
+        (task.topicId || task.subjectCode || (task.subtasks && task.subtasks.length > 0))
+      ) {
+        void (async () => {
+          try {
+            const [allTopics, allSubjects] = await Promise.all([
+              api.getStudyTopics(),
+              api.getStudySubjects(),
+            ]);
+            await syncStudyProgressFromTask(
+              updated,
+              allTopics,
+              allSubjects,
+              (t) => api.saveStudyTopic(t),
+              (s) => api.saveStudySubject(s)
+            );
+          } catch (err) {
+            console.error('Failed to sync study progress from task:', err);
+          }
+        })();
+      }
       showToast(
         nextStatus === 'completed'
           ? task.recurrence && task.recurrence !== 'none'
@@ -287,6 +331,26 @@ export const TaskManager: React.FC = () => {
       setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, subtasks: updatedSubs } : t)));
       if (!isTargetDone) {
         playTaskCompleteSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+      }
+      // If task is linked to study syllabus, sync progress
+      if (!isTargetDone && (task.subjectCode || task.topicId)) {
+        void (async () => {
+          try {
+            const [allTopics, allSubjects] = await Promise.all([
+              api.getStudyTopics(),
+              api.getStudySubjects(),
+            ]);
+            await syncStudyProgressFromTask(
+              { ...task, subtasks: updatedSubs },
+              allTopics,
+              allSubjects,
+              (t) => api.saveStudyTopic(t),
+              (s) => api.saveStudySubject(s)
+            );
+          } catch (err) {
+            console.error('Failed to sync study progress from subtask:', err);
+          }
+        })();
       }
     } catch {
       showToast('Failed to update subtask', 'error');
@@ -679,6 +743,16 @@ export const TaskManager: React.FC = () => {
           <ThemeButton variant="secondary" size="sm" onClick={() => setTrashModalOpen(true)}>
             <Trash2 className="w-3.5 h-3.5" />
             <span>Trash</span>
+          </ThemeButton>
+          <ThemeButton
+            variant="secondary"
+            size="sm"
+            onClick={() => setSyllabusModalOpen(true)}
+            className="flex items-center gap-1.5"
+            title="Convert Study Syllabus into Tasks"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-accent-indigo" />
+            <span>Syllabus to Task</span>
           </ThemeButton>
           <ThemeButton variant="secondary" size="sm" onClick={openCreateModal}>
             <Plus className="w-3.5 h-3.5" />
@@ -1165,6 +1239,19 @@ export const TaskManager: React.FC = () => {
           </div>
         </form>
       </ThemeModal>
+
+      <SmartSyllabusTaskModal
+        isOpen={syllabusModalOpen}
+        onClose={() => setSyllabusModalOpen(false)}
+        subjects={studySubjects}
+        topics={studyTopics}
+        tasks={tasks}
+        onSuccess={(created) => {
+          setTasks((prev) => [...created, ...prev]);
+          triggerRefresh();
+          loadTasks();
+        }}
+      />
     </div>
   );
 };

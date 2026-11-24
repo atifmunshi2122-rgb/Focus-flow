@@ -115,6 +115,12 @@ export interface Task {
   deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  // Study Syllabus Integration linkage
+  subjectId?: string | null;
+  subjectCode?: string | null;
+  topicId?: string | null;
+  unit?: string | null;
+  subtopicTitle?: string | null;
 }
 
 export interface FocusSession {

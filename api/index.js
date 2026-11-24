@@ -13155,7 +13155,23 @@ apiRouter.post("/tasks", async (req, res, next) => {
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = req.body && typeof req.body === "object" ? req.body : {};
-  const { title, description, priority, status, estimatedPomodoros, dueDate, category, subtasks, recurrence, order } = body;
+  const {
+    title,
+    description,
+    priority,
+    status,
+    estimatedPomodoros,
+    dueDate,
+    category,
+    subtasks,
+    recurrence,
+    order,
+    subjectId,
+    subjectCode,
+    topicId,
+    unit,
+    subtopicTitle
+  } = body;
   const parsedTitle = parseNonEmptyString(title, 200);
   if (!parsedTitle) {
     res.status(400).json({ error: "Title is required and must be a non-empty string" });
@@ -13209,6 +13225,11 @@ apiRouter.post("/tasks", async (req, res, next) => {
     res.status(400).json({ error: "Invalid task order index" });
     return;
   }
+  const parsedSubjectId = parseOptionalString(subjectId, 128);
+  const parsedSubjectCode = parseOptionalString(subjectCode, 128);
+  const parsedTopicId = parseOptionalString(topicId, 128);
+  const parsedUnit = parseOptionalString(unit, 128);
+  const parsedSubtopicTitle = parseOptionalString(subtopicTitle, 200);
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const newTask = {
     id: `tsk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -13227,7 +13248,12 @@ apiRouter.post("/tasks", async (req, res, next) => {
     completedAt: parsedStatus === "completed" ? nowIso : null,
     deletedAt: null,
     createdAt: nowIso,
-    updatedAt: nowIso
+    updatedAt: nowIso,
+    subjectId: parsedSubjectId || null,
+    subjectCode: parsedSubjectCode || null,
+    topicId: parsedTopicId || null,
+    unit: parsedUnit || null,
+    subtopicTitle: parsedSubtopicTitle || null
   };
   db.tasks.unshift(newTask);
   try {
@@ -13257,7 +13283,12 @@ apiRouter.put("/tasks/:id", async (req, res, next) => {
     order,
     estimatedPomodoros,
     completedPomodoros,
-    dueDate
+    dueDate,
+    subjectId,
+    subjectCode,
+    topicId,
+    unit,
+    subtopicTitle
   } = body;
   const previousStatus = task.status;
   if (title !== void 0) {
@@ -13352,6 +13383,21 @@ apiRouter.put("/tasks/:id", async (req, res, next) => {
       }
       task.dueDate = parsedDue;
     }
+  }
+  if (subjectId !== void 0) {
+    task.subjectId = parseOptionalString(subjectId, 128) || null;
+  }
+  if (subjectCode !== void 0) {
+    task.subjectCode = parseOptionalString(subjectCode, 128) || null;
+  }
+  if (topicId !== void 0) {
+    task.topicId = parseOptionalString(topicId, 128) || null;
+  }
+  if (unit !== void 0) {
+    task.unit = parseOptionalString(unit, 128) || null;
+  }
+  if (subtopicTitle !== void 0) {
+    task.subtopicTitle = parseOptionalString(subtopicTitle, 200) || null;
   }
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   task.updatedAt = nowIso;

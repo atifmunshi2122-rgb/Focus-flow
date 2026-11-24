@@ -845,6 +845,11 @@ export const firestoreService = {
       deletedAt: null,
       createdAt: now,
       updatedAt: now,
+      subjectId: typeof input.subjectId === 'string' ? input.subjectId : null,
+      subjectCode: typeof input.subjectCode === 'string' ? input.subjectCode : null,
+      topicId: typeof input.topicId === 'string' ? input.topicId : null,
+      unit: typeof input.unit === 'string' ? input.unit : null,
+      subtopicTitle: typeof input.subtopicTitle === 'string' ? input.subtopicTitle : null,
     };
     await this.saveTask(userId, created);
     return created;
@@ -878,6 +883,36 @@ export const firestoreService = {
           updates.category !== undefined ? updates.category.trim() || 'General' : existing.category,
         subtasks:
           updates.subtasks !== undefined ? parseSubtasks(updates.subtasks) : existing.subtasks,
+        subjectId:
+          updates.subjectId !== undefined
+            ? typeof updates.subjectId === 'string'
+              ? updates.subjectId
+              : null
+            : existing.subjectId,
+        subjectCode:
+          updates.subjectCode !== undefined
+            ? typeof updates.subjectCode === 'string'
+              ? updates.subjectCode
+              : null
+            : existing.subjectCode,
+        topicId:
+          updates.topicId !== undefined
+            ? typeof updates.topicId === 'string'
+              ? updates.topicId
+              : null
+            : existing.topicId,
+        unit:
+          updates.unit !== undefined
+            ? typeof updates.unit === 'string'
+              ? updates.unit
+              : null
+            : existing.unit,
+        subtopicTitle:
+          updates.subtopicTitle !== undefined
+            ? typeof updates.subtopicTitle === 'string'
+              ? updates.subtopicTitle
+              : null
+            : existing.subtopicTitle,
         completedAt,
         updatedAt: nowIso,
       };

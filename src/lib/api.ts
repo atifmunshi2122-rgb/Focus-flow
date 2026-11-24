@@ -825,6 +825,11 @@ export const api = {
             deletedAt: null,
             createdAt: now,
             updatedAt: now,
+            subjectId: task.subjectId || null,
+            subjectCode: task.subjectCode || null,
+            topicId: task.topicId || null,
+            unit: task.unit || null,
+            subtopicTitle: task.subtopicTitle || null,
           };
         },
       }

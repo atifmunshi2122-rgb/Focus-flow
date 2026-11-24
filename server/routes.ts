@@ -914,7 +914,23 @@ apiRouter.post('/tasks', async (req: Request, res: Response, next: NextFunction)
   const { userId } = getAuth(req);
   const db = dbService.getRaw();
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-  const { title, description, priority, status, estimatedPomodoros, dueDate, category, subtasks, recurrence, order } = body;
+  const {
+    title,
+    description,
+    priority,
+    status,
+    estimatedPomodoros,
+    dueDate,
+    category,
+    subtasks,
+    recurrence,
+    order,
+    subjectId,
+    subjectCode,
+    topicId,
+    unit,
+    subtopicTitle,
+  } = body;
 
   const parsedTitle = parseNonEmptyString(title, 200);
   if (!parsedTitle) {
@@ -985,6 +1001,12 @@ apiRouter.post('/tasks', async (req: Request, res: Response, next: NextFunction)
     return;
   }
 
+  const parsedSubjectId = parseOptionalString(subjectId, 128);
+  const parsedSubjectCode = parseOptionalString(subjectCode, 128);
+  const parsedTopicId = parseOptionalString(topicId, 128);
+  const parsedUnit = parseOptionalString(unit, 128);
+  const parsedSubtopicTitle = parseOptionalString(subtopicTitle, 200);
+
   const nowIso = new Date().toISOString();
   const newTask: Task = {
     id: `tsk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1004,6 +1026,11 @@ apiRouter.post('/tasks', async (req: Request, res: Response, next: NextFunction)
     deletedAt: null,
     createdAt: nowIso,
     updatedAt: nowIso,
+    subjectId: parsedSubjectId || null,
+    subjectCode: parsedSubjectCode || null,
+    topicId: parsedTopicId || null,
+    unit: parsedUnit || null,
+    subtopicTitle: parsedSubtopicTitle || null,
   };
 
   db.tasks.unshift(newTask);
@@ -1038,6 +1065,11 @@ apiRouter.put('/tasks/:id', async (req: Request, res: Response, next: NextFuncti
     estimatedPomodoros,
     completedPomodoros,
     dueDate,
+    subjectId,
+    subjectCode,
+    topicId,
+    unit,
+    subtopicTitle,
   } = body;
 
   const previousStatus = task.status;
@@ -1144,6 +1176,22 @@ apiRouter.put('/tasks/:id', async (req: Request, res: Response, next: NextFuncti
       }
       task.dueDate = parsedDue;
     }
+  }
+
+  if (subjectId !== undefined) {
+    task.subjectId = parseOptionalString(subjectId, 128) || null;
+  }
+  if (subjectCode !== undefined) {
+    task.subjectCode = parseOptionalString(subjectCode, 128) || null;
+  }
+  if (topicId !== undefined) {
+    task.topicId = parseOptionalString(topicId, 128) || null;
+  }
+  if (unit !== undefined) {
+    task.unit = parseOptionalString(unit, 128) || null;
+  }
+  if (subtopicTitle !== undefined) {
+    task.subtopicTitle = parseOptionalString(subtopicTitle, 200) || null;
   }
 
   const nowIso = new Date().toISOString();
