@@ -327,7 +327,7 @@ export function generateModuleCsv(
   data: UnifiedExportDataPayload,
   currency: CurrencyCode = 'INR'
 ): { filename: string; content: string } {
-  const dateStamp = new Date().toISOString().slice(0, 10);
+  const dateStamp = getTodayDateString(data.userSettings?.timezone || DEFAULT_TIMEZONE);
 
   switch (moduleId) {
     case 'income': {
@@ -2957,7 +2957,7 @@ export function printExecutivePdfReport(
   if (typeof document === 'undefined') return false;
 
   const html = generateExecutivePdfReportHtml(data, rangeLabel, userName, options);
-  const fallbackFilename = `focusflow-report-${new Date().toISOString().slice(0, 10)}.html`;
+  const fallbackFilename = `focusflow-report-${getTodayDateString(data.userSettings?.timezone || DEFAULT_TIMEZONE)}.html`;
 
   try {
     const iframe = document.createElement('iframe');
@@ -3022,7 +3022,7 @@ export function generateVersionedJsonBackup(
   scope: string = 'complete',
   selectedModules?: Set<ExportModuleId>
 ): { filename: string; jsonText: string } {
-  const dateStamp = new Date().toISOString().slice(0, 10);
+  const dateStamp = getTodayDateString(data.userSettings?.timezone || DEFAULT_TIMEZONE);
   const isComplete = scope === 'complete' || !selectedModules || selectedModules.has('account_backup');
 
   const hasMod = (mod: ExportModuleId | ExportModuleId[]): boolean => {

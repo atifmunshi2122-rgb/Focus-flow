@@ -49,6 +49,7 @@ import {
   UniversalSearchHit,
 } from '../../lib/searchEngine.tsx';
 import { ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 
 interface CommandCenterProps {
   onOpenQuickAction: (initialType?: 'task' | 'expense' | 'income' | 'bill' | 'habit' | 'envelope' | 'goal') => void;
@@ -187,7 +188,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
           const u = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = u;
-          a.download = `focusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+          a.download = `focusflow-backup-${getTodayDateString()}.json`;
           a.click();
           showToast('Backup JSON exported successfully', 'success');
         });

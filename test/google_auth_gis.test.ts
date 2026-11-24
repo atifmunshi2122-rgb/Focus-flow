@@ -17,7 +17,7 @@ describe('Google Identity Services (GIS) Token Client & Credential Security', ()
     assert.equal(GHOST_PROJECT_ID, 'focus-flow-by-atif');
     assert.equal(
       GHOST_OAUTH_CLIENT_ID,
-      '965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com'
+      '1010159085609-hcetogi5vbajkg9706m6t9u9h11olfd7.apps.googleusercontent.com'
     );
     assert.equal(getGoogleOAuthClientId(), GHOST_OAUTH_CLIENT_ID);
   });

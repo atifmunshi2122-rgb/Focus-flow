@@ -3,6 +3,19 @@ import { googleCalendarService } from '../integrations/googleCalendarService.js'
 
 export const googleCalendarOAuthCallbackRouter = Router();
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function serializeJsString(value: string): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+}
+
 /**
  * Public OAuth redirect callback endpoint.
  * Authenticates via single-use, expiring state nonce bound cryptographically to user UID.
@@ -22,10 +35,10 @@ googleCalendarOAuthCallbackRouter.get(
           <head><title>Google Calendar Authorization Failed</title></head>
           <body style="font-family: system-ui, sans-serif; text-align: center; padding: 40px;">
             <h2>Authorization Denied</h2>
-            <p>Google authorization error: ${escapedErr}</p>
+            <p>Google authorization error: ${escapeHtml(escapedErr)}</p>
             <script>
               if (window.opener) {
-                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_AUTH_ERROR', error: '${escapedErr}' }, '*');
+                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_AUTH_ERROR', error: ${serializeJsString(escapedErr)} }, window.location.origin);
                 setTimeout(() => window.close(), 2000);
               }
             </script>
@@ -55,7 +68,7 @@ googleCalendarOAuthCallbackRouter.get(
             <p>Your calendar integration is now active. This window will close automatically.</p>
             <script>
               if (window.opener) {
-                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true }, '*');
+                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true }, window.location.origin);
                 setTimeout(() => window.close(), 1000);
               } else {
                 window.location.href = '/?tab=settings&calendar=connected';
@@ -73,10 +86,10 @@ googleCalendarOAuthCallbackRouter.get(
           <head><title>Google Calendar Connection Failed</title></head>
           <body style="font-family: system-ui, sans-serif; text-align: center; padding: 40px;">
             <h2 style="color: #dc2626;">Connection Failed</h2>
-            <p>${errMsg}</p>
+            <p>${escapeHtml(errMsg)}</p>
             <script>
               if (window.opener) {
-                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_AUTH_ERROR', error: '${errMsg}' }, '*');
+                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_AUTH_ERROR', error: ${serializeJsString(errMsg)} }, window.location.origin);
                 setTimeout(() => window.close(), 3000);
               }
             </script>
@@ -86,4 +99,3 @@ googleCalendarOAuthCallbackRouter.get(
     }
   }
 );
-

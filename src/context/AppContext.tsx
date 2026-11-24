@@ -1531,7 +1531,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsSigningIn(true);
     setAuthError(null);
     try {
-      // First attempt Google Identity Services Token Client with ghost-7b055 OAuth Client ID
+      // First attempt Google Identity Services Token Client with focus-flow-by-atif OAuth Client ID
       const accessToken = await requestGoogleDriveToken({
         loginHint: firebaseUser?.email || null,
       });

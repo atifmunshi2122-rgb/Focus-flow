@@ -2327,8 +2327,8 @@ var init_db = __esm({
           topicId: input.topicId || "",
           subjectCode: input.subjectCode || "Sub_General",
           topicTitle: input.topicTitle || "Revision Topic",
-          lastStudiedAt: input.lastStudiedAt || nowIso.slice(0, 10),
-          nextRevisionAt: input.nextRevisionAt || nowIso.slice(0, 10),
+          lastStudiedAt: input.lastStudiedAt || getTodayDateString(DEFAULT_TIMEZONE),
+          nextRevisionAt: input.nextRevisionAt || getTodayDateString(DEFAULT_TIMEZONE),
           intervalDays: Number(input.intervalDays) || 1,
           repetition: Number(input.repetition) || 1,
           difficulty: input.difficulty || "medium",
@@ -2412,7 +2412,7 @@ var init_db = __esm({
         const mistake = {
           id,
           userId,
-          date: input.date || nowIso.slice(0, 10),
+          date: input.date || getTodayDateString(DEFAULT_TIMEZONE),
           subjectCode: input.subjectCode || "Sub_General",
           subjectName: input.subjectName || input.subjectCode || "General",
           topic: input.topic || "General Topic",
@@ -2674,7 +2674,7 @@ var init_db = __esm({
           contributedByUid: user.id,
           contributorName: user.name || "Member",
           amountPaise: data.amountPaise,
-          date: data.date || nowIso.slice(0, 10),
+          date: data.date || getTodayDateString(DEFAULT_TIMEZONE),
           description: (data.description || "Shared savings contribution").trim(),
           createdAt: nowIso,
           status: "active"
@@ -2770,7 +2770,7 @@ var init_db = __esm({
           payerName: user.name || "Member",
           amountPaise: data.amountPaise,
           description: data.description.trim(),
-          date: data.date || nowIso.slice(0, 10),
+          date: data.date || getTodayDateString(DEFAULT_TIMEZONE),
           splitMode,
           memberShares,
           createdAt: nowIso,
@@ -2836,7 +2836,7 @@ var init_db = __esm({
           toUid: data.toUid,
           toName: data.toName || "Partner",
           amountPaise: data.amountPaise,
-          date: data.date || nowIso.slice(0, 10),
+          date: data.date || getTodayDateString(DEFAULT_TIMEZONE),
           notes: (data.notes || "Settlement payment").trim(),
           createdAt: nowIso
         };
@@ -5489,7 +5489,7 @@ function parseSubtasks(raw) {
   return parsed;
 }
 function computeNextRecurrenceDueDate(currentDueDate, recurrence) {
-  const baseStr = currentDueDate && parseIsoDate(currentDueDate) ? currentDueDate : (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const baseStr = currentDueDate && parseIsoDate(currentDueDate) ? currentDueDate : getTodayDateString(DEFAULT_TIMEZONE);
   const d = /* @__PURE__ */ new Date(`${baseStr}T00:00:00.000Z`);
   if (recurrence === "daily") {
     d.setUTCDate(d.getUTCDate() + 1);
@@ -10947,7 +10947,7 @@ function decryptToken(payload, customKey) {
 }
 
 // src/lib/googleAuthGis.ts
-var GHOST_OAUTH_CLIENT_ID = "965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com";
+var GHOST_OAUTH_CLIENT_ID = "1010159085609-hcetogi5vbajkg9706m6t9u9h11olfd7.apps.googleusercontent.com";
 
 // server/integrations/googleCalendarService.ts
 init_db();
@@ -11560,6 +11560,12 @@ var googleCalendarService = new GoogleCalendarService();
 
 // server/routes/googleCalendarOAuthCallback.ts
 var googleCalendarOAuthCallbackRouter = Router();
+function escapeHtml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function serializeJsString(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+}
 googleCalendarOAuthCallbackRouter.get(
   "/integrations/google-calendar/oauth/callback",
   async (req, res) => {
@@ -11574,10 +11580,10 @@ googleCalendarOAuthCallbackRouter.get(
           <head><title>Google Calendar Authorization Failed</title></head>
           <body style="font-family: system-ui, sans-serif; text-align: center; padding: 40px;">
             <h2>Authorization Denied</h2>
-            <p>Google authorization error: ${escapedErr}</p>
+            <p>Google authorization error: ${escapeHtml(escapedErr)}</p>
             <script>
               if (window.opener) {
-                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_AUTH_ERROR', error: '${escapedErr}' }, '*');
+                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_AUTH_ERROR', error: ${serializeJsString(escapedErr)} }, window.location.origin);
                 setTimeout(() => window.close(), 2000);
               }
             </script>
@@ -11604,7 +11610,7 @@ googleCalendarOAuthCallbackRouter.get(
             <p>Your calendar integration is now active. This window will close automatically.</p>
             <script>
               if (window.opener) {
-                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true }, '*');
+                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true }, window.location.origin);
                 setTimeout(() => window.close(), 1000);
               } else {
                 window.location.href = '/?tab=settings&calendar=connected';
@@ -11622,10 +11628,10 @@ googleCalendarOAuthCallbackRouter.get(
           <head><title>Google Calendar Connection Failed</title></head>
           <body style="font-family: system-ui, sans-serif; text-align: center; padding: 40px;">
             <h2 style="color: #dc2626;">Connection Failed</h2>
-            <p>${errMsg}</p>
+            <p>${escapeHtml(errMsg)}</p>
             <script>
               if (window.opener) {
-                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_AUTH_ERROR', error: '${errMsg}' }, '*');
+                window.opener.postMessage({ type: 'GOOGLE_CALENDAR_AUTH_ERROR', error: ${serializeJsString(errMsg)} }, window.location.origin);
                 setTimeout(() => window.close(), 3000);
               }
             </script>

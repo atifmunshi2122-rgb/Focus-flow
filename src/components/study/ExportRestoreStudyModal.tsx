@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudyExportPayload } from '../../types/study.ts';
 import { validateStudyExportPayload } from '../../lib/studyIntelligence.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { Download, Upload, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 interface ExportRestoreStudyModalProps {
@@ -37,7 +38,7 @@ export const ExportRestoreStudyModal: React.FC<ExportRestoreStudyModalProps> = (
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `focusflow_study_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      link.download = `focusflow_study_backup_${getTodayDateString()}.json`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

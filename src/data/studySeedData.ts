@@ -1,4 +1,5 @@
 import { AcademicTier, StudySubject, StudyTopic, StudyRevision, StudyMistake } from '../types/study.ts';
+import { getTodayDateString, addDays } from '../lib/dateTime.ts';
 
 export const DEFAULT_ACADEMIC_TIERS: AcademicTier[] = [
   {
@@ -136,7 +137,7 @@ export function buildDefaultStudyWorkspace(userId: string): {
   mistakes: StudyMistake[];
 } {
   const nowIso = new Date().toISOString();
-  const todayStr = nowIso.slice(0, 10);
+  const todayStr = getTodayDateString();
   const subjects: StudySubject[] = [];
   const topics: StudyTopic[] = [];
 
@@ -204,7 +205,7 @@ export function buildDefaultStudyWorkspace(userId: string): {
       subjectCode: 'Sub_OS',
       topicTitle: 'Banker’s Algorithm for Deadlock Avoidance',
       lastStudiedAt: todayStr,
-      nextRevisionAt: new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 10),
+      nextRevisionAt: addDays(todayStr, 3),
       intervalDays: 3,
       repetition: 2,
       difficulty: 'easy',

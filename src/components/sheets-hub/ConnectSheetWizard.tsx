@@ -287,7 +287,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
     await runInspection(null, true, overrideSpreadsheetId, overrideUrl);
   };
 
-  // Step 2B0: Request Google Drive Duplicate + Sheets Write Authorization strictly via Project ghost-7b055 (GIS)
+  // Step 2B0: Request Google Drive Duplicate + Sheets Write Authorization strictly via Project focus-flow-by-atif (GIS)
   const handleAuthorizeGoogleDriveDualCopy = async () => {
     setIsAuthorizingWrite(true);
     setIsDemoMode(false);

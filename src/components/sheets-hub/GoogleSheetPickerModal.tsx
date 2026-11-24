@@ -3,7 +3,7 @@
  *
  * Implements the Google Picker API (ViewId.SPREADSHEETS):
  * - Uses existing OAuth access token with `https://www.googleapis.com/auth/drive.file`.
- * - Uses restricted Google Cloud project `ghost-7b055` Project Number (965140210258).
+ * - Uses restricted Google Cloud project `focus-flow-by-atif` Project Number (1010159085609).
  * - Uses Developer Key from `VITE_GOOGLE_PICKER_API_KEY`.
  * - Grants per-file authorization to the selected spreadsheet under `drive.file`,
  *   allowing FocusFlow to copy even private spreadsheets to the user's personal Google Drive.

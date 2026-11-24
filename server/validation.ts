@@ -1,5 +1,5 @@
 import type { FocusSession } from './db.js';
-import { DEFAULT_TIMEZONE, calculateFocusStreakDays, computeBestStreakDays as computeBestStreakDaysTz } from './dateTime.js';
+import { DEFAULT_TIMEZONE, getTodayDateString, calculateFocusStreakDays, computeBestStreakDays as computeBestStreakDaysTz } from './dateTime.js';
 
 export const ALLOWED_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP'] as const;
 export const ALLOWED_THEMES = ['light', 'dark', 'system'] as const;
@@ -110,7 +110,7 @@ export function computeNextRecurrenceDueDate(
 ): string {
   const baseStr = currentDueDate && parseIsoDate(currentDueDate)
     ? currentDueDate
-    : new Date().toISOString().slice(0, 10);
+    : getTodayDateString(DEFAULT_TIMEZONE);
   const d = new Date(`${baseStr}T00:00:00.000Z`);
   if (recurrence === 'daily') {
     d.setUTCDate(d.getUTCDate() + 1);

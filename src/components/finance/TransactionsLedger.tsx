@@ -182,7 +182,7 @@ export const TransactionsLedger: React.FC = () => {
       ((t.type === 'income' ? t.amountPaise : -t.amountPaise) / 100).toFixed(2),
       t.notes || '',
     ]);
-    const dateStamp = new Date().toISOString().slice(0, 10);
+    const dateStamp = getTodayDateString();
     downloadCsvFile(`transactions-ledger-${dateStamp}.csv`, buildCsvContent(headers, rows));
   };
 

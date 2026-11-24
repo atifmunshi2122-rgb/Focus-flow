@@ -154,21 +154,19 @@ describe('Vercel Serverless Cold-Start, Filesystem Safety & Sheet Hub Inspection
   });
 
   describe('3. CORS Headers & vercel.json Static Headers Alignment', () => {
-    it('vercel.json includes x-google-access-token in Access-Control-Allow-Headers', () => {
+    it('vercel.json does not override CORS with wildcard Access-Control-Allow-Origin, delegating to Express corsHandler', () => {
       const vercelJsonPath = path.resolve(process.cwd(), 'vercel.json');
       assert.ok(fs.existsSync(vercelJsonPath), 'vercel.json must exist');
 
       const config = JSON.parse(fs.readFileSync(vercelJsonPath, 'utf8'));
       const apiHeaderRule = config.headers?.find((h: any) => h.source === '/api/(.*)');
-      assert.ok(apiHeaderRule, 'Must contain header rule for /api/(.*)');
-
-      const corsHeader = apiHeaderRule.headers?.find(
-        (h: any) => h.key.toLowerCase() === 'access-control-allow-headers'
+      const originHeader = apiHeaderRule?.headers?.find(
+        (h: any) => h.key.toLowerCase() === 'access-control-allow-origin'
       );
-      assert.ok(corsHeader, 'Must define Access-Control-Allow-Headers');
-      assert.ok(
-        corsHeader.value.includes('x-google-access-token'),
-        'vercel.json must permit x-google-access-token header'
+      assert.strictEqual(
+        originHeader,
+        undefined,
+        'vercel.json must not set wildcard Access-Control-Allow-Origin at edge to allow Express corsHandler allowlist'
       );
     });
 

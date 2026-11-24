@@ -7,6 +7,7 @@ import { ThemeStudio } from './ThemeStudio.tsx';
 import { DataRecoveryCenter } from './DataRecoveryCenter.tsx';
 import { GoogleCalendarSettings } from './GoogleCalendarSettings.tsx';
 import { PushNotificationSettings } from './PushNotificationSettings.tsx';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import { detectEmbeddedIframe, getCurrentAppUrl } from '../../lib/authDiagnostics.ts';
 import {
   ThemeBadge,
@@ -1675,7 +1676,7 @@ export const SettingsView: React.FC = () => {
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement('a');
                           a.href = url;
-                          a.download = `focusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                          a.download = `focusflow-backup-${getTodayDateString()}.json`;
                           a.click();
                           setTimeout(() => URL.revokeObjectURL(url), 1000);
                           showToast('Workspace JSON backup downloaded', 'success');

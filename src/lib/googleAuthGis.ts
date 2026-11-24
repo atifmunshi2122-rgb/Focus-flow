@@ -1,8 +1,8 @@
 /**
  * FocusFlow — Google Identity Services (GIS) Token Client Integration
  *
- * Integrates the Web Application OAuth 2.0 Client from Google Cloud project `ghost-7b055`:
- * - Client ID: 965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com
+ * Integrates the Web Application OAuth 2.0 Client from Google Cloud project `focus-flow-by-atif`:
+ * - Client ID: 1010159085609-hcetogi5vbajkg9706m6t9u9h11olfd7.apps.googleusercontent.com
  * - Least-privilege user-granted scopes:
  *     1. https://www.googleapis.com/auth/drive.file (personal Drive duplicate creation)
  *     2. https://www.googleapis.com/auth/spreadsheets (checkbox & cell writeback)
@@ -18,7 +18,7 @@ import { setSheetHubWriteAccessToken } from './firebase.ts';
 import firebaseManifest from '../../firebase-applet-config.json';
 
 export const GHOST_OAUTH_CLIENT_ID =
-  '965140210258-guv9k6akjnfc57c0vffusm4lokhcrvkc.apps.googleusercontent.com';
+  '1010159085609-hcetogi5vbajkg9706m6t9u9h11olfd7.apps.googleusercontent.com';
 export const GHOST_PROJECT_ID = 'focus-flow-by-atif';
 export const GHOST_PROJECT_NUMBER = '1010159085609';
 
@@ -139,7 +139,7 @@ let gapiScriptLoadPromise: Promise<void> | null = null;
 let pickerLoadPromise: Promise<void> | null = null;
 
 /**
- * Returns the effective Google OAuth Client ID (from environment override or ghost-7b055 default).
+ * Returns the effective Google OAuth Client ID (from environment override, manifest, or focus-flow-by-atif default).
  */
 export function getGoogleOAuthClientId(): string {
   try {
@@ -149,6 +149,12 @@ export function getGoogleOAuthClientId(): string {
     }
   } catch {
     // Non-Vite test or Node environment
+  }
+  if (
+    typeof (firebaseManifest as any)?.oAuthClientId === 'string' &&
+    (firebaseManifest as any).oAuthClientId.trim().length > 10
+  ) {
+    return (firebaseManifest as any).oAuthClientId.trim();
   }
   return GHOST_OAUTH_CLIENT_ID;
 }
@@ -276,7 +282,7 @@ export function getFirebaseMessagingApiKey(): string {
 }
 
 /**
- * Returns the numeric Google Cloud Project Number for ghost-7b055 (965140210258).
+ * Returns the numeric Google Cloud Project Number for focus-flow-by-atif (1010159085609).
  */
 export function getGhostProjectNumber(): string {
   try {
@@ -410,7 +416,7 @@ export function loadGoogleIdentityServicesScript(): Promise<void> {
   return gisScriptLoadPromise;
 }
 
-// Isolated ephemeral memory cache for ghost-7b055 GIS tokens (strictly separated from Firebase Auth tokens)
+// Isolated ephemeral memory cache for focus-flow-by-atif GIS tokens (strictly separated from Firebase Auth tokens)
 let cachedGisDualCopyToken: string | null = null;
 
 export function getGisDualCopyToken(): string | null {
@@ -423,7 +429,7 @@ export function setGisDualCopyToken(token: string | null): void {
 
 /**
  * Requests an OAuth 2.0 Access Token with Google Drive & Google Sheets permissions
- * strictly using the Web Application Client from Google Cloud project `ghost-7b055`.
+ * strictly using the Web Application Client from Google Cloud project `focus-flow-by-atif`.
  *
  * Scopes:
  * - https://www.googleapis.com/auth/drive.file (Only files created/opened by FocusFlow)
@@ -499,7 +505,7 @@ export async function requestGoogleDriveToken(options?: {
           }
 
           // Store in ephemeral memory cache for immediate Sheet Hub GIS Dual-Copy use
-          // Keeps ghost-7b055 GIS credentials isolated from Firebase focus-flow-by-atif credentials
+          // Keeps focus-flow-by-atif GIS credentials in ephemeral memory cache
           setGisDualCopyToken(res.access_token);
           resolve(res.access_token);
         },

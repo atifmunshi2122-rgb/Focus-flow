@@ -8,6 +8,7 @@ import type {
   Task,
 } from '../types/index.ts';
 import { formatCurrency } from './currency.ts';
+import { DEFAULT_TIMEZONE, addDays, getTodayDateString } from './dateTime.ts';
 
 export function escapeCsvCell(value: unknown): string {
   const raw = value === null || value === undefined ? '' : String(value);
@@ -73,7 +74,7 @@ export function exportFinanceCsv(input: {
         (b.amountPaise / 100).toFixed(2),
       ]),
   ];
-  const dateStamp = new Date().toISOString().slice(0, 10);
+  const dateStamp = getTodayDateString(DEFAULT_TIMEZONE);
   downloadCsvFile(`focusflow-finance-${dateStamp}.csv`, buildCsvContent(headers, rows));
 }
 
@@ -102,7 +103,7 @@ export function exportProductivityCsv(input: {
       s.completed ? 'Yes' : 'No',
     ]),
   ];
-  const dateStamp = new Date().toISOString().slice(0, 10);
+  const dateStamp = getTodayDateString(DEFAULT_TIMEZONE);
   downloadCsvFile(`focusflow-productivity-${dateStamp}.csv`, buildCsvContent(headers, rows));
 }
 
@@ -310,7 +311,7 @@ export function openPrintableReport(input: {
 
   return printHtmlDocument(
     html,
-    `focusflow-report-${new Date().toISOString().slice(0, 10)}.html`
+    `focusflow-report-${getTodayDateString(DEFAULT_TIMEZONE)}.html`
   );
 }
 
@@ -331,7 +332,7 @@ export function exportSpecificFinancialReportCsv(input: SpecificReportInput): vo
   const activeIncomes = incomes.filter((i) => !i.deletedAt);
   const activeExpenses = expenses.filter((e) => !e.deletedAt);
   const activeBills = bills.filter((b) => !b.deletedAt);
-  const nowStr = new Date().toISOString().slice(0, 10);
+  const nowStr = getTodayDateString(DEFAULT_TIMEZONE);
   const currMonthKey = nowStr.slice(0, 7);
 
   let headers: string[] = [];
@@ -351,12 +352,9 @@ export function exportSpecificFinancialReportCsv(input: SpecificReportInput): vo
     }
     case 'weekly': {
       headers = ['Date', 'Inflow (INR)', 'Outflow (INR)', 'Net Flow (INR)', 'Transactions Count'];
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-      const startStr = sevenDaysAgo.toISOString().slice(0, 10);
       const dates: string[] = [];
-      for (let d = new Date(sevenDaysAgo); d <= new Date(); d.setDate(d.getDate() + 1)) {
-        dates.push(d.toISOString().slice(0, 10));
+      for (let i = 6; i >= 0; i--) {
+        dates.push(addDays(nowStr, -i));
       }
       rows = dates.map((d) => {
         const dInc = activeIncomes.filter((i) => i.date === d).reduce((s, i) => s + i.amountPaise, 0);
@@ -532,6 +530,6 @@ export function openPrintableSpecificFinancialReport(input: SpecificReportInput)
 
   return printHtmlDocument(
     html,
-    `focusflow-${reportType}-statement-${new Date().toISOString().slice(0, 10)}.html`
+    `focusflow-${reportType}-statement-${getTodayDateString(DEFAULT_TIMEZONE)}.html`
   );
 }

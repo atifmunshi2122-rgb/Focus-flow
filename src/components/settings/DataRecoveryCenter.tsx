@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { AuditLogEntry } from '../../types/index.ts';
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeInput } from '../ui/ThemePrimitives.tsx';
+import { getTodayDateString } from '../../lib/dateTime.ts';
 import {
   ShieldAlert,
   Download,
@@ -94,7 +95,7 @@ export const DataRecoveryCenter: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `focusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `focusflow-backup-${getTodayDateString()}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
