@@ -174,6 +174,15 @@ export interface SheetHubDriveDuplicateReconcileRequest {
   errorMessage?: string;
 }
 
+export interface SheetHeaderCandidate {
+  rowIndex0: number; // 0-based
+  rowNumber: number; // 1-based display
+  score: number;
+  confidence: SheetConfidence;
+  nonEmptyCount: number;
+  sampleHeaders: string[];
+}
+
 export interface SheetColumnMapping {
   colIndex: number;
   colLetter: string;
@@ -188,6 +197,8 @@ export interface SheetColumnMapping {
   readOnlyReason?: string | null;
   requiresConfirmation: boolean;
   enumOptions?: string[];
+  isUncertain?: boolean;
+  mappingConfidence?: SheetConfidence;
 }
 
 export interface SheetTabSchema {
@@ -330,6 +341,8 @@ export interface DetectedTabSchema {
   sampleRowCount: number;
   formulaCellCount: number;
   sampleRows: Array<Record<string, SheetCellScalar>>;
+  headerCandidates?: SheetHeaderCandidate[];
+  isHeaderManuallySelected?: boolean;
 }
 
 export interface DetectedWorkbookSchema {

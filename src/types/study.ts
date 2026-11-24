@@ -393,10 +393,14 @@ export interface StudyImportDetailItem {
   subjectName: string;
   createdTopics: number;
   updatedTopics: number;
+  unchangedTopics?: number;
   skippedTopics: number;
   invalidRows: number;
   duplicateRows: number;
   theoryCompleted: number;
+  ambiguousTopics?: number;
+  movedTopics?: number;
+  renamedTopics?: number;
 }
 
 export interface StudyImportSource {
@@ -436,15 +440,32 @@ export interface StudyImportHistoryRecord {
   updatedSubjectsCount: number;
   createdTopicsCount: number;
   updatedTopicsCount: number;
+  unchangedTopicsCount?: number;
   skippedTopicsCount: number;
   duplicateRowsCount: number;
   invalidRowsCount: number;
+  failedTopicsCount?: number;
   theoryCompletedCount: number;
+  movedTopicsCount?: number;
+  renamedTopicsCount?: number;
+  orphanedSourceTopicsCount?: number;
   status: 'success' | 'partial' | 'failed';
   importedAt: string;
   errorMessage?: string | null;
   details?: StudyImportDetailItem[];
   failedRecords?: StudyImportFailedRecord[];
+  reconciliation?: {
+    totalRowsEvaluated: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    skipped: number;
+    duplicate: number;
+    invalid: number;
+    failed: number;
+    sumBreakdown: number;
+    isReconciled: boolean;
+  };
 }
 
 export interface TopicConflictAnalysis {

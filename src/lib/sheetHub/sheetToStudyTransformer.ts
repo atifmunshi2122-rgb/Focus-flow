@@ -28,6 +28,9 @@ export interface ColumnToFieldMapping {
   fieldKey: string;
   headerName: string;
   targetField: StudyTargetField;
+  confidence?: 'high' | 'medium' | 'low';
+  isUncertain?: boolean;
+  userConfirmed?: boolean;
 }
 
 export interface TabToSubjectMapping {
@@ -91,6 +94,22 @@ export interface ImportPreviewSummary {
   invalidRowsCount: number;
   theoryCompletedCount: number;
   validationBreakdown?: ValidationBreakdown;
+  unchangedTopicsCount?: number;
+  movedTopicsCount?: number;
+  renamedTopicsCount?: number;
+  orphanedSourceTopicsCount?: number;
+  reconciliation?: {
+    totalRowsEvaluated: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    skipped: number;
+    duplicate: number;
+    invalid: number;
+    failed: number;
+    sumBreakdown: number;
+    isReconciled: boolean;
+  };
 }
 
 export const OVERVIEW_TAB_REGEX =
@@ -296,96 +315,251 @@ export function generateSubjectCode(title: string, existingCodes: string[] = [])
   return uniqueCode;
 }
 
+export interface ColumnInferenceResult {
+  target: StudyTargetField;
+  confidence: 'high' | 'medium' | 'low';
+  isUncertain: boolean;
+  reason: string;
+}
+
 /**
- * Infers the best Study OS target field for a given column based on header name and type metadata.
- * Supports flexible multi-level hierarchies: Subject, Module, Chapter, Unit, Topic, Subtopic.
+ * Intelligent Column Mapping with confidence scoring and multi-lingual synonym support.
+ * Supports English, Bengali, Hindi, and common academic naming conventions.
+ * Never silently guesses an uncertain column.
  */
+function matchesTermOrPattern(
+  text: string,
+  asciiRegex: RegExp,
+  unicodeSubstrings: string[]
+): boolean {
+  if (asciiRegex.test(text)) return true;
+  for (const sub of unicodeSubstrings) {
+    if (text.includes(sub)) return true;
+  }
+  return false;
+}
+
+export function inferColumnTargetWithConfidence(
+  headerName: string,
+  inferredType?: string,
+  existingMappedTargets?: Set<StudyTargetField>
+): ColumnInferenceResult {
+  const norm = (headerName || '').trim().toLowerCase();
+
+  // 1. Subject detection (for single-sheet multi-subject curricula)
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(subjects?|courses?|course[\s_-]?names?|disciplines?|papers?|tracks?|programs?)\b/i,
+      ['বিষয়', 'বিষয়সমূহ', 'विषय']
+    )
+  ) {
+    if (!existingMappedTargets?.has('subject')) {
+      return { target: 'subject', confidence: 'high', isUncertain: false, reason: 'Matched subject/course identifier' };
+    }
+  }
+
+  // 2. Subtopic detection (prioritized before broad 'topic')
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(sub[\s_-]?topics?|subtopics?|sub[\s_-]?concepts?|sub[\s_-]?units?)\b/i,
+      ['উপটপিক', 'উপ-টপিক', 'উপ_টপিক', 'उपशीर्षक']
+    )
+  ) {
+    if (!existingMappedTargets?.has('subtopic')) {
+      return { target: 'subtopic', confidence: 'high', isUncertain: false, reason: 'Matched subtopic keyword' };
+    }
+  }
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(items?|subitems?|details?|lectures?|points?|bullets?)\b/i,
+      ['লেকচার', 'পাঠ্যংশ']
+    )
+  ) {
+    if (!existingMappedTargets?.has('subtopic')) {
+      return { target: 'subtopic', confidence: 'medium', isUncertain: false, reason: 'Matched subtopic/item synonym' };
+    }
+  }
+
+  // 3. Topic detection
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(topics?|topics?[\s_-]?names?|concepts?|main[\s_-]?topics?)\b/i,
+      ['টপিক', 'বিষয়বস্তু', 'शीर्षক']
+    )
+  ) {
+    if (!existingMappedTargets?.has('topic')) {
+      return { target: 'topic', confidence: 'high', isUncertain: false, reason: 'Matched topic keyword' };
+    }
+  }
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(titles?|contents?|headings?|areas?)\b/i,
+      ['পাঠ']
+    )
+  ) {
+    if (!existingMappedTargets?.has('topic')) {
+      return { target: 'topic', confidence: 'medium', isUncertain: false, reason: 'Matched topic title synonym' };
+    }
+  }
+
+  // 4. Chapter detection
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(chapters?|chaps?|chs?|lessons?|themes?)\b/i,
+      ['অধ্যায়', 'अध्याय']
+    )
+  ) {
+    if (!existingMappedTargets?.has('chapter')) {
+      return { target: 'chapter', confidence: 'high', isUncertain: false, reason: 'Matched chapter keyword' };
+    }
+  }
+
+  // 5. Unit / Module detection
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(modules?|mods?|blocks?|parts?|pillars?|groups?)\b/i,
+      ['মডিউল', 'मॉड्यूल']
+    )
+  ) {
+    if (!existingMappedTargets?.has('module')) {
+      return { target: 'module', confidence: 'high', isUncertain: false, reason: 'Matched module keyword' };
+    }
+  }
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(units?|sections?|secs?|divisions?)\b/i,
+      ['একক', 'यूनिट']
+    )
+  ) {
+    if (!existingMappedTargets?.has('unit')) {
+      return { target: 'unit', confidence: 'high', isUncertain: false, reason: 'Matched unit/section keyword' };
+    }
+  }
+
+  // 6. Done / Theory completion
+  if (
+    inferredType === 'checkbox' ||
+    inferredType === 'boolean' ||
+    matchesTermOrPattern(
+      norm,
+      /\b(done|completed?|finished?|complete|is[\s_-]?done|solved?|mastered|checkbox)\b/i,
+      ['টিক', 'সম্পন্ন', 'সমাপ্ত', 'পূর্ণ']
+    )
+  ) {
+    if (!existingMappedTargets?.has('done')) {
+      return { target: 'done', confidence: 'high', isUncertain: false, reason: 'Matched completion/checkbox status' };
+    }
+  }
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(status|progress|state|flags?|phases?|stages?)\b/i,
+      ['গতিবিধি', 'स्थिति']
+    )
+  ) {
+    if (!existingMappedTargets?.has('done')) {
+      return { target: 'done', confidence: 'medium', isUncertain: false, reason: 'Matched status/progress synonym' };
+    }
+  }
+
+  // 7. Notes / References
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(notes?|remarks?|comments?|references?|links?|urls?|resources?|descriptions?|memos?)\b/i,
+      ['মন্তব্য', 'নোট', 'टिप्पणी']
+    )
+  ) {
+    if (!existingMappedTargets?.has('notes')) {
+      return { target: 'notes', confidence: 'high', isUncertain: false, reason: 'Matched notes keyword' };
+    }
+  }
+  if (/\b(formulas?|tips?|hints?|guidelines?|info)\b/i.test(norm)) {
+    if (!existingMappedTargets?.has('notes')) {
+      return { target: 'notes', confidence: 'medium', isUncertain: false, reason: 'Matched reference info synonym' };
+    }
+  }
+
+  // 8. Priority
+  if (
+    matchesTermOrPattern(
+      norm,
+      /\b(priority|priorities|importance|weightage|urgency|ranks?|levels?)\b/i,
+      ['গুরুত্ব', 'प्राथमिकता']
+    )
+  ) {
+    if (!existingMappedTargets?.has('priority')) {
+      return { target: 'priority', confidence: 'high', isUncertain: false, reason: 'Matched priority keyword' };
+    }
+  }
+
+  // 9. Uncertain / Unmapped (Rule: Never silently map an uncertain column)
+  return {
+    target: 'unmapped',
+    confidence: 'low',
+    isUncertain: true,
+    reason: `Uncertain or unrecognized header "${headerName || 'unnamed'}". Requires explicit user mapping.`,
+  };
+}
+
 export function inferColumnTarget(
   headerName: string,
   inferredType?: string,
   existingMappedTargets?: Set<StudyTargetField>
 ): StudyTargetField {
-  const norm = headerName.trim().toLowerCase();
-
-  // 1. Subject detection (e.g. for multi-subject single-sheet workbooks)
-  if (/\b(subjects?|courses?|course[\s_-]?names?|disciplines?|papers?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('subject')) return 'subject';
-  }
-
-  // 2. Subtopic detection (prioritized before general 'topic')
-  if (/\b(sub[\s_-]?topics?|subtopics?|sub-concepts?|items?|subitems?|details?|sub[\s_-]?units?|lectures?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('subtopic')) return 'subtopic';
-  }
-
-  // 3. Topic detection
-  if (/\b(topics?|topics?[\s_-]?names?|concepts?|areas?|main[\s_-]?topics?|titles?|contents?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('topic')) return 'topic';
-  }
-
-  // 4. Chapter detection
-  if (/\b(chapters?|chaps?|chs?|lessons?|themes?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('chapter')) return 'chapter';
-  }
-
-  // 5. Unit / Module detection
-  if (/\b(modules?|mods?|blocks?|parts?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('module')) return 'module';
-  }
-  if (/\b(units?|sections?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('unit')) return 'unit';
-  }
-
-  // 6. Done / Theory completion
-  if (
-    /\b(done|completed?|status|finished?|complete|is[\s_-]?done|solved?|mastered|checkbox)\b/i.test(norm) ||
-    inferredType === 'checkbox' ||
-    inferredType === 'boolean'
-  ) {
-    if (!existingMappedTargets?.has('done')) return 'done';
-  }
-
-  // 7. Notes / References
-  if (/\b(notes?|remarks?|comments?|references?|links?|urls?|formulas?|resources?|descriptions?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('notes')) return 'notes';
-  }
-
-  // 8. Priority
-  if (/\b(priority|priorities|importance|weightage|urgency|ranks?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('priority')) return 'priority';
-  }
-
-  return 'unmapped';
+  return inferColumnTargetWithConfidence(headerName, inferredType, existingMappedTargets).target;
 }
 
 /**
  * Generates initial column mappings for a given tab's column list.
+ * Invariant: Never silently maps an uncertain column to 'topic' or any other field.
  */
 export function inferInitialColumnMappings(columns: SheetColumnMapping[]): ColumnToFieldMapping[] {
   const mappedTargets = new Set<StudyTargetField>();
   const results: ColumnToFieldMapping[] = [];
 
   for (const col of columns) {
-    const target = inferColumnTarget(col.headerName, col.inferredType, mappedTargets);
-    if (target !== 'unmapped') {
-      mappedTargets.add(target);
+    const inference = inferColumnTargetWithConfidence(col.headerName, col.inferredType, mappedTargets);
+    if (inference.target !== 'unmapped' && inference.confidence !== 'low') {
+      mappedTargets.add(inference.target);
     }
     results.push({
       fieldKey: col.fieldKey,
       headerName: col.headerName,
-      targetField: target,
+      targetField: inference.target,
+      confidence: inference.confidence,
+      isUncertain: inference.isUncertain,
+      userConfirmed: false,
     });
   }
 
-  // Fallback: If no topic column was detected, map the first text column to topic
-  if (!mappedTargets.has('topic')) {
-    const candidate = results.find((r) => r.targetField === 'unmapped');
-    if (candidate) {
-      candidate.targetField = 'topic';
-      mappedTargets.add('topic');
-    }
-  }
-
   return results;
+}
+
+/**
+ * Normalizes a hierarchy path (Subject -> Unit/Module -> Topic -> Subtopic)
+ * into a canonical collision-resistant lookup key.
+ * Strictly guarantees that "Module 1 > Topic A" is never merged with "Module 2 > Topic A".
+ */
+export function normalizeHierarchyKey(
+  subjectCode: string,
+  unit: string,
+  topic: string,
+  subtopic: string
+): string {
+  const cleanSubj = (subjectCode || '').trim().toUpperCase();
+  const cleanUnit = (unit || 'general').trim().toLowerCase().replace(/\s+/g, ' ');
+  const cleanTopic = (topic || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const cleanSubtopic = (subtopic || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return `${cleanSubj}|${cleanUnit}|${cleanTopic}::${cleanSubtopic}`;
 }
 
 /**
@@ -465,10 +639,14 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
 
   const existingSubjectCodes = new Set(existingSubjects.map((s) => s.code.toUpperCase()));
   const existingTopicKeyMap = new Map<string, StudyTopic>();
+  const existingTopicMappingKeyMap = new Map<string, StudyTopic>();
   const existingTopicNameMap = new Map<string, StudyTopic>();
   const existingTopicConceptMap = new Map<string, StudyTopic>();
 
   for (const t of existingTopics) {
+    if ((t as any).sourceMappingKey) {
+      existingTopicMappingKeyMap.set((t as any).sourceMappingKey, t);
+    }
     if ((t as any).sourceRowKey) {
       existingTopicKeyMap.set((t as any).sourceRowKey, t);
     }
@@ -481,6 +659,7 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
   }
 
   let totalSelectedTabs = 0;
+  let totalEvaluatedRows = 0;
   let subjectsToCreate = 0;
   let subjectsToMerge = 0;
   let newTopicsCount = 0;
@@ -512,6 +691,7 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
 
   for (const { mapping, rows } of tabs) {
     if (!mapping.isIncluded) continue;
+    totalEvaluatedRows += rows.length;
 
     // Invariant 3: Never automatically create a Study OS subject from an Overview or Summary sheet
     if (isTabOverview(mapping.sheetTitle)) {
@@ -572,6 +752,9 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
       const notes = rawNotes || undefined;
       const priority = normalizePriority(rawPriority);
 
+      const stableSourceRowId = String(r.rowUid || r.id || r.rowIndex);
+      const sourceMappingKey = computeSourceMappingKey(spreadsheetId, mapping.sheetId, stableSourceRowId);
+
       const sourceRowKey = computeSourceRowKey(
         spreadsheetId,
         mapping.sheetId,
@@ -594,6 +777,7 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
           subtopic,
           count: prevSeenCount + 1,
         });
+        continue;
       } else {
         seenCompositeKeys.set(sourceRowKey, 1);
       }
@@ -602,7 +786,11 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
       const nameKey = `${mapping.targetSubjectCode.toUpperCase()}|${unit.toLowerCase()}|${topic.trim().toLowerCase()}|${subtopic.trim().toLowerCase()}`;
       // Concept-level matching strictly includes unit
       const conceptKey = `${mapping.targetSubjectCode.toUpperCase()}|${unit.toLowerCase()}|${topic.trim().toLowerCase()}::${subtopic.trim().toLowerCase()}`;
-      const existingMatch = existingTopicKeyMap.get(sourceRowKey) || existingTopicNameMap.get(nameKey) || existingTopicConceptMap.get(conceptKey);
+      const existingMatch =
+        existingTopicMappingKeyMap.get(sourceMappingKey) ||
+        existingTopicKeyMap.get(sourceRowKey) ||
+        existingTopicNameMap.get(nameKey) ||
+        existingTopicConceptMap.get(conceptKey);
 
       const isDone = parseBooleanDone(rawDone);
       if (isDone) {
@@ -619,8 +807,8 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
         if (existingMatch.unit !== unit) diffFields.push('unit');
         if (existingMatch.topic !== topic) diffFields.push('topic');
         if (existingMatch.subtopic !== subtopic) diffFields.push('subtopic');
-        if (existingMatch.priority !== priority) diffFields.push('priority');
-        if (notes && !existingMatch.notes) diffFields.push('notes');
+        if (priorityCol && existingMatch.priority !== priority) diffFields.push('priority');
+        if (notesCol && notes && !existingMatch.notes) diffFields.push('notes');
 
         if (diffFields.length > 0) {
           conflictAnalysis.changedTopics.push({
@@ -721,6 +909,33 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
     }
   }
 
+  const movedTopicsCount = conflictAnalysis.changedTopics.filter((c) => c.diffFields.includes('unit')).length;
+  const renamedTopicsCount = conflictAnalysis.changedTopics.filter(
+    (c) => c.diffFields.includes('topic') || c.diffFields.includes('subtopic')
+  ).length;
+  const unchangedTopicsCount = conflictAnalysis.unchangedTopics.length;
+  const orphanedSourceTopicsCount = conflictAnalysis.missingSourceTopics.length;
+
+  const sumBreakdown =
+    newTopicsCount +
+    conflictAnalysis.changedTopics.length +
+    unchangedTopicsCount +
+    duplicateRowsCount +
+    invalidRowsCount;
+
+  const reconciliation = {
+    totalRowsEvaluated: totalEvaluatedRows,
+    created: newTopicsCount,
+    updated: conflictAnalysis.changedTopics.length,
+    unchanged: unchangedTopicsCount,
+    skipped: 0,
+    duplicate: duplicateRowsCount,
+    invalid: invalidRowsCount,
+    failed: 0,
+    sumBreakdown,
+    isReconciled: sumBreakdown === totalEvaluatedRows,
+  };
+
   const summary: ImportPreviewSummary = {
     tabsSelectedCount: totalSelectedTabs,
     subjectsToCreateCount: subjectsToCreate,
@@ -731,6 +946,11 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
     invalidRowsCount: invalidRowsCount,
     theoryCompletedCount: totalTheoryCompleted,
     validationBreakdown,
+    unchangedTopicsCount,
+    movedTopicsCount,
+    renamedTopicsCount,
+    orphanedSourceTopicsCount,
+    reconciliation,
   };
 
   return { summary, previewSubjects, conflictAnalysis };

@@ -4369,6 +4369,7 @@ var schemaDetector_exports = {};
 __export(schemaDetector_exports, {
   classifySheetPurpose: () => classifySheetPurpose,
   colIndexToLetter: () => colIndexToLetter2,
+  detectHeaderRowCandidates: () => detectHeaderRowCandidates,
   detectHeaderRowIndex: () => detectHeaderRowIndex,
   detectTabSchema: () => detectTabSchema,
   detectWorkbookSchema: () => detectWorkbookSchema,
@@ -4409,36 +4410,81 @@ function cellText(cell) {
   if (cell.value === null || cell.value === void 0) return "";
   return String(cell.value).trim();
 }
-function detectHeaderRowIndex(rows) {
-  const maxScan = Math.min(rows.length, 10);
-  let best = null;
+function detectHeaderRowCandidates(rows) {
+  const maxScan = Math.min(rows.length, 25);
+  const candidates = [];
   for (let r = 0; r < maxScan; r++) {
     const row = rows[r] || [];
     const nonEmptyCells = row.filter((c) => isNonEmptyCell(c));
     if (nonEmptyCells.length === 0) continue;
-    const texts = nonEmptyCells.map((c) => cellText(c));
+    const texts = nonEmptyCells.map((c) => cellText(c)).filter(Boolean);
+    if (texts.length === 0) continue;
     const distinctTexts = new Set(texts.map((t) => t.toLowerCase()));
     const stringLikeCount = nonEmptyCells.filter(
-      (c) => !c.formula && !c.isBooleanCell && typeof c.value === "string" && c.value.trim().length > 0 && c.value.trim().length <= 64
+      (c) => !c.formula && !c.isBooleanCell && typeof c.value === "string" && c.value.trim().length > 0 && c.value.trim().length <= 80
     ).length;
     const formulaCount = nonEmptyCells.filter((c) => Boolean(c.formula)).length;
     const avgLen = texts.reduce((sum, t) => sum + t.length, 0) / Math.max(1, texts.length);
+    const headerKeywordMatches = texts.filter((t) => HEADER_KEYWORD_REGEX.test(t)).length;
     const nextRow = rows[r + 1] || [];
     const nextNonEmpty = nextRow.filter((c) => isNonEmptyCell(c)).length;
     let score = 0;
     score += nonEmptyCells.length * 3;
     score += stringLikeCount * 2.5;
-    score += distinctTexts.size === nonEmptyCells.length ? 4 : -3;
-    score -= formulaCount * 6;
-    if (avgLen > 50) score -= 8;
-    if (nonEmptyCells.length === 1 && rows.length > r + 1) score -= 12;
-    if (nextNonEmpty >= Math.max(2, Math.floor(nonEmptyCells.length * 0.5))) score += 5;
-    score -= r * 0.4;
-    if (!best || score > best.score) {
-      best = { rowIndex0: r, score, nonEmptyCount: nonEmptyCells.length };
+    score += distinctTexts.size === nonEmptyCells.length ? 5 : -4;
+    score += headerKeywordMatches * 6;
+    score -= formulaCount * 8;
+    const booleanCount = nonEmptyCells.filter((c) => c.isBooleanCell || typeof c.value === "boolean").length;
+    score -= booleanCount * 12;
+    if (avgLen > 60) score -= 10;
+    if (nonEmptyCells.length === 1 && rows.length > r + 1 && nextNonEmpty > 1) score -= 16;
+    if (nextNonEmpty >= Math.max(2, Math.floor(nonEmptyCells.length * 0.5))) score += 6;
+    const numericCells = nonEmptyCells.filter(
+      (c) => typeof c.value === "number" || /^\d+(\.\d+)?$/.test(cellText(c))
+    ).length;
+    if (numericCells / nonEmptyCells.length >= 0.7) {
+      score -= 15;
+    }
+    score -= r * 0.25;
+    if (score > 0) {
+      let confidence = "low";
+      if (score >= 22 && (headerKeywordMatches >= 1 || distinctTexts.size >= 3)) {
+        confidence = "high";
+      } else if (score >= 12) {
+        confidence = "medium";
+      }
+      candidates.push({
+        rowIndex0: r,
+        rowNumber: r + 1,
+        score,
+        confidence,
+        nonEmptyCount: nonEmptyCells.length,
+        sampleHeaders: texts.slice(0, 6)
+      });
     }
   }
-  return best ? best.rowIndex0 : -1;
+  if (candidates.length === 0) {
+    const firstNonEmpty = rows.findIndex((r) => r.some((c) => isNonEmptyCell(c)));
+    if (firstNonEmpty >= 0) {
+      const row = rows[firstNonEmpty] || [];
+      const nonEmptyCells = row.filter((c) => isNonEmptyCell(c));
+      const texts = nonEmptyCells.map((c) => cellText(c)).filter(Boolean);
+      candidates.push({
+        rowIndex0: firstNonEmpty,
+        rowNumber: firstNonEmpty + 1,
+        score: 1,
+        confidence: "low",
+        nonEmptyCount: nonEmptyCells.length,
+        sampleHeaders: texts.slice(0, 6)
+      });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates;
+}
+function detectHeaderRowIndex(rows) {
+  const candidates = detectHeaderRowCandidates(rows);
+  return candidates.length > 0 ? candidates[0].rowIndex0 : -1;
 }
 function inferSemanticRole(headerName, inferredType, colIndex) {
   const h = headerName.trim().toLowerCase();
@@ -4621,6 +4667,7 @@ function inferColumnMapping(colIndex, headerName, columnCells) {
   const combinedRank = Math.min(rank[typeConfidence], rank[roleConfidence]);
   const confidence = combinedRank === 2 ? "high" : combinedRank === 1 ? "medium" : "low";
   const requiresConfirmation = confidence !== "high" || totalSample === 0;
+  const isUncertain = confidence === "low" || semanticRole === "custom";
   return {
     colIndex,
     colLetter,
@@ -4634,6 +4681,8 @@ function inferColumnMapping(colIndex, headerName, columnCells) {
     editable,
     readOnlyReason,
     requiresConfirmation,
+    isUncertain,
+    mappingConfidence: confidence,
     ...enumOptions && enumOptions.length > 0 ? { enumOptions } : {}
   };
 }
@@ -4848,7 +4897,8 @@ function detectTabSchema(tab) {
   const formulaRatio = formulaCellCount / Math.max(1, totalNonEmptyCells);
   const isProbStatsSubject = /^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(tab.sheetTitle.trim());
   const isOverviewByName = !isProbStatsSubject && OVERVIEW_TAB_NAME_REGEX.test(tab.sheetTitle);
-  const headerIdx0 = detectHeaderRowIndex(rows);
+  const headerCandidates = detectHeaderRowCandidates(rows);
+  const headerIdx0 = headerCandidates.length > 0 ? headerCandidates[0].rowIndex0 : -1;
   const headerRow = headerIdx0 >= 0 ? rows[headerIdx0] || [] : [];
   const dataRows = headerIdx0 >= 0 ? rows.slice(headerIdx0 + 1).filter((r) => r.some((c) => isNonEmptyCell(c))) : [];
   const activeColIndices = [];
@@ -4860,8 +4910,14 @@ function detectTabSchema(tab) {
       activeColIndices.push(c);
     }
   }
+  let lastSeenHeader = "";
   const columns = activeColIndices.map((cIdx) => {
-    const headerLabel = cellText(headerRow[cIdx]);
+    let headerLabel = cellText(headerRow[cIdx]);
+    if (!headerLabel && lastSeenHeader) {
+      headerLabel = `${lastSeenHeader} (Part ${colIndexToLetter2(cIdx)})`;
+    } else if (headerLabel) {
+      lastSeenHeader = headerLabel;
+    }
     const colCells = dataRows.map((r) => r[cIdx] || { value: null });
     return inferColumnMapping(cIdx, headerLabel, colCells);
   });
@@ -4958,7 +5014,8 @@ function detectTabSchema(tab) {
     requiresMappingConfirmation,
     sampleRowCount: dataRows.length,
     formulaCellCount,
-    sampleRows
+    sampleRows,
+    headerCandidates
   };
 }
 function detectWorkbookSchema(tabs) {
@@ -4975,7 +5032,7 @@ function detectWorkbookSchema(tabs) {
     // Always require explicit confirmation before import
   };
 }
-var OVERVIEW_TAB_NAME_REGEX, URL_VALUE_REGEX, ISO_DATE_REGEX, HUMAN_DATE_REGEX, CURRENCY_TEXT_REGEX, BOOLEAN_TEXT_SET, PRIORITY_VALUE_SET, STATUS_VALUE_SET, AGGREGATE_FORMULA_REGEX, SUMMARY_KEYWORD_REGEX, INSTRUCTIONS_KEYWORD_REGEX, METADATA_KEY_REGEX, SYLLABUS_HEADER_REGEX;
+var OVERVIEW_TAB_NAME_REGEX, URL_VALUE_REGEX, ISO_DATE_REGEX, HUMAN_DATE_REGEX, CURRENCY_TEXT_REGEX, BOOLEAN_TEXT_SET, PRIORITY_VALUE_SET, STATUS_VALUE_SET, HEADER_KEYWORD_REGEX, AGGREGATE_FORMULA_REGEX, SUMMARY_KEYWORD_REGEX, INSTRUCTIONS_KEYWORD_REGEX, METADATA_KEY_REGEX, SYLLABUS_HEADER_REGEX;
 var init_schemaDetector = __esm({
   "src/lib/sheetHub/schemaDetector.ts"() {
     OVERVIEW_TAB_NAME_REGEX = /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions|about|progress|stats|statistics|tracker|syllabus[\s_-]?overview|course[\s_-]?overview)\b/i;
@@ -5003,6 +5060,7 @@ var init_schemaDetector = __esm({
       "unpaid",
       "overdue"
     ]);
+    HEADER_KEYWORD_REGEX = /(?:^|[\s_/\-()])(module|unit|chapter|chap|ch|topic|subtopic|section|subject|course|paper|lesson|concept|title|name|status|done|completed?|finished?|notes?|remarks?|priority|weightage|importance|date|due|links?|url|resource)(?:$|[\s_/\-()])|(টপিক|অধ্যায়|বিষয়|একক|মডিউল|সম্পন্ন|নোট|গুরুত্ব|পাঠ|শীর্ষক|विषय|अध्याय|मॉड्यूल|पूर्ण|स्थिति)/i;
     AGGREGATE_FORMULA_REGEX = /^\s*=\s*(SUM|COUNT|COUNTA|COUNTIF|COUNTIFS|AVERAGE|AVERAGEIF|SUBTOTAL|MAX|MIN|MEDIAN)\b/i;
     SUMMARY_KEYWORD_REGEX = /^(total|grand\s*total|subtotal|count|sum|average|avg|kpi|summary|overview|all|metrics|completion\s*rate)\b/i;
     INSTRUCTIONS_KEYWORD_REGEX = /\b(instructions?|guidelines?|how\s*to\s*use|readme|welcome|important\s*notes?|rules?|steps?)\b/i;

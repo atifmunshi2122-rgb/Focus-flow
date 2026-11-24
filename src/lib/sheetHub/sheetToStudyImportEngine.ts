@@ -89,11 +89,40 @@ export interface ImportDetailItem {
   subjectName: string;
   createdTopics: number;
   updatedTopics: number;
+  unchangedTopics: number;
   skippedTopics: number;
   invalidRows: number;
   duplicateRows: number;
   theoryCompleted: number;
   ambiguousTopics?: number;
+  movedTopics?: number;
+  renamedTopics?: number;
+}
+
+export interface ImportReconciliationReport {
+  totalRowsEvaluated: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  duplicate: number;
+  invalid: number;
+  failed: number;
+  sumBreakdown: number;
+  isReconciled: boolean;
+}
+
+export interface OrphanedSourceTopic {
+  id: string;
+  subjectCode: string;
+  unit: string;
+  topic: string;
+  subtopic: string;
+  theory: boolean;
+  practice: boolean;
+  revisionCount: number;
+  sourceRowId?: string;
+  sourceMappingKey?: string;
 }
 
 export interface SheetToStudyImportResult {
@@ -103,16 +132,31 @@ export interface SheetToStudyImportResult {
   updatedSubjectsCount: number;
   createdTopicsCount: number;
   updatedTopicsCount: number;
+  unchangedTopicsCount: number;
   skippedTopicsCount: number;
   duplicateRowsCount: number;
   invalidRowsCount: number;
+  failedTopicsCount: number;
   theoryCompletedCount: number;
+  movedTopicsCount: number;
+  renamedTopicsCount: number;
+  orphanedSourceTopicsCount: number;
+  orphanedTopicsForReview?: OrphanedSourceTopic[];
+  reconciliation: ImportReconciliationReport;
   details: ImportDetailItem[];
   historyId?: string;
   sessionId?: string;
   status: 'success' | 'partial' | 'failed';
   failedRecords?: StudyImportFailedRecord[];
   error?: string;
+}
+
+/**
+ * Yields execution to the event loop so UI animations and progress indicators
+ * never freeze or block the browser during large multi-thousand row imports.
+ */
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 export interface ExecuteImportOptions {
@@ -178,6 +222,12 @@ export async function executeSheetToStudyImport(
   if (!userId || !userId.trim()) {
     throw new StudyImportCriticalReadError(
       'Authenticated user ID is required for Study OS import.',
+      'AUTH_REQUIRED'
+    );
+  }
+  if (auth?.currentUser && auth.currentUser.uid !== userId) {
+    throw new StudyImportCriticalReadError(
+      "Permission denied: Authenticated user cannot modify another user's syllabus import records.",
       'AUTH_REQUIRED'
     );
   }
@@ -354,10 +404,18 @@ export async function executeSheetToStudyImport(
   let totalUpdatedSubjects = 0;
   let totalCreatedTopics = 0;
   let totalUpdatedTopics = 0;
+  let totalUnchangedTopics = 0;
   let totalSkippedTopics = 0;
   let totalDuplicateRows = 0;
   let totalInvalidRows = 0;
   let totalTheoryCompleted = 0;
+  let totalMovedTopics = 0;
+  let totalRenamedTopics = 0;
+  let totalFailedTopics = 0;
+  let totalEvaluatedRows = 0;
+
+  const matchedExistingTopicIds = new Set<string>();
+  const targetSubjectCodesIncluded = new Set<string>();
 
   const resultDetails: ImportDetailItem[] = [];
 
@@ -375,9 +433,11 @@ export async function executeSheetToStudyImport(
   for (let tabIdx = 0; tabIdx < selectedTabs.length; tabIdx++) {
     const tabMapping = selectedTabs[tabIdx];
     const rows = rowsByTabId[tabMapping.tabId] || [];
+    totalEvaluatedRows += rows.length;
 
     const cleanSubjectCode = sanitizeText(tabMapping.targetSubjectCode, 64);
     const upperCode = cleanSubjectCode.toUpperCase();
+    targetSubjectCodesIncluded.add(upperCode);
     const cleanSubjectName = sanitizeText(tabMapping.targetSubjectName, 256) || 'Subject';
     const isOverview = isTabOverview(tabMapping.sheetTitle, (tabMapping as any).role);
 
@@ -420,11 +480,14 @@ export async function executeSheetToStudyImport(
 
     let tabCreatedTopics = 0;
     let tabUpdatedTopics = 0;
+    let tabUnchangedTopics = 0;
     let tabSkippedTopics = 0;
     let tabDuplicateRows = 0;
     let tabInvalidRows = 0;
     let tabTheoryCompleted = 0;
     let tabAmbiguousTopics = 0;
+    let tabMovedTopics = 0;
+    let tabRenamedTopics = 0;
 
     const seenTabCompositeKeys = new Set<string>();
     const tabTopicsToCreate: StudyTopic[] = [];
@@ -432,6 +495,9 @@ export async function executeSheetToStudyImport(
     const tabNewSourceMappings: StudyTopicSourceMapping[] = [];
 
     for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+      if (rIdx > 0 && rIdx % 100 === 0) {
+        await yieldToEventLoop();
+      }
       const r = rows[rIdx];
       const rawUnitDirect = unitCol ? sanitizeText(r.values?.[unitCol], 128) : '';
       const rawModule = moduleCol ? sanitizeText(r.values?.[moduleCol], 128) : '';
@@ -577,6 +643,14 @@ export async function executeSheetToStudyImport(
 
         tabCreatedTopics++;
       } else {
+        matchedExistingTopicIds.add(existingMatch.id);
+        if (existingMatch.unit !== unit) {
+          tabMovedTopics++;
+        }
+        if (existingMatch.topic !== topic || existingMatch.subtopic !== subtopic) {
+          tabRenamedTopics++;
+        }
+
         // --- Scenario B: RE-IMPORT OF EXISTING TOPIC (PROGRESS PRESERVATION) ---
         const updates: Partial<StudyTopic> = {};
         let changed = false;
@@ -636,7 +710,7 @@ export async function executeSheetToStudyImport(
           tabTopicsToUpdate.push({ id: existingMatch.id, updates });
           tabUpdatedTopics++;
         } else {
-          tabSkippedTopics++;
+          tabUnchangedTopics++;
         }
       }
     }
@@ -650,16 +724,19 @@ export async function executeSheetToStudyImport(
         subjectName: cleanSubjectName,
         createdTopics: 0,
         updatedTopics: 0,
-        skippedTopics: 0,
+        unchangedTopics: 0,
+        skippedTopics: rows.length,
         invalidRows: rows.length,
         duplicateRows: 0,
         theoryCompleted: 0,
         ambiguousTopics: 0,
+        movedTopics: 0,
+        renamedTopics: 0,
       });
       continue;
     }
 
-    const hasValidTopics = (tabTopicsToCreate.length + tabTopicsToUpdate.length + tabSkippedTopics) > 0;
+    const hasValidTopics = (tabTopicsToCreate.length + tabTopicsToUpdate.length + tabUnchangedTopics + tabSkippedTopics) > 0;
     const subjectAlreadyExists = existingSubjectByCode.has(upperCode);
     if (!hasValidTopics && !subjectAlreadyExists) {
       totalInvalidRows += tabInvalidRows;
@@ -700,21 +777,27 @@ export async function executeSheetToStudyImport(
 
     totalCreatedTopics += tabCreatedTopics;
     totalUpdatedTopics += tabUpdatedTopics;
+    totalUnchangedTopics += tabUnchangedTopics;
     totalSkippedTopics += tabSkippedTopics;
     totalDuplicateRows += tabDuplicateRows;
     totalInvalidRows += tabInvalidRows;
     totalTheoryCompleted += tabTheoryCompleted;
+    totalMovedTopics += tabMovedTopics;
+    totalRenamedTopics += tabRenamedTopics;
 
     resultDetails.push({
       subjectCode: cleanSubjectCode,
       subjectName: cleanSubjectName,
       createdTopics: tabCreatedTopics,
       updatedTopics: tabUpdatedTopics,
+      unchangedTopics: tabUnchangedTopics,
       skippedTopics: tabSkippedTopics,
       invalidRows: tabInvalidRows,
       duplicateRows: tabDuplicateRows,
       theoryCompleted: tabTheoryCompleted,
       ambiguousTopics: tabAmbiguousTopics,
+      movedTopics: tabMovedTopics,
+      renamedTopics: tabRenamedTopics,
     });
   }
 
@@ -926,6 +1009,53 @@ export async function executeSheetToStudyImport(
 
   onProgress?.({ stage: 'Import completed successfully!', current: 10, total: 10, percent: 100 });
 
+  // 6G. Identify orphaned source records (topics previously imported from this sheet that are missing in this run)
+  // Invariant: NEVER automatically delete orphaned topics; preserve them and flag for review.
+  const orphanedTopicsForReview: OrphanedSourceTopic[] = [];
+  for (const t of allExistingTopics) {
+    if (t.deletedAt) continue;
+    const isSubjectTarget = targetSubjectCodesIncluded.has(t.subjectCode.toUpperCase());
+    const isSourceMatch = t.sourceSpreadsheetId === spreadsheetId || t.sourceOrigin === 'google_sheet';
+    if (isSubjectTarget && isSourceMatch && !matchedExistingTopicIds.has(t.id)) {
+      orphanedTopicsForReview.push({
+        id: t.id,
+        subjectCode: t.subjectCode,
+        unit: t.unit,
+        topic: t.topic,
+        subtopic: t.subtopic,
+        theory: Boolean(t.theory),
+        practice: Boolean(t.practice),
+        revisionCount: t.revisionCount || 0,
+        sourceRowId: t.sourceRowId,
+        sourceMappingKey: t.sourceMappingKey,
+      });
+    }
+  }
+  const orphanedSourceTopicsCount = orphanedTopicsForReview.length;
+
+  // 6H. Strict mathematical reconciliation
+  const sumBreakdown =
+    totalCreatedTopics +
+    totalUpdatedTopics +
+    totalUnchangedTopics +
+    totalDuplicateRows +
+    totalInvalidRows +
+    totalSkippedTopics +
+    totalFailedTopics;
+
+  const reconciliation: ImportReconciliationReport = {
+    totalRowsEvaluated: totalEvaluatedRows,
+    created: totalCreatedTopics,
+    updated: totalUpdatedTopics,
+    unchanged: totalUnchangedTopics,
+    skipped: totalSkippedTopics,
+    duplicate: totalDuplicateRows,
+    invalid: totalInvalidRows,
+    failed: totalFailedTopics,
+    sumBreakdown,
+    isReconciled: sumBreakdown === totalEvaluatedRows,
+  };
+
   const historyId = `hist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const importResult: SheetToStudyImportResult = {
     success: true,
@@ -937,10 +1067,17 @@ export async function executeSheetToStudyImport(
     updatedSubjectsCount: totalUpdatedSubjects,
     createdTopicsCount: totalCreatedTopics,
     updatedTopicsCount: totalUpdatedTopics,
+    unchangedTopicsCount: totalUnchangedTopics,
     skippedTopicsCount: totalSkippedTopics,
     duplicateRowsCount: totalDuplicateRows,
     invalidRowsCount: totalInvalidRows,
+    failedTopicsCount: totalFailedTopics,
     theoryCompletedCount: totalTheoryCompleted,
+    movedTopicsCount: totalMovedTopics,
+    renamedTopicsCount: totalRenamedTopics,
+    orphanedSourceTopicsCount,
+    orphanedTopicsForReview,
+    reconciliation,
     details: resultDetails,
   };
 
@@ -959,10 +1096,16 @@ export async function executeSheetToStudyImport(
         updatedSubjectsCount: totalUpdatedSubjects,
         createdTopicsCount: totalCreatedTopics,
         updatedTopicsCount: totalUpdatedTopics,
+        unchangedTopicsCount: totalUnchangedTopics,
         skippedTopicsCount: totalSkippedTopics,
         duplicateRowsCount: totalDuplicateRows,
         invalidRowsCount: totalInvalidRows,
+        failedTopicsCount: totalFailedTopics,
         theoryCompletedCount: totalTheoryCompleted,
+        movedTopicsCount: totalMovedTopics,
+        renamedTopicsCount: totalRenamedTopics,
+        orphanedSourceTopicsCount,
+        reconciliation,
         status: 'success',
         importedAt: nowIso,
         details: resultDetails,

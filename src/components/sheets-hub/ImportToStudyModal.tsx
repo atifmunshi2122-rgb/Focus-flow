@@ -1085,7 +1085,14 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                         {activeTabMapping.columns.map((col) => (
                           <tr key={col.fieldKey} className="hover:bg-[var(--ff-surface-hover)]">
                             <td className="px-3 py-2 font-medium text-[var(--ff-text-primary)]">
-                              {col.headerName}
+                              <div className="flex items-center gap-1.5">
+                                <span>{col.headerName}</span>
+                                {col.isUncertain && (
+                                  <span className="text-[10px] text-amber-500 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                    Uncertain
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-3 py-2">
                               <ThemeSelect
@@ -1553,7 +1560,7 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                   </div>
                   <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
                     <span className="text-[10px] text-[var(--ff-text-muted)] block">Unchanged Topics</span>
-                    <span className="font-bold text-[var(--ff-text-secondary)]">{importResult.skippedTopicsCount}</span>
+                    <span className="font-bold text-[var(--ff-text-secondary)]">{importResult.unchangedTopicsCount ?? importResult.skippedTopicsCount}</span>
                   </div>
                   <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
                     <span className="text-[10px] text-[var(--ff-text-muted)] block">Duplicate Rows</span>
@@ -1567,7 +1574,34 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                     <span className="text-[10px] text-[var(--ff-text-muted)] block">Theory Done</span>
                     <span className="font-bold text-emerald-600 dark:text-emerald-400">{importResult.theoryCompletedCount}</span>
                   </div>
+                  {Boolean(importResult.movedTopicsCount) && (
+                    <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                      <span className="text-[10px] text-[var(--ff-text-muted)] block">Moved Topics</span>
+                      <span className="font-bold text-indigo-500">{importResult.movedTopicsCount}</span>
+                    </div>
+                  )}
+                  {Boolean(importResult.renamedTopicsCount) && (
+                    <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                      <span className="text-[10px] text-[var(--ff-text-muted)] block">Renamed Topics</span>
+                      <span className="font-bold text-cyan-500">{importResult.renamedTopicsCount}</span>
+                    </div>
+                  )}
+                  {Boolean(importResult.orphanedSourceTopicsCount) && (
+                    <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                      <span className="text-[10px] text-[var(--ff-text-muted)] block">Preserved (Not in Sheet)</span>
+                      <span className="font-bold text-purple-500">{importResult.orphanedSourceTopicsCount}</span>
+                    </div>
+                  )}
                 </div>
+
+                {importResult.reconciliation && (
+                  <div className="p-2.5 rounded-lg border border-[var(--ff-border-color)] bg-[var(--ff-surface)] flex items-center justify-between text-xs">
+                    <span className="text-[var(--ff-text-secondary)]">Database Reconciliation:</span>
+                    <ThemeBadge tone={importResult.reconciliation.isReconciled ? 'success' : 'warning'}>
+                      {importResult.reconciliation.isReconciled ? '100% Reconciled' : 'Reconciliation Discrepancy'} ({importResult.reconciliation.sumBreakdown} / {importResult.reconciliation.totalRowsEvaluated} rows)
+                    </ThemeBadge>
+                  </div>
+                )}
 
                 <p className="text-xs text-emerald-700 dark:text-emerald-300">
                   All subjects, syllabus modules, and topics have been saved to your Study OS workspace with full progress protection.

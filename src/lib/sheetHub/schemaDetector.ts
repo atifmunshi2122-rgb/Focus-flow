@@ -14,6 +14,7 @@ import type {
   SheetDefaultView,
   SheetDetectedPurpose,
   SheetFieldType,
+  SheetHeaderCandidate,
   SheetIdentityStrategy,
   SheetInspectCellMeta,
   SheetSemanticRole,
@@ -99,27 +100,26 @@ const STATUS_VALUE_SET = new Set([
   'overdue',
 ]);
 
-interface HeaderCandidate {
-  rowIndex0: number;
-  score: number;
-  nonEmptyCount: number;
-}
+const HEADER_KEYWORD_REGEX =
+  /(?:^|[\s_/\-()])(module|unit|chapter|chap|ch|topic|subtopic|section|subject|course|paper|lesson|concept|title|name|status|done|completed?|finished?|notes?|remarks?|priority|weightage|importance|date|due|links?|url|resource)(?:$|[\s_/\-()])|(টপিক|অধ্যায়|বিষয়|একক|মডিউল|সম্পন্ন|নোট|গুরুত্ব|পাঠ|শীর্ষক|विषय|अध्याय|मॉड्यूल|पूर्ण|स्थिति)/i;
 
 /**
- * Scans the top rows (up to 10) to locate the most probable header row.
- * Handles title banners above tables, merged header intros, and standard row-1 tables.
+ * Flexible Header Detection:
+ * Scans up to 25 rows to discover and rank all candidate header rows.
+ * Handles metadata banners, merged cells, blank prologue rows, and multi-tier headers.
  */
-export function detectHeaderRowIndex(rows: SheetInspectCellMeta[][]): number {
-  const maxScan = Math.min(rows.length, 10);
-  let best: HeaderCandidate | null = null;
+export function detectHeaderRowCandidates(rows: SheetInspectCellMeta[][]): SheetHeaderCandidate[] {
+  const maxScan = Math.min(rows.length, 25);
+  const candidates: SheetHeaderCandidate[] = [];
 
   for (let r = 0; r < maxScan; r++) {
     const row = rows[r] || [];
     const nonEmptyCells = row.filter((c) => isNonEmptyCell(c));
     if (nonEmptyCells.length === 0) continue;
 
-    // A single wide banner cell in row 1 when subsequent rows have multiple columns is likely a title, not headers
-    const texts = nonEmptyCells.map((c) => cellText(c));
+    const texts = nonEmptyCells.map((c) => cellText(c)).filter(Boolean);
+    if (texts.length === 0) continue;
+
     const distinctTexts = new Set(texts.map((t) => t.toLowerCase()));
     const stringLikeCount = nonEmptyCells.filter(
       (c) =>
@@ -127,11 +127,13 @@ export function detectHeaderRowIndex(rows: SheetInspectCellMeta[][]): number {
         !c.isBooleanCell &&
         typeof c.value === 'string' &&
         c.value.trim().length > 0 &&
-        c.value.trim().length <= 64
+        c.value.trim().length <= 80
     ).length;
     const formulaCount = nonEmptyCells.filter((c) => Boolean(c.formula)).length;
-    const avgLen =
-      texts.reduce((sum, t) => sum + t.length, 0) / Math.max(1, texts.length);
+    const avgLen = texts.reduce((sum, t) => sum + t.length, 0) / Math.max(1, texts.length);
+
+    // Header vocabulary match count
+    const headerKeywordMatches = texts.filter((t) => HEADER_KEYWORD_REGEX.test(t)).length;
 
     // Check if the row immediately below has tabular data
     const nextRow = rows[r + 1] || [];
@@ -140,20 +142,76 @@ export function detectHeaderRowIndex(rows: SheetInspectCellMeta[][]): number {
     let score = 0;
     score += nonEmptyCells.length * 3;
     score += stringLikeCount * 2.5;
-    score += distinctTexts.size === nonEmptyCells.length ? 4 : -3;
-    score -= formulaCount * 6;
-    if (avgLen > 50) score -= 8;
-    if (nonEmptyCells.length === 1 && rows.length > r + 1) score -= 12;
-    if (nextNonEmpty >= Math.max(2, Math.floor(nonEmptyCells.length * 0.5))) score += 5;
-    // Slight preference for earlier rows when scores tie
-    score -= r * 0.4;
+    score += distinctTexts.size === nonEmptyCells.length ? 5 : -4;
+    score += headerKeywordMatches * 6; // Big boost for standard header terminology
+    score -= formulaCount * 8;
 
-    if (!best || score > best.score) {
-      best = { rowIndex0: r, score, nonEmptyCount: nonEmptyCells.length };
+    // A row containing boolean checkboxes is a data row, not a header row
+    const booleanCount = nonEmptyCells.filter((c) => c.isBooleanCell || typeof c.value === 'boolean').length;
+    score -= booleanCount * 12;
+
+    if (avgLen > 60) score -= 10;
+    if (nonEmptyCells.length === 1 && rows.length > r + 1 && nextNonEmpty > 1) score -= 16; // single banner row penalty when table has multiple columns
+    if (nextNonEmpty >= Math.max(2, Math.floor(nonEmptyCells.length * 0.5))) score += 6;
+
+    // Penalize row if all cells are purely numeric
+    const numericCells = nonEmptyCells.filter(
+      (c) => typeof c.value === 'number' || /^\d+(\.\d+)?$/.test(cellText(c))
+    ).length;
+    if (numericCells / nonEmptyCells.length >= 0.7) {
+      score -= 15;
+    }
+
+    // Slight preference for earlier rows when scores tie
+    score -= r * 0.25;
+
+    if (score > 0) {
+      let confidence: SheetConfidence = 'low';
+      if (score >= 22 && (headerKeywordMatches >= 1 || distinctTexts.size >= 3)) {
+        confidence = 'high';
+      } else if (score >= 12) {
+        confidence = 'medium';
+      }
+
+      candidates.push({
+        rowIndex0: r,
+        rowNumber: r + 1,
+        score,
+        confidence,
+        nonEmptyCount: nonEmptyCells.length,
+        sampleHeaders: texts.slice(0, 6),
+      });
     }
   }
 
-  return best ? best.rowIndex0 : -1;
+  if (candidates.length === 0) {
+    const firstNonEmpty = rows.findIndex((r) => r.some((c) => isNonEmptyCell(c)));
+    if (firstNonEmpty >= 0) {
+      const row = rows[firstNonEmpty] || [];
+      const nonEmptyCells = row.filter((c) => isNonEmptyCell(c));
+      const texts = nonEmptyCells.map((c) => cellText(c)).filter(Boolean);
+      candidates.push({
+        rowIndex0: firstNonEmpty,
+        rowNumber: firstNonEmpty + 1,
+        score: 1,
+        confidence: 'low',
+        nonEmptyCount: nonEmptyCells.length,
+        sampleHeaders: texts.slice(0, 6),
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates;
+}
+
+/**
+ * Scans rows dynamically to locate the most probable header row index (0-based).
+ * Returns top-scoring candidate index, or -1 if no suitable header row found.
+ */
+export function detectHeaderRowIndex(rows: SheetInspectCellMeta[][]): number {
+  const candidates = detectHeaderRowCandidates(rows);
+  return candidates.length > 0 ? candidates[0].rowIndex0 : -1;
 }
 
 function inferSemanticRole(
@@ -362,6 +420,7 @@ function inferColumnMapping(
     combinedRank === 2 ? 'high' : combinedRank === 1 ? 'medium' : 'low';
 
   const requiresConfirmation = confidence !== 'high' || totalSample === 0;
+  const isUncertain = confidence === 'low' || semanticRole === 'custom';
 
   return {
     colIndex,
@@ -376,6 +435,8 @@ function inferColumnMapping(
     editable,
     readOnlyReason,
     requiresConfirmation,
+    isUncertain,
+    mappingConfidence: confidence,
     ...(enumOptions && enumOptions.length > 0 ? { enumOptions } : {}),
   };
 }
@@ -652,8 +713,9 @@ export function detectTabSchema(tab: SheetTabInspectionInput): DetectedTabSchema
   const isProbStatsSubject = /^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(tab.sheetTitle.trim());
   const isOverviewByName = !isProbStatsSubject && OVERVIEW_TAB_NAME_REGEX.test(tab.sheetTitle);
 
-  // Detect header row
-  const headerIdx0 = detectHeaderRowIndex(rows);
+  // Detect header row with candidate ranking
+  const headerCandidates = detectHeaderRowCandidates(rows);
+  const headerIdx0 = headerCandidates.length > 0 ? headerCandidates[0].rowIndex0 : -1;
   const headerRow = headerIdx0 >= 0 ? rows[headerIdx0] || [] : [];
   const dataRows = headerIdx0 >= 0 ? rows.slice(headerIdx0 + 1).filter((r) => r.some((c) => isNonEmptyCell(c))) : [];
 
@@ -668,8 +730,15 @@ export function detectTabSchema(tab: SheetTabInspectionInput): DetectedTabSchema
     }
   }
 
+  // Forward-fill merged headers or label sparse header cells
+  let lastSeenHeader = '';
   const columns: SheetColumnMapping[] = activeColIndices.map((cIdx) => {
-    const headerLabel = cellText(headerRow[cIdx]);
+    let headerLabel = cellText(headerRow[cIdx]);
+    if (!headerLabel && lastSeenHeader) {
+      headerLabel = `${lastSeenHeader} (Part ${colIndexToLetter(cIdx)})`;
+    } else if (headerLabel) {
+      lastSeenHeader = headerLabel;
+    }
     const colCells = dataRows.map((r) => r[cIdx] || { value: null });
     return inferColumnMapping(cIdx, headerLabel, colCells);
   });
@@ -803,6 +872,7 @@ export function detectTabSchema(tab: SheetTabInspectionInput): DetectedTabSchema
     sampleRowCount: dataRows.length,
     formulaCellCount,
     sampleRows,
+    headerCandidates,
   };
 }
 
