@@ -1,28 +1,57 @@
+/**
+ * FocusFlow & Finance — Centralized Motion & Animation Design System
+ *
+ * Unified motion language across the entire application:
+ * - Deterministic duration tokens (micro, control, overlay, modal, card, page, celebration)
+ * - Calibrated easing curves and physics springs (mechanical, damped, fluid, snappy, gentle)
+ * - Cross-module variant factories (fade, scale-fade, slide-up, modal, drawer, accordion)
+ * - Strict accessibility compliance: prefers-reduced-motion & animationIntensity overrides
+ * - GPU-optimized: targets transform & opacity to guarantee 60fps without layout thrashing
+ */
+
 import type { Transition, Variants } from 'motion/react';
 import type { AnimationIntensity, DesignStyleId } from '../types/theme.ts';
 
+// 1. Duration Tokens (seconds)
+export const MOTION_DURATION = {
+  instant: 0,
+  micro: 0.14,      // 100-150ms: checkbox check, button tap, icon micro-rotation
+  control: 0.18,    // 150-200ms: toggle switch, tab slider, small pills
+  dropdown: 0.18,   // 150-220ms: dropdown menus, floating tooltips
+  overlay: 0.22,    // 200-250ms: backdrop scrim, sheet backdrop
+  modal: 0.26,      // 220-300ms: modal dialog scale-fade
+  card: 0.28,       // 250-320ms: card expand, module accordion
+  drawer: 0.3,      // 250-350ms: mobile sidebar, drawer slide
+  page: 0.3,        // 250-350ms: global page / tab transitions
+  celebration: 0.55 // 500-600ms: milestone burst, confetti, success celebration
+} as const;
+
+// 2. Easing Curves
 export const MOTION_EASING = {
+  // Apple / iOS-style natural deceleration
   natural: [0.22, 1, 0.36, 1] as const,
+  // High-performance smooth deceleration
   decelerate: [0.16, 1, 0.3, 1] as const,
+  // Gentle continuous motion
   gentle: [0.25, 0.1, 0.25, 1] as const,
+  // Standard CSS-friendly ease
   standard: [0.25, 0.1, 0.25, 1] as const,
+  // Clean accelerating exit
   exit: [0.4, 0, 1, 1] as const,
+  // Sharp interaction response
+  sharp: [0.4, 0, 0.2, 1] as const,
+  // Smooth step
+  smoothStep: [0.33, 1, 0.68, 1] as const,
+
+  // Spring Physics Presets
   springSnappy: { type: 'spring', stiffness: 440, damping: 32, mass: 0.9 } as const,
   springSoft: { type: 'spring', stiffness: 320, damping: 28, mass: 1 } as const,
   springExpressive: { type: 'spring', stiffness: 380, damping: 22, mass: 0.85 } as const,
   springApple: { type: 'spring', stiffness: 410, damping: 30, mass: 0.85 } as const,
   springLinear: { type: 'spring', stiffness: 480, damping: 36, mass: 0.8 } as const,
   springMechanical: { type: 'spring', stiffness: 640, damping: 44, mass: 0.7 } as const,
-};
-
-export const MOTION_DURATION = {
-  micro: 0.14,     // 100-180ms
-  control: 0.18,   // 120-220ms
-  dropdown: 0.18,  // 150-250ms
-  overlay: 0.22,   // 150-250ms
-  card: 0.28,      // 200-350ms
-  page: 0.32,      // 250-450ms
-  celebration: 0.55,
+  springBouncy: { type: 'spring', stiffness: 350, damping: 18, mass: 0.8 } as const,
+  springInteractive: { type: 'spring', stiffness: 500, damping: 35, mass: 0.8 } as const,
 };
 
 export type StylePhysicsFamily = 'mechanical' | 'damped' | 'fluid';
@@ -38,6 +67,9 @@ export interface ThemeMotionProfile {
   allowOvershoot: boolean;
 }
 
+/**
+ * Maps design style archetype to physical animation dynamics family.
+ */
 export function getStylePhysicsFamily(styleId?: DesignStyleId): StylePhysicsFamily {
   if (!styleId) return 'fluid';
   if (styleId === 'brutalism' || styleId === 'retro') return 'mechanical';
@@ -52,6 +84,9 @@ export function getStylePhysicsFamily(styleId?: DesignStyleId): StylePhysicsFami
   return 'fluid';
 }
 
+/**
+ * Computes an adaptive motion profile respecting active design style and reduced motion.
+ */
 export function getThemeMotionProfile(
   styleId: DesignStyleId | undefined,
   intensity: AnimationIntensity,
@@ -159,6 +194,10 @@ export function getIntensityFactor(intensity: AnimationIntensity): number {
   }
 }
 
+/**
+ * Smooth, restrained global page transition variants.
+ * Guarantees zero layout jumps and instant response under reduced-motion.
+ */
 export function getPageTransition(
   intensity: AnimationIntensity,
   reducedMotion: boolean,
@@ -174,12 +213,12 @@ export function getPageTransition(
   const family = getStylePhysicsFamily(styleId);
   const yOffset =
     family === 'mechanical'
-      ? 4
+      ? 3
       : intensity === 'subtle'
-      ? 5
+      ? 4
       : intensity === 'expressive'
-      ? 12
-      : 8;
+      ? 10
+      : 6;
   const duration =
     family === 'mechanical'
       ? 0.16
@@ -187,19 +226,25 @@ export function getPageTransition(
       ? 0.18
       : intensity === 'expressive'
       ? 0.3
-      : 0.24;
+      : 0.22;
 
   return {
     initial: { opacity: 0, y: yOffset },
     animate: {
       opacity: 1,
       y: 0,
-      transition: { duration, ease: MOTION_EASING.decelerate },
+      transition: {
+        duration,
+        ease: MOTION_EASING.decelerate,
+      },
     },
     exit: {
       opacity: 0,
-      y: -Math.max(2, Math.round(yOffset * 0.45)),
-      transition: { duration: Math.min(0.14, duration * 0.5), ease: MOTION_EASING.exit },
+      y: -Math.max(2, Math.round(yOffset * 0.4)),
+      transition: {
+        duration: Math.min(0.12, duration * 0.5),
+        ease: MOTION_EASING.exit,
+      },
     },
   };
 }
@@ -224,6 +269,9 @@ export function getSpringTransition(
   return MOTION_EASING.springApple;
 }
 
+/**
+ * Stagger variants for parent containers and children.
+ */
 export function getStaggerVariants(
   intensity: AnimationIntensity,
   reducedMotion: boolean,
@@ -245,24 +293,24 @@ export function getStaggerVariants(
       : intensity === 'subtle'
       ? 0.02
       : intensity === 'expressive'
-      ? 0.05
-      : 0.032;
+      ? 0.045
+      : 0.03;
   const yOffset =
     family === 'mechanical'
-      ? 4
+      ? 3
       : intensity === 'subtle'
-      ? 5
+      ? 4
       : intensity === 'expressive'
-      ? 12
-      : 8;
+      ? 10
+      : 6;
   const duration =
     family === 'mechanical'
       ? 0.15
       : intensity === 'subtle'
       ? 0.18
       : intensity === 'expressive'
-      ? 0.3
-      : 0.24;
+      ? 0.28
+      : 0.22;
 
   return {
     container: {
@@ -281,6 +329,119 @@ export function getStaggerVariants(
         y: 0,
         transition: { duration, ease: MOTION_EASING.decelerate },
       },
+    },
+  };
+}
+
+/**
+ * Standard Fade Transition Variants
+ */
+export function getFadeVariants(
+  intensity: AnimationIntensity = 'standard',
+  reducedMotion = false
+): Variants {
+  if (intensity === 'none' || reducedMotion) {
+    return {
+      initial: { opacity: 1 },
+      animate: { opacity: 1 },
+      exit: { opacity: 1 },
+    };
+  }
+  return {
+    initial: { opacity: 0 },
+    animate: {
+      opacity: 1,
+      transition: { duration: MOTION_DURATION.control, ease: MOTION_EASING.decelerate },
+    },
+    exit: {
+      opacity: 0,
+      transition: { duration: MOTION_DURATION.micro, ease: MOTION_EASING.exit },
+    },
+  };
+}
+
+/**
+ * Standard Scale-Fade Transition Variants (for modals, popovers, context menus)
+ */
+export function getScaleFadeVariants(
+  intensity: AnimationIntensity = 'standard',
+  reducedMotion = false
+): Variants {
+  if (intensity === 'none' || reducedMotion) {
+    return {
+      initial: { opacity: 1, scale: 1 },
+      animate: { opacity: 1, scale: 1 },
+      exit: { opacity: 1, scale: 1 },
+    };
+  }
+  const scaleFrom = intensity === 'expressive' ? 0.94 : 0.97;
+  return {
+    initial: { opacity: 0, scale: scaleFrom },
+    animate: {
+      opacity: 1,
+      scale: 1,
+      transition: { duration: MOTION_DURATION.modal, ease: MOTION_EASING.natural },
+    },
+    exit: {
+      opacity: 0,
+      scale: scaleFrom,
+      transition: { duration: MOTION_DURATION.control, ease: MOTION_EASING.exit },
+    },
+  };
+}
+
+/**
+ * Slide-Up Transition Variants (for toast notifications, action sheets, bottom drawers)
+ */
+export function getSlideUpVariants(
+  intensity: AnimationIntensity = 'standard',
+  reducedMotion = false
+): Variants {
+  if (intensity === 'none' || reducedMotion) {
+    return {
+      initial: { opacity: 1, y: 0 },
+      animate: { opacity: 1, y: 0 },
+      exit: { opacity: 1, y: 0 },
+    };
+  }
+  return {
+    initial: { opacity: 0, y: 16 },
+    animate: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: MOTION_DURATION.card, ease: MOTION_EASING.decelerate },
+    },
+    exit: {
+      opacity: 0,
+      y: 12,
+      transition: { duration: MOTION_DURATION.control, ease: MOTION_EASING.exit },
+    },
+  };
+}
+
+/**
+ * Accordion Expand/Collapse Variants (for subtask checklists, module details)
+ */
+export function getAccordionVariants(
+  intensity: AnimationIntensity = 'standard',
+  reducedMotion = false
+): Variants {
+  if (intensity === 'none' || reducedMotion) {
+    return {
+      collapsed: { height: 0, opacity: 0 },
+      expanded: { height: 'auto', opacity: 1 },
+    };
+  }
+  return {
+    collapsed: {
+      height: 0,
+      opacity: 0,
+      transition: { duration: MOTION_DURATION.control, ease: MOTION_EASING.exit },
+    },
+    expanded: {
+      height: 'auto',
+      opacity: 1,
+      transition: { duration: MOTION_DURATION.card, ease: MOTION_EASING.natural },
     },
   };
 }

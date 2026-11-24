@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import { StudyPlan, StudyPlanTask, StudySubject } from '../../types/study.ts';
 import { FocusSession } from '../../types/index.ts';
 import { computeStudyPlanAnalytics } from '../../lib/studyIntelligence.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
-import { Calendar, CheckCircle2, Clock, Plus, Trash2, Check } from 'lucide-react';
+import {
+  AnimatedCheckmark,
+  AnimatedNumber,
+  SubtleConfetti,
+  useMotionPreferences,
+} from '../ui/MotionPrimitives.tsx';
+import { Calendar, CheckCircle2, Clock, Plus, Trash2 } from 'lucide-react';
 
 interface StudyPlansTabProps {
   plans: StudyPlan[];
@@ -36,6 +43,16 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
   const [quickMinutes, setQuickMinutes] = useState(45);
   const [quickSubject, setQuickSubject] = useState(subjects[0]?.code || '');
   const [addingTask, setAddingTask] = useState(false);
+  const [celebratingTaskId, setCelebratingTaskId] = useState<string | null>(null);
+  const { isDisabled, profile } = useMotionPreferences();
+
+  const handleToggleTaskWithCelebration = async (task: StudyPlanTask) => {
+    if (task.status !== 'completed') {
+      setCelebratingTaskId(task.id);
+      setTimeout(() => setCelebratingTaskId((c) => (c === task.id ? null : c)), 1400);
+    }
+    await onToggleTask(task);
+  };
 
   // Authoritative analytics
   const analytics = computeStudyPlanAnalytics(planTasks, focusSessions);
@@ -91,7 +108,10 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
         <ThemeCard className="p-4">
           <span className="text-[11px] text-[var(--ff-text-muted)] font-medium">Planned Focus</span>
           <div className="text-xl font-bold font-mono text-[var(--ff-text-primary)] mt-1">
-            {(analytics.totalPlannedMinutes / 60).toFixed(1)} hrs
+            <AnimatedNumber
+              value={analytics.totalPlannedMinutes / 60}
+              format={(hrs) => `${hrs.toFixed(1)} hrs`}
+            />
           </div>
           <span className="text-[10px] text-[var(--ff-text-muted)]">across scheduled tasks</span>
         </ThemeCard>
@@ -99,7 +119,10 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
         <ThemeCard className="p-4">
           <span className="text-[11px] text-[var(--ff-text-muted)] font-medium">Actual Deep Work</span>
           <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
-            {(analytics.totalActualMinutes / 60).toFixed(1)} hrs
+            <AnimatedNumber
+              value={analytics.totalActualMinutes / 60}
+              format={(hrs) => `${hrs.toFixed(1)} hrs`}
+            />
           </div>
           <span className="text-[10px] text-[var(--ff-text-muted)]">authoritative focus logs</span>
         </ThemeCard>
@@ -107,7 +130,7 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
         <ThemeCard className="p-4">
           <span className="text-[11px] text-[var(--ff-text-muted)] font-medium">Task Completion</span>
           <div className="text-xl font-bold font-mono text-[var(--ff-text-primary)] mt-1">
-            {analytics.completedTasksCount} / {analytics.completedTasksCount + analytics.pendingTasksCount}
+            <AnimatedNumber value={analytics.completedTasksCount} /> / {analytics.completedTasksCount + analytics.pendingTasksCount}
           </div>
           <span className="text-[10px] text-[var(--ff-text-muted)]">
             {analytics.pendingTasksCount} tasks remaining
@@ -117,7 +140,10 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
         <ThemeCard className="p-4">
           <span className="text-[11px] text-[var(--ff-text-muted)] font-medium">Plan Adherence</span>
           <div className="text-xl font-bold font-mono text-[var(--ff-accent-text)] mt-1">
-            {analytics.adherencePercentage}%
+            <AnimatedNumber
+              value={analytics.adherencePercentage}
+              format={(pct) => `${Math.round(pct)}%`}
+            />
           </div>
           <span className="text-[10px] text-[var(--ff-text-muted)]">execution reliability</span>
         </ThemeCard>
@@ -254,25 +280,37 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
               {dayTasks.map((task) => {
                 const isDone = task.status === 'completed';
                 return (
-                  <div
+                  <motion.div
                     key={task.id}
-                    className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
+                    layout
+                    initial={isDisabled ? false : { opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={isDisabled ? { opacity: 0 } : { opacity: 0, scale: 0.98 }}
+                    transition={profile.listLayout}
+                    className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all relative overflow-visible ${
                       isDone
                         ? 'bg-[var(--ff-surface-card)]/50 border-[var(--ff-border-color)] opacity-70'
                         : 'bg-[var(--ff-surface-card)] border-[var(--ff-border-color)] hover:border-[var(--ff-accent)]/40'
                     }`}
                   >
+                    <SubtleConfetti show={celebratingTaskId === task.id} />
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => onToggleTask(task)}
+                        onClick={() => void handleToggleTaskWithCelebration(task)}
                         className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
                           isDone
-                            ? 'bg-emerald-500 text-white'
-                            : 'border border-[var(--ff-border-color)] hover:border-emerald-500 text-transparent'
+                            ? 'bg-emerald-500/15 border border-emerald-500 text-emerald-500'
+                            : 'border border-[var(--ff-border-color)] hover:border-emerald-500'
                         }`}
+                        aria-label={isDone ? 'Mark as incomplete' : 'Mark as complete'}
                       >
-                        <Check className="w-3.5 h-3.5" />
+                        <AnimatedCheckmark
+                          checked={isDone}
+                          size={13}
+                          strokeWidth={2.5}
+                          color="var(--ff-success)"
+                        />
                       </button>
 
                       <div>
@@ -314,13 +352,13 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => onDeleteTask(task.id)}
+                      onClick={() => void onDeleteTask(task.id)}
                       className="text-[var(--ff-text-muted)] hover:text-rose-400 p-1"
                       title="Delete task"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>

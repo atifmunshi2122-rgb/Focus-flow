@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Check, X } from 'lucide-react';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
@@ -32,15 +32,49 @@ function supportsTopLayerExit(): boolean {
 interface ThemeCardProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'elevated' | 'inset' | 'hero' | 'interactive' | '3d' | 'glass';
   noPadding?: boolean;
+  tilt?: boolean;
 }
 
 export const ThemeCard: React.FC<ThemeCardProps> = ({
   variant = 'default',
   noPadding = false,
+  tilt,
   className = '',
   children,
   ...props
 }) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const prefersReduced = Boolean(useReducedMotion());
+  const [tiltState, setTiltState] = useState<{ rx: number; ry: number; active: boolean }>({
+    rx: 0,
+    ry: 0,
+    active: false,
+  });
+
+  const is3D = (variant === '3d' || variant === 'interactive' || tilt === true) && tilt !== false;
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    props.onPointerMove?.(e);
+    // Strict touch protection: 3D tilt is strictly mouse-only, disabled on touch/pen
+    if (!is3D || prefersReduced || e.pointerType !== 'mouse' || !cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const px = (e.clientX - rect.left) / rect.width;
+    const py = (e.clientY - rect.top) / rect.height;
+    // Restrained, premium tilt angle: ±2.4 degrees
+    setTiltState({
+      rx: (0.5 - py) * 4.8,
+      ry: (px - 0.5) * 4.8,
+      active: true,
+    });
+  };
+
+  const handlePointerLeave = (e: React.PointerEvent<HTMLDivElement>) => {
+    props.onPointerLeave?.(e);
+    if (!is3D) return;
+    setTiltState({ rx: 0, ry: 0, active: false });
+  };
+
   const variantClass =
     variant === 'hero'
       ? 'ff-hero-banner'
@@ -56,9 +90,23 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
       ? 'ff-card ff-card-interactive'
       : 'ff-card';
 
+  const dynamicTiltStyle: React.CSSProperties | undefined =
+    is3D && tiltState.active
+      ? {
+          transform: `perspective(900px) rotateX(${tiltState.rx.toFixed(2)}deg) rotateY(${tiltState.ry.toFixed(2)}deg) translateY(-2px)`,
+          transition: 'transform 0.12s ease-out',
+          willChange: 'transform',
+          ...props.style,
+        }
+      : props.style;
+
   return (
     <div
+      ref={cardRef}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
       className={`${variantClass} ${noPadding ? 'ff-card-compact' : ''} ${className}`.trim()}
+      style={dynamicTiltStyle}
       {...props}
     >
       {children}
@@ -87,6 +135,7 @@ export const ThemeButton: React.FC<ThemeButtonProps> = ({
   style,
   ...props
 }) => {
+  const prefersReduced = Boolean(useReducedMotion());
   const sizeClass =
     size === 'xs'
       ? 'px-2.5 py-1 text-[11px]'
@@ -133,18 +182,21 @@ export const ThemeButton: React.FC<ThemeButtonProps> = ({
       : style;
 
   return (
-    <button
+    <motion.button
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      whileHover={prefersReduced || disabled || loading ? undefined : { y: -1 }}
+      whileTap={prefersReduced || disabled || loading ? undefined : { scale: 0.97 }}
+      transition={{ type: 'spring', stiffness: 500, damping: 32 }}
       className={`${variantClass} ${sizeClass} ${className}`.trim()}
       style={effectiveStyle}
-      {...props}
+      {...(props as any)}
     >
       {loading && <progress aria-label="Loading" className="ff-spinner shrink-0" />}
       {!loading && success && <Check className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />}
       {loading && loadingText ? <span>{loadingText}</span> : children}
-    </button>
+    </motion.button>
   );
 };
 

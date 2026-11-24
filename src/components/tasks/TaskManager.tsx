@@ -22,8 +22,10 @@ import {
   AnimatedCheckmark,
   AnimatedProgressBar,
   EmptyStateIllustration,
+  MotionAccordion,
   SkeletonCrossfade,
   SkeletonList,
+  SubtleConfetti,
   ValidationMessage,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
@@ -52,6 +54,7 @@ import {
   AlertCircle,
   RotateCcw,
   Sparkles,
+  ChevronDown,
 } from 'lucide-react';
 import { getOverdueTasks } from '../../lib/productivityIntelligence.ts';
 import { playTaskCompleteSound } from '../../lib/sound.ts';
@@ -107,6 +110,8 @@ export const TaskManager: React.FC = () => {
   const [dueDate, setDueDate] = useState('');
   const [subtasks, setSubtasks] = useState<SubtaskItem[]>([]);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [collapsedSubtasks, setCollapsedSubtasks] = useState<Record<string, boolean>>({});
+  const [celebratingTaskId, setCelebratingTaskId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
@@ -284,6 +289,8 @@ export const TaskManager: React.FC = () => {
       loadTasks();
       if (nextStatus === 'completed') {
         playTaskCompleteSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+        setCelebratingTaskId(task.id);
+        setTimeout(() => setCelebratingTaskId((curr) => (curr === task.id ? null : curr)), 1400);
       }
       // If task is linked to study syllabus, sync progress
       if (
@@ -535,7 +542,7 @@ export const TaskManager: React.FC = () => {
       >
         <ThemeCard
           variant="3d"
-          className={`space-y-3 transition-[background-color,border-color,transform] duration-300 ${
+          className={`space-y-3 transition-[background-color,border-color,transform] duration-300 relative overflow-visible ${
             isCompleted ? 'bg-[var(--ff-success-soft)]/20 border-[var(--ff-success)]/30' : ''
           }`}
           draggable={allowDrag}
@@ -543,6 +550,7 @@ export const TaskManager: React.FC = () => {
           onDragOver={(e) => allowDrag && e.preventDefault()}
           onDrop={() => allowDrag && void handleReorderListDrop(task.id)}
         >
+          <SubtleConfetti show={celebratingTaskId === task.id} />
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
             <div className="flex items-start gap-3 min-w-0 flex-1">
               {allowDrag && (
@@ -618,31 +626,65 @@ export const TaskManager: React.FC = () => {
                     </span>
                   )}
                   {subTotal > 0 && (
-                    <span className="font-semibold text-[var(--ff-accent-text)]">
-                      Subtasks: {subDone}/{subTotal}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollapsedSubtasks((prev) => ({ ...prev, [task.id]: !prev[task.id] }))
+                      }
+                      className="inline-flex items-center gap-1 font-semibold text-[var(--ff-accent-text)] hover:underline cursor-pointer select-none"
+                      aria-expanded={!collapsedSubtasks[task.id]}
+                    >
+                      <span>Subtasks: {subDone}/{subTotal}</span>
+                      <ChevronDown
+                        className={`w-3 h-3 transition-transform duration-200 ${
+                          !collapsedSubtasks[task.id] ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
                   )}
                 </div>
 
                 {subTotal > 0 && (
-                  <div className="space-y-1 pt-1">
-                    {task.subtasks!.map((sub) => (
-                      <label
-                        key={sub.id}
-                        className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={sub.done}
-                          onChange={() => void toggleSubtaskInline(task, sub.id)}
-                          className="accent-[var(--ff-accent)]"
-                        />
-                        <span className={sub.done ? 'line-through text-[var(--ff-text-muted)]' : ''}>
-                          {sub.title}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  <MotionAccordion isOpen={!collapsedSubtasks[task.id]}>
+                    <div className="space-y-1.5 pt-1.5">
+                      {task.subtasks!.map((sub) => (
+                        <label
+                          key={sub.id}
+                          className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] cursor-pointer select-none group"
+                        >
+                          <span
+                            className="w-4 h-4 rounded flex items-center justify-center shrink-0 border transition-all duration-150 group-hover:border-[var(--ff-accent)]"
+                            style={{
+                              borderColor: sub.done ? 'var(--ff-success)' : 'var(--ff-border-color)',
+                              backgroundColor: sub.done
+                                ? 'color-mix(in oklab, var(--ff-success) 15%, transparent)'
+                                : 'transparent',
+                            }}
+                          >
+                            <AnimatedCheckmark
+                              checked={sub.done}
+                              size={10}
+                              strokeWidth={2.5}
+                              color="var(--ff-success)"
+                            />
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={sub.done}
+                            onChange={() => void toggleSubtaskInline(task, sub.id)}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`transition-colors duration-150 ${
+                              sub.done ? 'line-through text-[var(--ff-text-muted)]' : ''
+                            }`}
+                          >
+                            {sub.title}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </MotionAccordion>
                 )}
 
                 <AnimatedProgressBar

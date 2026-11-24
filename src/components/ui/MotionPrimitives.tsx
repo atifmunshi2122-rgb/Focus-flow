@@ -10,6 +10,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import {
   MOTION_DURATION,
   MOTION_EASING,
+  getAccordionVariants,
   getPageTransition,
   getSpringTransition,
   getStaggerVariants,
@@ -769,6 +770,397 @@ export const SkeletonCrossfade: React.FC<SkeletonCrossfadeProps> = ({
         >
           {children}
         </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+export interface MotionAccordionProps {
+  isOpen: boolean;
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+/**
+ * Smooth collapsible accordion with GPU-accelerated height and opacity transitions.
+ * Perfect for subtasks, syllabus modules, and details panels.
+ */
+export const MotionAccordion: React.FC<MotionAccordionProps> = ({
+  isOpen,
+  children,
+  className = '',
+  style,
+}) => {
+  const { intensity, isDisabled } = useMotionPreferences();
+  const variants = getAccordionVariants(intensity, isDisabled);
+
+  return (
+    <AnimatePresence initial={false}>
+      {isOpen && (
+        <motion.div
+          key="accordion-content"
+          initial="collapsed"
+          animate="expanded"
+          exit="collapsed"
+          variants={variants}
+          className={`overflow-hidden ${className}`.trim()}
+          style={style}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+export interface MotionCardProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode;
+  className?: string;
+  allowHoverLift?: boolean;
+  allowTapScale?: boolean;
+}
+
+/**
+ * Interactive card wrapper that applies adaptive design-style hover elevation
+ * and active tap scale without jarring layout shifts.
+ */
+export const MotionCard: React.FC<MotionCardProps> = ({
+  children,
+  className = '',
+  allowHoverLift = true,
+  allowTapScale = true,
+  style,
+  ...props
+}) => {
+  const { intensity, isDisabled, profile } = useMotionPreferences();
+
+  const hoverAnimation =
+    !isDisabled && allowHoverLift && intensity !== 'subtle'
+      ? { y: profile.hoverLiftPx }
+      : undefined;
+
+  const tapAnimation =
+    !isDisabled && allowTapScale ? { scale: profile.tapScale } : undefined;
+
+  return (
+    <motion.div
+      whileHover={hoverAnimation}
+      whileTap={tapAnimation}
+      transition={profile.spring}
+      className={className}
+      style={style}
+      {...(props as any)}
+    >
+      {children}
+    </motion.div>
+  );
+};
+
+export interface AnimatedCurrencyProps {
+  amountPaise: number;
+  currency?: string;
+  className?: string;
+}
+
+/**
+ * Safe animated currency counter for financial values.
+ * Animates the numeric value while preserving strict currency symbol formatting.
+ */
+export const AnimatedCurrency: React.FC<AnimatedCurrencyProps> = ({
+  amountPaise,
+  currency = 'INR',
+  className = '',
+}) => {
+  const safeAmount = Number.isFinite(amountPaise) ? amountPaise / 100 : 0;
+  const { intensity, isDisabled } = useMotionPreferences();
+  const prevValRef = useRef<number>(safeAmount);
+  const [displayVal, setDisplayVal] = useState<number>(safeAmount);
+
+  useEffect(() => {
+    const start = prevValRef.current;
+    prevValRef.current = safeAmount;
+
+    if (isDisabled || start === safeAmount) {
+      setDisplayVal(safeAmount);
+      return;
+    }
+
+    const duration = intensity === 'subtle' ? 0.25 : intensity === 'expressive' ? 0.5 : 0.35;
+    const controls = animate(start, safeAmount, {
+      duration,
+      ease: MOTION_EASING.natural,
+      onUpdate: (latest) => setDisplayVal(latest),
+      onComplete: () => setDisplayVal(safeAmount),
+    });
+
+    return () => {
+      controls.stop();
+      setDisplayVal(safeAmount);
+    };
+  }, [safeAmount, isDisabled, intensity]);
+
+  const symbol =
+    currency === 'INR'
+      ? '₹'
+      : currency === 'USD'
+      ? '$'
+      : currency === 'EUR'
+      ? '€'
+      : currency === 'GBP'
+      ? '£'
+      : '';
+  const formatted = Math.round(displayVal).toLocaleString('en-IN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+
+  return (
+    <span className={`tabular-nums ${className}`.trim()}>
+      {symbol}{formatted}
+    </span>
+  );
+};
+
+export interface SubtleConfettiProps {
+  show: boolean;
+  onComplete?: () => void;
+  className?: string;
+  durationMs?: number;
+}
+
+/**
+ * SubtleConfetti — Lightweight, elegant achievement celebration.
+ * Emits ~22 tasteful geometric shapes (gold, emerald, cyan, rose, indigo)
+ * that gently burst and flutter down, then unmounts completely.
+ * Automatically disabled under prefers-reduced-motion or animation: none.
+ */
+export const SubtleConfetti: React.FC<SubtleConfettiProps> = ({
+  show,
+  onComplete,
+  className = '',
+  durationMs = 1400,
+}) => {
+  const { isDisabled } = useMotionPreferences();
+  const [particles, setParticles] = useState<
+    Array<{
+      id: number;
+      targetX: number;
+      targetY: number;
+      rotate: number;
+      color: string;
+      size: number;
+      isCircle: boolean;
+    }>
+  >([]);
+
+  useEffect(() => {
+    if (!show || isDisabled) {
+      setParticles([]);
+      return;
+    }
+
+    const colors = [
+      '#6366f1', // Indigo
+      '#10b981', // Emerald
+      '#f59e0b', // Amber / Gold
+      '#06b6d4', // Cyan
+      '#ec4899', // Rose
+      '#8b5cf6', // Violet
+    ];
+
+    const generated = Array.from({ length: 22 }, (_, i) => {
+      const angle = (Math.PI * 2 * i) / 22 + (Math.random() - 0.5) * 0.4;
+      const distance = 40 + Math.random() * 80;
+      return {
+        id: i,
+        targetX: Math.cos(angle) * distance,
+        targetY: Math.sin(angle) * distance + 35, // downward gravity drift
+        rotate: (Math.random() - 0.5) * 720,
+        color: colors[i % colors.length],
+        size: 5 + Math.random() * 4,
+        isCircle: i % 3 === 0,
+      };
+    });
+
+    setParticles(generated);
+
+    const timer = setTimeout(() => {
+      setParticles([]);
+      onComplete?.();
+    }, durationMs);
+
+    return () => clearTimeout(timer);
+  }, [show, isDisabled, durationMs, onComplete]);
+
+  if (isDisabled || particles.length === 0) return null;
+
+  return (
+    <div
+      aria-hidden="true"
+      className={`absolute inset-0 pointer-events-none overflow-visible flex items-center justify-center z-30 ${className}`.trim()}
+    >
+      <AnimatePresence>
+        {particles.map((p) => (
+          <motion.div
+            key={p.id}
+            initial={{ x: 0, y: 0, scale: 0, opacity: 1, rotate: 0 }}
+            animate={{
+              x: p.targetX,
+              y: p.targetY,
+              scale: [0, 1.2, 0.8],
+              opacity: [1, 1, 0],
+              rotate: p.rotate,
+            }}
+            transition={{
+              duration: durationMs / 1000,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            style={{
+              position: 'absolute',
+              width: p.size,
+              height: p.isCircle ? p.size : p.size * 1.6,
+              borderRadius: p.isCircle ? '50%' : '2px',
+              backgroundColor: p.color,
+            }}
+          />
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+export interface MotionDropdownProps {
+  isOpen: boolean;
+  onClose?: () => void;
+  children: React.ReactNode;
+  className?: string;
+  align?: 'left' | 'right' | 'center';
+}
+
+/**
+ * Animated spring-based dropdown container with keyboard and accessibility support.
+ */
+export const MotionDropdown: React.FC<MotionDropdownProps> = ({
+  isOpen,
+  onClose,
+  children,
+  className = '',
+  align = 'right',
+}) => {
+  const { isDisabled, profile } = useMotionPreferences();
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen || !onClose) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  const alignClass =
+    align === 'left' ? 'left-0' : align === 'center' ? 'left-1/2 -translate-x-1/2' : 'right-0';
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          ref={dropdownRef}
+          initial={isDisabled ? { opacity: 1 } : { opacity: 0, scale: 0.95, y: -6 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={isDisabled ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: -4 }}
+          transition={profile.spring}
+          className={`absolute top-full mt-1.5 z-50 ${alignClass} ${className}`.trim()}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+export interface MotionDrawerProps {
+  isOpen: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  side?: 'left' | 'right' | 'bottom';
+  className?: string;
+  title?: string;
+}
+
+/**
+ * Spring-based accessible drawer with backdrop blur and escape dismissal.
+ */
+export const MotionDrawer: React.FC<MotionDrawerProps> = ({
+  isOpen,
+  onClose,
+  children,
+  side = 'bottom',
+  className = '',
+  title,
+}) => {
+  const { isDisabled, profile } = useMotionPreferences();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  const initialSlide =
+    side === 'bottom'
+      ? { y: '100%' }
+      : side === 'left'
+      ? { x: '-100%' }
+      : { x: '100%' };
+
+  const animateSlide = side === 'bottom' ? { y: 0 } : { x: 0 };
+  const exitSlide =
+    side === 'bottom'
+      ? { y: '100%' }
+      : side === 'left'
+      ? { x: '-100%' }
+      : { x: '100%' };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            key="drawer-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: isDisabled ? 0.01 : MOTION_DURATION.overlay }}
+            onClick={onClose}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50"
+            aria-hidden="true"
+          />
+          <motion.div
+            key="drawer-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={title || 'Panel'}
+            initial={isDisabled ? false : initialSlide}
+            animate={animateSlide}
+            exit={isDisabled ? { opacity: 0 } : exitSlide}
+            transition={profile.modal}
+            className={`fixed z-50 bg-[var(--ff-surface-elevated)] border-[var(--ff-border-color)] shadow-2xl ${
+              side === 'bottom'
+                ? 'inset-x-0 bottom-0 border-t rounded-t-3xl max-h-[85dvh]'
+                : side === 'left'
+                ? 'inset-y-0 left-0 border-r w-80 max-w-[85vw]'
+                : 'inset-y-0 right-0 border-l w-80 max-w-[85vw]'
+            } ${className}`.trim()}
+          >
+            {children}
+          </motion.div>
+        </>
       )}
     </AnimatePresence>
   );

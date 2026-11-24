@@ -358,14 +358,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onClick={() => handleNavClick(item.id)}
                     whileTap={isDisabled ? undefined : { scale: 0.98 }}
                     transition={{ duration: MOTION_DURATION.micro, ease: MOTION_EASING.standard }}
-                    className={`relative z-10 flex-1 min-w-0 flex items-center gap-2.5 py-2 text-left rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ff-accent)] ${
+                    className={`group relative z-10 flex-1 min-w-0 flex items-center gap-2.5 py-2 text-left rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ff-accent)] ${
                       isExpanded ? 'pl-2.5 pr-1.5' : 'px-2.5'
                     }`}
                     title={!isExpanded ? item.label : undefined}
                   >
                     {/* Icon Box */}
                     <span
-                      className="w-7 h-7 flex items-center justify-center shrink-0 rounded-md transition-all"
+                      className="w-7 h-7 flex items-center justify-center shrink-0 rounded-md transition-all group-hover:scale-110"
                       style={{
                         color: isActive ? 'var(--ff-accent)' : 'inherit',
                         background: isActive ? 'var(--ff-accent-soft)' : 'transparent',

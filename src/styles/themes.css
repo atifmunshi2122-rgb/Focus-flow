@@ -1264,13 +1264,22 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
     border-color var(--ff-duration-fast) var(--ff-ease);
 }
 
-:not([data-animation="none"]) .ff-card-3d:hover {
-  transform: translateY(-3px);
-  box-shadow:
-    0 calc(var(--ff-card-elevation, 12px) + 6px) 36px -4px var(--ff-shadow-tint, rgba(0, 0, 0, 0.55)),
-    0 0 24px -4px var(--ff-glow-color, rgba(99, 102, 241, 0.3)),
-    0 0 0 1px var(--ff-border-strong),
-    inset 0 1px 0 0 var(--ff-highlight-color, rgba(255, 255, 255, 0.22));
+@media (hover: hover) and (pointer: fine) {
+  :not([data-animation="none"]) .ff-card-3d:hover {
+    transform: translateY(-3px);
+    box-shadow:
+      0 calc(var(--ff-card-elevation, 12px) + 6px) 36px -4px var(--ff-shadow-tint, rgba(0, 0, 0, 0.55)),
+      0 0 24px -4px var(--ff-glow-color, rgba(99, 102, 241, 0.3)),
+      0 0 0 1px var(--ff-border-strong),
+      inset 0 1px 0 0 var(--ff-highlight-color, rgba(255, 255, 255, 0.22));
+  }
+}
+
+@media (hover: none) or (pointer: coarse) {
+  .ff-card-3d,
+  .ff-card-interactive {
+    transform: none !important;
+  }
 }
 
 .ff-3d-ambient-light {

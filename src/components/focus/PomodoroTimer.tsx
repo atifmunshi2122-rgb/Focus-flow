@@ -37,6 +37,7 @@ import {
   ConfirmationBurst,
   InteractiveSurface3D,
   RollingTimerDigits,
+  SubtleConfetti,
   ValidationMessage,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
@@ -1086,6 +1087,7 @@ export const PomodoroTimer: React.FC = () => {
         </svg>
 
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 z-20">
+          <SubtleConfetti show={showCelebration} />
           <ConfirmationBurst show={showCelebration} label="Session Complete!" />
 
           <motion.div

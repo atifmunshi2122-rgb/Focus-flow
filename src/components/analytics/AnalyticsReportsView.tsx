@@ -28,7 +28,12 @@ import {
 } from '../../types/index.ts';
 import { AnalyticsCharts } from '../finance/AnalyticsCharts.tsx';
 import { ThemeButton, ThemeCard, ThemeSegmentedControl } from '../ui/ThemePrimitives.tsx';
-import { MotionStaggerGrid, MotionStaggerItem, EmptyStateIllustration } from '../ui/MotionPrimitives.tsx';
+import {
+  AnimatedNumber,
+  EmptyStateIllustration,
+  MotionStaggerGrid,
+  MotionStaggerItem,
+} from '../ui/MotionPrimitives.tsx';
 import { GraphStudioView } from '../graph-studio/GraphStudioView.tsx';
 
 export const AnalyticsReportsView: React.FC = () => {
@@ -207,7 +212,7 @@ export const AnalyticsReportsView: React.FC = () => {
                       <CheckSquare className="w-4 h-4 text-[var(--ff-accent-text)]" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                      {completionRate}%
+                      <AnimatedNumber value={completionRate} format={(v) => `${Math.round(v)}%`} />
                     </div>
                     <span className="text-[11px] text-[var(--ff-text-muted)]">
                       {completedTasks} finished · {pendingTasks} active
@@ -222,7 +227,7 @@ export const AnalyticsReportsView: React.FC = () => {
                       <Clock className="w-4 h-4 text-[var(--ff-accent-text)]" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                      {focusStats?.monthMinutes || 0} min
+                      <AnimatedNumber value={focusStats?.monthMinutes || 0} format={(v) => `${Math.round(v)} min`} />
                     </div>
                     <span className="text-[11px] text-[var(--ff-text-muted)]">
                       {focusStats?.monthSessionsCount || 0} work sessions
@@ -237,7 +242,11 @@ export const AnalyticsReportsView: React.FC = () => {
                       <Wallet className="w-4 h-4 text-[var(--ff-warning)]" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                      {monthlyCap > 0 ? `${budgetAdherence}%` : 'Unbounded'}
+                      {monthlyCap > 0 ? (
+                        <AnimatedNumber value={budgetAdherence} format={(v) => `${Math.round(v)}%`} />
+                      ) : (
+                        'Unbounded'
+                      )}
                     </div>
                     <span className="text-[11px] text-[var(--ff-text-muted)]">
                       {monthlyCap > 0
@@ -254,7 +263,7 @@ export const AnalyticsReportsView: React.FC = () => {
                       <PiggyBank className="w-4 h-4 text-[var(--ff-success)]" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                      {formatCurrency(totalSavedPaise, currency)}
+                      <AnimatedNumber value={totalSavedPaise} format={(paise) => formatCurrency(Math.round(paise), currency)} />
                     </div>
                     <span className="text-[11px] text-[var(--ff-text-muted)]">
                       Across {goals.length} active savings goal{goals.length === 1 ? '' : 's'}

@@ -40,6 +40,7 @@ import {
   AnimatedProgressBar,
   MotionStaggerGrid,
   MotionStaggerItem,
+  SubtleConfetti,
   useMotionPreferences,
 } from '../ui/MotionPrimitives.tsx';
 import { playStudyMilestoneSound } from '../../lib/sound.ts';
@@ -178,6 +179,7 @@ export const StudyView: React.FC = () => {
   const [customTiers, setCustomTiers] = useState<AcademicTier[]>([]);
   const [loading, setLoading] = useState(!hasCachedStudy);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [celebratingTopicId, setCelebratingTopicId] = useState<string | null>(null);
   const [isStale, setIsStale] = useState<boolean>(false);
   const [deletingSubjectId, setDeletingSubjectId] = useState<string | null>(null);
 
@@ -492,6 +494,8 @@ export const StudyView: React.FC = () => {
     setTopics((prev) => prev.map((t) => (t.id === topicId ? updated : t)));
     if (nextDone) {
       playStudyMilestoneSound(settings?.soundEnabled ?? true, settings?.soundVolume);
+      setCelebratingTopicId(topicId);
+      setTimeout(() => setCelebratingTopicId((c) => (c === topicId ? null : c)), 1400);
     }
 
     try {
@@ -1914,8 +1918,9 @@ export const StudyView: React.FC = () => {
                       animate={{ opacity: 1, y: 0 }}
                       exit={isDisabled ? { opacity: 0 } : { opacity: 0 }}
                       transition={profile.listLayout}
-                      className="p-3.5 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[var(--ff-surface-muted)]/50 transition-colors"
+                      className="p-3.5 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[var(--ff-surface-muted)]/50 transition-colors relative overflow-visible"
                     >
+                      <SubtleConfetti show={celebratingTopicId === item.id} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span
