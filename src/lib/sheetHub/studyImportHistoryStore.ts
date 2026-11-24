@@ -44,11 +44,26 @@ function getLocalMappingsKey(userId: string): string {
   return `ff_study_topic_source_mappings_${userId}`;
 }
 
-function safeReadJson<T>(key: string, fallback: T): T {
+function getStorage(): Storage | null {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      const item = window.localStorage.getItem(key);
-      return item ? (JSON.parse(item) as T) : fallback;
+      return window.localStorage;
+    }
+    if (typeof globalThis !== 'undefined' && (globalThis as any).localStorage) {
+      return (globalThis as any).localStorage;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function safeReadJson<T>(key: string, fallback: T): T {
+  try {
+    const storage = getStorage();
+    if (storage) {
+      const item = storage.getItem(key);
+      if (item) return JSON.parse(item) as T;
     }
     const mem = inMemoryFallbackStore.get(key);
     return mem ? (JSON.parse(mem) as T) : fallback;
@@ -60,8 +75,9 @@ function safeReadJson<T>(key: string, fallback: T): T {
 function safeWriteJson<T>(key: string, data: T): void {
   try {
     const serialized = JSON.stringify(data);
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(key, serialized);
+    const storage = getStorage();
+    if (storage) {
+      storage.setItem(key, serialized);
     }
     inMemoryFallbackStore.set(key, serialized);
   } catch {

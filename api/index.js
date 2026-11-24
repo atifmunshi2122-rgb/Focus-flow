@@ -2288,6 +2288,49 @@ var init_db = __esm({
           removedTopicsCount: matchingTopics.length
         };
       }
+      undoImportSession(userId, sessionId, force) {
+        this.db.studySubjects = this.db.studySubjects || [];
+        this.db.studyTopics = this.db.studyTopics || [];
+        const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+        let removedTopicsCount = 0;
+        let preservedTopicsWithProgressCount = 0;
+        const userTopics = this.db.studyTopics.filter((t) => t.userId === userId && !t.deletedAt);
+        const affectedSubjectCodes = /* @__PURE__ */ new Set();
+        for (const t of userTopics) {
+          if (t.sourceSessionId === sessionId || t.sessionId === sessionId) {
+            if (!force && (t.practice || t.revisionCount > 0)) {
+              preservedTopicsWithProgressCount++;
+            } else {
+              t.deletedAt = nowIso;
+              t.updatedAt = nowIso;
+              removedTopicsCount++;
+              affectedSubjectCodes.add(t.subjectCode);
+            }
+          }
+        }
+        let removedSubjectsCount = 0;
+        for (const code of affectedSubjectCodes) {
+          const remaining = this.db.studyTopics.some((t) => t.userId === userId && !t.deletedAt && t.subjectCode === code);
+          if (!remaining) {
+            const sub = this.db.studySubjects.find((s) => s.userId === userId && !s.deletedAt && s.code === code);
+            if (sub) {
+              sub.deletedAt = nowIso;
+              sub.updatedAt = nowIso;
+              removedSubjectsCount++;
+            }
+          }
+        }
+        if (removedTopicsCount > 0 || removedSubjectsCount > 0) {
+          this.save();
+        }
+        return {
+          success: true,
+          removedTopicsCount,
+          removedSubjectsCount,
+          preservedTopicsWithProgressCount,
+          sessionId
+        };
+      }
       getStudyTopics(userId, subjectCode) {
         const list = this.db.studyTopics || [];
         return list.filter((t) => t.userId === userId && !t.deletedAt && (!subjectCode || t.subjectCode === subjectCode)).sort((a, b) => (a.rowIndex || 0) - (b.rowIndex || 0));
@@ -4324,6 +4367,7 @@ var init_vaultBackendService = __esm({
 // src/lib/sheetHub/schemaDetector.ts
 var schemaDetector_exports = {};
 __export(schemaDetector_exports, {
+  classifySheetPurpose: () => classifySheetPurpose,
   colIndexToLetter: () => colIndexToLetter2,
   detectHeaderRowIndex: () => detectHeaderRowIndex,
   detectTabSchema: () => detectTabSchema,
@@ -4593,6 +4637,170 @@ function inferColumnMapping(colIndex, headerName, columnCells) {
     ...enumOptions && enumOptions.length > 0 ? { enumOptions } : {}
   };
 }
+function classifySheetPurpose(tabTitle, headerRow, dataRows, columns, formulaCellCount, totalNonEmptyCells) {
+  const normTitle = tabTitle.trim();
+  const isProbStatsSubject = /^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(normTitle);
+  const titleMatchesOverview = !isProbStatsSubject && OVERVIEW_TAB_NAME_REGEX.test(normTitle);
+  const titleMatchesInstructions = INSTRUCTIONS_KEYWORD_REGEX.test(normTitle);
+  if (dataRows.length === 0) {
+    return {
+      purpose: "empty",
+      role: "ignored",
+      confidence: "medium",
+      confidenceScore: 0.5,
+      requiresUserClassification: false,
+      reason: "Header row found without data rows yet."
+    };
+  }
+  const sampleDataRows = dataRows.slice(0, 50);
+  let aggregateFormulaCount = 0;
+  let summaryKeywordRowCount = 0;
+  let pureNumericCellInTopicColCount = 0;
+  let totalTextChars = 0;
+  let textCellCount = 0;
+  let longTextCellCount = 0;
+  for (const row of sampleDataRows) {
+    let rowHasSummaryWord = false;
+    for (let cIdx = 0; cIdx < row.length; cIdx++) {
+      const cell = row[cIdx];
+      if (!isNonEmptyCell(cell)) continue;
+      if (cell.formula && AGGREGATE_FORMULA_REGEX.test(cell.formula)) {
+        aggregateFormulaCount++;
+      }
+      const text = cellText(cell);
+      if (text) {
+        totalTextChars += text.length;
+        textCellCount++;
+        if (text.length > 70) {
+          longTextCellCount++;
+        }
+        if (SUMMARY_KEYWORD_REGEX.test(text.trim())) {
+          rowHasSummaryWord = true;
+        }
+      }
+    }
+    if (rowHasSummaryWord) {
+      summaryKeywordRowCount++;
+    }
+  }
+  const candidateTopicCol = columns.find((c) => c.semanticRole === "title") || columns[1] || columns[0];
+  if (candidateTopicCol) {
+    for (const row of sampleDataRows) {
+      const cell = row[candidateTopicCol.colIndex];
+      const text = cellText(cell);
+      if (text && /^\s*#?\s*\d+(\.\d+)?\s*%?\s*$/.test(text)) {
+        pureNumericCellInTopicColCount++;
+      }
+    }
+  }
+  const formulaRatio = formulaCellCount / Math.max(1, totalNonEmptyCells);
+  const summaryRowRatio = summaryKeywordRowCount / Math.max(1, sampleDataRows.length);
+  const numericTopicRatio = pureNumericCellInTopicColCount / Math.max(1, sampleDataRows.length);
+  const avgTextLen = textCellCount > 0 ? totalTextChars / textCellCount : 0;
+  const longTextRatio = textCellCount > 0 ? longTextCellCount / textCellCount : 0;
+  let syllabusHeaderMatches = 0;
+  for (const col of columns) {
+    if (SYLLABUS_HEADER_REGEX.test(col.headerName)) {
+      syllabusHeaderMatches++;
+    }
+  }
+  const hasDoneOrStatus = columns.some(
+    (c) => c.semanticRole === "done" || c.inferredType === "checkbox" || c.inferredType === "boolean"
+  );
+  let keyValueMatchCount = 0;
+  if (columns.length >= 2 && columns.length <= 3 && sampleDataRows.length <= 30) {
+    for (const row of sampleDataRows) {
+      const c0Text = cellText(row[columns[0].colIndex]);
+      if (c0Text && (c0Text.endsWith(":") || METADATA_KEY_REGEX.test(c0Text.replace(/:$/, "").trim()))) {
+        keyValueMatchCount++;
+      }
+    }
+  }
+  const isKeyValueLayout = keyValueMatchCount >= Math.min(3, sampleDataRows.length);
+  let syllabusScore = 0;
+  let summaryScore = 0;
+  let instructionsScore = 0;
+  let metadataScore = 0;
+  if (syllabusHeaderMatches >= 2) syllabusScore += 0.55;
+  else if (syllabusHeaderMatches === 1) syllabusScore += 0.3;
+  if (hasDoneOrStatus) syllabusScore += 0.25;
+  if (numericTopicRatio < 0.25 && avgTextLen >= 4 && avgTextLen <= 90) syllabusScore += 0.25;
+  if (sampleDataRows.length >= 10) syllabusScore += 0.1;
+  if (summaryRowRatio > 0.2) syllabusScore -= 0.3;
+  if (formulaRatio > 0.3) syllabusScore -= 0.3;
+  if (numericTopicRatio > 0.5) syllabusScore -= 0.4;
+  if (aggregateFormulaCount > 0) summaryScore += 0.5;
+  if (formulaRatio >= 0.25) summaryScore += 0.35;
+  if (summaryRowRatio >= 0.15) summaryScore += 0.4;
+  if (numericTopicRatio >= 0.4 && sampleDataRows.length > 0) summaryScore += 0.4;
+  if (titleMatchesOverview) summaryScore += 0.35;
+  if (titleMatchesInstructions) instructionsScore += 0.45;
+  if (columns.length <= 2 && avgTextLen > 60) instructionsScore += 0.4;
+  if (longTextRatio > 0.3) instructionsScore += 0.35;
+  if (syllabusHeaderMatches === 0 && !hasDoneOrStatus) instructionsScore += 0.2;
+  if (isKeyValueLayout) metadataScore += 0.7;
+  if (/meta|config|info|settings/i.test(normTitle)) metadataScore += 0.3;
+  const maxScore = Math.max(syllabusScore, summaryScore, instructionsScore, metadataScore);
+  if (metadataScore >= 0.65 && metadataScore >= maxScore) {
+    return {
+      purpose: "metadata",
+      role: "overview",
+      confidence: "high",
+      confidenceScore: Math.min(1, metadataScore),
+      requiresUserClassification: false,
+      reason: "Key-value configuration/metadata layout detected."
+    };
+  }
+  if (instructionsScore >= 0.65 && instructionsScore >= maxScore) {
+    return {
+      purpose: "instructions",
+      role: "overview",
+      confidence: "high",
+      confidenceScore: Math.min(1, instructionsScore),
+      requiresUserClassification: false,
+      reason: "Informational text / instructions layout with paragraph content detected."
+    };
+  }
+  if (summaryScore >= 0.6 && summaryScore > syllabusScore) {
+    return {
+      purpose: "summary",
+      role: "overview",
+      confidence: "high",
+      confidenceScore: Math.min(1, summaryScore),
+      requiresUserClassification: false,
+      reason: titleMatchesOverview ? `Tab purpose identified as summary/overview (detected aggregate formula/count density and name "${normTitle}").` : "Tab structure contains summary rows, aggregate counts, or formula density matching an overview/summary sheet."
+    };
+  }
+  if (syllabusScore >= 0.6 && syllabusScore > summaryScore) {
+    return {
+      purpose: "syllabus",
+      role: "data",
+      confidence: "high",
+      confidenceScore: Math.min(1, syllabusScore),
+      requiresUserClassification: false,
+      reason: "Structured tabular headers and distinct syllabus concept rows detected."
+    };
+  }
+  if (titleMatchesOverview && summaryScore >= 0.4) {
+    return {
+      purpose: "summary",
+      role: "overview",
+      confidence: "medium",
+      confidenceScore: 0.6,
+      requiresUserClassification: false,
+      reason: `Tab name "${normTitle}" and row layout match an overview/summary sheet.`
+    };
+  }
+  const isLikelyData = syllabusScore >= summaryScore;
+  return {
+    purpose: "uncertain",
+    role: isLikelyData ? "data" : "overview",
+    confidence: "low",
+    confidenceScore: Math.max(0.3, maxScore),
+    requiresUserClassification: true,
+    reason: `Unconventional tab structure (syllabus score: ${syllabusScore.toFixed(2)}, summary score: ${summaryScore.toFixed(2)}). Please confirm tab purpose before import.`
+  };
+}
 function detectTabSchema(tab) {
   const rows = tab.rows || [];
   let nonEmptyRowCount = 0;
@@ -4620,6 +4828,9 @@ function detectTabSchema(tab) {
       role: "ignored",
       roleConfidence: "high",
       roleReason: "Tab contains no non-empty cells.",
+      detectedPurpose: "empty",
+      purposeConfidence: 1,
+      requiresUserClassification: false,
       headerRowIndex: 0,
       dataStartRow: 1,
       dataEndColumn: "A",
@@ -4654,25 +4865,27 @@ function detectTabSchema(tab) {
     const colCells = dataRows.map((r) => r[cIdx] || { value: null });
     return inferColumnMapping(cIdx, headerLabel, colCells);
   });
-  let role = "data";
-  let roleConfidence = "high";
-  let roleReason = "Structured tabular headers and data rows detected.";
-  const formulaColumnsCount = columns.filter((c) => c.inferredType === "formula").length;
-  const headerNotAtTop = headerIdx0 >= 2;
-  if (isOverviewByName || formulaRatio >= 0.25 || columns.length > 0 && formulaColumnsCount / columns.length >= 0.4) {
-    role = "overview";
-    roleConfidence = isOverviewByName ? "high" : formulaRatio >= 0.25 || formulaCellCount > 0 ? "high" : "medium";
-    roleReason = isOverviewByName ? `Tab name "${tab.sheetTitle}" indicates an overview, summary, or informational sheet. Marked as overview tab (read-only by default).` : formulaCellCount > 0 ? `Summary/overview tab with ${formulaCellCount} formula cell(s) (${Math.round(formulaRatio * 100)}% of non-empty cells). Marked read-only by default.` : "Tab name and non-uniform block structure match an overview/summary layout.";
+  const classification = classifySheetPurpose(
+    tab.sheetTitle,
+    headerRow,
+    dataRows,
+    columns,
+    formulaCellCount,
+    totalNonEmptyCells
+  );
+  const role = classification.role;
+  const roleConfidence = classification.confidence;
+  const roleReason = classification.reason;
+  const detectedPurpose = classification.purpose;
+  const purposeConfidence = classification.confidenceScore;
+  const requiresUserClassification = classification.requiresUserClassification;
+  if (role === "overview" || role === "summary" || role === "metadata" || role === "instructions") {
     for (const col of columns) {
       col.editable = false;
       if (!col.readOnlyReason) {
-        col.readOnlyReason = "Overview/summary tab defaults to read-only";
+        col.readOnlyReason = `${classification.purpose} tab defaults to read-only`;
       }
     }
-  } else if (dataRows.length === 0) {
-    role = "ignored";
-    roleConfidence = "medium";
-    roleReason = "Only header row found without data rows yet.";
   }
   const hasTitle = columns.some((c) => c.semanticRole === "title");
   if (!hasTitle && role === "data") {
@@ -4731,6 +4944,9 @@ function detectTabSchema(tab) {
     role,
     roleConfidence,
     roleReason,
+    detectedPurpose,
+    purposeConfidence,
+    requiresUserClassification,
     headerRowIndex: headerIdx0 >= 0 ? headerIdx0 + 1 : 0,
     dataStartRow: headerIdx0 >= 0 ? headerIdx0 + 2 : 1,
     dataEndColumn: colIndexToLetter2(lastColIdx),
@@ -4759,7 +4975,7 @@ function detectWorkbookSchema(tabs) {
     // Always require explicit confirmation before import
   };
 }
-var OVERVIEW_TAB_NAME_REGEX, URL_VALUE_REGEX, ISO_DATE_REGEX, HUMAN_DATE_REGEX, CURRENCY_TEXT_REGEX, BOOLEAN_TEXT_SET, PRIORITY_VALUE_SET, STATUS_VALUE_SET;
+var OVERVIEW_TAB_NAME_REGEX, URL_VALUE_REGEX, ISO_DATE_REGEX, HUMAN_DATE_REGEX, CURRENCY_TEXT_REGEX, BOOLEAN_TEXT_SET, PRIORITY_VALUE_SET, STATUS_VALUE_SET, AGGREGATE_FORMULA_REGEX, SUMMARY_KEYWORD_REGEX, INSTRUCTIONS_KEYWORD_REGEX, METADATA_KEY_REGEX, SYLLABUS_HEADER_REGEX;
 var init_schemaDetector = __esm({
   "src/lib/sheetHub/schemaDetector.ts"() {
     OVERVIEW_TAB_NAME_REGEX = /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions|about|progress|stats|statistics|tracker|syllabus[\s_-]?overview|course[\s_-]?overview)\b/i;
@@ -4787,6 +5003,11 @@ var init_schemaDetector = __esm({
       "unpaid",
       "overdue"
     ]);
+    AGGREGATE_FORMULA_REGEX = /^\s*=\s*(SUM|COUNT|COUNTA|COUNTIF|COUNTIFS|AVERAGE|AVERAGEIF|SUBTOTAL|MAX|MIN|MEDIAN)\b/i;
+    SUMMARY_KEYWORD_REGEX = /^(total|grand\s*total|subtotal|count|sum|average|avg|kpi|summary|overview|all|metrics|completion\s*rate)\b/i;
+    INSTRUCTIONS_KEYWORD_REGEX = /\b(instructions?|guidelines?|how\s*to\s*use|readme|welcome|important\s*notes?|rules?|steps?)\b/i;
+    METADATA_KEY_REGEX = /^(semester|academic\s*year|author|instructor|professor|course\s*(code|name|id)|date|created|updated|version|target\s*exam|total\s*credits?|notes?)$/i;
+    SYLLABUS_HEADER_REGEX = /\b(modules?|units?|chapters?|topics?|sub[\s_-]?topics?|subtopics?|concepts?|done|status|priority|weightage|lectures?|contents?)\b/i;
   }
 });
 
@@ -15029,6 +15250,20 @@ apiRouter.post("/study/cleanup-overview-import", async (req, res, next) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: "Failed to clean overview data" });
+  }
+});
+apiRouter.post("/study/undo-import-session", async (req, res, next) => {
+  const { userId } = getAuth(req);
+  const { sessionId, force } = req.body && typeof req.body === "object" ? req.body : {};
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+  try {
+    const result = dbService.undoImportSession(userId, sessionId, Boolean(force));
+    await dbService.flush();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to undo import session" });
   }
 });
 apiRouter.get("/study/topics", (req, res) => {

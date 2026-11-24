@@ -2955,6 +2955,28 @@ export const api = {
         )
     ),
 
+  undoImportSession: (sessionId: string, force?: boolean) =>
+    withPrimaryWrite(
+      async () => ({
+        success: true,
+        removedTopicsCount: 0,
+        removedSubjectsCount: 0,
+        preservedTopicsWithProgressCount: 0,
+        sessionId,
+      }),
+      () =>
+        request<{
+          success: boolean;
+          removedTopicsCount: number;
+          removedSubjectsCount: number;
+          preservedTopicsWithProgressCount: number;
+          sessionId: string;
+        }>('/study/undo-import-session', {
+          method: 'POST',
+          body: JSON.stringify({ sessionId, force }),
+        })
+    ),
+
   // --- POMODORO PRESETS & GOALS ---
   getPomodoroPresets: () =>
     withPrimaryRead(

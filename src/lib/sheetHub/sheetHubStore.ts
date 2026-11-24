@@ -35,6 +35,7 @@ import type {
   SheetRowChunk,
   SheetSyncedRow,
   SheetSyncOperation,
+  SheetTabRole,
   SheetTabSchema,
   SheetTemplateHint,
 } from '../../types/sheetHub.ts';
@@ -1390,7 +1391,7 @@ export const sheetHubStore = {
       tabs: Array<{
         sheetTitle: string;
         sheetId?: number;
-        role?: 'data' | 'overview' | 'ignored';
+        role?: SheetTabRole;
         columns: SheetColumnMapping[];
         rows: SheetSyncedRow[];
       }>;

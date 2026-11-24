@@ -379,7 +379,7 @@ export async function executeSheetToStudyImport(
     const cleanSubjectCode = sanitizeText(tabMapping.targetSubjectCode, 64);
     const upperCode = cleanSubjectCode.toUpperCase();
     const cleanSubjectName = sanitizeText(tabMapping.targetSubjectName, 256) || 'Subject';
-    const isOverview = isTabOverview(tabMapping.sheetTitle);
+    const isOverview = isTabOverview(tabMapping.sheetTitle, (tabMapping as any).role);
 
     if (!cleanSubjectCode) {
       throw new Error(`Subject code is missing for tab "${tabMapping.sheetTitle}".`);
@@ -407,8 +407,11 @@ export async function executeSheetToStudyImport(
       topicsByConceptKey.set(conceptKey, list);
     }
 
-    // Extract column keys
+    // Extract column keys supporting flexible hierarchy depths
     const unitCol = tabMapping.columns.find((c) => c.targetField === 'unit')?.fieldKey;
+    const moduleCol = tabMapping.columns.find((c) => c.targetField === 'module')?.fieldKey;
+    const chapterCol = tabMapping.columns.find((c) => c.targetField === 'chapter')?.fieldKey;
+    const subjectCol = tabMapping.columns.find((c) => c.targetField === 'subject')?.fieldKey;
     const topicCol = tabMapping.columns.find((c) => c.targetField === 'topic')?.fieldKey;
     const subtopicCol = tabMapping.columns.find((c) => c.targetField === 'subtopic')?.fieldKey;
     const doneCol = tabMapping.columns.find((c) => c.targetField === 'done')?.fieldKey;
@@ -430,14 +433,23 @@ export async function executeSheetToStudyImport(
 
     for (let rIdx = 0; rIdx < rows.length; rIdx++) {
       const r = rows[rIdx];
-      const rawUnit = unitCol ? sanitizeText(r.values?.[unitCol], 128) : '';
+      const rawUnitDirect = unitCol ? sanitizeText(r.values?.[unitCol], 128) : '';
+      const rawModule = moduleCol ? sanitizeText(r.values?.[moduleCol], 128) : '';
+      const rawChapter = chapterCol ? sanitizeText(r.values?.[chapterCol], 128) : '';
+      let rawUnit = rawUnitDirect;
+      if (!rawUnit) {
+        if (rawModule && rawChapter) rawUnit = `${rawModule} - ${rawChapter}`;
+        else if (rawModule) rawUnit = rawModule;
+        else if (rawChapter) rawUnit = rawChapter;
+      }
+
       const rawTopic = topicCol ? sanitizeText(r.values?.[topicCol], 256) : '';
       const rawSubtopic = subtopicCol ? sanitizeText(r.values?.[subtopicCol], 256) : '';
       const rawDone = doneCol ? r.values?.[doneCol] : undefined;
       const rawNotes = notesCol ? sanitizeText(r.values?.[notesCol], 2000) : '';
       const rawPriority = priorityCol ? r.values?.[priorityCol] : undefined;
 
-      // Filter out invalid/empty rows, pure numeric aggregate counts (127, 125, etc.), and summary labels
+      // Filter out invalid/empty rows, pure numeric aggregate counts, and summary labels
       const rowCheck = isSummaryOrInvalidSyllabusRow(rawUnit, rawTopic, rawSubtopic);
       if (rowCheck.isInvalid) {
         tabInvalidRows++;
@@ -984,6 +996,137 @@ export async function retrySheetToStudyImport(
     }
   }
   return executeSheetToStudyImport(options);
+}
+
+export interface ImportUndoResult {
+  success: boolean;
+  message: string;
+  removedTopicsCount: number;
+  removedSubjectsCount: number;
+  preservedTopicsWithProgressCount: number;
+  sessionId: string;
+}
+
+/**
+ * Universal session-scoped rollback and undo engine.
+ * Allows users to safely rollback any completed or partial import session.
+ * Removes topics and empty subjects created by that specific session while
+ * strictly preserving any topics where the user has active practice or revision progress.
+ */
+export async function undoImportSession(
+  userId: string,
+  sessionId: string,
+  options?: { force?: boolean }
+): Promise<ImportUndoResult> {
+  if (!userId || !sessionId) {
+    throw new Error('User ID and Session ID are required to undo an import session.');
+  }
+
+  const session = await studyImportHistoryStore.getImportSession(userId, sessionId);
+  if (!session) {
+    return {
+      success: false,
+      message: `Import session "${sessionId}" not found.`,
+      removedTopicsCount: 0,
+      removedSubjectsCount: 0,
+      preservedTopicsWithProgressCount: 0,
+      sessionId,
+    };
+  }
+
+  let allSubjects: StudySubject[] = [];
+  let allTopics: StudyTopic[] = [];
+
+  if (isSignedInAs(userId)) {
+    [allSubjects, allTopics] = await Promise.all([
+      firestoreService.getStudySubjects(userId),
+      firestoreService.getStudyTopics(userId),
+    ]);
+  } else {
+    try {
+      [allSubjects, allTopics] = await Promise.all([
+        api.getStudySubjects(),
+        api.getStudyTopics(),
+      ]);
+    } catch {
+      try {
+        [allSubjects, allTopics] = await Promise.all([
+          firestoreService.getStudySubjects(userId),
+          firestoreService.getStudyTopics(userId),
+        ]);
+      } catch {
+        allSubjects = [];
+        allTopics = [];
+      }
+    }
+  }
+
+  const committedTopicIdSet = new Set(session.committedTopicIds || []);
+  const committedSubjectIdSet = new Set(session.committedSubjectIds || []);
+
+  const topicsToDelete: StudyTopic[] = [];
+  let preservedCount = 0;
+
+  for (const topic of allTopics) {
+    if (committedTopicIdSet.has(topic.id)) {
+      // Invariant: Never delete a topic if user has active practice or revision progress unless force = true
+      if (!options?.force && (topic.practice || topic.revisionCount > 0)) {
+        preservedCount++;
+      } else {
+        topicsToDelete.push(topic);
+      }
+    }
+  }
+
+  let removedTopicsCount = 0;
+  for (const topic of topicsToDelete) {
+    try {
+      if (isSignedInAs(userId)) {
+        await firestoreService.deleteStudyTopic(userId, topic.id);
+      } else {
+        await api.deleteStudyTopic(topic.id);
+      }
+      removedTopicsCount++;
+    } catch (err) {
+      console.warn(`[ImportEngine] Failed to delete topic ${topic.id}:`, err);
+    }
+  }
+
+  // Delete subjects only if they have no remaining topics
+  const remainingTopics = allTopics.filter((t) => !topicsToDelete.some((del) => del.id === t.id));
+  const remainingSubjectCodes = new Set(remainingTopics.map((t) => t.subjectCode.toUpperCase()));
+
+  let removedSubjectsCount = 0;
+  for (const subj of allSubjects) {
+    if (committedSubjectIdSet.has(subj.id)) {
+      if (!remainingSubjectCodes.has(subj.code.toUpperCase())) {
+        try {
+          if (isSignedInAs(userId)) {
+            await firestoreService.deleteStudySubject(userId, subj.id);
+          } else {
+            await api.deleteStudySubject(subj.id);
+          }
+          removedSubjectsCount++;
+        } catch (err) {
+          console.warn(`[ImportEngine] Failed to delete subject ${subj.id}:`, err);
+        }
+      }
+    }
+  }
+
+  // Update session status in ledger
+  session.status = 'failed';
+  session.errorMessage = 'Rolled back by user';
+  await studyImportHistoryStore.saveImportSession(userId, session);
+
+  return {
+    success: true,
+    message: `Successfully rolled back import session "${sessionId}". Removed ${removedTopicsCount} topic(s) and ${removedSubjectsCount} subject(s). (${preservedCount} topic(s) preserved with user progress).`,
+    removedTopicsCount,
+    removedSubjectsCount,
+    preservedTopicsWithProgressCount: preservedCount,
+    sessionId,
+  };
 }
 
 export interface OverviewCleanupReport {

@@ -2517,6 +2517,66 @@ export class DatabaseService {
     };
   }
 
+  public undoImportSession(
+    userId: string,
+    sessionId: string,
+    force?: boolean
+  ): {
+    success: boolean;
+    removedTopicsCount: number;
+    removedSubjectsCount: number;
+    preservedTopicsWithProgressCount: number;
+    sessionId: string;
+  } {
+    this.db.studySubjects = this.db.studySubjects || [];
+    this.db.studyTopics = this.db.studyTopics || [];
+
+    const nowIso = new Date().toISOString();
+    let removedTopicsCount = 0;
+    let preservedTopicsWithProgressCount = 0;
+
+    const userTopics = this.db.studyTopics.filter((t) => t.userId === userId && !t.deletedAt);
+    const affectedSubjectCodes = new Set<string>();
+
+    for (const t of userTopics) {
+      if ((t as any).sourceSessionId === sessionId || (t as any).sessionId === sessionId) {
+        if (!force && (t.practice || t.revisionCount > 0)) {
+          preservedTopicsWithProgressCount++;
+        } else {
+          t.deletedAt = nowIso;
+          t.updatedAt = nowIso;
+          removedTopicsCount++;
+          affectedSubjectCodes.add(t.subjectCode);
+        }
+      }
+    }
+
+    let removedSubjectsCount = 0;
+    for (const code of affectedSubjectCodes) {
+      const remaining = this.db.studyTopics.some((t) => t.userId === userId && !t.deletedAt && t.subjectCode === code);
+      if (!remaining) {
+        const sub = this.db.studySubjects.find((s) => s.userId === userId && !s.deletedAt && s.code === code);
+        if (sub) {
+          sub.deletedAt = nowIso;
+          sub.updatedAt = nowIso;
+          removedSubjectsCount++;
+        }
+      }
+    }
+
+    if (removedTopicsCount > 0 || removedSubjectsCount > 0) {
+      this.save();
+    }
+
+    return {
+      success: true,
+      removedTopicsCount,
+      removedSubjectsCount,
+      preservedTopicsWithProgressCount,
+      sessionId,
+    };
+  }
+
   public getStudyTopics(userId: string, subjectCode?: string): StudyTopic[] {
     const list = this.db.studyTopics || [];
     return list

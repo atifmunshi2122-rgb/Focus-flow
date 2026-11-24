@@ -768,8 +768,14 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {isOverview && (
-                          <ThemeBadge tone="warning">Overview Tab (Skipped by default)</ThemeBadge>
+                        {isOverview ? (
+                          <ThemeBadge tone="warning">Summary / Overview (Skipped by default)</ThemeBadge>
+                        ) : (tab as any).role === 'instructions' ? (
+                          <ThemeBadge tone="neutral">Instructions Tab (Skipped)</ThemeBadge>
+                        ) : (tab as any).role === 'metadata' ? (
+                          <ThemeBadge tone="neutral">Metadata Tab (Skipped)</ThemeBadge>
+                        ) : (
+                          <ThemeBadge tone="success">Syllabus Tab</ThemeBadge>
                         )}
                         <button
                           type="button"
@@ -1093,9 +1099,12 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                                 }
                                 className="text-xs py-1 px-2"
                               >
-                                <option value="unit">Unit / Module</option>
+                                <option value="unit">Unit</option>
+                                <option value="module">Module</option>
+                                <option value="chapter">Chapter</option>
                                 <option value="topic">Topic (Main Topic)</option>
                                 <option value="subtopic">Subtopic (Concept)</option>
+                                <option value="subject">Subject / Course Name</option>
                                 <option value="done">Done (Theory Completion)</option>
                                 <option value="notes">Notes / References</option>
                                 <option value="priority">Priority</option>
@@ -1106,7 +1115,13 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                               {col.targetField === 'done' ? (
                                 <ThemeBadge tone="success">Theory Complete</ThemeBadge>
                               ) : col.targetField === 'unit' ? (
-                                <ThemeBadge tone="info">Module Unit</ThemeBadge>
+                                <ThemeBadge tone="info">Unit</ThemeBadge>
+                              ) : col.targetField === 'module' ? (
+                                <ThemeBadge tone="info">Module</ThemeBadge>
+                              ) : col.targetField === 'chapter' ? (
+                                <ThemeBadge tone="info">Chapter</ThemeBadge>
+                              ) : col.targetField === 'subject' ? (
+                                <ThemeBadge tone="accent">Subject Column</ThemeBadge>
                               ) : col.targetField === 'topic' ? (
                                 <ThemeBadge tone="accent">Primary Topic</ThemeBadge>
                               ) : col.targetField === 'subtopic' ? (
@@ -1214,10 +1229,23 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                 </div>
 
                 <div className="p-3 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface)]">
-                  <div className="text-[11px] text-[var(--ff-text-muted)] font-medium">Invalid / Missing Rows</div>
+                  <div className="text-[11px] text-[var(--ff-text-muted)] font-medium">Skipped / Invalid Rows</div>
                   <div className="text-lg font-bold text-rose-500">
                     {previewData.summary.invalidRowsCount}
                   </div>
+                  {previewData.summary.validationBreakdown && (
+                    <div className="text-[10px] text-[var(--ff-text-muted)] mt-1 space-y-0.5">
+                      {previewData.summary.validationBreakdown.summaryRowsCount > 0 && (
+                        <div>• {previewData.summary.validationBreakdown.summaryRowsCount} summary/totals</div>
+                      )}
+                      {previewData.summary.validationBreakdown.aggregateCountsCount > 0 && (
+                        <div>• {previewData.summary.validationBreakdown.aggregateCountsCount} pure counts</div>
+                      )}
+                      {previewData.summary.validationBreakdown.emptyRowsCount > 0 && (
+                        <div>• {previewData.summary.validationBreakdown.emptyRowsCount} empty</div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-3 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface)]">

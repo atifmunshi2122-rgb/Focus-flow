@@ -1414,9 +1414,25 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                         <span className="font-semibold text-sm text-[var(--ff-text-primary)] block truncate">
                           {tab.sheetTitle}
                         </span>
-                        {isOverview && (
+                        {tab.requiresUserClassification ? (
+                          <ThemeBadge tone="warning" className="text-[10px]">
+                            Uncertain Layout (Please confirm purpose)
+                          </ThemeBadge>
+                        ) : tab.detectedPurpose === 'instructions' ? (
+                          <ThemeBadge tone="neutral" className="text-[10px]">
+                            Instructions Tab
+                          </ThemeBadge>
+                        ) : tab.detectedPurpose === 'metadata' ? (
+                          <ThemeBadge tone="neutral" className="text-[10px]">
+                            Metadata Tab
+                          </ThemeBadge>
+                        ) : isOverview ? (
                           <ThemeBadge tone="warning" className="text-[10px]">
                             Overview / Summary Tab (Excluded by default)
+                          </ThemeBadge>
+                        ) : (
+                          <ThemeBadge tone="success" className="text-[10px]">
+                            Syllabus Content Tab
                           </ThemeBadge>
                         )}
                       </div>
@@ -1447,8 +1463,10 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                       }
                       className="text-xs py-1 px-2.5 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)]"
                     >
-                      <option value="data">Data Tab (Rows)</option>
-                      <option value="overview">Overview / KPI</option>
+                      <option value="data">Syllabus / Data Tab</option>
+                      <option value="overview">Overview / Summary</option>
+                      <option value="instructions">Instructions / Notes</option>
+                      <option value="metadata">Metadata / Config</option>
                       <option value="ignored">Ignore Tab</option>
                     </select>
 

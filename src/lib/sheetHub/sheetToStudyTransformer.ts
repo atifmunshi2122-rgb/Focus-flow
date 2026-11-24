@@ -12,7 +12,17 @@ import { deterministicHashHex } from './rowIdentity.ts';
 import type { SheetColumnMapping, SheetSyncedRow } from '../../types/sheetHub.ts';
 import type { StudySubject, StudyTopic, TopicConflictAnalysis } from '../../types/study.ts';
 
-export type StudyTargetField = 'unit' | 'topic' | 'subtopic' | 'done' | 'notes' | 'priority' | 'unmapped';
+export type StudyTargetField =
+  | 'subject'
+  | 'module'
+  | 'chapter'
+  | 'unit'
+  | 'topic'
+  | 'subtopic'
+  | 'done'
+  | 'notes'
+  | 'priority'
+  | 'unmapped';
 
 export interface ColumnToFieldMapping {
   fieldKey: string;
@@ -63,6 +73,14 @@ export interface ImportPreviewSubject {
   invalidRowsCount: number;
 }
 
+export interface ValidationBreakdown {
+  summaryRowsCount: number;
+  aggregateCountsCount: number;
+  emptyRowsCount: number;
+  headerEchoesCount: number;
+  placeholdersCount: number;
+}
+
 export interface ImportPreviewSummary {
   tabsSelectedCount: number;
   subjectsToCreateCount: number;
@@ -72,6 +90,7 @@ export interface ImportPreviewSummary {
   duplicateRowsCount: number;
   invalidRowsCount: number;
   theoryCompletedCount: number;
+  validationBreakdown?: ValidationBreakdown;
 }
 
 export const OVERVIEW_TAB_REGEX =
@@ -79,68 +98,141 @@ export const OVERVIEW_TAB_REGEX =
 
 const PURE_NUMERIC_PATTERN = /^\s*#?\s*\d+(?:\.\d+)?\s*%?\s*$/;
 const SUMMARY_ROW_PATTERN =
-  /^(total|grand\s*total|subtotal|count|sum|average|avg|mean|median|min|max|overview|summary|all|kpi|progress|completion\s*rate|percentage|total\s*(topics?|records?|rows?|items?|count|subtopics?|questions?|[:\-]?\s*\d+.*)?|count\s*[:\-]?\s*\d+.*|sum\s*[:\-]?\s*\d+.*)$/i;
+  /^(total|grand\s*total|subtotal|count|sum|average|avg|mean|median|min|max|overview|summary|all|kpi|metrics?|progress|completion\s*rate|percentage|total\s*(topics?|records?|rows?|items?|count|subtopics?|questions?|[:\-]?\s*\d+.*)?|count\s*[:\-]?\s*\d+.*|sum\s*[:\-]?\s*\d+.*)$/i;
 const HEADER_ECHO_PATTERN =
   /^(topic|subtopic|title|name|subject|unit|chapter|module|status|done|priority|notes?)$/i;
 const PLACEHOLDER_PATTERN = /^(n\/?a|na|none|nil|null|undefined|-|--|\?)$/i;
 
+export interface RowValidationResult {
+  isInvalid: boolean;
+  category?: 'valid' | 'summary_row' | 'aggregate_count' | 'empty' | 'header_echo' | 'placeholder' | 'uncertain';
+  reason?: string;
+}
+
 /**
- * Validates whether a row is a summary, aggregate count, or invalid header echo row.
- * Filters out pure counts like "127", "125", "198", "147", "597", and labels like "Grand Total".
+ * Universal Context-Aware Row Validator.
+ * Validates rows based on their mapped fields and data context:
+ * - Distinguishes valid numeric topic names (e.g. "1.1", "Section 3.2", "8086 Microprocessor", "301", "RFC 793")
+ *   from numeric summary values (e.g. standalone row count 198, 597, total 100%) using surrounding context.
+ * - Detects summary labels ("Total", "Grand Total", "Count", "Sum").
+ * - Filters empty, placeholder, and header echo rows.
  */
 export function isSummaryOrInvalidSyllabusRow(
   unit: string,
   topic: string,
   subtopic: string
-): { isInvalid: boolean; reason?: string } {
-  const normTopic = topic.trim();
-  const normSubtopic = subtopic.trim();
-  const normUnit = unit.trim();
+): RowValidationResult {
+  const normTopic = (topic || '').trim();
+  const normSubtopic = (subtopic || '').trim();
+  const normUnit = (unit || '').trim();
 
   // 1. Missing both topic and subtopic
   if (!normTopic && !normSubtopic) {
-    return { isInvalid: true, reason: 'Empty topic and subtopic' };
+    return { isInvalid: true, category: 'empty', reason: 'Empty topic and subtopic cells' };
   }
 
-  // 2. Pure numeric count or percentage (e.g. "127", "125", "198", "147", "597", "100%")
   const candidate = normTopic || normSubtopic;
-  if (PURE_NUMERIC_PATTERN.test(candidate)) {
-    return { isInvalid: true, reason: `Pure numeric aggregate count: "${candidate}"` };
-  }
-  if (normTopic && PURE_NUMERIC_PATTERN.test(normTopic) && (!normSubtopic || PURE_NUMERIC_PATTERN.test(normSubtopic))) {
-    return { isInvalid: true, reason: `Pure numeric row: topic="${normTopic}", subtopic="${normSubtopic}"` };
+
+  // 2. Summary row detection: if any mapped cell contains summary / aggregate keywords
+  const unitIsSummary = SUMMARY_ROW_PATTERN.test(normUnit);
+  const topicIsSummary = SUMMARY_ROW_PATTERN.test(normTopic);
+  const subtopicIsSummary = SUMMARY_ROW_PATTERN.test(normSubtopic);
+
+  if (unitIsSummary || topicIsSummary || subtopicIsSummary) {
+    const matchedLabel = [normUnit, normTopic, normSubtopic].find((s) => s && SUMMARY_ROW_PATTERN.test(s));
+    return {
+      isInvalid: true,
+      category: 'summary_row',
+      reason: `Summary or aggregate row label detected: "${matchedLabel}"`,
+    };
   }
 
-  // 3. Summary labels (e.g. "Total", "Grand Total", "Total Count", "Average", "Summary", "Overview")
-  if (SUMMARY_ROW_PATTERN.test(normTopic) || SUMMARY_ROW_PATTERN.test(candidate)) {
-    return { isInvalid: true, reason: `Summary/aggregate keyword label: "${candidate}"` };
-  }
+  // Check aggregate count label with value (e.g. "Total: 198", "Count - 50", "Total 10")
   if (/^(total|count|sum|average|avg|summary|overview)\b/i.test(normTopic) && /\d+/.test(normTopic)) {
-    return { isInvalid: true, reason: `Aggregate count label with value: "${normTopic}"` };
+    return {
+      isInvalid: true,
+      category: 'summary_row',
+      reason: `Aggregate count label with value: "${normTopic}"`,
+    };
   }
-  if (SUMMARY_ROW_PATTERN.test(normUnit) && (PURE_NUMERIC_PATTERN.test(normTopic) || !normTopic)) {
-    return { isInvalid: true, reason: `Summary unit header with aggregate value: unit="${normUnit}", topic="${normTopic}"` };
+  if (/^(total|count|sum|average|avg|summary|overview)\b/i.test(normUnit) && /\d+/.test(normUnit)) {
+    return {
+      isInvalid: true,
+      category: 'summary_row',
+      reason: `Aggregate unit label with value: "${normUnit}"`,
+    };
   }
 
-  // 4. Header row echoes (e.g. "Topic", "Subtopic", "Unit")
+  // 3. Header row echoes (e.g. "Topic", "Subtopic", "Unit")
   if (HEADER_ECHO_PATTERN.test(normTopic) && HEADER_ECHO_PATTERN.test(normSubtopic || normTopic)) {
-    return { isInvalid: true, reason: `Repeated header row: "${candidate}"` };
+    return { isInvalid: true, category: 'header_echo', reason: `Repeated header row: "${candidate}"` };
   }
 
-  // 5. Placeholders (e.g. "N/A", "-", "null")
+  // 4. Placeholders (e.g. "N/A", "-", "null")
   if (PLACEHOLDER_PATTERN.test(candidate) && (!normSubtopic || PLACEHOLDER_PATTERN.test(normSubtopic))) {
-    return { isInvalid: true, reason: `Placeholder value: "${candidate}"` };
+    return { isInvalid: true, category: 'placeholder', reason: `Placeholder value: "${candidate}"` };
   }
 
-  return { isInvalid: false };
+  // 5. Context-aware Numeric Analysis:
+  // Distinguish valid numeric topic names (e.g. "1.1", "Section 3.2", "8086", "301", "RFC 793")
+  // from numeric summary values (e.g. pure standalone counts without concept descriptions).
+  const isTopicPureNumeric = PURE_NUMERIC_PATTERN.test(normTopic);
+  const isSubtopicPureNumeric = PURE_NUMERIC_PATTERN.test(normSubtopic);
+
+  // Section numbering check (e.g. "1.1", "2.3.4", "A.1", "3.2(a)")
+  const isHierarchicalSection = /^\s*#?\s*[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)+\s*$/.test(candidate);
+  if (isHierarchicalSection) {
+    // Valid section numbering is accepted as a valid topic!
+    return { isInvalid: false, category: 'valid' };
+  }
+
+  // If topic is numeric (e.g. "8086", "301", "1"), but subtopic has substantive academic description
+  if (isTopicPureNumeric && normSubtopic && !isSubtopicPureNumeric && normSubtopic.length >= 2) {
+    return { isInvalid: false, category: 'valid' };
+  }
+
+  // If subtopic is numeric, but topic has substantive academic description
+  if (isSubtopicPureNumeric && normTopic && !isTopicPureNumeric && normTopic.length >= 2) {
+    return { isInvalid: false, category: 'valid' };
+  }
+
+  // If both topic and subtopic are pure numbers, or topic is pure number and subtopic is empty
+  if (isTopicPureNumeric && (!normSubtopic || isSubtopicPureNumeric)) {
+    return {
+      isInvalid: true,
+      category: 'aggregate_count',
+      reason: `Pure numeric aggregate count without concept description: "${normTopic}"`,
+    };
+  }
+
+  // If candidate is a standalone percentage (e.g. "100%", "75%")
+  if (/^\s*\d+(?:\.\d+)?\s*%\s*$/.test(candidate)) {
+    return {
+      isInvalid: true,
+      category: 'aggregate_count',
+      reason: `Percentage aggregate metric: "${candidate}"`,
+    };
+  }
+
+  return { isInvalid: false, category: 'valid' };
 }
 
 /**
- * Checks whether a sheet tab is likely an overview/dashboard tab that should be unchecked by default.
+ * Checks whether a sheet tab is likely an overview/dashboard/summary tab that should be unchecked by default.
  */
 export function isTabOverview(tabTitle: string, tabRole?: string): boolean {
-  if (tabRole === 'overview') return true;
-  const trimmed = tabTitle.trim();
+  if (
+    tabRole === 'overview' ||
+    tabRole === 'summary' ||
+    tabRole === 'metadata' ||
+    tabRole === 'instructions'
+  ) {
+    return true;
+  }
+  if (tabRole === 'data') {
+    return false;
+  }
+  const trimmed = (tabTitle || '').trim();
   // Protect genuine academic subjects like "Prob & Stats" or "Probability & Statistics"
   if (/^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(trimmed)) {
     return false;
@@ -206,6 +298,7 @@ export function generateSubjectCode(title: string, existingCodes: string[] = [])
 
 /**
  * Infers the best Study OS target field for a given column based on header name and type metadata.
+ * Supports flexible multi-level hierarchies: Subject, Module, Chapter, Unit, Topic, Subtopic.
  */
 export function inferColumnTarget(
   headerName: string,
@@ -214,36 +307,49 @@ export function inferColumnTarget(
 ): StudyTargetField {
   const norm = headerName.trim().toLowerCase();
 
-  // Unit / Module detection
-  if (/\b(modules?|units?|chapters?|mods?|chs?|blocks?|sections?)\b/i.test(norm)) {
-    if (!existingMappedTargets?.has('unit')) return 'unit';
+  // 1. Subject detection (e.g. for multi-subject single-sheet workbooks)
+  if (/\b(subjects?|courses?|course[\s_-]?names?|disciplines?|papers?)\b/i.test(norm)) {
+    if (!existingMappedTargets?.has('subject')) return 'subject';
   }
 
-  // Subtopic detection (prioritized before general 'topic')
+  // 2. Subtopic detection (prioritized before general 'topic')
   if (/\b(sub[\s_-]?topics?|subtopics?|sub-concepts?|items?|subitems?|details?|sub[\s_-]?units?|lectures?)\b/i.test(norm)) {
     if (!existingMappedTargets?.has('subtopic')) return 'subtopic';
   }
 
-  // Topic detection
-  if (/\b(topics?|topics?[\s_-]?names?|concepts?|areas?|main[\s_-]?topics?)\b/i.test(norm)) {
+  // 3. Topic detection
+  if (/\b(topics?|topics?[\s_-]?names?|concepts?|areas?|main[\s_-]?topics?|titles?|contents?)\b/i.test(norm)) {
     if (!existingMappedTargets?.has('topic')) return 'topic';
   }
 
-  // Done / Theory completion
+  // 4. Chapter detection
+  if (/\b(chapters?|chaps?|chs?|lessons?|themes?)\b/i.test(norm)) {
+    if (!existingMappedTargets?.has('chapter')) return 'chapter';
+  }
+
+  // 5. Unit / Module detection
+  if (/\b(modules?|mods?|blocks?|parts?)\b/i.test(norm)) {
+    if (!existingMappedTargets?.has('module')) return 'module';
+  }
+  if (/\b(units?|sections?)\b/i.test(norm)) {
+    if (!existingMappedTargets?.has('unit')) return 'unit';
+  }
+
+  // 6. Done / Theory completion
   if (
-    /\b(done|completed?|status|finished?|complete|is[\s_-]?done|solved?)\b/i.test(norm) ||
+    /\b(done|completed?|status|finished?|complete|is[\s_-]?done|solved?|mastered|checkbox)\b/i.test(norm) ||
     inferredType === 'checkbox' ||
     inferredType === 'boolean'
   ) {
     if (!existingMappedTargets?.has('done')) return 'done';
   }
 
-  // Notes / References
-  if (/\b(notes?|remarks?|comments?|references?|links?|urls?|formulas?|resources?)\b/i.test(norm)) {
+  // 7. Notes / References
+  if (/\b(notes?|remarks?|comments?|references?|links?|urls?|formulas?|resources?|descriptions?)\b/i.test(norm)) {
     if (!existingMappedTargets?.has('notes')) return 'notes';
   }
 
-  // Priority
+  // 8. Priority
   if (/\b(priority|priorities|importance|weightage|urgency|ranks?)\b/i.test(norm)) {
     if (!existingMappedTargets?.has('priority')) return 'priority';
   }
@@ -383,6 +489,14 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
   let invalidRowsCount = 0;
   let totalTheoryCompleted = 0;
 
+  const validationBreakdown: ValidationBreakdown = {
+    summaryRowsCount: 0,
+    aggregateCountsCount: 0,
+    emptyRowsCount: 0,
+    headerEchoesCount: 0,
+    placeholdersCount: 0,
+  };
+
   const previewSubjects: ImportPreviewSubject[] = [];
 
   const conflictAnalysis: TopicConflictAnalysis = {
@@ -405,8 +519,11 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
       continue;
     }
 
-    // Build field access lookup
+    // Build field access lookup supporting flexible hierarchy depths
     const unitCol = mapping.columns.find((c) => c.targetField === 'unit')?.fieldKey;
+    const moduleCol = mapping.columns.find((c) => c.targetField === 'module')?.fieldKey;
+    const chapterCol = mapping.columns.find((c) => c.targetField === 'chapter')?.fieldKey;
+    const subjectCol = mapping.columns.find((c) => c.targetField === 'subject')?.fieldKey;
     const topicCol = mapping.columns.find((c) => c.targetField === 'topic')?.fieldKey;
     const subtopicCol = mapping.columns.find((c) => c.targetField === 'subtopic')?.fieldKey;
     const doneCol = mapping.columns.find((c) => c.targetField === 'done')?.fieldKey;
@@ -420,18 +537,32 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
     let tabInvalidRows = 0;
 
     for (const r of rows) {
-      const rawUnit = unitCol ? String(r.values?.[unitCol] ?? '').trim() : '';
+      const rawUnitDirect = unitCol ? String(r.values?.[unitCol] ?? '').trim() : '';
+      const rawModule = moduleCol ? String(r.values?.[moduleCol] ?? '').trim() : '';
+      const rawChapter = chapterCol ? String(r.values?.[chapterCol] ?? '').trim() : '';
+      let rawUnit = rawUnitDirect;
+      if (!rawUnit) {
+        if (rawModule && rawChapter) rawUnit = `${rawModule} - ${rawChapter}`;
+        else if (rawModule) rawUnit = rawModule;
+        else if (rawChapter) rawUnit = rawChapter;
+      }
+
       const rawTopic = topicCol ? String(r.values?.[topicCol] ?? '').trim() : '';
       const rawSubtopic = subtopicCol ? String(r.values?.[subtopicCol] ?? '').trim() : '';
       const rawDone = doneCol ? r.values?.[doneCol] : undefined;
       const rawNotes = notesCol ? String(r.values?.[notesCol] ?? '').trim() : '';
       const rawPriority = priorityCol ? r.values?.[priorityCol] : undefined;
 
-      // Filter empty rows, pure numeric aggregate counts (127, 125, etc.), and summary labels
+      // Filter empty rows, pure numeric aggregate counts, and summary labels
       const rowCheck = isSummaryOrInvalidSyllabusRow(rawUnit, rawTopic, rawSubtopic);
       if (rowCheck.isInvalid) {
         tabInvalidRows++;
         invalidRowsCount++;
+        if (rowCheck.category === 'summary_row') validationBreakdown.summaryRowsCount++;
+        else if (rowCheck.category === 'aggregate_count') validationBreakdown.aggregateCountsCount++;
+        else if (rowCheck.category === 'empty') validationBreakdown.emptyRowsCount++;
+        else if (rowCheck.category === 'header_echo') validationBreakdown.headerEchoesCount++;
+        else if (rowCheck.category === 'placeholder') validationBreakdown.placeholdersCount++;
         continue;
       }
 
@@ -599,6 +730,7 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
     duplicateRowsCount: duplicateRowsCount,
     invalidRowsCount: invalidRowsCount,
     theoryCompletedCount: totalTheoryCompleted,
+    validationBreakdown,
   };
 
   return { summary, previewSubjects, conflictAnalysis };

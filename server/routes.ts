@@ -3084,6 +3084,21 @@ apiRouter.post('/study/cleanup-overview-import', async (req: Request, res: Respo
   }
 });
 
+apiRouter.post('/study/undo-import-session', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
+  const { sessionId, force } = (req.body && typeof req.body === 'object' ? req.body : {}) as { sessionId?: string; force?: boolean };
+  if (!sessionId) {
+    return res.status(400).json({ error: 'sessionId is required' });
+  }
+  try {
+    const result = dbService.undoImportSession(userId, sessionId, Boolean(force));
+    await dbService.flush();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to undo import session' });
+  }
+});
+
 apiRouter.get('/study/topics', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const subjectCode = typeof req.query.subjectCode === 'string' ? req.query.subjectCode : undefined;

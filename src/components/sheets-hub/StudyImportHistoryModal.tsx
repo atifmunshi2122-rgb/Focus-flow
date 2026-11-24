@@ -41,7 +41,7 @@ import type {
 } from '../../types/study.ts';
 import { api } from '../../lib/api.ts';
 import { studyImportHistoryStore } from '../../lib/sheetHub/studyImportHistoryStore.ts';
-import { cleanupErroneousOverviewImportData } from '../../lib/sheetHub/sheetToStudyImportEngine.ts';
+import { cleanupErroneousOverviewImportData, undoImportSession } from '../../lib/sheetHub/sheetToStudyImportEngine.ts';
 
 interface StudyImportHistoryModalProps {
   isOpen: boolean;
@@ -348,6 +348,32 @@ export const StudyImportHistoryModal: React.FC<StudyImportHistoryModalProps> = (
                               </ThemeBadge>
                             )}
                           </div>
+
+                          <ThemeButton
+                            variant="ghost"
+                            size="sm"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (
+                                !confirm(
+                                  `Undo import of "${item.sourceSpreadsheetTitle}"? This will safely remove topics imported during this session while preserving any topic where you have active practice or revision progress.`
+                                )
+                              )
+                                return;
+                              try {
+                                const res = await undoImportSession(userId, item.sessionId || item.id);
+                                showToast?.(res.message, res.success ? 'success' : 'error');
+                                await loadData();
+                              } catch (err: unknown) {
+                                showToast?.(err instanceof Error ? err.message : 'Undo failed', 'error');
+                              }
+                            }}
+                            className="text-[11px] text-rose-500 hover:text-rose-600 px-2 py-1 h-auto flex items-center gap-1"
+                            title="Undo this import session safely"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Undo</span>
+                          </ThemeButton>
 
                           <button
                             type="button"

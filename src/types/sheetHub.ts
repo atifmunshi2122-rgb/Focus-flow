@@ -42,7 +42,21 @@ export type SheetIdentityStrategy =
   | 'composite_key'
   | 'metadata_column';
 
-export type SheetTabRole = 'data' | 'overview' | 'ignored';
+export type SheetTabRole =
+  | 'data'
+  | 'overview'
+  | 'summary'
+  | 'metadata'
+  | 'instructions'
+  | 'uncertain'
+  | 'ignored';
+export type SheetDetectedPurpose =
+  | 'syllabus'
+  | 'summary'
+  | 'metadata'
+  | 'instructions'
+  | 'uncertain'
+  | 'empty';
 export type SheetConfidence = 'high' | 'medium' | 'low';
 export type SheetDefaultView = 'checklist' | 'table' | 'grouped_list';
 export type SheetSyncMode = 'two_way' | 'sheet_to_app' | 'manual_only';
@@ -301,6 +315,9 @@ export interface DetectedTabSchema {
   role: SheetTabRole;
   roleConfidence: SheetConfidence;
   roleReason: string;
+  detectedPurpose?: SheetDetectedPurpose;
+  purposeConfidence?: number;
+  requiresUserClassification?: boolean;
   headerRowIndex: number;
   dataStartRow: number;
   dataEndColumn: string;

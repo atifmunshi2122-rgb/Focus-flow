@@ -425,6 +425,7 @@ export interface StudyImportFailedRecord {
 
 export interface StudyImportHistoryRecord {
   id: string;
+  sessionId?: string;
   userId: string;
   sourceSpreadsheetId: string;
   sourceSpreadsheetTitle: string;
