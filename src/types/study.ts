@@ -427,6 +427,8 @@ export interface StudyImportFailedRecord {
   reason: string;
 }
 
+import type { CrossSheetValidationReport } from './sheetHub.ts';
+
 export interface StudyImportHistoryRecord {
   id: string;
   sessionId?: string;
@@ -454,6 +456,8 @@ export interface StudyImportHistoryRecord {
   errorMessage?: string | null;
   details?: StudyImportDetailItem[];
   failedRecords?: StudyImportFailedRecord[];
+  dashboardReferenceTitle?: string;
+  crossSheetValidation?: CrossSheetValidationReport;
   reconciliation?: {
     totalRowsEvaluated: number;
     created: number;

@@ -232,6 +232,7 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
     setIsImporting(true);
     setErrorMsg(null);
     try {
+      const dashboardTab = sheetTabs.find((t) => t.dashboardReference?.isRecognizedDashboard);
       const res = await executeSheetToStudyImport({
         userId,
         connection,
@@ -239,6 +240,8 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
         tabMappings,
         cachedRowsByTabId: loadedRowsByTabId,
         updateSourceManagedContent,
+        dashboardReport: dashboardTab?.dashboardReference,
+        crossSheetValidation: previewData?.summary?.crossSheetValidation,
         onProgress: (p) => setImportProgress({ stage: p.stage, percent: p.percent }),
       });
       setImportResult(res);
@@ -290,12 +293,20 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
         rows: rowsMap[mapping.tabId] || [],
       }));
 
+      const dashboardTab = sheetTabs.find((t) => t.dashboardReference?.isRecognizedDashboard);
       const result = generateImportPreview({
         tabs: tabInputs,
         existingSubjects,
         existingTopics,
         spreadsheetId: connection.sourceSpreadsheetId || connection.id,
         selectedTierId,
+        dashboardReport: dashboardTab?.dashboardReference,
+        availableTabs: sheetTabs.map((t) => ({
+          sheetTitle: t.sheetTitle,
+          sheetId: t.sheetId,
+          isIncluded: tabMappings[t.id]?.isIncluded ?? false,
+          role: t.role,
+        })),
       });
 
       setPreviewData(result);
@@ -759,23 +770,36 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                           onClick={(e) => e.stopPropagation()}
                           className="rounded border-[var(--ff-border-color)] text-[var(--ff-accent)] focus:ring-[var(--ff-accent)] cursor-pointer"
                         />
-                        <div className="flex items-center gap-2">
-                          <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />
-                          <span className="text-xs font-semibold text-[var(--ff-text-primary)]">
-                            {tab.sheetTitle}
-                          </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />
+                            <span className="text-xs font-semibold text-[var(--ff-text-primary)]">
+                              {tab.sheetTitle}
+                            </span>
+                          </div>
+                          {tab.dashboardReference?.isRecognizedDashboard && (
+                            <div className="text-[10px] text-blue-500 mt-0.5 font-medium">
+                              Reference summary: {tab.dashboardReference.subjectReferences.length} subjects • Expected Total: {tab.dashboardReference.totalSyllabusCount ?? 'N/A'} topics
+                            </div>
+                          )}
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {isOverview ? (
-                          <ThemeBadge tone="warning">Summary / Overview (Skipped by default)</ThemeBadge>
+                        {tab.dashboardReference?.isRecognizedDashboard || (tab as any).role === 'dashboard' || (tab as any).detectedPurpose === 'dashboard' ? (
+                          <ThemeBadge tone="warning">Dashboard / Overview — Reference Only</ThemeBadge>
+                        ) : (tab as any).role === 'reference' || (tab as any).detectedPurpose === 'reference' ? (
+                          <ThemeBadge tone="neutral">Reference / Lookup — Reference Only</ThemeBadge>
+                        ) : isOverview ? (
+                          <ThemeBadge tone="warning">Summary / Overview — Reference Only</ThemeBadge>
                         ) : (tab as any).role === 'instructions' ? (
-                          <ThemeBadge tone="neutral">Instructions Tab (Skipped)</ThemeBadge>
+                          <ThemeBadge tone="neutral">Instructions Tab — Reference Only</ThemeBadge>
                         ) : (tab as any).role === 'metadata' ? (
-                          <ThemeBadge tone="neutral">Metadata Tab (Skipped)</ThemeBadge>
+                          <ThemeBadge tone="neutral">Metadata Tab — Reference Only</ThemeBadge>
+                        ) : (tab as any).role === 'uncertain' || (tab as any).requiresUserClassification ? (
+                          <ThemeBadge tone="neutral">Other Sheets — Review Required</ThemeBadge>
                         ) : (
-                          <ThemeBadge tone="success">Syllabus Tab</ThemeBadge>
+                          <ThemeBadge tone="success">Syllabus Sheets — Importable</ThemeBadge>
                         )}
                         <button
                           type="button"
@@ -1189,6 +1213,138 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                 <span className="font-semibold ml-1">PYQ: Unchanged (Pending)</span>
               </p>
             </div>
+
+            {/* Dashboard Reference & Cross-Sheet Validation */}
+            {previewData?.summary?.crossSheetValidation && (
+              <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-500/5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-500/20 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span className="font-bold text-xs text-[var(--ff-text-primary)]">
+                      Dashboard Reference &amp; Cross-Sheet Validation
+                    </span>
+                    <span className="text-[11px] text-[var(--ff-text-muted)]">
+                      (Tab: &ldquo;{previewData.summary.crossSheetValidation.dashboardSheetTitle}&rdquo;)
+                    </span>
+                  </div>
+                  <div>
+                    {previewData.summary.crossSheetValidation.isConsistent ? (
+                      <ThemeBadge tone="success">✓ 100% Consistent with Dashboard</ThemeBadge>
+                    ) : (
+                      <ThemeBadge tone="warning">
+                        ⚠ Discrepancies Detected ({previewData.summary.crossSheetValidation.discrepancies.length})
+                      </ThemeBadge>
+                    )}
+                  </div>
+                </div>
+
+                {/* Overall Summary Row */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                    <div className="text-[10px] text-[var(--ff-text-muted)] font-medium">Dashboard Expected Total</div>
+                    <div className="text-sm font-bold text-blue-500">
+                      {previewData.summary.crossSheetValidation.overallMetrics.dashboardExpectedTotal ?? 'N/A'} topics
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                    <div className="text-[10px] text-[var(--ff-text-muted)] font-medium">Actual Syllabus Total</div>
+                    <div className="text-sm font-bold text-emerald-500">
+                      {previewData.summary.crossSheetValidation.overallMetrics.actualSyllabusTotal} topics
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                    <div className="text-[10px] text-[var(--ff-text-muted)] font-medium">Expected Completed</div>
+                    <div className="text-sm font-bold text-purple-500">
+                      {previewData.summary.crossSheetValidation.overallMetrics.dashboardExpectedCompleted ?? 'N/A'}
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)]">
+                    <div className="text-[10px] text-[var(--ff-text-muted)] font-medium">Actual Completed (Checkboxes)</div>
+                    <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                      {previewData.summary.crossSheetValidation.overallMetrics.actualSyllabusCompleted}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Discrepancy Warnings List */}
+                {previewData.summary.crossSheetValidation.discrepancies.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    <div className="text-[11px] font-semibold text-[var(--ff-text-secondary)]">
+                      Validation Findings &amp; Recommendations:
+                    </div>
+                    {previewData.summary.crossSheetValidation.discrepancies.map((d, dIdx) => (
+                      <div
+                        key={dIdx}
+                        className={`p-2.5 rounded-lg border text-xs space-y-1 ${
+                          d.severity === 'error'
+                            ? 'border-rose-500/30 bg-rose-500/10 text-rose-900 dark:text-rose-200'
+                            : d.severity === 'warning'
+                            ? 'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200'
+                            : 'border-blue-500/30 bg-blue-500/10 text-blue-900 dark:text-blue-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 font-medium">
+                          <ThemeBadge tone={d.severity === 'error' ? 'danger' : d.severity === 'warning' ? 'warning' : 'info'}>
+                            {d.type.replace('_', ' ').toUpperCase()}
+                          </ThemeBadge>
+                          <span>{d.message}</span>
+                        </div>
+                        <div className="text-[11px] opacity-90 pl-1">
+                          💡 <strong>Recommendation:</strong> {d.recommendation}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Validated Subjects Table */}
+                {previewData.summary.crossSheetValidation.validatedSubjects.length > 0 && (
+                  <div className="border border-[var(--ff-border-color)] rounded-lg overflow-hidden max-h-36 overflow-y-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] sticky top-0 border-b border-[var(--ff-border-color)]">
+                        <tr>
+                          <th className="px-2.5 py-1.5 font-medium">Subject</th>
+                          <th className="px-2.5 py-1.5 font-medium">Dashboard Expected</th>
+                          <th className="px-2.5 py-1.5 font-medium">Syllabus Parsed</th>
+                          <th className="px-2.5 py-1.5 font-medium">Theory Complete</th>
+                          <th className="px-2.5 py-1.5 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--ff-border-color)] bg-[var(--ff-surface)]">
+                        {previewData.summary.crossSheetValidation.validatedSubjects.map((vs, vsIdx) => (
+                          <tr key={vsIdx} className="hover:bg-[var(--ff-surface-hover)]">
+                            <td className="px-2.5 py-1.5 font-semibold text-[var(--ff-text-primary)]">
+                              {vs.subjectName}
+                            </td>
+                            <td className="px-2.5 py-1.5 text-[var(--ff-text-secondary)]">
+                              {vs.expectedCount !== undefined ? `${vs.expectedCount} topics` : '—'}
+                            </td>
+                            <td className="px-2.5 py-1.5 text-[var(--ff-text-primary)]">
+                              {vs.actualCount} topics
+                            </td>
+                            <td className="px-2.5 py-1.5">
+                              {vs.actualCompleted} {vs.expectedCompleted !== undefined ? `(exp: ${vs.expectedCompleted})` : ''}
+                            </td>
+                            <td className="px-2.5 py-1.5">
+                              {vs.countMatches && vs.completionMatches ? (
+                                <ThemeBadge tone="success">Consistent</ThemeBadge>
+                              ) : (
+                                <ThemeBadge tone="warning">Mismatch</ThemeBadge>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <p className="text-[11px] text-[var(--ff-text-muted)] italic">
+                  Note: Study OS curriculum progress strictly derives from individual topic checkboxes in syllabus sheets,
+                  ensuring 100% data fidelity regardless of dashboard calculation states.
+                </p>
+              </div>
+            )}
 
             {/* Summary Stat Grid */}
             {previewData?.summary && (

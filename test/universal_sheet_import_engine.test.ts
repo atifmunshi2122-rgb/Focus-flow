@@ -213,6 +213,7 @@ describe('Universal Google Sheets Import Engine — Data-Agnostic Test Suite', (
         existingTopics: [],
         spreadsheetId: 'sheet_synth',
         selectedTierId: 'tier1',
+        markDoneAsTheoryOnly: true,
       });
 
       assert.strictEqual(preview.summary.newTopicsCount, 1);

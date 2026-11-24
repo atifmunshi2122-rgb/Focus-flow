@@ -383,6 +383,7 @@ describe('Fix Google Sheets → Study OS Import: Overview Tab Filter & Safe Clea
         })),
         existingSubjects: [],
         existingTopics: [],
+        markDoneAsTheoryOnly: true,
       });
 
       assert.strictEqual(preview.summary.tabsSelectedCount, 4);
@@ -453,6 +454,7 @@ describe('Fix Google Sheets → Study OS Import: Overview Tab Filter & Safe Clea
         })),
         existingSubjects: [],
         existingTopics: [],
+        markDoneAsTheoryOnly: true,
       });
 
       // Verify every topic has practice = false and theory matches Done

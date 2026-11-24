@@ -9,7 +9,14 @@
  */
 
 import { deterministicHashHex } from './rowIdentity.ts';
-import type { SheetColumnMapping, SheetSyncedRow } from '../../types/sheetHub.ts';
+import type {
+  CrossSheetValidationDiscrepancy,
+  CrossSheetValidationReport,
+  CrossSheetValidationSubjectResult,
+  DashboardReferenceReport,
+  SheetColumnMapping,
+  SheetSyncedRow,
+} from '../../types/sheetHub.ts';
 import type { StudySubject, StudyTopic, TopicConflictAnalysis } from '../../types/study.ts';
 
 export type StudyTargetField =
@@ -98,6 +105,8 @@ export interface ImportPreviewSummary {
   movedTopicsCount?: number;
   renamedTopicsCount?: number;
   orphanedSourceTopicsCount?: number;
+  dashboardReferenceTitle?: string;
+  crossSheetValidation?: CrossSheetValidationReport;
   reconciliation?: {
     totalRowsEvaluated: number;
     created: number;
@@ -261,6 +270,8 @@ export function isTabOverview(tabTitle: string, tabRole?: string): boolean {
   if (
     tabRole === 'overview' ||
     tabRole === 'summary' ||
+    tabRole === 'dashboard' ||
+    tabRole === 'reference' ||
     tabRole === 'metadata' ||
     tabRole === 'instructions'
   ) {
@@ -275,6 +286,190 @@ export function isTabOverview(tabTitle: string, tabRole?: string): boolean {
     return false;
   }
   return OVERVIEW_TAB_REGEX.test(trimmed);
+}
+
+/**
+ * Cross-Sheet Validation Engine:
+ * Compares extracted Dashboard Reference Data against actual parsed syllabus records.
+ * Detects:
+ * 1. Missing subject sheets (listed on Dashboard, but no sheet in workbook).
+ * 2. Topic count mismatches (Dashboard expects X topics, syllabus has Y).
+ * 3. Completion percentage mismatches (Dashboard formula shows X%, checkbox scan shows Y%).
+ * 4. Broken cross-sheet formula references (#REF! or non-existent tab targets).
+ * 5. Outdated dashboard calculations (Dashboard KPI total != sum of subject rows).
+ *
+ * Guarantees:
+ * - Does NOT mutate or fabricate any syllabus topics.
+ * - Progress invariant: Study OS progress is strictly derived from individual checkboxes.
+ */
+export function performCrossSheetValidation(
+  dashboardReport: DashboardReferenceReport | undefined,
+  previewSubjects: ImportPreviewSubject[],
+  availableTabs: Array<{ sheetTitle: string; sheetId: number; isIncluded: boolean; role?: string }>
+): CrossSheetValidationReport | undefined {
+  if (!dashboardReport || !dashboardReport.isRecognizedDashboard) {
+    return undefined;
+  }
+
+  const discrepancies: CrossSheetValidationDiscrepancy[] = [];
+  const validatedSubjects: CrossSheetValidationSubjectResult[] = [];
+
+  // Map preview subjects by code, sheet title, and normalized name
+  const subjectByTitle = new Map<string, ImportPreviewSubject>();
+  for (const s of previewSubjects) {
+    subjectByTitle.set(s.sheetTitle.trim().toLowerCase(), s);
+    subjectByTitle.set(s.subjectName.trim().toLowerCase(), s);
+    subjectByTitle.set(s.subjectCode.trim().toLowerCase(), s);
+  }
+
+  const availableTabByTitle = new Map<string, { sheetTitle: string; sheetId: number; isIncluded: boolean }>();
+  for (const tab of availableTabs) {
+    availableTabByTitle.set(tab.sheetTitle.trim().toLowerCase(), tab);
+  }
+
+  // 1. Audit broken cross-sheet formula references
+  for (const csf of dashboardReport.crossSheetFormulas) {
+    if (csf.isBroken) {
+      discrepancies.push({
+        type: 'broken_reference',
+        severity: 'error',
+        sheetTitle: csf.targetSheetTitle,
+        actualValue: csf.formula,
+        message: `Broken cross-sheet reference in cell ${csf.sourceCell}: ${csf.brokenReason || 'Formula error'}`,
+        recommendation: `Fix formula "${csf.formula}" in the Dashboard tab so it references a valid worksheet.`,
+      });
+    }
+  }
+
+  let totalActualTopics = 0;
+  let totalActualCompleted = 0;
+
+  for (const s of previewSubjects) {
+    totalActualTopics += s.totalTopics;
+    totalActualCompleted += s.theoryCompletedCount;
+  }
+
+  // 2. Cross-check each subject referenced in Dashboard
+  for (const ref of dashboardReport.subjectReferences) {
+    const norm = ref.subjectName.trim().toLowerCase();
+    const tabMatch = availableTabByTitle.get(norm);
+    const parsedSubj =
+      subjectByTitle.get(norm) ||
+      (tabMatch ? subjectByTitle.get(tabMatch.sheetTitle.trim().toLowerCase()) : undefined);
+
+    // If tab does not exist in workbook at all:
+    if (!tabMatch && !parsedSubj) {
+      discrepancies.push({
+        type: 'missing_sheet',
+        severity: 'warning',
+        subjectName: ref.subjectName,
+        expectedValue: ref.expectedTotalTopics,
+        message: `Subject "${ref.subjectName}" is listed on Dashboard, but no matching worksheet tab exists in the spreadsheet.`,
+        recommendation: `Check whether a worksheet tab for "${ref.subjectName}" was renamed or deleted.`,
+      });
+      continue;
+    }
+
+    if (parsedSubj) {
+      const actualCount = parsedSubj.totalTopics;
+      const actualCompleted = parsedSubj.theoryCompletedCount;
+      const countMatches = ref.expectedTotalTopics === undefined || ref.expectedTotalTopics === actualCount;
+      const completionMatches =
+        ref.expectedCompletedTopics === undefined || ref.expectedCompletedTopics === actualCompleted;
+
+      validatedSubjects.push({
+        subjectName: ref.subjectName,
+        sheetTitle: parsedSubj.sheetTitle,
+        expectedCount: ref.expectedTotalTopics,
+        actualCount,
+        expectedCompleted: ref.expectedCompletedTopics,
+        actualCompleted,
+        countMatches,
+        completionMatches,
+      });
+
+      // Topic count mismatch
+      if (ref.expectedTotalTopics !== undefined && ref.expectedTotalTopics !== actualCount) {
+        discrepancies.push({
+          type: 'count_mismatch',
+          severity: 'warning',
+          subjectName: ref.subjectName,
+          sheetTitle: parsedSubj.sheetTitle,
+          expectedValue: ref.expectedTotalTopics,
+          actualValue: actualCount,
+          message: `Topic count mismatch for "${ref.subjectName}": Dashboard expects ${ref.expectedTotalTopics} topics, but syllabus sheet has ${actualCount} valid topics.`,
+          recommendation: `Import will safely use the ${actualCount} topics parsed from the syllabus sheet. Review whether rows were recently added or removed from the syllabus sheet.`,
+        });
+      }
+
+      // Completion mismatch
+      if (ref.expectedCompletedTopics !== undefined && ref.expectedCompletedTopics !== actualCompleted) {
+        discrepancies.push({
+          type: 'completion_mismatch',
+          severity: 'info',
+          subjectName: ref.subjectName,
+          sheetTitle: parsedSubj.sheetTitle,
+          expectedValue: ref.expectedCompletedTopics,
+          actualValue: actualCompleted,
+          message: `Completion count mismatch for "${ref.subjectName}": Dashboard indicates ${ref.expectedCompletedTopics} completed, but checkbox scan found ${actualCompleted} completed.`,
+          recommendation: `Study OS progress strictly derives from individual topic checkboxes. Your ${actualCompleted} completed topics will be preserved.`,
+        });
+      }
+    } else if (tabMatch && !tabMatch.isIncluded) {
+      // Tab exists in workbook, but user skipped it
+      discrepancies.push({
+        type: 'missing_sheet',
+        severity: 'info',
+        subjectName: ref.subjectName,
+        sheetTitle: tabMatch.sheetTitle,
+        expectedValue: ref.expectedTotalTopics,
+        message: `Subject "${ref.subjectName}" is listed in Dashboard, but worksheet tab "${tabMatch.sheetTitle}" is currently skipped from import.`,
+        recommendation: `If you wish to import this subject, select tab "${tabMatch.sheetTitle}" in Step 2.`,
+      });
+    }
+  }
+
+  // 3. Outdated dashboard calculations check
+  const sumSubjectExpected = dashboardReport.subjectReferences.reduce(
+    (acc, s) => acc + (s.expectedTotalTopics || 0),
+    0
+  );
+  if (
+    dashboardReport.totalSyllabusCount !== undefined &&
+    sumSubjectExpected > 0 &&
+    dashboardReport.totalSyllabusCount !== sumSubjectExpected
+  ) {
+    discrepancies.push({
+      type: 'outdated_dashboard',
+      severity: 'warning',
+      expectedValue: sumSubjectExpected,
+      actualValue: dashboardReport.totalSyllabusCount,
+      message: `Outdated Dashboard calculation: The Dashboard total metric displays ${dashboardReport.totalSyllabusCount}, but the sum of its subject rows equals ${sumSubjectExpected}.`,
+      recommendation: `Update the summary formula or total cell in your Dashboard sheet to ensure metrics stay synchronized.`,
+    });
+  }
+
+  // Check overall consistency
+  const isTotalConsistent =
+    (dashboardReport.totalSyllabusCount === undefined ||
+      dashboardReport.totalSyllabusCount === totalActualTopics) &&
+    discrepancies.filter((d) => d.severity === 'error' || d.type === 'count_mismatch').length === 0;
+
+  const isConsistent = discrepancies.length === 0;
+
+  return {
+    dashboardSheetTitle: dashboardReport.sheetTitle,
+    isConsistent,
+    discrepancies,
+    validatedSubjects,
+    overallMetrics: {
+      dashboardExpectedTotal: dashboardReport.totalSyllabusCount,
+      actualSyllabusTotal: totalActualTopics,
+      dashboardExpectedCompleted: dashboardReport.totalCompletedCount,
+      actualSyllabusCompleted: totalActualCompleted,
+      isTotalConsistent,
+    },
+  };
 }
 
 /**
@@ -610,7 +805,19 @@ export function parseBooleanDone(val: unknown): boolean {
   if (val === true || val === 1) return true;
   if (typeof val === 'string') {
     const s = val.trim().toLowerCase();
-    return s === 'true' || s === 'done' || s === 'completed' || s === '1' || s === 'yes' || s === '☑' || s === '✓';
+    return (
+      s === 'true' ||
+      s === 'done' ||
+      s === 'completed' ||
+      s === 'complete' ||
+      s === '1' ||
+      s === 'yes' ||
+      s === 'y' ||
+      s === '☑' ||
+      s === '✓' ||
+      s === 'checked' ||
+      s === 'x'
+    );
   }
   return false;
 }
@@ -633,6 +840,14 @@ export interface GenerateImportPreviewInput {
   existingTopics: StudyTopic[];
   spreadsheetId: string;
   selectedTierId: string;
+  markDoneAsTheoryOnly?: boolean;
+  dashboardReport?: DashboardReferenceReport;
+  availableTabs?: Array<{
+    sheetTitle: string;
+    sheetId: number;
+    isIncluded: boolean;
+    role?: string;
+  }>;
 }
 
 /**
@@ -643,7 +858,15 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
   previewSubjects: ImportPreviewSubject[];
   conflictAnalysis: TopicConflictAnalysis;
 } {
-  const { tabs, existingSubjects, existingTopics, spreadsheetId, selectedTierId } = input;
+  const {
+    tabs,
+    existingSubjects,
+    existingTopics,
+    spreadsheetId,
+    selectedTierId,
+    dashboardReport,
+    availableTabs,
+  } = input;
 
   const existingSubjectCodes = new Set(existingSubjects.map((s) => s.code.toUpperCase()));
   const existingTopicKeyMap = new Map<string, StudyTopic>();
@@ -800,7 +1023,19 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
         existingTopicConceptMap.get(conceptKey);
 
       const isDone = parseBooleanDone(rawDone);
-      if (isDone) {
+      const theoryCol = mapping.columns.find((c) => (c.targetField as string) === 'theory')?.fieldKey;
+      const practiceCol = mapping.columns.find((c) => (c.targetField as string) === 'practice')?.fieldKey;
+      const pyqCol = mapping.columns.find((c) => (c.targetField as string) === 'pyq')?.fieldKey;
+
+      const isTheoryDone = theoryCol ? parseBooleanDone(r.values?.[theoryCol]) : isDone;
+      const isPracticeDone = practiceCol
+        ? parseBooleanDone(r.values?.[practiceCol])
+        : input.markDoneAsTheoryOnly
+        ? false
+        : isDone;
+      const isPyqDone = pyqCol ? parseBooleanDone(r.values?.[pyqCol]) : false;
+
+      if (isTheoryDone || isDone) {
         tabTheoryCompleted++;
         totalTheoryCompleted++;
       }
@@ -853,7 +1088,7 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
           unit,
           topic,
           subtopic,
-          theory: isDone,
+          theory: isTheoryDone,
         });
       }
 
@@ -861,9 +1096,9 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
         unit,
         topic,
         subtopic,
-        theory: isDone,
-        practice: false, // Invariant: practice always stays false/unchanged on import
-        pyq: false,
+        theory: isTheoryDone,
+        practice: isPracticeDone,
+        pyq: isPyqDone,
         notes,
         priority,
         sourceRowKey,
@@ -944,6 +1179,17 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
     isReconciled: sumBreakdown === totalEvaluatedRows,
   };
 
+  const crossSheetValidation = performCrossSheetValidation(
+    dashboardReport,
+    previewSubjects,
+    availableTabs ||
+      tabs.map((t) => ({
+        sheetTitle: t.mapping.sheetTitle,
+        sheetId: t.mapping.sheetId,
+        isIncluded: t.mapping.isIncluded,
+      }))
+  );
+
   const summary: ImportPreviewSummary = {
     tabsSelectedCount: totalSelectedTabs,
     subjectsToCreateCount: subjectsToCreate,
@@ -958,6 +1204,8 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
     movedTopicsCount,
     renamedTopicsCount,
     orphanedSourceTopicsCount,
+    dashboardReferenceTitle: dashboardReport?.sheetTitle,
+    crossSheetValidation,
     reconciliation,
   };
 

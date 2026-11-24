@@ -46,13 +46,17 @@ export type SheetTabRole =
   | 'data'
   | 'overview'
   | 'summary'
+  | 'dashboard'
+  | 'reference'
   | 'metadata'
   | 'instructions'
   | 'uncertain'
   | 'ignored';
 export type SheetDetectedPurpose =
   | 'syllabus'
+  | 'dashboard'
   | 'summary'
+  | 'reference'
   | 'metadata'
   | 'instructions'
   | 'uncertain'
@@ -223,6 +227,7 @@ export interface SheetTabSchema {
   lastPullHash: string;
   rowCount: number;
   chunkCount: number;
+  dashboardReference?: DashboardReferenceReport;
   createdAt?: string;
   updatedAt: string;
 }
@@ -320,6 +325,84 @@ export interface SheetTabInspectionInput {
   rows: SheetInspectCellMeta[][]; // Preview or full grid rows starting from row 1
 }
 
+export interface DashboardSubjectReference {
+  subjectName: string;
+  referencedSheetTitle?: string;
+  expectedTotalTopics?: number;
+  expectedCompletedTopics?: number;
+  expectedCompletionPct?: number;
+  formulaReferences?: string[];
+  rawRowIndex?: number;
+}
+
+export interface DashboardCrossSheetFormula {
+  sourceCell: string; // e.g. "B2", "C5"
+  formula: string;
+  targetSheetTitle: string;
+  targetRange?: string;
+  isBroken: boolean;
+  brokenReason?: string;
+}
+
+export interface DashboardReferenceReport {
+  sheetTitle: string;
+  sheetId: number;
+  isRecognizedDashboard: boolean;
+  confidence: SheetConfidence;
+  confidenceScore: number;
+  reasons: string[];
+  totalSyllabusCount?: number;
+  totalCompletedCount?: number;
+  overallCompletionPct?: number;
+  subjectReferences: DashboardSubjectReference[];
+  crossSheetFormulas: DashboardCrossSheetFormula[];
+  brokenReferencesCount: number;
+  detectedKpis?: Record<string, number | string>;
+}
+
+export type CrossSheetDiscrepancyType =
+  | 'missing_sheet'
+  | 'count_mismatch'
+  | 'completion_mismatch'
+  | 'broken_reference'
+  | 'outdated_dashboard';
+
+export interface CrossSheetValidationDiscrepancy {
+  type: CrossSheetDiscrepancyType;
+  severity: 'warning' | 'info' | 'error';
+  subjectName?: string;
+  sheetTitle?: string;
+  expectedValue?: number | string;
+  actualValue?: number | string;
+  message: string;
+  recommendation: string;
+}
+
+export interface CrossSheetValidationSubjectResult {
+  subjectName: string;
+  sheetTitle: string;
+  expectedCount?: number;
+  actualCount: number;
+  expectedCompleted?: number;
+  actualCompleted: number;
+  countMatches: boolean;
+  completionMatches: boolean;
+}
+
+export interface CrossSheetValidationReport {
+  dashboardSheetTitle: string;
+  isConsistent: boolean;
+  discrepancies: CrossSheetValidationDiscrepancy[];
+  validatedSubjects: CrossSheetValidationSubjectResult[];
+  overallMetrics: {
+    dashboardExpectedTotal?: number;
+    actualSyllabusTotal: number;
+    dashboardExpectedCompleted?: number;
+    actualSyllabusCompleted: number;
+    isTotalConsistent: boolean;
+  };
+}
+
 export interface DetectedTabSchema {
   sheetId: number;
   sheetTitle: string;
@@ -343,6 +426,7 @@ export interface DetectedTabSchema {
   sampleRows: Array<Record<string, SheetCellScalar>>;
   headerCandidates?: SheetHeaderCandidate[];
   isHeaderManuallySelected?: boolean;
+  dashboardReference?: DashboardReferenceReport;
 }
 
 export interface DetectedWorkbookSchema {
@@ -501,6 +585,8 @@ export type StudyTopicSyncStatus =
   | 'synced'           // Successfully written to Google Sheets
   | 'queued'           // Queued — OAuth token missing or expired; local state preserved
   | 'demo'             // Sample sheet: local state only, no remote write needed
+  | 'read_only'        // Connected in read-only mode; cannot write back
+  | 'permission_required' // Reconnection or OAuth permissions required
   | 'no_connection'    // No active two-way write connection found
   | 'no_matching_tab'  // No sheet tab matched the topic's subject code
   | 'error';           // Unexpected error; local state preserved
@@ -517,5 +603,33 @@ export interface StudyTopicSyncResult {
   connectionId?: string;
   pendingId?: string;    // Set when status === 'queued'
   error?: string;
+}
+
+export interface StudySheetsSyncReport {
+  success: boolean;
+  syncedAt: string;
+  updatedTopicsCount: number;
+  updatedSubjectsCount: number;
+  conflictsCount?: number;
+  connectionId?: string;
+  spreadsheetTitle?: string;
+  error?: string | null;
+}
+
+export interface StudySheetSyncState {
+  status:
+    | 'connected'
+    | 'synced'
+    | 'syncing'
+    | 'pending_changes'
+    | 'sync_failed'
+    | 'read_only'
+    | 'permission_required'
+    | 'no_connection';
+  lastSyncedAt: string | null;
+  pendingCount: number;
+  connectedSheetTitle?: string;
+  canWrite: boolean;
+  errorMessage?: string | null;
 }
 

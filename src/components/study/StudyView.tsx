@@ -3,7 +3,13 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
 import { auth } from '../../lib/firebase.ts';
-import { syncStudyTopicCompletionToGoogleSheets } from '../../lib/sheetHub/sheetStudySyncService.ts';
+import {
+  syncStudyTopicCompletionToGoogleSheets,
+  pollAndSyncGoogleSheetsToStudyOS,
+  getStudySheetSyncState,
+} from '../../lib/sheetHub/sheetStudySyncService.ts';
+import type { StudySheetSyncState } from '../../types/sheetHub.ts';
+import { StudyProgressDashboard } from './StudyProgressDashboard.tsx';
 import {
   AcademicTier,
   StudySubject,
@@ -116,6 +122,7 @@ import { WhiteboardCanvas } from './WhiteboardCanvas.tsx';
 import { ExamHallSimulator } from './ExamHallSimulator.tsx';
 
 type StudySubTab =
+  | 'overview'
   | 'syllabus'
   | 'plans'
   | 'goals'
@@ -165,6 +172,10 @@ export const StudyView: React.FC = () => {
   const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [mistakeSeverityFilter, setMistakeSeverityFilter] = useState<'All' | 'High' | 'Medium' | 'Low'>('All');
+
+  // Google Sheets Two-Way Sync State
+  const [syncState, setSyncState] = useState<StudySheetSyncState | undefined>(undefined);
+  const [isSyncingSheets, setIsSyncingSheets] = useState<boolean>(false);
 
   // Live state
   const [subjects, setSubjects] = useState<StudySubject[]>(() => cachedSubs || []);
@@ -408,6 +419,49 @@ export const StudyView: React.FC = () => {
       showToast(err instanceof Error ? err.message : 'Undo failed', 'error');
     }
   };
+
+  // Synchronize Google Sheets checkboxes with Study OS (Two-Way Sync)
+  const handleManualSyncSheets = async () => {
+    if (isSyncingSheets) return;
+    setIsSyncingSheets(true);
+    const activeUserId = user?.id || auth.currentUser?.uid || 'usr_guest';
+    try {
+      const report = await pollAndSyncGoogleSheetsToStudyOS(activeUserId, { manual: true });
+      if (report.success) {
+        if (report.updatedTopicsCount > 0) {
+          showToast(
+            `Synced with Google Sheets: updated ${report.updatedTopicsCount} topic${
+              report.updatedTopicsCount === 1 ? '' : 's'
+            } across ${report.updatedSubjectsCount} subject${
+              report.updatedSubjectsCount === 1 ? '' : 's'
+            }.`,
+            'success'
+          );
+          await loadData();
+        } else {
+          showToast('Google Sheets and Study OS are already up to date.', 'info');
+        }
+      } else {
+        showToast(report.error || 'Failed to sync with Google Sheets', 'error');
+      }
+      const freshState = await getStudySheetSyncState(activeUserId);
+      setSyncState(freshState);
+    } catch (err) {
+      console.error('[StudyView] Manual sheets sync error:', err);
+      showToast('Error syncing with Google Sheets', 'error');
+    } finally {
+      setIsSyncingSheets(false);
+    }
+  };
+
+  // Load sync state on mount and when refresh triggers
+  useEffect(() => {
+    const activeUserId = user?.id || auth.currentUser?.uid;
+    if (!activeUserId) return;
+    getStudySheetSyncState(activeUserId)
+      .then((s) => setSyncState(s))
+      .catch(() => {});
+  }, [user?.id, refreshKey]);
 
   // Combined Academic Tiers (default + user-created)
   const allTiers = useMemo<AcademicTier[]>(() => {
@@ -1328,6 +1382,19 @@ export const StudyView: React.FC = () => {
             Bookmarks
           </ThemeButton>
 
+          {/* Quick Google Sheets Two-Way Sync Button */}
+          <ThemeButton
+            variant="ghost"
+            size="sm"
+            loading={isSyncingSheets}
+            onClick={() => void handleManualSyncSheets()}
+            className="text-emerald-400 hover:bg-emerald-500/10 text-xs border border-emerald-500/20"
+            title="Synchronize Google Sheets checkboxes with Study OS"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+            Sync Now
+          </ThemeButton>
+
           {/* Sheet Hub Two-Way Sync Bridge */}
           <ThemeButton
             variant="ghost"
@@ -1600,6 +1667,7 @@ export const StudyView: React.FC = () => {
         <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none flex-1 min-w-0 py-1" style={{ WebkitOverflowScrolling: 'touch' }}>
           {(
             [
+              { id: 'overview', label: 'Progress Dashboard', icon: TrendingUp },
               { id: 'syllabus', label: 'Syllabus & Topics', icon: BookOpen },
               { id: 'plans', label: 'Study Plans & Tasks', icon: Calendar },
               { id: 'goals', label: 'Academic Goals', icon: Target },
@@ -1704,9 +1772,82 @@ export const StudyView: React.FC = () => {
         </div>
       )}
 
+      {/* SUB-VIEW 0: OVERVIEW & PROGRESS DASHBOARD */}
+      {activeSubTab === 'overview' && (
+        <StudyProgressDashboard
+          subjects={subjects}
+          topics={topics}
+          focusSessions={focusSessions}
+          syncState={syncState}
+          isSyncing={isSyncingSheets}
+          onSyncNow={handleManualSyncSheets}
+          onSelectSubject={(code) => {
+            setSelectedSubjectCode(code);
+            setActiveSubTab('syllabus');
+          }}
+          selectedSubjectCode={selectedSubjectCode}
+          onNavigateToSheetHub={() => setCurrentTab('sheet_hub')}
+        />
+      )}
+
       {/* SUB-VIEW 1: SYLLABUS & TOPICS */}
       {activeSubTab === 'syllabus' && (
         <div className="space-y-6">
+          {/* Connected Google Sheets Sync Quick Bar */}
+          {syncState?.status && syncState.status !== 'no_connection' && (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    isSyncingSheets
+                      ? 'bg-blue-400 animate-pulse'
+                      : syncState.status === 'synced' || syncState.status === 'connected'
+                      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
+                      : syncState.status === 'pending_changes'
+                      ? 'bg-amber-400'
+                      : syncState.status === 'read_only'
+                      ? 'bg-sky-400'
+                      : 'bg-zinc-400'
+                  }`}
+                />
+                <span className="font-semibold text-[var(--ff-text-primary)]">
+                  {syncState.connectedSheetTitle || 'Connected Spreadsheet'}
+                </span>
+                <span className="text-[var(--ff-text-muted)]">
+                  • {syncState.status === 'synced'
+                    ? 'All topic checkboxes synced with Google Sheets'
+                    : syncState.status === 'pending_changes'
+                    ? `${syncState.pendingCount} pending updates waiting to write back`
+                    : syncState.status === 'read_only'
+                    ? 'Connected in read-only mode'
+                    : syncState.status === 'permission_required'
+                    ? 'Reconnection required'
+                    : syncState.status}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <ThemeButton
+                  variant="ghost"
+                  size="sm"
+                  loading={isSyncingSheets}
+                  onClick={() => void handleManualSyncSheets()}
+                  className="text-xs text-emerald-400 hover:bg-emerald-500/10"
+                  title="Synchronize Google Sheets checkboxes"
+                >
+                  <RefreshCw className={`w-3 h-3 mr-1 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+                  Sync Checkboxes
+                </ThemeButton>
+                <ThemeButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setActiveSubTab('overview')}
+                  className="text-xs text-[var(--ff-accent-text)]"
+                >
+                  Progress Dashboard <ArrowRight className="w-3 h-3 ml-1" />
+                </ThemeButton>
+              </div>
+            </div>
+          )}
           {/* Filters: Academic Tier + Subject Select + Search */}
           <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Academic Tiers */}

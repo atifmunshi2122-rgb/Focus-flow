@@ -344,6 +344,7 @@ describe('Sheet Hub → Study OS Re-import, Conflict & History Engine (Step 5)',
       selectedTierId: 'tier1_sem3',
       tabMappings: { tab_os: initialTabMapping },
       cachedRowsByTabId: { tab_os: appendedRows },
+      markDoneAsTheoryOnly: true,
     });
 
     assert.strictEqual(res.createdTopicsCount, 1, 'Only the newly appended topic is created');

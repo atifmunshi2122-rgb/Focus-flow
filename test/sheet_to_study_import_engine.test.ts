@@ -213,6 +213,7 @@ describe('Sheet Hub → Study OS Data Import Engine (Step 4)', () => {
         selectedTierId: 'tier1_sem3',
         tabMappings: { tab_dbms: mockTabMappingDBMS },
         cachedRowsByTabId: { tab_dbms: mockRows },
+        markDoneAsTheoryOnly: true,
       });
 
       assert.strictEqual(result.success, true);

@@ -4373,6 +4373,8 @@ __export(schemaDetector_exports, {
   detectHeaderRowIndex: () => detectHeaderRowIndex,
   detectTabSchema: () => detectTabSchema,
   detectWorkbookSchema: () => detectWorkbookSchema,
+  extractCrossSheetFormulas: () => extractCrossSheetFormulas,
+  extractDashboardReferenceData: () => extractDashboardReferenceData,
   normalizeFieldKey: () => normalizeFieldKey
 });
 function colIndexToLetter2(colIndex) {
@@ -4686,7 +4688,236 @@ function inferColumnMapping(colIndex, headerName, columnCells) {
     ...enumOptions && enumOptions.length > 0 ? { enumOptions } : {}
   };
 }
-function classifySheetPurpose(tabTitle, headerRow, dataRows, columns, formulaCellCount, totalNonEmptyCells) {
+function parseNumberOrPct(text) {
+  if (!text) return void 0;
+  const trimmed = text.trim();
+  if (/^\d+(?:\.\d+)?\s*%$/.test(trimmed)) {
+    const n = parseFloat(trimmed.replace("%", "").trim());
+    if (!isNaN(n)) return { val: n, type: "percent" };
+  }
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const n = parseFloat(trimmed);
+    if (!isNaN(n)) return { val: n, type: "number" };
+  }
+  return void 0;
+}
+function extractCrossSheetFormulas(rows, allKnownTabTitles) {
+  const knownSet = allKnownTabTitles ? new Set(allKnownTabTitles.map((t) => t.trim().toLowerCase())) : null;
+  const list = [];
+  const CROSS_SHEET_REF_REGEX = /(?:'([^']+)'|([A-Za-z0-9_]+))!([A-Za-z0-9:$]+)/g;
+  for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+    const row = rows[rIdx] || [];
+    for (let cIdx = 0; cIdx < row.length; cIdx++) {
+      const cell = row[cIdx];
+      if (!cell || !cell.formula) continue;
+      const formula = cell.formula.trim();
+      const sourceCell = `${colIndexToLetter2(cIdx)}${rIdx + 1}`;
+      if (/#REF!/i.test(formula)) {
+        list.push({
+          sourceCell,
+          formula,
+          targetSheetTitle: "Unknown (#REF!)",
+          isBroken: true,
+          brokenReason: "Formula contains broken reference (#REF!)"
+        });
+        continue;
+      }
+      CROSS_SHEET_REF_REGEX.lastIndex = 0;
+      let match;
+      while ((match = CROSS_SHEET_REF_REGEX.exec(formula)) !== null) {
+        const targetSheetTitle = (match[1] || match[2] || "").trim();
+        const targetRange = (match[3] || "").trim();
+        if (!targetSheetTitle) continue;
+        const isKnownSheet = knownSet ? knownSet.has(targetSheetTitle.toLowerCase()) : true;
+        const isBroken = knownSet ? !isKnownSheet : false;
+        const brokenReason = isBroken ? `Referenced sheet "${targetSheetTitle}" does not exist in workbook` : void 0;
+        list.push({
+          sourceCell,
+          formula,
+          targetSheetTitle,
+          targetRange,
+          isBroken,
+          brokenReason
+        });
+      }
+    }
+  }
+  return list;
+}
+function extractDashboardReferenceData(tabTitle, tabId, rows, allKnownTabTitles) {
+  const crossSheetFormulas = extractCrossSheetFormulas(rows, allKnownTabTitles);
+  const brokenReferencesCount = crossSheetFormulas.filter((f) => f.isBroken).length;
+  const subjectMap = /* @__PURE__ */ new Map();
+  const reasons = [];
+  const detectedKpis = {};
+  let totalSyllabusCount;
+  let totalCompletedCount;
+  let overallCompletionPct;
+  for (const csf of crossSheetFormulas) {
+    if (csf.isBroken) continue;
+    const normSheet = csf.targetSheetTitle;
+    if (!subjectMap.has(normSheet)) {
+      subjectMap.set(normSheet, {
+        subjectName: normSheet,
+        referencedSheetTitle: normSheet,
+        formulaReferences: [csf.formula]
+      });
+    } else {
+      const existing = subjectMap.get(normSheet);
+      if (!existing.formulaReferences) existing.formulaReferences = [];
+      existing.formulaReferences.push(csf.formula);
+    }
+  }
+  for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+    const row = rows[rIdx] || [];
+    for (let cIdx = 0; cIdx < row.length; cIdx++) {
+      const cell = row[cIdx];
+      const text = cellText(cell);
+      if (!text) continue;
+      const normLabel = text.replace(/[:\-]$/, "").trim();
+      if (/^(total\s*(syllabus|topics?|records?|subtopics?|questions?|items?)|syllabus\s*count)$/i.test(normLabel)) {
+        const valRight = parseNumberOrPct(cellText(row[cIdx + 1]));
+        const valBelow = rIdx + 1 < rows.length ? parseNumberOrPct(cellText(rows[rIdx + 1][cIdx])) : void 0;
+        const numVal = valRight ?? valBelow;
+        if (numVal !== void 0 && numVal.type === "number") {
+          totalSyllabusCount = numVal.val;
+          detectedKpis[text] = numVal.val;
+        }
+      }
+      if (/^(total\s*(completed|done)|completed\s*(topics?|count)|theory\s*completed)$/i.test(normLabel)) {
+        const valRight = parseNumberOrPct(cellText(row[cIdx + 1]));
+        const valBelow = rIdx + 1 < rows.length ? parseNumberOrPct(cellText(rows[rIdx + 1][cIdx])) : void 0;
+        const numVal = valRight ?? valBelow;
+        if (numVal !== void 0 && numVal.type === "number") {
+          totalCompletedCount = numVal.val;
+          detectedKpis[text] = numVal.val;
+        }
+      }
+      if (/^(overall\s*(progress|completion)|completion\s*(rate|%|percentage)|progress\s*(%|percentage)?)$/i.test(normLabel)) {
+        const valRight = parseNumberOrPct(cellText(row[cIdx + 1]));
+        const valBelow = rIdx + 1 < rows.length ? parseNumberOrPct(cellText(rows[rIdx + 1][cIdx])) : void 0;
+        const numVal = valRight ?? valBelow;
+        if (numVal !== void 0) {
+          overallCompletionPct = numVal.type === "percent" ? numVal.val : numVal.val <= 1 ? numVal.val * 100 : numVal.val;
+          detectedKpis[text] = `${overallCompletionPct.toFixed(1)}%`;
+        }
+      }
+    }
+  }
+  for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+    const row = rows[rIdx] || [];
+    if (row.some((c) => c && (c.isBooleanCell || typeof c.value === "boolean" || c.dataValidationType === "BOOLEAN"))) {
+      continue;
+    }
+    const nonEmpty = row.filter((c) => isNonEmptyCell(c));
+    if (nonEmpty.length < 2) continue;
+    const firstTextIdx = row.findIndex((c) => {
+      const t = cellText(c);
+      return t && typeof t === "string" && !/^\d+(\.\d+)?%?$/.test(t) && !TOTAL_ROW_PATTERN.test(t) && t.length <= 60;
+    });
+    if (firstTextIdx >= 0) {
+      const candidateSubjectName = cellText(row[firstTextIdx]).trim();
+      const lowerCand = candidateSubjectName.toLowerCase();
+      if (/^(subjects?|courses?|names?|titles?|items?|overview|summary|sl\.?\s*no\.?|#)$/i.test(candidateSubjectName)) {
+        continue;
+      }
+      const remainingCells = row.slice(firstTextIdx + 1);
+      const parsedValues = remainingCells.map((c) => parseNumberOrPct(cellText(c))).filter(Boolean);
+      if (parsedValues.length >= 1) {
+        const countCandidate = parsedValues.find((p) => p.type === "number");
+        const pctCandidate = parsedValues.find((p) => p.type === "percent");
+        const completedCandidate = parsedValues.filter((p) => p.type === "number")[1];
+        const matchesKnownTab = allKnownTabTitles?.some((t) => t.trim().toLowerCase() === lowerCand);
+        if (countCandidate || matchesKnownTab) {
+          const existing = subjectMap.get(candidateSubjectName) || {
+            subjectName: candidateSubjectName,
+            referencedSheetTitle: matchesKnownTab ? allKnownTabTitles?.find((t) => t.trim().toLowerCase() === lowerCand) : candidateSubjectName
+          };
+          if (countCandidate && !existing.expectedTotalTopics) {
+            existing.expectedTotalTopics = Math.round(countCandidate.val);
+          }
+          if (completedCandidate && !existing.expectedCompletedTopics) {
+            existing.expectedCompletedTopics = Math.round(completedCandidate.val);
+          }
+          if (pctCandidate && !existing.expectedCompletionPct) {
+            existing.expectedCompletionPct = pctCandidate.val;
+          } else if (existing.expectedTotalTopics && existing.expectedCompletedTopics && !existing.expectedCompletionPct) {
+            existing.expectedCompletionPct = Math.round(existing.expectedCompletedTopics / existing.expectedTotalTopics * 100);
+          }
+          existing.rawRowIndex = rIdx + 1;
+          subjectMap.set(candidateSubjectName, existing);
+        }
+      }
+    }
+  }
+  const subjectList = Array.from(subjectMap.values());
+  if (totalSyllabusCount === void 0 && subjectList.length > 0) {
+    const sumExpected = subjectList.reduce((acc, s) => acc + (s.expectedTotalTopics || 0), 0);
+    if (sumExpected > 0) {
+      totalSyllabusCount = sumExpected;
+    }
+  }
+  if (totalCompletedCount === void 0 && subjectList.length > 0) {
+    const sumCompleted = subjectList.reduce((acc, s) => acc + (s.expectedCompletedTopics || 0), 0);
+    if (sumCompleted > 0) {
+      totalCompletedCount = sumCompleted;
+    }
+  }
+  if (overallCompletionPct === void 0 && totalSyllabusCount && totalCompletedCount) {
+    overallCompletionPct = Math.round(totalCompletedCount / totalSyllabusCount * 100);
+  }
+  let confidenceScore = 0;
+  const distinctReferencedSheets = new Set(
+    crossSheetFormulas.filter((f) => !f.isBroken).map((f) => f.targetSheetTitle.toLowerCase())
+  );
+  if (distinctReferencedSheets.size >= 2) {
+    confidenceScore += 0.55;
+    reasons.push(
+      `Contains cross-sheet formulas referencing ${distinctReferencedSheets.size} distinct sheets (${Array.from(distinctReferencedSheets).join(", ")}).`
+    );
+  } else if (distinctReferencedSheets.size === 1) {
+    confidenceScore += 0.35;
+    reasons.push(`Contains cross-sheet formulas referencing sheet "${Array.from(distinctReferencedSheets)[0]}".`);
+  }
+  if (subjectList.length >= 2 && subjectList.some((s) => s.expectedTotalTopics)) {
+    confidenceScore += 0.4;
+    reasons.push(`Detected summary table with ${subjectList.length} subjects and expected topic metrics.`);
+  }
+  if (totalSyllabusCount !== void 0 || overallCompletionPct !== void 0) {
+    confidenceScore += 0.2;
+    reasons.push(
+      `Extracted overall syllabus KPI metrics: ${totalSyllabusCount ? `Total Topics: ${totalSyllabusCount}` : ""} ${overallCompletionPct !== void 0 ? `Completion: ${overallCompletionPct}%` : ""}`.trim()
+    );
+  }
+  if (brokenReferencesCount > 0) {
+    reasons.push(`Detected ${brokenReferencesCount} broken cross-sheet formula reference(s) (#REF! or missing sheets).`);
+  }
+  const isProbStats = /^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(tabTitle.trim());
+  const titleMatchesOverview = !isProbStats && OVERVIEW_TAB_NAME_REGEX.test(tabTitle.trim());
+  if (titleMatchesOverview) {
+    confidenceScore += 0.25;
+    reasons.push(`Sheet title "${tabTitle}" matches standard overview/dashboard conventions.`);
+  }
+  const hasCrossSheetFormulas = distinctReferencedSheets.size > 0;
+  const isRecognizedDashboard = hasCrossSheetFormulas ? confidenceScore >= 0.5 || titleMatchesOverview && (subjectList.length > 0 || crossSheetFormulas.length > 0) : titleMatchesOverview && (subjectList.length >= 2 || totalSyllabusCount !== void 0) && confidenceScore >= 0.6;
+  const confidence = confidenceScore >= 0.75 ? "high" : confidenceScore >= 0.5 ? "medium" : "low";
+  return {
+    sheetTitle: tabTitle,
+    sheetId: tabId,
+    isRecognizedDashboard,
+    confidence,
+    confidenceScore: Math.min(1, confidenceScore),
+    reasons,
+    totalSyllabusCount,
+    totalCompletedCount,
+    overallCompletionPct,
+    subjectReferences: subjectList,
+    crossSheetFormulas,
+    brokenReferencesCount,
+    detectedKpis: Object.keys(detectedKpis).length > 0 ? detectedKpis : void 0
+  };
+}
+function classifySheetPurpose(tabTitle, headerRow, dataRows, columns, formulaCellCount, totalNonEmptyCells, allKnownTabTitles) {
   const normTitle = tabTitle.trim();
   const isProbStatsSubject = /^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(normTitle);
   const titleMatchesOverview = !isProbStatsSubject && OVERVIEW_TAB_NAME_REGEX.test(normTitle);
@@ -4699,6 +4930,22 @@ function classifySheetPurpose(tabTitle, headerRow, dataRows, columns, formulaCel
       confidenceScore: 0.5,
       requiresUserClassification: false,
       reason: "Header row found without data rows yet."
+    };
+  }
+  const dashboardRef = extractDashboardReferenceData(
+    tabTitle,
+    0,
+    [headerRow, ...dataRows],
+    allKnownTabTitles
+  );
+  if (dashboardRef.isRecognizedDashboard) {
+    return {
+      purpose: "dashboard",
+      role: "overview",
+      confidence: dashboardRef.confidence,
+      confidenceScore: dashboardRef.confidenceScore,
+      requiresUserClassification: false,
+      reason: dashboardRef.reasons.join(" ")
     };
   }
   const sampleDataRows = dataRows.slice(0, 50);
@@ -4840,6 +5087,23 @@ function classifySheetPurpose(tabTitle, headerRow, dataRows, columns, formulaCel
       reason: `Tab name "${normTitle}" and row layout match an overview/summary sheet.`
     };
   }
+  let referenceScore = 0;
+  if (REFERENCE_KEYWORD_REGEX.test(normTitle)) referenceScore += 0.5;
+  if (columns.length >= 2 && columns.length <= 4 && !hasDoneOrStatus && syllabusHeaderMatches === 0) {
+    const hasIdOrKey = columns.some((c) => c.semanticRole === "id" || /code|key|term|abbr|acronym/i.test(c.headerName));
+    const hasDesc = columns.some((c) => /desc|definition|meaning|detail/i.test(c.headerName));
+    if (hasIdOrKey || hasDesc) referenceScore += 0.4;
+  }
+  if (referenceScore >= 0.6) {
+    return {
+      purpose: "reference",
+      role: "reference",
+      confidence: "high",
+      confidenceScore: Math.min(1, referenceScore),
+      requiresUserClassification: false,
+      reason: "Reference/lookup or glossary table detected (non-syllabus definition mapping)."
+    };
+  }
   const isLikelyData = syllabusScore >= summaryScore;
   return {
     purpose: "uncertain",
@@ -4850,7 +5114,7 @@ function classifySheetPurpose(tabTitle, headerRow, dataRows, columns, formulaCel
     reason: `Unconventional tab structure (syllabus score: ${syllabusScore.toFixed(2)}, summary score: ${summaryScore.toFixed(2)}). Please confirm tab purpose before import.`
   };
 }
-function detectTabSchema(tab) {
+function detectTabSchema(tab, allKnownTabTitles) {
   const rows = tab.rows || [];
   let nonEmptyRowCount = 0;
   let totalNonEmptyCells = 0;
@@ -4921,13 +5185,20 @@ function detectTabSchema(tab) {
     const colCells = dataRows.map((r) => r[cIdx] || { value: null });
     return inferColumnMapping(cIdx, headerLabel, colCells);
   });
+  const dashboardReference = extractDashboardReferenceData(
+    tab.sheetTitle,
+    tab.sheetId,
+    rows,
+    allKnownTabTitles
+  );
   const classification = classifySheetPurpose(
     tab.sheetTitle,
     headerRow,
     dataRows,
     columns,
     formulaCellCount,
-    totalNonEmptyCells
+    totalNonEmptyCells,
+    allKnownTabTitles
   );
   const role = classification.role;
   const roleConfidence = classification.confidence;
@@ -4935,7 +5206,7 @@ function detectTabSchema(tab) {
   const detectedPurpose = classification.purpose;
   const purposeConfidence = classification.confidenceScore;
   const requiresUserClassification = classification.requiresUserClassification;
-  if (role === "overview" || role === "summary" || role === "metadata" || role === "instructions") {
+  if (role === "overview" || role === "summary" || role === "dashboard" || role === "reference" || role === "metadata" || role === "instructions") {
     for (const col of columns) {
       col.editable = false;
       if (!col.readOnlyReason) {
@@ -5015,13 +5286,17 @@ function detectTabSchema(tab) {
     sampleRowCount: dataRows.length,
     formulaCellCount,
     sampleRows,
-    headerCandidates
+    headerCandidates,
+    ...dashboardReference.isRecognizedDashboard || role === "overview" || role === "summary" || role === "dashboard" ? { dashboardReference } : {}
   };
 }
 function detectWorkbookSchema(tabs) {
-  const detected = tabs.map((tab) => detectTabSchema(tab));
+  const allKnownTabTitles = tabs.map((t) => t.sheetTitle);
+  const detected = tabs.map((tab) => detectTabSchema(tab, allKnownTabTitles));
   const dataTabCount = detected.filter((t) => t.role === "data").length;
-  const overviewTabCount = detected.filter((t) => t.role === "overview").length;
+  const overviewTabCount = detected.filter(
+    (t) => t.role === "overview" || t.role === "summary" || t.role === "dashboard" || t.role === "reference"
+  ).length;
   const emptyTabCount = detected.filter((t) => t.role === "ignored").length;
   return {
     tabs: detected,
@@ -5032,7 +5307,7 @@ function detectWorkbookSchema(tabs) {
     // Always require explicit confirmation before import
   };
 }
-var OVERVIEW_TAB_NAME_REGEX, URL_VALUE_REGEX, ISO_DATE_REGEX, HUMAN_DATE_REGEX, CURRENCY_TEXT_REGEX, BOOLEAN_TEXT_SET, PRIORITY_VALUE_SET, STATUS_VALUE_SET, HEADER_KEYWORD_REGEX, AGGREGATE_FORMULA_REGEX, SUMMARY_KEYWORD_REGEX, INSTRUCTIONS_KEYWORD_REGEX, METADATA_KEY_REGEX, SYLLABUS_HEADER_REGEX;
+var OVERVIEW_TAB_NAME_REGEX, URL_VALUE_REGEX, ISO_DATE_REGEX, HUMAN_DATE_REGEX, CURRENCY_TEXT_REGEX, BOOLEAN_TEXT_SET, PRIORITY_VALUE_SET, STATUS_VALUE_SET, HEADER_KEYWORD_REGEX, AGGREGATE_FORMULA_REGEX, SUMMARY_KEYWORD_REGEX, INSTRUCTIONS_KEYWORD_REGEX, METADATA_KEY_REGEX, SYLLABUS_HEADER_REGEX, REFERENCE_KEYWORD_REGEX, TOTAL_ROW_PATTERN;
 var init_schemaDetector = __esm({
   "src/lib/sheetHub/schemaDetector.ts"() {
     OVERVIEW_TAB_NAME_REGEX = /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions|about|progress|stats|statistics|tracker|syllabus[\s_-]?overview|course[\s_-]?overview)\b/i;
@@ -5066,6 +5341,8 @@ var init_schemaDetector = __esm({
     INSTRUCTIONS_KEYWORD_REGEX = /\b(instructions?|guidelines?|how\s*to\s*use|readme|welcome|important\s*notes?|rules?|steps?)\b/i;
     METADATA_KEY_REGEX = /^(semester|academic\s*year|author|instructor|professor|course\s*(code|name|id)|date|created|updated|version|target\s*exam|total\s*credits?|notes?)$/i;
     SYLLABUS_HEADER_REGEX = /\b(modules?|units?|chapters?|topics?|sub[\s_-]?topics?|subtopics?|concepts?|done|status|priority|weightage|lectures?|contents?)\b/i;
+    REFERENCE_KEYWORD_REGEX = /\b(reference|lookup|glossary|abbreviations?|acronyms?|definitions?|legend)\b/i;
+    TOTAL_ROW_PATTERN = /^(total|grand\s*total|subtotal|count|sum|average|avg|mean|median|min|max|all|kpi|metrics?|progress|completion\s*rate|percentage)\b/i;
   }
 });
 

@@ -229,6 +229,7 @@ describe('Sheet Hub → Study OS Final QA & Security Audit (Step 6)', () => {
         selectedTierId: 'tier1_sem3',
         tabMappings: { tab_algo: mockTabMapping },
         cachedRowsByTabId: { tab_algo: mockRows },
+        markDoneAsTheoryOnly: true,
       });
 
       assert.strictEqual(result.success, true);
@@ -385,6 +386,7 @@ describe('Sheet Hub → Study OS Final QA & Security Audit (Step 6)', () => {
         selectedTierId: 'tier1_sem3',
         tabMappings: { tab_algo: mockTabMapping },
         cachedRowsByTabId: { tab_algo: mockRows },
+        markDoneAsTheoryOnly: true,
       });
 
       assert.ok(result.historyId);

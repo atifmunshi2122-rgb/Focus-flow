@@ -287,6 +287,7 @@ describe('Sheet Hub → Study OS Import Bridge: Transformer & Preview Engine (St
         existingTopics: [],
         spreadsheetId: 'spread_123',
         selectedTierId: 'tier1_sem3',
+        markDoneAsTheoryOnly: true,
       });
 
       const subjects = preview.previewSubjects;
@@ -312,6 +313,7 @@ describe('Sheet Hub → Study OS Import Bridge: Transformer & Preview Engine (St
         existingTopics: [],
         spreadsheetId: 'spread_123',
         selectedTierId: 'tier1_sem3',
+        markDoneAsTheoryOnly: true,
       });
 
       const summary = preview.summary;

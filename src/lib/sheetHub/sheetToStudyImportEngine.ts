@@ -39,7 +39,13 @@ import {
   TabToSubjectMapping,
 } from './sheetToStudyTransformer.ts';
 import { studyImportHistoryStore } from './studyImportHistoryStore.ts';
-import type { SheetCellScalar, SheetConnection, SheetSyncedRow } from '../../types/sheetHub.ts';
+import type {
+  CrossSheetValidationReport,
+  DashboardReferenceReport,
+  SheetCellScalar,
+  SheetConnection,
+  SheetSyncedRow,
+} from '../../types/sheetHub.ts';
 import type {
   AcademicTier,
   StudyImportFailedRecord,
@@ -148,6 +154,8 @@ export interface SheetToStudyImportResult {
   sessionId?: string;
   status: 'success' | 'partial' | 'failed';
   failedRecords?: StudyImportFailedRecord[];
+  dashboardReferenceTitle?: string;
+  crossSheetValidation?: CrossSheetValidationReport;
   error?: string;
 }
 
@@ -171,6 +179,8 @@ export interface ExecuteImportOptions {
   resumeSessionId?: string; // If retrying a partial session
   previouslyCommittedSubjectIds?: string[];
   previouslyCommittedTopicIds?: string[];
+  dashboardReport?: DashboardReferenceReport;
+  crossSheetValidation?: CrossSheetValidationReport;
   onProgress?: (progress: { stage: string; current: number; total: number; percent: number }) => void;
 }
 
@@ -216,6 +226,8 @@ export async function executeSheetToStudyImport(
     resumeSessionId,
     previouslyCommittedSubjectIds = [],
     previouslyCommittedTopicIds = [],
+    dashboardReport,
+    crossSheetValidation,
     onProgress,
   } = options;
 
@@ -512,6 +524,10 @@ export async function executeSheetToStudyImport(
       const rawTopic = topicCol ? sanitizeText(r.values?.[topicCol], 256) : '';
       const rawSubtopic = subtopicCol ? sanitizeText(r.values?.[subtopicCol], 256) : '';
       const rawDone = doneCol ? r.values?.[doneCol] : undefined;
+      const theoryCol = tabMapping.columns.find((c) => (c.targetField as string) === 'theory')?.fieldKey;
+      const practiceCol = tabMapping.columns.find((c) => (c.targetField as string) === 'practice')?.fieldKey;
+      const pyqCol = tabMapping.columns.find((c) => (c.targetField as string) === 'pyq')?.fieldKey;
+
       const rawNotes = notesCol ? sanitizeText(r.values?.[notesCol], 2000) : '';
       const rawPriority = priorityCol ? r.values?.[priorityCol] : undefined;
 
@@ -528,8 +544,15 @@ export async function executeSheetToStudyImport(
       const notes = rawNotes || undefined;
       const priority = normalizePriority(rawPriority);
       const isDone = parseBooleanDone(rawDone);
+      const isTheoryDone = theoryCol ? parseBooleanDone(r.values?.[theoryCol]) : isDone;
+      const isPracticeDone = practiceCol
+        ? parseBooleanDone(r.values?.[practiceCol])
+        : options.markDoneAsTheoryOnly
+        ? false
+        : isDone;
+      const isPyqDone = pyqCol ? parseBooleanDone(r.values?.[pyqCol]) : false;
 
-      if (isDone) {
+      if (isDone || isTheoryDone) {
         tabTheoryCompleted++;
       }
 
@@ -599,9 +622,9 @@ export async function executeSheetToStudyImport(
           topic,
           subtopic,
           priority,
-          theory: isDone,     // Done = TRUE -> Theory = true
-          practice: false,    // Invariant: Practice NEVER overwritten / set false
-          pyq: false,         // Invariant: PYQ NEVER overwritten / set false
+          theory: isTheoryDone,     // Done = TRUE in Sheets -> Theory = true (Completed in Study OS)
+          practice: isPracticeDone, // Done = TRUE in Sheets -> Practice = true (Completed in Study OS)
+          pyq: isPyqDone,
           revisionCount: 0,   // Invariant: Ebbinghaus intervals start at 0
           notes: notes || undefined,
           rowIndex: rIdx + 1,
@@ -655,11 +678,22 @@ export async function executeSheetToStudyImport(
         const updates: Partial<StudyTopic> = {};
         let changed = false;
 
-        // Invariant: Only update theory if sheet has Done = true and Study OS has false
-        // NEVER reset existing theory to false if it was unchecked in the sheet!
-        if (isDone && !existingMatch.theory) {
+        // Invariant: If sheet has Done = true, mark Completed in Study OS (theory + practice).
+        // NEVER reset existing theory or practice to false if it was unchecked in the sheet!
+        if (isTheoryDone && !existingMatch.theory) {
           updates.theory = true;
           changed = true;
+          existingMatch.theory = true;
+        }
+        if (isPracticeDone && !existingMatch.practice) {
+          updates.practice = true;
+          changed = true;
+          existingMatch.practice = true;
+        }
+        if (isPyqDone && !existingMatch.pyq) {
+          updates.pyq = true;
+          changed = true;
+          existingMatch.pyq = true;
         }
 
         // Update source content if content changed and user approved updating source-managed content
@@ -679,13 +713,13 @@ export async function executeSheetToStudyImport(
             }
           }
 
-          if (existingMatch.priority !== priority) {
+          if (priorityCol && existingMatch.priority !== priority) {
             updates.priority = priority;
             changed = true;
           }
 
           // Update notes only if existing notes were empty and source provides notes
-          if (!existingMatch.notes && notes) {
+          if (notesCol && !existingMatch.notes && notes) {
             updates.notes = notes;
             changed = true;
           }
@@ -1080,6 +1114,8 @@ export async function executeSheetToStudyImport(
     orphanedTopicsForReview,
     reconciliation,
     details: resultDetails,
+    dashboardReferenceTitle: dashboardReport?.sheetTitle,
+    crossSheetValidation,
   };
 
   // 7. Record History in study_import_history
@@ -1107,6 +1143,8 @@ export async function executeSheetToStudyImport(
         renamedTopicsCount: totalRenamedTopics,
         orphanedSourceTopicsCount,
         reconciliation,
+        dashboardReferenceTitle: dashboardReport?.sheetTitle,
+        crossSheetValidation,
         status: 'success',
         importedAt: nowIso,
         details: resultDetails,
