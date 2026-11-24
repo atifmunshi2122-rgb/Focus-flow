@@ -116,8 +116,9 @@ export const OVERVIEW_TAB_REGEX =
   /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions|about|progress|stats|statistics|tracker|syllabus[\s_-]?overview|course[\s_-]?overview)\b/i;
 
 const PURE_NUMERIC_PATTERN = /^\s*#?\s*\d+(?:\.\d+)?\s*%?\s*$/;
-const SUMMARY_ROW_PATTERN =
-  /^(total|grand\s*total|subtotal|count|sum|average|avg|mean|median|min|max|overview|summary|all|kpi|metrics?|progress|completion\s*rate|percentage|total\s*(topics?|records?|rows?|items?|count|subtopics?|questions?|[:\-]?\s*\d+.*)?|count\s*[:\-]?\s*\d+.*|sum\s*[:\-]?\s*\d+.*)$/i;
+const TOTAL_ROW_PATTERN =
+  /^(total|grand\s*total|subtotal|count|sum|average|avg|mean|median|min|max|all|kpi|metrics?|progress|completion\s*rate|percentage|total\s*(topics?|records?|rows?|items?|count|subtopics?|questions?|[:\-]?\s*\d+.*)?|count\s*[:\-]?\s*\d+.*|sum\s*[:\-]?\s*\d+.*)$/i;
+const OVERVIEW_KEYWORD_PATTERN = /^(overview|summary)$/i;
 const HEADER_ECHO_PATTERN =
   /^(topic|subtopic|title|name|subject|unit|chapter|module|status|done|priority|notes?)$/i;
 const PLACEHOLDER_PATTERN = /^(n\/?a|na|none|nil|null|undefined|-|--|\?)$/i;
@@ -152,17 +153,34 @@ export function isSummaryOrInvalidSyllabusRow(
 
   const candidate = normTopic || normSubtopic;
 
-  // 2. Summary row detection: if any mapped cell contains summary / aggregate keywords
-  const unitIsSummary = SUMMARY_ROW_PATTERN.test(normUnit);
-  const topicIsSummary = SUMMARY_ROW_PATTERN.test(normTopic);
-  const subtopicIsSummary = SUMMARY_ROW_PATTERN.test(normSubtopic);
-
-  if (unitIsSummary || topicIsSummary || subtopicIsSummary) {
-    const matchedLabel = [normUnit, normTopic, normSubtopic].find((s) => s && SUMMARY_ROW_PATTERN.test(s));
+  // 2. Summary row detection:
+  // Pure aggregation keywords ("Total", "Grand Total", "Sum", "Count") are always invalid summary rows
+  if (TOTAL_ROW_PATTERN.test(normUnit) || TOTAL_ROW_PATTERN.test(normTopic) || TOTAL_ROW_PATTERN.test(normSubtopic)) {
+    const matchedLabel = [normUnit, normTopic, normSubtopic].find((s) => s && TOTAL_ROW_PATTERN.test(s));
     return {
       isInvalid: true,
       category: 'summary_row',
       reason: `Summary or aggregate row label detected: "${matchedLabel}"`,
+    };
+  }
+
+  // "Overview" and "Summary" are invalid when accompanied by numeric counts or when standalone (in overview summary tables),
+  // but perfectly valid when paired with an actual topic or subtopic (e.g. "Introduction" > "Overview")
+  if (
+    (OVERVIEW_KEYWORD_PATTERN.test(normUnit) || OVERVIEW_KEYWORD_PATTERN.test(normTopic)) &&
+    (/^\s*#?\s*\d+(\.\d+)?\s*%?\s*$/.test(normTopic) || !normSubtopic || OVERVIEW_KEYWORD_PATTERN.test(normSubtopic))
+  ) {
+    return {
+      isInvalid: true,
+      category: 'summary_row',
+      reason: `Overview/summary label with aggregate count or empty concept: "${normUnit || normTopic}"`,
+    };
+  }
+  if (OVERVIEW_KEYWORD_PATTERN.test(normSubtopic) && (!normTopic || normTopic.toLowerCase() === 'general')) {
+    return {
+      isInvalid: true,
+      category: 'summary_row',
+      reason: `Standalone overview/summary label in general unit: "${normSubtopic}"`,
     };
   }
 
@@ -407,40 +425,30 @@ export function inferColumnTargetWithConfidence(
     }
   }
 
-  // 4. Chapter detection
+  // 4. Unit / Module / Chapter detection
+  // Maps to 'unit' by default (as Study OS stores topics under 'unit').
+  // If 'unit' is already mapped, maps subsequent hierarchies to 'module' or 'chapter'.
   if (
     matchesTermOrPattern(
       norm,
-      /\b(chapters?|chaps?|chs?|lessons?|themes?)\b/i,
-      ['অধ্যায়', 'अध्याय']
-    )
-  ) {
-    if (!existingMappedTargets?.has('chapter')) {
-      return { target: 'chapter', confidence: 'high', isUncertain: false, reason: 'Matched chapter keyword' };
-    }
-  }
-
-  // 5. Unit / Module detection
-  if (
-    matchesTermOrPattern(
-      norm,
-      /\b(modules?|mods?|blocks?|parts?|pillars?|groups?)\b/i,
-      ['মডিউল', 'मॉड्यूल']
-    )
-  ) {
-    if (!existingMappedTargets?.has('module')) {
-      return { target: 'module', confidence: 'high', isUncertain: false, reason: 'Matched module keyword' };
-    }
-  }
-  if (
-    matchesTermOrPattern(
-      norm,
-      /\b(units?|sections?|secs?|divisions?)\b/i,
-      ['একক', 'यूनिट']
+      /\b(units?|sections?|secs?|divisions?|modules?|mods?|blocks?|parts?|pillars?|groups?|chapters?|chaps?|chs?|lessons?|themes?)\b/i,
+      ['মডিউল', 'मॉड्यूल', 'একক', 'यूनिट', 'অধ্যায়', 'अध्याय']
     )
   ) {
     if (!existingMappedTargets?.has('unit')) {
-      return { target: 'unit', confidence: 'high', isUncertain: false, reason: 'Matched unit/section keyword' };
+      return { target: 'unit', confidence: 'high', isUncertain: false, reason: 'Matched unit/module/chapter keyword' };
+    }
+    if (
+      !existingMappedTargets?.has('module') &&
+      matchesTermOrPattern(norm, /\b(modules?|mods?|blocks?|parts?|pillars?|groups?)\b/i, ['মডিউল', 'मॉड्यूल'])
+    ) {
+      return { target: 'module', confidence: 'high', isUncertain: false, reason: 'Matched secondary module keyword' };
+    }
+    if (
+      !existingMappedTargets?.has('chapter') &&
+      matchesTermOrPattern(norm, /\b(chapters?|chaps?|chs?|lessons?|themes?)\b/i, ['অধ্যায়', 'अध्याय'])
+    ) {
+      return { target: 'chapter', confidence: 'high', isUncertain: false, reason: 'Matched secondary chapter keyword' };
     }
   }
 
@@ -777,7 +785,6 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
           subtopic,
           count: prevSeenCount + 1,
         });
-        continue;
       } else {
         seenCompositeKeys.set(sourceRowKey, 1);
       }
@@ -916,8 +923,9 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
   const unchangedTopicsCount = conflictAnalysis.unchangedTopics.length;
   const orphanedSourceTopicsCount = conflictAnalysis.missingSourceTopics.length;
 
+  const distinctCreatedCount = Math.max(0, newTopicsCount - duplicateRowsCount);
   const sumBreakdown =
-    newTopicsCount +
+    distinctCreatedCount +
     conflictAnalysis.changedTopics.length +
     unchangedTopicsCount +
     duplicateRowsCount +
@@ -925,7 +933,7 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
 
   const reconciliation = {
     totalRowsEvaluated: totalEvaluatedRows,
-    created: newTopicsCount,
+    created: distinctCreatedCount,
     updated: conflictAnalysis.changedTopics.length,
     unchanged: unchangedTopicsCount,
     skipped: 0,

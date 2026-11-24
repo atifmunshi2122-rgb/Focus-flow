@@ -711,6 +711,7 @@ export async function executeSheetToStudyImport(
           tabUpdatedTopics++;
         } else {
           tabUnchangedTopics++;
+          tabSkippedTopics++;
         }
       }
     }

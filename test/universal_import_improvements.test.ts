@@ -139,7 +139,7 @@ describe('Universal Import Engine — Additional Architectural Improvements Test
       assert.strictEqual(bTopic.target, 'topic');
       assert.strictEqual(bTopic.confidence, 'high');
 
-      const bChapter = inferColumnTargetWithConfidence('অধ্যায়');
+      const bChapter = inferColumnTargetWithConfidence('অধ্যায়', undefined, new Set(['unit']));
       assert.strictEqual(bChapter.target, 'chapter');
       assert.strictEqual(bChapter.confidence, 'high');
 
@@ -149,14 +149,14 @@ describe('Universal Import Engine — Additional Architectural Improvements Test
 
       // Hindi
       const hModule = inferColumnTargetWithConfidence('मॉड्यूल');
-      assert.strictEqual(hModule.target, 'module');
+      assert.strictEqual(hModule.target, 'unit');
       assert.strictEqual(hModule.confidence, 'high');
 
       // English Synonyms
       const sBlock = inferColumnTargetWithConfidence('Learning Block');
-      assert.strictEqual(sBlock.target, 'module');
+      assert.strictEqual(sBlock.target, 'unit');
 
-      const sTheme = inferColumnTargetWithConfidence('Theme / Lesson');
+      const sTheme = inferColumnTargetWithConfidence('Theme / Lesson', undefined, new Set(['unit']));
       assert.strictEqual(sTheme.target, 'chapter');
 
       const sPoint = inferColumnTargetWithConfidence('Discussion Points');

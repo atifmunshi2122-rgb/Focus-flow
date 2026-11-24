@@ -165,10 +165,10 @@ describe('Universal Google Sheets Import Engine — Data-Agnostic Test Suite', (
   // --------------------------------------------------------------------------
   describe('2. Dynamic Syllabus Structure Detection', () => {
     it('infers multi-level hierarchy (Module + Chapter + Topic + Subtopic)', () => {
-      assert.strictEqual(inferColumnTarget('Module'), 'module');
-      assert.strictEqual(inferColumnTarget('Mod 1'), 'module');
-      assert.strictEqual(inferColumnTarget('Chapter'), 'chapter');
-      assert.strictEqual(inferColumnTarget('Lesson'), 'chapter');
+      assert.strictEqual(inferColumnTarget('Module'), 'unit');
+      assert.strictEqual(inferColumnTarget('Mod 1'), 'unit');
+      assert.strictEqual(inferColumnTarget('Chapter', undefined, new Set(['unit'])), 'chapter');
+      assert.strictEqual(inferColumnTarget('Lesson', undefined, new Set(['unit'])), 'chapter');
       assert.strictEqual(inferColumnTarget('Main Topic'), 'topic');
       assert.strictEqual(inferColumnTarget('Subtopic Concept'), 'subtopic');
       assert.strictEqual(inferColumnTarget('Status'), 'done');
