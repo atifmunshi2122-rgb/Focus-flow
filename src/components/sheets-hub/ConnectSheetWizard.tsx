@@ -45,6 +45,7 @@ import { AnimatedProgressBar } from '../ui/MotionPrimitives.tsx';
 import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
 import { GoogleSheetPickerModal, type SelectedGoogleSheet } from './GoogleSheetPickerModal.tsx';
 import { requestGoogleDriveToken, getGisDualCopyToken, GHOST_PROJECT_ID } from '../../lib/googleAuthGis.ts';
+import { isTabOverview, isSummaryOrInvalidSyllabusRow } from '../../lib/sheetHub/sheetToStudyTransformer.ts';
 
 interface ConnectSheetWizardProps {
   onCancel: () => void;
@@ -468,8 +469,11 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
       const initialKeys: Record<number, string[]> = {};
 
       for (const t of res.tabs) {
-        if (t.role !== 'ignored') initialTabIds.push(t.sheetId);
-        initialRoles[t.sheetId] = t.role;
+        const isOverview = isTabOverview(t.sheetTitle, t.role);
+        if (t.role !== 'ignored' && t.role !== 'overview' && !isOverview) {
+          initialTabIds.push(t.sheetId);
+        }
+        initialRoles[t.sheetId] = isOverview ? 'overview' : t.role;
         initialCols[t.sheetId] = t.columns;
 
         // Auto select key candidates
@@ -691,11 +695,14 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
         for (const r of syncedRows) {
           const topicVal = String(r.values[topicCol || ''] || '').trim();
-          if (topicVal) {
+          const unitVal = String(r.values[unitCol || ''] || tabMeta.sheetTitle).trim();
+          const subtopicVal = subtopicCol ? String(r.values[subtopicCol] || '').trim() : undefined;
+          const rowCheck = isSummaryOrInvalidSyllabusRow(unitVal, topicVal, subtopicVal || '');
+          if (topicVal && !rowCheck.isInvalid) {
             topicsForTracker.push({
-              unit: String(r.values[unitCol || ''] || tabMeta.sheetTitle).trim(),
+              unit: unitVal,
               topic: topicVal,
-              subtopic: subtopicCol ? String(r.values[subtopicCol] || '').trim() : undefined,
+              subtopic: subtopicVal,
               isCompleted: doneCol ? Boolean(r.values[doneCol]) : false,
             });
           }
@@ -1383,7 +1390,8 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
           <div className="space-y-2">
             {inspectData.tabs.map((tab) => {
               const isSelected = selectedTabIds.includes(tab.sheetId);
-              const currentRole = tabRoles[tab.sheetId] || tab.role;
+              const isOverview = isTabOverview(tab.sheetTitle, tab.role);
+              const currentRole = tabRoles[tab.sheetId] || (isOverview ? 'overview' : tab.role);
 
               return (
                 <div
@@ -1402,9 +1410,16 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                       className="rounded accent-[var(--ff-accent)] w-4 h-4 cursor-pointer"
                     />
                     <div className="min-w-0">
-                      <span className="font-semibold text-sm text-[var(--ff-text-primary)] block truncate">
-                        {tab.sheetTitle}
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm text-[var(--ff-text-primary)] block truncate">
+                          {tab.sheetTitle}
+                        </span>
+                        {isOverview && (
+                          <ThemeBadge tone="warning" className="text-[10px]">
+                            Overview / Summary Tab (Excluded by default)
+                          </ThemeBadge>
+                        )}
+                      </div>
                       <span className="text-xs text-[var(--ff-text-muted)]">
                         {tab.columns.length} columns &bull; Header row {tab.headerRowIndex}
                       </span>
@@ -1412,6 +1427,18 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
                   </label>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleTabSelection(tab.sheetId)}
+                      className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors ${
+                        isSelected
+                          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                          : 'border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)]'
+                      }`}
+                    >
+                      {isSelected ? 'Included' : 'Skipped'}
+                    </button>
+
                     <select
                       value={currentRole}
                       disabled={!isSelected}

@@ -676,7 +676,26 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTabMappings((prev) => {
+                      const next = { ...prev };
+                      sheetTabs.forEach((tab) => {
+                        const isOverview = isTabOverview(tab.sheetTitle, tab.role);
+                        if (next[tab.id]) {
+                          next[tab.id].isIncluded = !isOverview;
+                        }
+                      });
+                      return next;
+                    });
+                  }}
+                  className="text-[11px] text-[var(--ff-accent-text)] hover:underline font-semibold"
+                >
+                  Select Syllabus Tabs (Skip Overview)
+                </button>
+                <span className="text-[var(--ff-text-muted)] text-xs">•</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -686,9 +705,9 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                       return next;
                     });
                   }}
-                  className="text-[11px] text-[var(--ff-accent-text)] hover:underline"
+                  className="text-[11px] text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:underline"
                 >
-                  Select All
+                  Select All Tabs
                 </button>
                 <span className="text-[var(--ff-text-muted)] text-xs">•</span>
                 <button
@@ -700,7 +719,7 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                       return next;
                     });
                   }}
-                  className="text-[11px] text-[var(--ff-accent-text)] hover:underline"
+                  className="text-[11px] text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:underline"
                 >
                   Deselect All
                 </button>
@@ -752,6 +771,20 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
                         {isOverview && (
                           <ThemeBadge tone="warning">Overview Tab (Skipped by default)</ThemeBadge>
                         )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleTab(tab.id);
+                          }}
+                          className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors ${
+                            isIncluded
+                              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                              : 'border-[var(--ff-border-color)] bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)]'
+                          }`}
+                        >
+                          {isIncluded ? 'Included' : 'Skipped'}
+                        </button>
                         <span className="text-[11px] text-[var(--ff-text-muted)]">
                           {tab.rowCount || 0} rows • {tab.columns?.length || 0} cols
                         </span>

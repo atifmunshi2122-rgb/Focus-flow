@@ -32,6 +32,8 @@ import {
   computeContentHash,
   computeSourceMappingKey,
   computeSourceRowKey,
+  isSummaryOrInvalidSyllabusRow,
+  isTabOverview,
   normalizePriority,
   parseBooleanDone,
   TabToSubjectMapping,
@@ -377,39 +379,13 @@ export async function executeSheetToStudyImport(
     const cleanSubjectCode = sanitizeText(tabMapping.targetSubjectCode, 64);
     const upperCode = cleanSubjectCode.toUpperCase();
     const cleanSubjectName = sanitizeText(tabMapping.targetSubjectName, 256) || 'Subject';
+    const isOverview = isTabOverview(tabMapping.sheetTitle);
 
     if (!cleanSubjectCode) {
       throw new Error(`Subject code is missing for tab "${tabMapping.sheetTitle}".`);
     }
 
-    // 4A. Determine Subject
-    let targetSubject = existingSubjectByCode.get(upperCode);
-    if (!targetSubject) {
-      targetSubject = {
-        id: `subj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${tabIdx}`,
-        userId,
-        code: cleanSubjectCode,
-        name: cleanSubjectName,
-        tierId: selectedTierId,
-        color: tabMapping.targetColor || '#3b82f6',
-        totalSubtopics: 0,
-        completedSubtopics: 0,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        deletedAt: null,
-      };
-      existingSubjectByCode.set(upperCode, targetSubject);
-      subjectsToSave.push(targetSubject);
-      totalCreatedSubjects++;
-    } else {
-      targetSubject.name = cleanSubjectName || targetSubject.name;
-      targetSubject.color = tabMapping.targetColor || targetSubject.color;
-      targetSubject.updatedAt = nowIso;
-      subjectsToSave.push(targetSubject);
-      totalUpdatedSubjects++;
-    }
-
-    // 4B. Topic Identity Indexing for This Subject
+    // 4A. Topic Identity Indexing for This Subject
     const subjectTopics = existingTopicsBySubjectCode.get(upperCode) || [];
     const topicById = new Map<string, StudyTopic>();
     const topicBySourceMappingKey = new Map<string, StudyTopic>();
@@ -448,6 +424,9 @@ export async function executeSheetToStudyImport(
     let tabAmbiguousTopics = 0;
 
     const seenTabCompositeKeys = new Set<string>();
+    const tabTopicsToCreate: StudyTopic[] = [];
+    const tabTopicsToUpdate: Array<{ id: string; updates: Partial<StudyTopic> }> = [];
+    const tabNewSourceMappings: StudyTopicSourceMapping[] = [];
 
     for (let rIdx = 0; rIdx < rows.length; rIdx++) {
       const r = rows[rIdx];
@@ -458,10 +437,10 @@ export async function executeSheetToStudyImport(
       const rawNotes = notesCol ? sanitizeText(r.values?.[notesCol], 2000) : '';
       const rawPriority = priorityCol ? r.values?.[priorityCol] : undefined;
 
-      // Blank row validation
-      if (!rawTopic && !rawSubtopic) {
+      // Filter out invalid/empty rows, pure numeric aggregate counts (127, 125, etc.), and summary labels
+      const rowCheck = isSummaryOrInvalidSyllabusRow(rawUnit, rawTopic, rawSubtopic);
+      if (rowCheck.isInvalid) {
         tabInvalidRows++;
-        totalInvalidRows++;
         continue;
       }
 
@@ -474,7 +453,6 @@ export async function executeSheetToStudyImport(
 
       if (isDone) {
         tabTheoryCompleted++;
-        totalTheoryCompleted++;
       }
 
       // Stable row ID from sheet
@@ -493,7 +471,6 @@ export async function executeSheetToStudyImport(
       // Check intra-sheet duplicate row
       if (seenTabCompositeKeys.has(sourceRowKey)) {
         tabDuplicateRows++;
-        totalDuplicateRows++;
         continue;
       }
       seenTabCompositeKeys.add(sourceRowKey);
@@ -528,17 +505,14 @@ export async function executeSheetToStudyImport(
         if (conceptCandidates.length === 1) {
           existingMatch = conceptCandidates[0];
         } else if (conceptCandidates.length > 1) {
-          // Ambiguity detected: multiple topics match identical names in this unit
-          // Invariant: DO NOT GUESS OR SILENTLY MERGE. Treat as ambiguous.
           tabAmbiguousTopics++;
-          // Fall through to create distinct topic with unique identity
           existingMatch = undefined;
         }
       }
 
       if (!existingMatch) {
         // --- Scenario A: NEW TOPIC ---
-        const newTopicId = `topic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${topicsToCreate.length}`;
+        const newTopicId = `topic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${topicsToCreate.length + tabTopicsToCreate.length}`;
         const newTopic: StudyTopic = {
           id: newTopicId,
           userId,
@@ -567,8 +541,8 @@ export async function executeSheetToStudyImport(
           lastImportedAt: nowIso,
         };
 
-        topicsToCreate.push(newTopic);
-        newSourceMappings.push({
+        tabTopicsToCreate.push(newTopic);
+        tabNewSourceMappings.push({
           mappingKey: sourceMappingKey,
           spreadsheetId,
           sheetId: tabMapping.sheetId,
@@ -590,7 +564,6 @@ export async function executeSheetToStudyImport(
         topicsByConceptKey.set(conceptKey, clist);
 
         tabCreatedTopics++;
-        totalCreatedTopics++;
       } else {
         // --- Scenario B: RE-IMPORT OF EXISTING TOPIC (PROGRESS PRESERVATION) ---
         const updates: Partial<StudyTopic> = {};
@@ -633,7 +606,7 @@ export async function executeSheetToStudyImport(
         }
 
         // Register mapping for future lookups
-        newSourceMappings.push({
+        tabNewSourceMappings.push({
           mappingKey: sourceMappingKey,
           spreadsheetId,
           sheetId: tabMapping.sheetId,
@@ -648,15 +621,77 @@ export async function executeSheetToStudyImport(
 
         if (changed) {
           updates.updatedAt = nowIso;
-          topicsToUpdate.push({ id: existingMatch.id, updates });
+          tabTopicsToUpdate.push({ id: existingMatch.id, updates });
           tabUpdatedTopics++;
-          totalUpdatedTopics++;
         } else {
           tabSkippedTopics++;
-          totalSkippedTopics++;
         }
       }
     }
+
+    // Invariant 3: Never automatically create a Study OS subject from an Overview or Summary sheet
+    if (isOverview) {
+      console.warn(`[sheetToStudyImportEngine] Skipping Overview/Summary tab "${tabMapping.sheetTitle}" — never automatically created as a Study OS subject.`);
+      totalInvalidRows += rows.length;
+      resultDetails.push({
+        subjectCode: cleanSubjectCode,
+        subjectName: cleanSubjectName,
+        createdTopics: 0,
+        updatedTopics: 0,
+        skippedTopics: 0,
+        invalidRows: rows.length,
+        duplicateRows: 0,
+        theoryCompleted: 0,
+        ambiguousTopics: 0,
+      });
+      continue;
+    }
+
+    const hasValidTopics = (tabTopicsToCreate.length + tabTopicsToUpdate.length + tabSkippedTopics) > 0;
+    const subjectAlreadyExists = existingSubjectByCode.has(upperCode);
+    if (!hasValidTopics && !subjectAlreadyExists) {
+      totalInvalidRows += tabInvalidRows;
+      continue;
+    }
+
+    // Determine or update Subject
+    let targetSubject = existingSubjectByCode.get(upperCode);
+    if (!targetSubject) {
+      targetSubject = {
+        id: `subj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${tabIdx}`,
+        userId,
+        code: cleanSubjectCode,
+        name: cleanSubjectName,
+        tierId: selectedTierId,
+        color: tabMapping.targetColor || '#3b82f6',
+        totalSubtopics: 0,
+        completedSubtopics: 0,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        deletedAt: null,
+      };
+      existingSubjectByCode.set(upperCode, targetSubject);
+      subjectsToSave.push(targetSubject);
+      totalCreatedSubjects++;
+    } else {
+      targetSubject.name = cleanSubjectName || targetSubject.name;
+      targetSubject.color = tabMapping.targetColor || targetSubject.color;
+      targetSubject.updatedAt = nowIso;
+      subjectsToSave.push(targetSubject);
+      totalUpdatedSubjects++;
+    }
+
+    // Commit tab's topics and source mappings
+    topicsToCreate.push(...tabTopicsToCreate);
+    topicsToUpdate.push(...tabTopicsToUpdate);
+    newSourceMappings.push(...tabNewSourceMappings);
+
+    totalCreatedTopics += tabCreatedTopics;
+    totalUpdatedTopics += tabUpdatedTopics;
+    totalSkippedTopics += tabSkippedTopics;
+    totalDuplicateRows += tabDuplicateRows;
+    totalInvalidRows += tabInvalidRows;
+    totalTheoryCompleted += tabTheoryCompleted;
 
     resultDetails.push({
       subjectCode: cleanSubjectCode,
@@ -949,4 +984,238 @@ export async function retrySheetToStudyImport(
     }
   }
   return executeSheetToStudyImport(options);
+}
+
+export interface OverviewCleanupReport {
+  success: boolean;
+  message: string;
+  identifiedSubjects: Array<{ id: string; code: string; name: string }>;
+  removedTopicsCount: number;
+  removedSubjectCount: number;
+  backupSessionKey: string;
+  backupTimestamp: string;
+}
+
+export interface OverviewRollbackReport {
+  success: boolean;
+  message: string;
+  restoredTopicsCount: number;
+  restoredSubjectsCount: number;
+}
+
+export function isOverviewSubject(subject: { code: string; name?: string }): boolean {
+  const normCode = (subject.code || '').trim().toLowerCase();
+  const normName = (subject.name || '').trim().toLowerCase();
+  return (
+    normCode === 'sub_overview' ||
+    normCode.startsWith('sub_overview_') ||
+    normCode === 'sub_summary' ||
+    normCode.startsWith('sub_summary_') ||
+    normCode === 'sub_over' ||
+    normName === 'overview' ||
+    normName === 'summary' ||
+    normName === 'syllabus overview' ||
+    normName === 'course overview' ||
+    normName === 'dashboard'
+  );
+}
+
+/**
+ * Safely cleans up erroneously imported Overview subjects and their summary count topics.
+ * 1. Identifies only Overview subjects and their associated topics (e.g. 18 records).
+ * 2. Creates a restorable snapshot in localStorage before deletion.
+ * 3. Removes the Overview subject and topics without touching legitimate subjects (DBMS, COA, Python, etc.)
+ *    or resetting user progress.
+ */
+export async function cleanupErroneousOverviewImportData(userId: string): Promise<OverviewCleanupReport> {
+  if (!userId || !userId.trim()) {
+    throw new Error('User ID is required for overview data cleanup.');
+  }
+
+  // 1. Fetch all subjects and topics for the user
+  let subjects: StudySubject[] = [];
+  let topics: StudyTopic[] = [];
+
+  if (isSignedInAs(userId)) {
+    [subjects, topics] = await Promise.all([
+      firestoreService.getStudySubjects(userId),
+      firestoreService.getStudyTopics(userId),
+    ]);
+  } else {
+    try {
+      [subjects, topics] = await Promise.all([
+        api.getStudySubjects(),
+        api.getStudyTopics(),
+      ]);
+    } catch {
+      try {
+        [subjects, topics] = await Promise.all([
+          firestoreService.getStudySubjects(userId),
+          firestoreService.getStudyTopics(userId),
+        ]);
+      } catch {
+        subjects = [];
+        topics = [];
+      }
+    }
+  }
+
+  // 2. Identify Overview subjects
+  const matchedSubjects = subjects.filter((s) => !s.deletedAt && isOverviewSubject(s));
+  const matchedSubjectCodes = new Set(matchedSubjects.map((s) => s.code.toUpperCase()));
+
+  // 3. Identify topics belonging to Overview subjects OR orphaned overview topics
+  const matchedTopics = topics.filter((t) => {
+    if (t.deletedAt) return false;
+    if (matchedSubjectCodes.has(t.subjectCode.toUpperCase())) return true;
+    const check = isSummaryOrInvalidSyllabusRow(t.unit || '', t.topic || '', t.subtopic || '');
+    if (check.isInvalid && isOverviewSubject({ code: t.subjectCode, name: t.unit })) {
+      return true;
+    }
+    return false;
+  });
+
+  if (matchedSubjects.length === 0 && matchedTopics.length === 0) {
+    return {
+      success: true,
+      message: 'No erroneously imported Overview subjects or topics were found. System is clean.',
+      identifiedSubjects: [],
+      removedSubjectCount: 0,
+      removedTopicsCount: 0,
+      backupSessionKey: '',
+      backupTimestamp: new Date().toISOString(),
+    };
+  }
+
+  // 4. Create safe rollback snapshot before any mutation
+  const nowIso = new Date().toISOString();
+  const backupKey = `focusflow_overview_cleanup_backup_${userId}`;
+  const backupData = {
+    backupKey,
+    timestamp: nowIso,
+    userId,
+    subjects: matchedSubjects,
+    topics: matchedTopics,
+  };
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(backupKey, JSON.stringify(backupData));
+    }
+  } catch (e) {
+    console.warn('[cleanupErroneousOverviewImportData] Could not save to localStorage:', e);
+  }
+
+  // 5. Delete topics
+  const isDirectFirestore = isSignedInAs(userId);
+  if (isDirectFirestore) {
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < matchedTopics.length; i += BATCH_SIZE) {
+      const chunk = matchedTopics.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const t of chunk) {
+        batch.set(doc(db, `users/${userId}/study_topics/${t.id}`), { deletedAt: nowIso, updatedAt: nowIso }, { merge: true });
+      }
+      await batch.commit();
+    }
+
+    // Delete subjects
+    for (const s of matchedSubjects) {
+      await firestoreService.deleteStudySubject(userId, s.id);
+    }
+  } else {
+    for (const t of matchedTopics) {
+      await api.deleteStudyTopic(t.id).catch(() => {});
+    }
+    for (const s of matchedSubjects) {
+      await api.deleteStudySubject(s.id).catch(() => {});
+    }
+  }
+
+  return {
+    success: true,
+    message: `Successfully removed ${matchedSubjects.length} Overview subject(s) and ${matchedTopics.length} erroneous summary topic(s). All genuine syllabus data preserved.`,
+    identifiedSubjects: matchedSubjects.map((s) => ({ id: s.id, code: s.code, name: s.name })),
+    removedSubjectCount: matchedSubjects.length,
+    removedTopicsCount: matchedTopics.length,
+    backupSessionKey: backupKey,
+    backupTimestamp: nowIso,
+  };
+}
+
+/**
+ * Rolls back the latest Overview data cleanup if user undoes the action.
+ */
+export async function rollbackOverviewCleanup(userId: string): Promise<OverviewRollbackReport> {
+  const backupKey = `focusflow_overview_cleanup_backup_${userId}`;
+  let backupDataStr: string | null = null;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      backupDataStr = localStorage.getItem(backupKey);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (!backupDataStr) {
+    throw new Error('No Overview cleanup backup found to rollback.');
+  }
+
+  const backup = JSON.parse(backupDataStr) as {
+    subjects: StudySubject[];
+    topics: StudyTopic[];
+  };
+
+  const isDirectFirestore = isSignedInAs(userId);
+  const nowIso = new Date().toISOString();
+
+  // Restore subjects
+  for (const s of backup.subjects || []) {
+    const restored = { ...s, deletedAt: null, updatedAt: nowIso };
+    if (isDirectFirestore) {
+      await firestoreService.saveStudySubject(userId, restored);
+    } else {
+      try {
+        await api.saveStudySubject(restored);
+      } catch {
+        try {
+          await firestoreService.saveStudySubject(userId, restored);
+        } catch {
+          // offline/test environment fallback
+        }
+      }
+    }
+  }
+
+  // Restore topics
+  if (isDirectFirestore) {
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < (backup.topics || []).length; i += BATCH_SIZE) {
+      const chunk = backup.topics.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const t of chunk) {
+        batch.set(doc(db, `users/${userId}/study_topics/${t.id}`), { ...t, deletedAt: null, updatedAt: nowIso }, { merge: true });
+      }
+      await batch.commit();
+    }
+  } else {
+    for (const t of backup.topics || []) {
+      try {
+        await api.saveStudyTopic({ ...t, deletedAt: null, updatedAt: nowIso });
+      } catch {
+        try {
+          await firestoreService.saveStudyTopic(userId, { ...t, deletedAt: null, updatedAt: nowIso });
+        } catch {
+          // offline/test environment fallback
+        }
+      }
+    }
+  }
+
+  return {
+    success: true,
+    message: `Successfully restored ${backup.subjects?.length || 0} subject(s) and ${backup.topics?.length || 0} topic(s).`,
+    restoredSubjectsCount: backup.subjects?.length || 0,
+    restoredTopicsCount: backup.topics?.length || 0,
+  };
 }

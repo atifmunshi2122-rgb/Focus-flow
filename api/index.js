@@ -2255,6 +2255,39 @@ var init_db = __esm({
           throw err;
         }
       }
+      cleanupOverviewImportData(userId) {
+        this.db.studySubjects = this.db.studySubjects || [];
+        this.db.studyTopics = this.db.studyTopics || [];
+        const isOverview = (code, name) => {
+          const c = (code || "").toLowerCase();
+          const n = (name || "").toLowerCase();
+          return c === "sub_overview" || c.startsWith("sub_overview_") || c === "sub_over" || n === "overview" || n === "summary";
+        };
+        const targetSubs = this.db.studySubjects.filter(
+          (s) => s.userId === userId && !s.deletedAt && isOverview(s.code, s.name)
+        );
+        const targetCodes = new Set(targetSubs.map((s) => s.code));
+        const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+        for (const s of targetSubs) {
+          s.deletedAt = nowIso;
+          s.updatedAt = nowIso;
+        }
+        const matchingTopics = this.db.studyTopics.filter(
+          (t) => t.userId === userId && !t.deletedAt && targetCodes.has(t.subjectCode)
+        );
+        for (const t of matchingTopics) {
+          t.deletedAt = nowIso;
+          t.updatedAt = nowIso;
+        }
+        if (targetSubs.length > 0 || matchingTopics.length > 0) {
+          this.save();
+        }
+        return {
+          success: true,
+          removedSubjects: targetSubs.map((s) => s.code),
+          removedTopicsCount: matchingTopics.length
+        };
+      }
       getStudyTopics(userId, subjectCode) {
         const list = this.db.studyTopics || [];
         return list.filter((t) => t.userId === userId && !t.deletedAt && (!subjectCode || t.subjectCode === subjectCode)).sort((a, b) => (a.rowIndex || 0) - (b.rowIndex || 0));
@@ -4602,7 +4635,8 @@ function detectTabSchema(tab) {
     };
   }
   const formulaRatio = formulaCellCount / Math.max(1, totalNonEmptyCells);
-  const isOverviewByName = OVERVIEW_TAB_NAME_REGEX.test(tab.sheetTitle);
+  const isProbStatsSubject = /^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(tab.sheetTitle.trim());
+  const isOverviewByName = !isProbStatsSubject && OVERVIEW_TAB_NAME_REGEX.test(tab.sheetTitle);
   const headerIdx0 = detectHeaderRowIndex(rows);
   const headerRow = headerIdx0 >= 0 ? rows[headerIdx0] || [] : [];
   const dataRows = headerIdx0 >= 0 ? rows.slice(headerIdx0 + 1).filter((r) => r.some((c) => isNonEmptyCell(c))) : [];
@@ -4625,10 +4659,10 @@ function detectTabSchema(tab) {
   let roleReason = "Structured tabular headers and data rows detected.";
   const formulaColumnsCount = columns.filter((c) => c.inferredType === "formula").length;
   const headerNotAtTop = headerIdx0 >= 2;
-  if (formulaRatio >= 0.25 || isOverviewByName && (formulaCellCount >= 3 || headerNotAtTop) || columns.length > 0 && formulaColumnsCount / columns.length >= 0.4 && isOverviewByName) {
+  if (isOverviewByName || formulaRatio >= 0.25 || columns.length > 0 && formulaColumnsCount / columns.length >= 0.4) {
     role = "overview";
-    roleConfidence = formulaRatio >= 0.25 || isOverviewByName && formulaCellCount > 0 ? "high" : "medium";
-    roleReason = formulaCellCount > 0 ? `Summary/overview tab with ${formulaCellCount} formula cell(s) (${Math.round(formulaRatio * 100)}% of non-empty cells). Marked read-only by default.` : "Tab name and non-uniform block structure match an overview/summary layout.";
+    roleConfidence = isOverviewByName ? "high" : formulaRatio >= 0.25 || formulaCellCount > 0 ? "high" : "medium";
+    roleReason = isOverviewByName ? `Tab name "${tab.sheetTitle}" indicates an overview, summary, or informational sheet. Marked as overview tab (read-only by default).` : formulaCellCount > 0 ? `Summary/overview tab with ${formulaCellCount} formula cell(s) (${Math.round(formulaRatio * 100)}% of non-empty cells). Marked read-only by default.` : "Tab name and non-uniform block structure match an overview/summary layout.";
     for (const col of columns) {
       col.editable = false;
       if (!col.readOnlyReason) {
@@ -4639,10 +4673,6 @@ function detectTabSchema(tab) {
     role = "ignored";
     roleConfidence = "medium";
     roleReason = "Only header row found without data rows yet.";
-  } else if (isOverviewByName && dataRows.length < 15 && formulaCellCount > 0) {
-    role = "overview";
-    roleConfidence = "medium";
-    roleReason = "Tab title and formula presence suggest an overview/summary view; please confirm if tabular.";
   }
   const hasTitle = columns.some((c) => c.semanticRole === "title");
   if (!hasTitle && role === "data") {
@@ -4732,7 +4762,7 @@ function detectWorkbookSchema(tabs) {
 var OVERVIEW_TAB_NAME_REGEX, URL_VALUE_REGEX, ISO_DATE_REGEX, HUMAN_DATE_REGEX, CURRENCY_TEXT_REGEX, BOOLEAN_TEXT_SET, PRIORITY_VALUE_SET, STATUS_VALUE_SET;
 var init_schemaDetector = __esm({
   "src/lib/sheetHub/schemaDetector.ts"() {
-    OVERVIEW_TAB_NAME_REGEX = /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions)\b/i;
+    OVERVIEW_TAB_NAME_REGEX = /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions|about|progress|stats|statistics|tracker|syllabus[\s_-]?overview|course[\s_-]?overview)\b/i;
     URL_VALUE_REGEX = /^https?:\/\/[^\s]+$/i;
     ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?)?$/;
     HUMAN_DATE_REGEX = /^(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})$/;
@@ -14989,6 +15019,16 @@ apiRouter.delete("/study/subjects/:code", async (req, res, next) => {
     });
   } catch (err) {
     res.status(500).json({ error: "Database persistence failed" });
+  }
+});
+apiRouter.post("/study/cleanup-overview-import", async (req, res, next) => {
+  const { userId } = getAuth(req);
+  try {
+    const result = dbService.cleanupOverviewImportData(userId);
+    await dbService.flush();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to clean overview data" });
   }
 });
 apiRouter.get("/study/topics", (req, res) => {

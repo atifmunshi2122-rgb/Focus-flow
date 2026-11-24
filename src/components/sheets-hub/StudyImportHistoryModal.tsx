@@ -41,6 +41,7 @@ import type {
 } from '../../types/study.ts';
 import { api } from '../../lib/api.ts';
 import { studyImportHistoryStore } from '../../lib/sheetHub/studyImportHistoryStore.ts';
+import { cleanupErroneousOverviewImportData } from '../../lib/sheetHub/sheetToStudyImportEngine.ts';
 
 interface StudyImportHistoryModalProps {
   isOpen: boolean;
@@ -227,17 +228,36 @@ export const StudyImportHistoryModal: React.FC<StudyImportHistoryModalProps> = (
                 <span className="text-xs text-[var(--ff-text-muted)]">• Zero credentials stored</span>
               </div>
 
-              {historyRecords.length > 0 && (
+              <div className="flex items-center gap-2">
                 <ThemeButton
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
-                  onClick={() => setIsClearingHistory(true)}
-                  className="text-red-500 hover:text-red-600 text-xs flex items-center gap-1.5"
+                  onClick={async () => {
+                    try {
+                      const res = await cleanupErroneousOverviewImportData(userId);
+                      showToast?.(res.message, res.removedSubjectCount > 0 ? 'success' : 'info');
+                      await loadData();
+                    } catch (err: unknown) {
+                      showToast?.(err instanceof Error ? err.message : 'Cleanup failed', 'error');
+                    }
+                  }}
+                  className="text-amber-500 hover:text-amber-600 text-xs flex items-center gap-1.5"
                 >
                   <Trash2 className="w-3 h-3" />
-                  <span>Clear History Logs</span>
+                  <span>Clean Up Overview Data</span>
                 </ThemeButton>
-              )}
+                {historyRecords.length > 0 && (
+                  <ThemeButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsClearingHistory(true)}
+                    className="text-red-500 hover:text-red-600 text-xs flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Clear History Logs</span>
+                  </ThemeButton>
+                )}
+              </div>
             </div>
 
             {filteredHistory.length === 0 ? (

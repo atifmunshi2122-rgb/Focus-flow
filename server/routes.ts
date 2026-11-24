@@ -3073,6 +3073,17 @@ apiRouter.delete('/study/subjects/:code', async (req: Request, res: Response, ne
   }
 });
 
+apiRouter.post('/study/cleanup-overview-import', async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = getAuth(req);
+  try {
+    const result = dbService.cleanupOverviewImportData(userId);
+    await dbService.flush();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to clean overview data' });
+  }
+});
+
 apiRouter.get('/study/topics', (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const subjectCode = typeof req.query.subjectCode === 'string' ? req.query.subjectCode : undefined;

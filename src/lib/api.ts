@@ -2945,6 +2945,16 @@ export const api = {
       () => Promise.resolve(true)
     ),
 
+  cleanupOverviewImportData: () =>
+    withPrimaryWrite(
+      async () => ({ success: true, removedSubjects: [], removedTopicsCount: 0 }),
+      () =>
+        request<{ success: boolean; removedSubjects: string[]; removedTopicsCount: number }>(
+          '/study/cleanup-overview-import',
+          { method: 'POST' }
+        )
+    ),
+
   // --- POMODORO PRESETS & GOALS ---
   getPomodoroPresets: () =>
     withPrimaryRead(

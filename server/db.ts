@@ -2473,6 +2473,50 @@ export class DatabaseService {
     }
   }
 
+  public cleanupOverviewImportData(userId: string): {
+    success: boolean;
+    removedSubjects: string[];
+    removedTopicsCount: number;
+  } {
+    this.db.studySubjects = this.db.studySubjects || [];
+    this.db.studyTopics = this.db.studyTopics || [];
+
+    const isOverview = (code: string, name?: string) => {
+      const c = (code || '').toLowerCase();
+      const n = (name || '').toLowerCase();
+      return c === 'sub_overview' || c.startsWith('sub_overview_') || c === 'sub_over' || n === 'overview' || n === 'summary';
+    };
+
+    const targetSubs = this.db.studySubjects.filter(
+      (s) => s.userId === userId && !s.deletedAt && isOverview(s.code, s.name)
+    );
+    const targetCodes = new Set(targetSubs.map((s) => s.code));
+
+    const nowIso = new Date().toISOString();
+    for (const s of targetSubs) {
+      s.deletedAt = nowIso;
+      s.updatedAt = nowIso;
+    }
+
+    const matchingTopics = this.db.studyTopics.filter(
+      (t) => t.userId === userId && !t.deletedAt && targetCodes.has(t.subjectCode)
+    );
+    for (const t of matchingTopics) {
+      t.deletedAt = nowIso;
+      t.updatedAt = nowIso;
+    }
+
+    if (targetSubs.length > 0 || matchingTopics.length > 0) {
+      this.save();
+    }
+
+    return {
+      success: true,
+      removedSubjects: targetSubs.map((s) => s.code),
+      removedTopicsCount: matchingTopics.length,
+    };
+  }
+
   public getStudyTopics(userId: string, subjectCode?: string): StudyTopic[] {
     const list = this.db.studyTopics || [];
     return list

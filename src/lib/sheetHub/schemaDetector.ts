@@ -71,7 +71,7 @@ function cellText(cell: SheetInspectCellMeta | undefined): string {
 }
 
 const OVERVIEW_TAB_NAME_REGEX =
-  /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions)\b/i;
+  /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions|about|progress|stats|statistics|tracker|syllabus[\s_-]?overview|course[\s_-]?overview)\b/i;
 
 const URL_VALUE_REGEX = /^https?:\/\/[^\s]+$/i;
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?)?$/;
@@ -429,7 +429,8 @@ export function detectTabSchema(tab: SheetTabInspectionInput): DetectedTabSchema
   }
 
   const formulaRatio = formulaCellCount / Math.max(1, totalNonEmptyCells);
-  const isOverviewByName = OVERVIEW_TAB_NAME_REGEX.test(tab.sheetTitle);
+  const isProbStatsSubject = /^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(tab.sheetTitle.trim());
+  const isOverviewByName = !isProbStatsSubject && OVERVIEW_TAB_NAME_REGEX.test(tab.sheetTitle);
 
   // Detect header row
   const headerIdx0 = detectHeaderRowIndex(rows);
@@ -462,14 +463,15 @@ export function detectTabSchema(tab: SheetTabInspectionInput): DetectedTabSchema
   const headerNotAtTop = headerIdx0 >= 2;
 
   if (
+    isOverviewByName ||
     formulaRatio >= 0.25 ||
-    (isOverviewByName && (formulaCellCount >= 3 || headerNotAtTop)) ||
-    (columns.length > 0 && formulaColumnsCount / columns.length >= 0.4 && isOverviewByName)
+    (columns.length > 0 && formulaColumnsCount / columns.length >= 0.4)
   ) {
     role = 'overview';
-    roleConfidence = formulaRatio >= 0.25 || (isOverviewByName && formulaCellCount > 0) ? 'high' : 'medium';
-    roleReason =
-      formulaCellCount > 0
+    roleConfidence = isOverviewByName ? 'high' : formulaRatio >= 0.25 || formulaCellCount > 0 ? 'high' : 'medium';
+    roleReason = isOverviewByName
+      ? `Tab name "${tab.sheetTitle}" indicates an overview, summary, or informational sheet. Marked as overview tab (read-only by default).`
+      : formulaCellCount > 0
         ? `Summary/overview tab with ${formulaCellCount} formula cell(s) (${Math.round(formulaRatio * 100)}% of non-empty cells). Marked read-only by default.`
         : 'Tab name and non-uniform block structure match an overview/summary layout.';
     // Protect all columns on overview tabs as read-only by default
@@ -483,10 +485,6 @@ export function detectTabSchema(tab: SheetTabInspectionInput): DetectedTabSchema
     role = 'ignored';
     roleConfidence = 'medium';
     roleReason = 'Only header row found without data rows yet.';
-  } else if (isOverviewByName && dataRows.length < 15 && formulaCellCount > 0) {
-    role = 'overview';
-    roleConfidence = 'medium';
-    roleReason = 'Tab title and formula presence suggest an overview/summary view; please confirm if tabular.';
   }
 
   // Reconcile semantic title column if only group/subgroup/custom text exist

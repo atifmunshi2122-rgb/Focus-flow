@@ -74,14 +74,78 @@ export interface ImportPreviewSummary {
   theoryCompletedCount: number;
 }
 
-const OVERVIEW_TAB_REGEX = /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions|about)\b/i;
+export const OVERVIEW_TAB_REGEX =
+  /\b(overview|summary|dashboard|kpi|readme|guide|index|home|instructions|about|progress|stats|statistics|tracker|syllabus[\s_-]?overview|course[\s_-]?overview)\b/i;
+
+const PURE_NUMERIC_PATTERN = /^\s*#?\s*\d+(?:\.\d+)?\s*%?\s*$/;
+const SUMMARY_ROW_PATTERN =
+  /^(total|grand\s*total|subtotal|count|sum|average|avg|mean|median|min|max|overview|summary|all|kpi|progress|completion\s*rate|percentage|total\s*(topics?|records?|rows?|items?|count|subtopics?|questions?|[:\-]?\s*\d+.*)?|count\s*[:\-]?\s*\d+.*|sum\s*[:\-]?\s*\d+.*)$/i;
+const HEADER_ECHO_PATTERN =
+  /^(topic|subtopic|title|name|subject|unit|chapter|module|status|done|priority|notes?)$/i;
+const PLACEHOLDER_PATTERN = /^(n\/?a|na|none|nil|null|undefined|-|--|\?)$/i;
+
+/**
+ * Validates whether a row is a summary, aggregate count, or invalid header echo row.
+ * Filters out pure counts like "127", "125", "198", "147", "597", and labels like "Grand Total".
+ */
+export function isSummaryOrInvalidSyllabusRow(
+  unit: string,
+  topic: string,
+  subtopic: string
+): { isInvalid: boolean; reason?: string } {
+  const normTopic = topic.trim();
+  const normSubtopic = subtopic.trim();
+  const normUnit = unit.trim();
+
+  // 1. Missing both topic and subtopic
+  if (!normTopic && !normSubtopic) {
+    return { isInvalid: true, reason: 'Empty topic and subtopic' };
+  }
+
+  // 2. Pure numeric count or percentage (e.g. "127", "125", "198", "147", "597", "100%")
+  const candidate = normTopic || normSubtopic;
+  if (PURE_NUMERIC_PATTERN.test(candidate)) {
+    return { isInvalid: true, reason: `Pure numeric aggregate count: "${candidate}"` };
+  }
+  if (normTopic && PURE_NUMERIC_PATTERN.test(normTopic) && (!normSubtopic || PURE_NUMERIC_PATTERN.test(normSubtopic))) {
+    return { isInvalid: true, reason: `Pure numeric row: topic="${normTopic}", subtopic="${normSubtopic}"` };
+  }
+
+  // 3. Summary labels (e.g. "Total", "Grand Total", "Total Count", "Average", "Summary", "Overview")
+  if (SUMMARY_ROW_PATTERN.test(normTopic) || SUMMARY_ROW_PATTERN.test(candidate)) {
+    return { isInvalid: true, reason: `Summary/aggregate keyword label: "${candidate}"` };
+  }
+  if (/^(total|count|sum|average|avg|summary|overview)\b/i.test(normTopic) && /\d+/.test(normTopic)) {
+    return { isInvalid: true, reason: `Aggregate count label with value: "${normTopic}"` };
+  }
+  if (SUMMARY_ROW_PATTERN.test(normUnit) && (PURE_NUMERIC_PATTERN.test(normTopic) || !normTopic)) {
+    return { isInvalid: true, reason: `Summary unit header with aggregate value: unit="${normUnit}", topic="${normTopic}"` };
+  }
+
+  // 4. Header row echoes (e.g. "Topic", "Subtopic", "Unit")
+  if (HEADER_ECHO_PATTERN.test(normTopic) && HEADER_ECHO_PATTERN.test(normSubtopic || normTopic)) {
+    return { isInvalid: true, reason: `Repeated header row: "${candidate}"` };
+  }
+
+  // 5. Placeholders (e.g. "N/A", "-", "null")
+  if (PLACEHOLDER_PATTERN.test(candidate) && (!normSubtopic || PLACEHOLDER_PATTERN.test(normSubtopic))) {
+    return { isInvalid: true, reason: `Placeholder value: "${candidate}"` };
+  }
+
+  return { isInvalid: false };
+}
 
 /**
  * Checks whether a sheet tab is likely an overview/dashboard tab that should be unchecked by default.
  */
 export function isTabOverview(tabTitle: string, tabRole?: string): boolean {
   if (tabRole === 'overview') return true;
-  return OVERVIEW_TAB_REGEX.test(tabTitle.trim());
+  const trimmed = tabTitle.trim();
+  // Protect genuine academic subjects like "Prob & Stats" or "Probability & Statistics"
+  if (/^prob(ability)?\s*(&|and)?\s*stat(istics|s)?$/i.test(trimmed)) {
+    return false;
+  }
+  return OVERVIEW_TAB_REGEX.test(trimmed);
 }
 
 /**
@@ -335,14 +399,10 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
   for (const { mapping, rows } of tabs) {
     if (!mapping.isIncluded) continue;
 
-    totalSelectedTabs++;
-    targetSubjectCodesIncluded.add(mapping.targetSubjectCode.toUpperCase());
-
-    const isNew = mapping.action === 'create_new' && !existingSubjectCodes.has(mapping.targetSubjectCode.toUpperCase());
-    if (isNew) {
-      subjectsToCreate++;
-    } else {
-      subjectsToMerge++;
+    // Invariant 3: Never automatically create a Study OS subject from an Overview or Summary sheet
+    if (isTabOverview(mapping.sheetTitle)) {
+      invalidRowsCount += rows.length;
+      continue;
     }
 
     // Build field access lookup
@@ -367,8 +427,9 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
       const rawNotes = notesCol ? String(r.values?.[notesCol] ?? '').trim() : '';
       const rawPriority = priorityCol ? r.values?.[priorityCol] : undefined;
 
-      // Check validity
-      if (!rawTopic && !rawSubtopic) {
+      // Filter empty rows, pure numeric aggregate counts (127, 125, etc.), and summary labels
+      const rowCheck = isSummaryOrInvalidSyllabusRow(rawUnit, rawTopic, rawSubtopic);
+      if (rowCheck.isInvalid) {
         tabInvalidRows++;
         invalidRowsCount++;
         continue;
@@ -486,19 +547,31 @@ export function generateImportPreview(input: GenerateImportPreviewInput): {
       });
     }
 
-    previewSubjects.push({
-      subjectCode: mapping.targetSubjectCode,
-      subjectName: mapping.targetSubjectName,
-      sheetTitle: mapping.sheetTitle,
-      tierId: selectedTierId,
-      color: mapping.targetColor,
-      isNewSubject: isNew,
-      topics: previewTopics,
-      totalTopics: previewTopics.length,
-      theoryCompletedCount: tabTheoryCompleted,
-      duplicateRowsCount: tabDuplicateRows,
-      invalidRowsCount: tabInvalidRows,
-    });
+    if (previewTopics.length > 0) {
+      totalSelectedTabs++;
+      targetSubjectCodesIncluded.add(mapping.targetSubjectCode.toUpperCase());
+
+      const isNew = mapping.action === 'create_new' && !existingSubjectCodes.has(mapping.targetSubjectCode.toUpperCase());
+      if (isNew) {
+        subjectsToCreate++;
+      } else {
+        subjectsToMerge++;
+      }
+
+      previewSubjects.push({
+        subjectCode: mapping.targetSubjectCode,
+        subjectName: mapping.targetSubjectName,
+        sheetTitle: mapping.sheetTitle,
+        tierId: selectedTierId,
+        color: mapping.targetColor,
+        isNewSubject: isNew,
+        topics: previewTopics,
+        totalTopics: previewTopics.length,
+        theoryCompletedCount: tabTheoryCompleted,
+        duplicateRowsCount: tabDuplicateRows,
+        invalidRowsCount: tabInvalidRows,
+      });
+    }
   }
 
   // Find missing source topics: existing Study OS topics in the target subjects not in incoming rows

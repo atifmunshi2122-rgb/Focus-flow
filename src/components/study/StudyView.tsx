@@ -58,6 +58,11 @@ import { AddStudyResourceModal } from './AddStudyResourceModal.tsx';
 import { AddStudyFlashcardModal } from './AddStudyFlashcardModal.tsx';
 import { TakeStudyQuizModal } from './TakeStudyQuizModal.tsx';
 import { ExportRestoreStudyModal } from './ExportRestoreStudyModal.tsx';
+import {
+  isOverviewSubject,
+  cleanupErroneousOverviewImportData,
+  rollbackOverviewCleanup,
+} from '../../lib/sheetHub/sheetToStudyImportEngine.ts';
 import { SmartSyllabusTaskModal } from './SmartSyllabusTaskModal.tsx';
 import { StudyPlansTab } from './StudyPlansTab.tsx';
 import { StudyGoalsTab } from './StudyGoalsTab.tsx';
@@ -209,6 +214,9 @@ export const StudyView: React.FC = () => {
   const [isExportRestoreOpen, setIsExportRestoreOpen] = useState(false);
   const [isSmartSyllabusModalOpen, setIsSmartSyllabusModalOpen] = useState(false);
   const [selectedQuizForAttempt, setSelectedQuizForAttempt] = useState<StudyQuiz | null>(null);
+  const [isCleaningOverview, setIsCleaningOverview] = useState(false);
+  const [isOverviewBannerDismissed, setIsOverviewBannerDismissed] = useState(false);
+  const [cleanupUndoAvailable, setCleanupUndoAvailable] = useState(false);
 
   // User isolation & cancellation tracker (FIX 1 & FIX 2)
   const activeUserIdRef = useRef<string | null>(null);
@@ -359,6 +367,47 @@ export const StudyView: React.FC = () => {
   const categorizedRevs = useMemo(() => {
     return categorizeRevisions(revisions, studyTz);
   }, [revisions, studyTz]);
+
+  const detectedOverviewSubjects = useMemo(() => {
+    return subjects.filter((s) => !s.deletedAt && isOverviewSubject(s));
+  }, [subjects]);
+
+  const handleCleanOverviewData = async () => {
+    const activeUserId = user?.id || auth.currentUser?.uid;
+    if (!activeUserId) return;
+    setIsCleaningOverview(true);
+    try {
+      const res = await cleanupErroneousOverviewImportData(activeUserId);
+      if (res.removedSubjectCount > 0 || res.removedTopicsCount > 0) {
+        setSubjects((prev) => prev.filter((s) => !isOverviewSubject(s)));
+        setTopics((prev) => prev.filter((t) => !isOverviewSubject({ code: t.subjectCode })));
+        setCleanupUndoAvailable(true);
+        showToast(
+          `Cleaned up ${res.removedSubjectCount} Overview subject and ${res.removedTopicsCount} erroneous topic(s). Genuine subjects preserved!`,
+          'success'
+        );
+      } else {
+        showToast('No Overview import data found to clean.', 'info');
+      }
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Cleanup failed', 'error');
+    } finally {
+      setIsCleaningOverview(false);
+    }
+  };
+
+  const handleRollbackOverviewCleanup = async () => {
+    const activeUserId = user?.id || auth.currentUser?.uid;
+    if (!activeUserId) return;
+    try {
+      const res = await rollbackOverviewCleanup(activeUserId);
+      showToast(`Restored ${res.restoredSubjectsCount} subject(s) and ${res.restoredTopicsCount} topic(s).`, 'success');
+      setCleanupUndoAvailable(false);
+      void loadData();
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Undo failed', 'error');
+    }
+  };
 
   // Combined Academic Tiers (default + user-created)
   const allTiers = useMemo<AcademicTier[]>(() => {
@@ -1380,6 +1429,57 @@ export const StudyView: React.FC = () => {
         </div>
       </div>
 
+      {/* Erroneously Imported Overview Data Cleanup Banner */}
+      {!isOverviewBannerDismissed && detectedOverviewSubjects.length > 0 && (
+        <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-[var(--ff-text-primary)] text-sm">
+                Erroneously Imported Overview Sheet Detected
+              </p>
+              <p className="text-[var(--ff-text-muted)] mt-0.5 leading-relaxed">
+                Found {detectedOverviewSubjects.length} subject ({detectedOverviewSubjects.map((s) => s.name || s.code).join(', ')}) containing summary aggregate counts instead of syllabus topics. Clean it up safely without affecting genuine subjects (DBMS, COA, Python, etc.).
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              loading={isCleaningOverview}
+              onClick={() => void handleCleanOverviewData()}
+              className="text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1" />
+              Clean Up Erroneous Data
+            </ThemeButton>
+            <button
+              type="button"
+              onClick={() => setIsOverviewBannerDismissed(true)}
+              className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+              title="Dismiss banner"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {cleanupUndoAvailable && (
+        <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 flex items-center justify-between gap-2 text-xs text-emerald-400">
+          <span>Overview data cleaned up. Undo snapshot available.</span>
+          <ThemeButton
+            variant="ghost"
+            size="sm"
+            onClick={() => void handleRollbackOverviewCleanup()}
+            className="text-xs text-emerald-400 hover:underline"
+          >
+            Undo Cleanup
+          </ThemeButton>
+        </div>
+      )}
+
       {/* Top Academic Pulse KPI Cards */}
       <MotionStaggerGrid className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <MotionStaggerItem>
@@ -1388,20 +1488,34 @@ export const StudyView: React.FC = () => {
               <span className="font-medium">Syllabus Completion</span>
               <BookOpen className="w-4 h-4 text-indigo-400" />
             </div>
-            <div className="flex items-baseline gap-2">
+            <div className="flex items-baseline gap-2 flex-wrap">
               <span className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
                 <AnimatedNumber value={progressSummary.overallCompletionPct} format={(v) => `${Math.round(v)}%`} />
               </span>
               <span className="text-xs font-mono tabular-nums text-[var(--ff-text-muted)]">
-                {progressSummary.completedTopics}/{progressSummary.totalTopics} topics
+                {progressSummary.completedTopics}/{progressSummary.totalTopics} fully mastered
               </span>
             </div>
+            {progressSummary.theoryCompleted > 0 && (
+              <div className="mt-1 flex items-center justify-between text-[11px] text-blue-400 font-mono">
+                <span>Theory Covered</span>
+                <span>
+                  {progressSummary.theoryCompleted}/{progressSummary.totalTopics} ({progressSummary.totalTopics > 0 ? Math.round((progressSummary.theoryCompleted / progressSummary.totalTopics) * 100) : 0}%)
+                </span>
+              </div>
+            )}
             <div className="mt-3">
               <AnimatedProgressBar
-                value={progressSummary.overallCompletionPct}
+                value={
+                  progressSummary.overallCompletionPct > 0
+                    ? progressSummary.overallCompletionPct
+                    : progressSummary.totalTopics > 0
+                    ? Math.round((progressSummary.theoryCompleted / progressSummary.totalTopics) * 100)
+                    : 0
+                }
                 max={100}
                 heightClass="h-1.5"
-                customColor="#6366f1"
+                customColor={progressSummary.overallCompletionPct > 0 ? '#6366f1' : '#3b82f6'}
                 ariaLabel="Syllabus completion"
               />
             </div>
@@ -1725,8 +1839,13 @@ export const StudyView: React.FC = () => {
             )}
             {visibleSubjects.map((sub) => {
               const subTopics = topics.filter((t) => t.subjectCode === sub.code && !t.deletedAt);
-              const completed = subTopics.filter((t) => t.theory && t.practice).length;
-              const pct = subTopics.length > 0 ? Math.round((completed / subTopics.length) * 100) : 0;
+              const fullyMastered = subTopics.filter((t) => t.theory && t.practice).length;
+              const theoryCount = subTopics.filter((t) => t.theory).length;
+              const pct = subTopics.length > 0
+                ? fullyMastered > 0
+                  ? Math.round((fullyMastered / subTopics.length) * 100)
+                  : Math.round((theoryCount / subTopics.length) * 100)
+                : 0;
               const isSelected = selectedSubjectCode === sub.code;
 
               return (
@@ -1797,9 +1916,15 @@ export const StudyView: React.FC = () => {
                   </p>
 
                   <div className="mt-3 pt-2 border-t border-[var(--ff-border-color)]/60 flex items-center justify-between text-[11px]">
-                    <span className="text-[var(--ff-text-muted)]">{pct}% done</span>
+                    <span className="text-[var(--ff-text-muted)]">
+                      {fullyMastered > 0 ? `${pct}% mastered` : theoryCount > 0 ? `${pct}% theory done` : '0% done'}
+                    </span>
                     <span className="font-medium text-[var(--ff-text-primary)]">
-                      {completed}/{subTopics.length}
+                      {fullyMastered > 0
+                        ? `${fullyMastered}/${subTopics.length}`
+                        : theoryCount > 0
+                        ? `${theoryCount}/${subTopics.length} theory`
+                        : `0/${subTopics.length}`}
                     </span>
                   </div>
                   <div className="w-full bg-[var(--ff-surface-muted)] h-1 rounded-full mt-1.5 overflow-hidden">
@@ -1807,7 +1932,7 @@ export const StudyView: React.FC = () => {
                       className="h-full rounded-full transition-all duration-300"
                       style={{
                         width: `${pct}%`,
-                        backgroundColor: sub.color || '#6366f1',
+                        backgroundColor: fullyMastered > 0 ? (sub.color || '#6366f1') : '#3b82f6',
                       }}
                     />
                   </div>
