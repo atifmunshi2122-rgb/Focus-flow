@@ -543,7 +543,8 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
   };
 
   // Step 8: Execute Import Pipeline
-  const executeImportPipeline = async (forceDirect = false) => {
+  const executeImportPipeline = async (forceDirectOrEvent?: boolean | React.MouseEvent) => {
+    const forceDirect = typeof forceDirectOrEvent === 'boolean' ? forceDirectOrEvent : false;
     // Bug 3 & Bug 6: Prevent Confirm & Import from proceeding on invalid state
     if (!inspectData) {
       const noDataErr = 'No spreadsheet inspection data available. Please inspect the spreadsheet first.';
@@ -1931,7 +1932,7 @@ export const ConnectSheetWizard: React.FC<ConnectSheetWizardProps> = ({
 
             <ThemeButton
               variant="primary"
-              onClick={() => executeImportPipeline()}
+              onClick={executeImportPipeline}
               disabled={
                 !inspectData ||
                 inspectData.spreadsheetId !== spreadsheetId ||
