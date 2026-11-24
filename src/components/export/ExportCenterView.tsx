@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
 import { formatCurrency } from '../../lib/currency.ts';
-import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, addDays, getTodayDateString } from '../../lib/dateTime.ts';
 import {
   Bill,
   BudgetEnvelope,
@@ -110,11 +110,7 @@ export const ExportCenterView: React.FC = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplateId>('executive_master');
   const [format, setFormat] = useState<ExportFormat>('pdf');
   const [datePreset, setDatePreset] = useState<DateFilterPreset>('this_month');
-  const [customStart, setCustomStart] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
-  });
+  const [customStart, setCustomStart] = useState<string>(() => addDays(getTodayDateString(tz), -30));
   const [customEnd, setCustomEnd] = useState<string>(todayStr);
 
   const [selectedModules, setSelectedModules] = useState<Set<ExportModuleId>>(
@@ -565,7 +561,7 @@ export const ExportCenterView: React.FC = () => {
     }
 
     setExporting(true);
-    const dateStamp = new Date().toISOString().slice(0, 10);
+    const dateStamp = getTodayDateString(tz);
 
     try {
       // 1. PDF Export

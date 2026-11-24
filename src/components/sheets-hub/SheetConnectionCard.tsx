@@ -278,6 +278,14 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
               <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 Editable
               </span>
+            ) : connection.syncMode === 'two_way' && !connection.isPublicLink ? (
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                Two-Way Sync
+              </span>
+            ) : connection.syncMode === 'manual_only' && !connection.isPublicLink ? (
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                Batch Push
+              </span>
             ) : (
               <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] border border-[var(--ff-border-color)]">
                 Read-Only

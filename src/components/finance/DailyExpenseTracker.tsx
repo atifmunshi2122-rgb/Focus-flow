@@ -16,7 +16,7 @@ import {
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
-import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, addDays, getTodayDateString } from '../../lib/dateTime.ts';
 import { computeSpendingInsights } from '../../lib/financeIntelligence.ts';
 import type { ExpenseTransaction, IncomeTransaction } from '../../types/index.ts';
 import { ThemeBadge, ThemeButton, ThemeCard, ThemeInput } from '../ui/ThemePrimitives.tsx';
@@ -93,11 +93,9 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
     return Object.values(map).sort((a, b) => b.amountPaise - a.amountPaise);
   }, [dayExpenses]);
 
-  // Date shifting
+  // Date shifting (timezone-safe, avoids IST UTC midnight off-by-one)
   const handleShiftDate = (days: number) => {
-    const d = new Date(selectedDate + 'T00:00:00');
-    d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().slice(0, 10));
+    setSelectedDate((prev) => addDays(prev, days));
   };
 
   const handleSaveDailyLimit = async (e: React.FormEvent) => {

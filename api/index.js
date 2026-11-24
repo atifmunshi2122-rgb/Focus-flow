@@ -11401,7 +11401,7 @@ var GoogleCalendarService = class {
       try {
         const [tasksSnap, blocksSnap] = await Promise.all([
           this.firestore.collection("users").doc(userId).collection("tasks").get(),
-          this.firestore.collection("users").doc(userId).collection("timeBlocks").get()
+          this.firestore.collection("users").doc(userId).collection("time_blocks").get()
         ]);
         tasks = tasksSnap.docs.map((d) => d.data()).filter((t) => !t.deletedAt);
         timeBlocks = blocksSnap.docs.map((d) => d.data()).filter((b) => !b.deletedAt);
@@ -14960,7 +14960,7 @@ apiRouter.post("/study/revisions", async (req, res, next) => {
     res.status(400).json({ error: "topicTitle is required" });
     return;
   }
-  const lastStudiedAt = parseIsoDate(body.lastStudiedAt) || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const lastStudiedAt = parseIsoDate(body.lastStudiedAt) || getTodayDateString(DEFAULT_TIMEZONE);
   const nextRevisionAt = parseIsoDate(body.nextRevisionAt) || lastStudiedAt;
   const difficulty = (body.difficulty ? parseEnum(body.difficulty, ALLOWED_REVISION_DIFFICULTIES) : "medium") || "medium";
   const status = (body.status ? parseEnum(body.status, ALLOWED_REVISION_STATUSES) : "scheduled") || "scheduled";
@@ -15048,7 +15048,7 @@ apiRouter.post("/study/mistakes", async (req, res, next) => {
     res.status(400).json({ error: "goldenRule (corrective takeaway) is required" });
     return;
   }
-  const date = parseIsoDate(body.date) || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const date = parseIsoDate(body.date) || getTodayDateString(DEFAULT_TIMEZONE);
   const severity = (body.severity ? parseEnum(body.severity, ALLOWED_MISTAKE_SEVERITIES) : "Medium") || "Medium";
   const source = parseOptionalString(body.source, 128) || "Mock / PYQ";
   const rootCause = parseOptionalString(body.rootCause, 1024) || "";
@@ -16391,7 +16391,7 @@ apiRouter.post("/decisions", async (req, res) => {
     rationale: typeof body.rationale === "string" ? body.rationale.slice(0, 2e3) : "",
     expectedOutcome: typeof body.expectedOutcome === "string" ? body.expectedOutcome.slice(0, 2e3) : "",
     confidenceScore,
-    expectedReviewDate: typeof body.expectedReviewDate === "string" ? body.expectedReviewDate.slice(0, 32) : (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+    expectedReviewDate: typeof body.expectedReviewDate === "string" ? body.expectedReviewDate.slice(0, 32) : getTodayDateString(DEFAULT_TIMEZONE),
     reviewIntervalDays: typeof body.reviewIntervalDays === "number" ? body.reviewIntervalDays : 30,
     status: body.status === "reviewed" ? "reviewed" : "pending_review",
     actualOutcome: typeof body.actualOutcome === "string" ? body.actualOutcome.slice(0, 2e3) : void 0,

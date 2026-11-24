@@ -689,7 +689,7 @@ export class GoogleCalendarService {
       try {
         const [tasksSnap, blocksSnap] = await Promise.all([
           this.firestore.collection('users').doc(userId).collection('tasks').get(),
-          this.firestore.collection('users').doc(userId).collection('timeBlocks').get(),
+          this.firestore.collection('users').doc(userId).collection('time_blocks').get(),
         ]);
         tasks = tasksSnap.docs.map((d: any) => d.data()).filter((t: any) => !t.deletedAt);
         timeBlocks = blocksSnap.docs.map((d: any) => d.data()).filter((b: any) => !b.deletedAt);

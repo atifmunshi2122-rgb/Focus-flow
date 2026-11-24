@@ -3127,7 +3127,7 @@ apiRouter.post('/study/revisions', async (req: Request, res: Response, next: Nex
     res.status(400).json({ error: 'topicTitle is required' });
     return;
   }
-  const lastStudiedAt = parseIsoDate(body.lastStudiedAt) || new Date().toISOString().slice(0, 10);
+  const lastStudiedAt = parseIsoDate(body.lastStudiedAt) || getTodayDateString(DEFAULT_TIMEZONE);
   const nextRevisionAt = parseIsoDate(body.nextRevisionAt) || lastStudiedAt;
   const difficulty = (body.difficulty ? parseEnum(body.difficulty, ALLOWED_REVISION_DIFFICULTIES) : 'medium') || 'medium';
   const status = (body.status ? parseEnum(body.status, ALLOWED_REVISION_STATUSES) : 'scheduled') || 'scheduled';
@@ -3220,7 +3220,7 @@ apiRouter.post('/study/mistakes', async (req: Request, res: Response, next: Next
     res.status(400).json({ error: 'goldenRule (corrective takeaway) is required' });
     return;
   }
-  const date = parseIsoDate(body.date) || new Date().toISOString().slice(0, 10);
+  const date = parseIsoDate(body.date) || getTodayDateString(DEFAULT_TIMEZONE);
   const severity = (body.severity ? parseEnum(body.severity, ALLOWED_MISTAKE_SEVERITIES) : 'Medium') || 'Medium';
   const source = parseOptionalString(body.source, 128) || 'Mock / PYQ';
   const rootCause = parseOptionalString(body.rootCause, 1024) || '';
@@ -4748,7 +4748,7 @@ apiRouter.post('/decisions', async (req: Request, res: Response) => {
     rationale: typeof body.rationale === 'string' ? body.rationale.slice(0, 2000) : '',
     expectedOutcome: typeof body.expectedOutcome === 'string' ? body.expectedOutcome.slice(0, 2000) : '',
     confidenceScore,
-    expectedReviewDate: typeof body.expectedReviewDate === 'string' ? body.expectedReviewDate.slice(0, 32) : new Date().toISOString().slice(0, 10),
+    expectedReviewDate: typeof body.expectedReviewDate === 'string' ? body.expectedReviewDate.slice(0, 32) : getTodayDateString(DEFAULT_TIMEZONE),
     reviewIntervalDays: typeof body.reviewIntervalDays === 'number' ? body.reviewIntervalDays : 30,
     status: body.status === 'reviewed' ? 'reviewed' : 'pending_review',
     actualOutcome: typeof body.actualOutcome === 'string' ? body.actualOutcome.slice(0, 2000) : undefined,

@@ -63,6 +63,7 @@ export const SheetHubView: React.FC = () => {
 
   // State
   const [connections, setConnections] = useState<SheetConnection[]>([]);
+  const [rowCountsByConnId, setRowCountsByConnId] = useState<Record<string, number>>({});
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null);
   const [tabs, setTabs] = useState<SheetTabSchema[]>([]);
   const [selectedTabId, setSelectedTabId] = useState<string | null>(null);
@@ -100,6 +101,20 @@ export const SheetHubView: React.FC = () => {
       try {
         const conns = await sheetHubStore.listConnections(activeUserId, { forceCloud });
         setConnections(conns);
+        void Promise.all(
+          conns.map(async (c) => {
+            try {
+              const cTabs = await sheetHubStore.listTabsForConnection(activeUserId, c.id);
+              const dataTabs = cTabs.filter((t) => t.role !== 'overview' && t.role !== 'ignored');
+              const sum = (dataTabs.length > 0 ? dataTabs : cTabs).reduce((acc, t) => acc + (t.rowCount || 0), 0);
+              return [c.id, sum] as const;
+            } catch {
+              return [c.id, 0] as const;
+            }
+          })
+        ).then((entries) => {
+          setRowCountsByConnId(Object.fromEntries(entries));
+        });
         if (activeConnectionId && !conns.some((c) => c.id === activeConnectionId)) {
           setActiveConnectionId(null);
           setTabs([]);
@@ -1381,6 +1396,7 @@ export const SheetHubView: React.FC = () => {
                 key={conn.id}
                 connection={conn}
                 tabCount={conn.tabOrder.length}
+                rowCount={rowCountsByConnId[conn.id] ?? 0}
                 onOpen={(id) => setActiveConnectionId(id)}
                 onRefresh={(id) => handlePullUpdates(id)}
                 onTogglePause={(id) => handleTogglePause(id)}
