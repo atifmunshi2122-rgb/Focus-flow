@@ -81,6 +81,32 @@ function getPendingQueueKey(userId: string): string {
   return `ff_sheethub_pending_queue_${userId}`;
 }
 
+const deletingConnectionIds = new Set<string>();
+
+function getDeletedConnectionIdsKey(userId: string): string {
+  return `ff_sheethub_deleted_conns_${userId}`;
+}
+
+function getDeletedConnectionIds(userId: string): Set<string> {
+  const list = readLocalFallback<string[]>(getDeletedConnectionIdsKey(userId), []);
+  return new Set(Array.isArray(list) ? list : []);
+}
+
+function markConnectionDeleted(userId: string, connectionId: string): void {
+  const set = getDeletedConnectionIds(userId);
+  set.add(connectionId);
+  // Keep bounded to the most recent 200 deleted IDs
+  const arr = Array.from(set).slice(-200);
+  writeLocalFallback(getDeletedConnectionIdsKey(userId), arr);
+}
+
+function unmarkConnectionDeleted(userId: string, connectionId: string): void {
+  const set = getDeletedConnectionIds(userId);
+  if (set.delete(connectionId)) {
+    writeLocalFallback(getDeletedConnectionIdsKey(userId), Array.from(set));
+  }
+}
+
 function enqueuePendingOp(
   userId: string,
   op: Omit<PendingSheetOperation, 'id' | 'createdAt' | 'attempts'>
@@ -276,6 +302,7 @@ export const sheetHubStore = {
     if (isSignedInAs(userId)) {
       try {
         const mergedById = new Map<string, SheetConnection>();
+        const deletedIds = getDeletedConnectionIds(userId);
 
         // 1. Primary query index: users/{userId}/sheet_connections
         try {
@@ -284,7 +311,9 @@ export const sheetHubStore = {
           );
           for (const d of connSnap.docs) {
             const item = d.data() as SheetConnection;
-            if (!item.deletedAt) mergedById.set(item.id, item);
+            if (!item.deletedAt && !deletingConnectionIds.has(item.id)) {
+              mergedById.set(item.id, item);
+            }
           }
         } catch (connErr) {
           if (isSignedInAs(userId)) {
@@ -300,14 +329,18 @@ export const sheetHubStore = {
           );
           for (const d of sheetsSnap.docs) {
             const item = d.data() as SheetConnection;
-            if (item.deletedAt) continue;
+            if (item.deletedAt || deletingConnectionIds.has(item.id)) continue;
             const existing = mergedById.get(item.id);
             if (!existing) {
               mergedById.set(item.id, item);
-              missingInIndex.push(item);
+              if (!deletedIds.has(item.id)) {
+                missingInIndex.push(item);
+              }
             } else if ((item.updatedAt || '') > (existing.updatedAt || '')) {
               mergedById.set(item.id, item);
-              missingInIndex.push(item);
+              if (!deletedIds.has(item.id)) {
+                missingInIndex.push(item);
+              }
             }
           }
         } catch (sheetsErr) {
@@ -319,6 +352,7 @@ export const sheetHubStore = {
         // 3. Safe reconciliation and missing-index repair: backfill canonical records into sheet_connections
         if (missingInIndex.length > 0) {
           for (const item of missingInIndex) {
+            if (deletingConnectionIds.has(item.id) || deletedIds.has(item.id)) continue;
             setDoc(
               doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), item.id),
               normalizeConnectionForFirestore(userId, item)
@@ -330,7 +364,7 @@ export const sheetHubStore = {
         if (mergedById.size === 0) {
           const local = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
           for (const c of local) {
-            if (!c.deletedAt && !mergedById.has(c.id)) {
+            if (!c.deletedAt && !deletingConnectionIds.has(c.id) && !deletedIds.has(c.id) && !mergedById.has(c.id)) {
               mergedById.set(c.id, c);
             }
           }
@@ -339,18 +373,31 @@ export const sheetHubStore = {
         // Automatic Local-to-Cloud reconciliation for signed-in users:
         // If a sheet was previously saved only to localStorage on this device (e.g. offline, guest, or earlier rule rejection),
         // upload it + its tabs + row chunks to Firestore so it immediately appears on all other devices logged into this Gmail.
+        // Skip any connection that was explicitly deleted or is currently being deleted to prevent resurrection.
         const localCandidates: Array<{ sourceUserId: string; conn: SheetConnection }> = [];
         for (const sourceUid of [userId, 'usr_guest', 'usr_1']) {
           const localList = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${sourceUid}`, []);
+          let prunedStaleDeleted = false;
+          const remainingLocal: SheetConnection[] = [];
           for (const c of localList) {
             if (!c || !c.id || c.deletedAt) continue;
+            if (deletedIds.has(c.id)) {
+              prunedStaleDeleted = true;
+              continue;
+            }
+            remainingLocal.push(c);
+            if (deletingConnectionIds.has(c.id)) continue;
             if (!mergedById.has(c.id)) {
               localCandidates.push({ sourceUserId: sourceUid, conn: c });
             }
           }
+          if (prunedStaleDeleted) {
+            writeLocalFallback(`ff_sheethub_conns_${sourceUid}`, remainingLocal);
+          }
         }
 
         for (const { sourceUserId, conn } of localCandidates) {
+          if (deletingConnectionIds.has(conn.id) || deletedIds.has(conn.id)) continue;
           try {
             const migratedConn = normalizeConnectionForFirestore(userId, {
               ...conn,
@@ -489,6 +536,7 @@ export const sheetHubStore = {
     }
 
     // Update local mirror immediately
+    unmarkConnectionDeleted(userId, connection.id);
     const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
     const filtered = conns.filter((c) => c.id !== connection.id);
     filtered.unshift(sanitized);
@@ -581,168 +629,145 @@ export const sheetHubStore = {
       throw new Error(`Cross-user ownership mutation forbidden. Cannot delete connection for userId "${existing.userId}" under user "${userId}".`);
     }
 
-    const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${userId}`, []);
-    writeLocalFallback(
-      `ff_sheethub_conns_${userId}`,
-      conns.filter((c) => c.id !== connectionId)
-    );
+    deletingConnectionIds.add(connectionId);
+    markConnectionDeleted(userId, connectionId);
 
-    let tabs: SheetTabSchema[] = [];
     try {
-      tabs = await this.listTabsForConnection(userId, connectionId);
-    } catch {}
-    const tabIds = new Set(tabs.map((t) => t.id));
-    if (existing && Array.isArray(existing.tabOrder)) {
-      for (const tId of existing.tabOrder) tabIds.add(tId);
-    }
+      // Remove from active user's local fallback AND guest/default buckets so local-to-cloud migration never resurrects it
+      for (const localUid of new Set([userId, 'usr_guest', 'usr_1'])) {
+        const conns = readLocalFallback<SheetConnection[]>(`ff_sheethub_conns_${localUid}`, []);
+        const filtered = conns.filter((c) => c.id !== connectionId);
+        if (filtered.length !== conns.length) {
+          writeLocalFallback(`ff_sheethub_conns_${localUid}`, filtered);
+        }
+        clientDataCache.invalidate(`sheet_hub_conns_${localUid}`);
+        dequeuePendingOp(localUid, connectionId);
+      }
 
-    if (purgeData) {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const keysToRemove: string[] = [];
-        for (let i = 0; i < window.localStorage.length; i++) {
-          const k = window.localStorage.key(i);
-          if (k && (k.includes(connectionId) || Array.from(tabIds).some((tId) => k.includes(tId)))) {
-            keysToRemove.push(k);
+      let tabs: SheetTabSchema[] = [];
+      try {
+        tabs = await this.listTabsForConnection(userId, connectionId);
+      } catch {}
+      const tabIds = new Set(tabs.map((t) => t.id));
+      if (existing && Array.isArray(existing.tabOrder)) {
+        for (const tId of existing.tabOrder) tabIds.add(tId);
+      }
+
+      if (purgeData) {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const keysToRemove: string[] = [];
+          for (let i = 0; i < window.localStorage.length; i++) {
+            const k = window.localStorage.key(i);
+            if (k && (k.includes(connectionId) || Array.from(tabIds).some((tId) => k.includes(tId)))) {
+              keysToRemove.push(k);
+            }
+          }
+          for (const k of keysToRemove) window.localStorage.removeItem(k);
+        }
+        for (const k of inMemoryFallbackStore.keys()) {
+          if (k.includes(connectionId) || Array.from(tabIds).some((tId) => k.includes(tId))) {
+            inMemoryFallbackStore.delete(k);
           }
         }
-        for (const k of keysToRemove) window.localStorage.removeItem(k);
-      }
-      for (const k of inMemoryFallbackStore.keys()) {
-        if (k.includes(connectionId) || Array.from(tabIds).some((tId) => k.includes(tId))) {
-          inMemoryFallbackStore.delete(k);
+        for (const tId of tabIds) {
+          clientDataCache.invalidate(`sheet_hub_rows_${userId}_${tId}`);
         }
       }
-      for (const tId of tabIds) {
-        clientDataCache.invalidate(`sheet_hub_rows_${userId}_${tId}`);
-      }
-    }
 
-    clientDataCache.invalidate(`sheet_hub_conns_${userId}`);
-    clientDataCache.invalidate(`sheet_hub_private_sheets_${userId}`);
-    clientDataCache.invalidate(`sheet_hub_tabs_${userId}_${connectionId}`);
-    clientDataCache.invalidate('sheet_hub_rows_');
+      clientDataCache.invalidate(`sheet_hub_private_sheets_${userId}`);
+      clientDataCache.invalidate(`sheet_hub_tabs_${userId}_${connectionId}`);
+      clientDataCache.invalidate('sheet_hub_rows_');
 
-    dequeuePendingOp(userId, connectionId);
+      if (isSignedInAs(userId)) {
+        // Discover any additional tabs and connection-level children in parallel (best-effort)
+        const [qTabsRes, nestedTabsRes, connChunksRes, queueRes, conflictRes] = await Promise.allSettled([
+          getDocs(query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs)), where('connectionId', '==', connectionId))),
+          getDocs(collection(db, `users/${userId}/sheets/${connectionId}/tabs`)),
+          getDocs(query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('connectionId', '==', connectionId))),
+          getDocs(query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.syncQueue)), where('connectionId', '==', connectionId))),
+          getDocs(query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts)), where('connectionId', '==', connectionId))),
+        ]);
 
-    if (isSignedInAs(userId)) {
-      // Discover any additional tabs in Firestore across flat and nested paths (best-effort so unused/restricted paths never block parent removal)
-      try {
-        const qTabs = await getDocs(
-          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs)), where('connectionId', '==', connectionId))
+        if (qTabsRes.status === 'fulfilled') {
+          for (const d of qTabsRes.value.docs) tabIds.add(d.id);
+        }
+        if (nestedTabsRes.status === 'fulfilled') {
+          for (const d of nestedTabsRes.value.docs) tabIds.add(d.id);
+        }
+
+        const childRefsToDelete: any[] = [];
+        if (connChunksRes.status === 'fulfilled') {
+          for (const d of connChunksRes.value.docs) childRefsToDelete.push(d.ref);
+        }
+        if (queueRes.status === 'fulfilled') {
+          for (const d of queueRes.value.docs) childRefsToDelete.push(d.ref);
+        }
+        if (conflictRes.status === 'fulfilled') {
+          for (const d of conflictRes.value.docs) childRefsToDelete.push(d.ref);
+        }
+
+        // 1. Discover and collect tabs + row chunks for all associated tabs in parallel
+        await Promise.allSettled(
+          Array.from(tabIds).map(async (tId) => {
+            childRefsToDelete.push(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tId));
+            childRefsToDelete.push(doc(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}`));
+
+            const [chunksRes, nestedChunksRes, nestedRowsRes] = await Promise.allSettled([
+              getDocs(query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('tabId', '==', tId))),
+              getDocs(collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/row_chunks`)),
+              getDocs(collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/rows`)),
+            ]);
+
+            if (chunksRes.status === 'fulfilled') {
+              for (const d of chunksRes.value.docs) childRefsToDelete.push(d.ref);
+            }
+            if (nestedChunksRes.status === 'fulfilled') {
+              for (const d of nestedChunksRes.value.docs) childRefsToDelete.push(d.ref);
+            }
+            if (nestedRowsRes.status === 'fulfilled') {
+              for (const d of nestedRowsRes.value.docs) childRefsToDelete.push(d.ref);
+            }
+          })
         );
-        for (const d of qTabs.docs) tabIds.add(d.id);
-      } catch (err) {
-        console.warn('[SheetHub] Best-effort sheet_tabs discovery warning:', err);
-      }
 
-      try {
-        const nestedTabsSnap = await getDocs(
-          collection(db, `users/${userId}/sheets/${connectionId}/tabs`)
-        );
-        for (const d of nestedTabsSnap.docs) tabIds.add(d.id);
-      } catch (err) {
-        console.warn('[SheetHub] Best-effort nested tabs discovery warning:', err);
-      }
+        // Delete child records FIRST in batches of <= 400; fall back to individual deletes if a batch fails
+        for (let i = 0; i < childRefsToDelete.length; i += 400) {
+          const slice = childRefsToDelete.slice(i, i + 400);
+          try {
+            const batch = writeBatch(db);
+            for (const ref of slice) batch.delete(ref);
+            await batch.commit();
+          } catch (batchErr) {
+            console.warn('[SheetHub] Child batch delete warning, retrying individually:', batchErr);
+            await Promise.allSettled(slice.map((ref) => deleteDoc(ref)));
+          }
+        }
 
-      const childRefsToDelete: any[] = [];
+        // Delete parent documents independently so a failure on one path never blocks the other
+        const connRef = doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId);
+        const sheetRef = doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId);
+        await Promise.allSettled([deleteDoc(connRef), deleteDoc(sheetRef)]);
 
-      // 1. Tabs and row chunks for all associated tabs
-      for (const tId of tabIds) {
-        childRefsToDelete.push(doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.tabs), tId));
-        childRefsToDelete.push(doc(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}`));
-
+        // Post-deletion verification check: verify parent documents are gone
+        let connStillExists = false;
+        let sheetStillExists = false;
         try {
-          const chunksSnap = await getDocs(
-            query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('tabId', '==', tId))
+          connStillExists = (await getDoc(connRef)).exists();
+        } catch {}
+        try {
+          sheetStillExists = (await getDoc(sheetRef)).exists();
+        } catch {}
+        if (connStillExists || sheetStillExists) {
+          unmarkConnectionDeleted(userId, connectionId);
+          throw new SheetHubPersistenceError(
+            'Could not delete spreadsheet from Cloud Firestore. Check Firestore security rules or sign-in status.',
+            'DELETION_INCOMPLETE',
+            connectionId
           );
-          for (const d of chunksSnap.docs) childRefsToDelete.push(d.ref);
-        } catch (err) {
-          console.warn('[SheetHub] Best-effort rowChunks discovery warning:', err);
-        }
-
-        try {
-          const nestedChunksSnap = await getDocs(
-            collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/row_chunks`)
-          );
-          for (const d of nestedChunksSnap.docs) childRefsToDelete.push(d.ref);
-        } catch (err) {
-          console.warn('[SheetHub] Best-effort nested row_chunks discovery warning:', err);
-        }
-
-        try {
-          const nestedRowsSnap = await getDocs(
-            collection(db, `users/${userId}/sheets/${connectionId}/tabs/${tId}/rows`)
-          );
-          for (const d of nestedRowsSnap.docs) childRefsToDelete.push(d.ref);
-        } catch (err) {
-          console.warn('[SheetHub] Best-effort nested rows discovery warning:', err);
         }
       }
-
-      // 2. Direct chunks referencing connectionId
-      try {
-        const connChunksSnap = await getDocs(
-          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.rowChunks)), where('connectionId', '==', connectionId))
-        );
-        for (const d of connChunksSnap.docs) childRefsToDelete.push(d.ref);
-      } catch (err) {
-        console.warn('[SheetHub] Best-effort connection rowChunks discovery warning:', err);
-      }
-
-      // 3. Associated sync queue items
-      try {
-        const queueSnap = await getDocs(
-          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.syncQueue)), where('connectionId', '==', connectionId))
-        );
-        for (const d of queueSnap.docs) childRefsToDelete.push(d.ref);
-      } catch (err) {
-        console.warn('[SheetHub] Best-effort syncQueue discovery warning:', err);
-      }
-
-      // 4. Associated conflict items
-      try {
-        const conflictSnap = await getDocs(
-          query(collection(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.conflicts)), where('connectionId', '==', connectionId))
-        );
-        for (const d of conflictSnap.docs) childRefsToDelete.push(d.ref);
-      } catch (err) {
-        console.warn('[SheetHub] Best-effort conflicts discovery warning:', err);
-      }
-
-      // Delete child records FIRST in batches of <= 400; fall back to individual deletes if a batch fails
-      for (let i = 0; i < childRefsToDelete.length; i += 400) {
-        const slice = childRefsToDelete.slice(i, i + 400);
-        try {
-          const batch = writeBatch(db);
-          for (const ref of slice) batch.delete(ref);
-          await batch.commit();
-        } catch (batchErr) {
-          console.warn('[SheetHub] Child batch delete warning, retrying individually:', batchErr);
-          await Promise.allSettled(slice.map((ref) => deleteDoc(ref)));
-        }
-      }
-
-      // Delete parent documents independently so a failure on one path never blocks the other
-      const connRef = doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.connections), connectionId);
-      const sheetRef = doc(db, userCollectionPath(userId, SHEET_HUB_COLLECTIONS.sheets), connectionId);
-      await Promise.allSettled([deleteDoc(connRef), deleteDoc(sheetRef)]);
-
-      // Post-deletion verification check: verify parent documents are gone
-      let connStillExists = false;
-      let sheetStillExists = false;
-      try {
-        connStillExists = (await getDoc(connRef)).exists();
-      } catch {}
-      try {
-        sheetStillExists = (await getDoc(sheetRef)).exists();
-      } catch {}
-      if (connStillExists || sheetStillExists) {
-        throw new SheetHubPersistenceError(
-          'Could not delete spreadsheet from Cloud Firestore. Check Firestore security rules or sign-in status.',
-          'DELETION_INCOMPLETE',
-          connectionId
-        );
-      }
+    } finally {
+      deletingConnectionIds.delete(connectionId);
     }
   },
 

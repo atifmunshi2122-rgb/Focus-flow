@@ -33,6 +33,7 @@ interface SheetConnectionCardProps {
   onRemove: (connectionId: string, purgeCache: boolean) => void;
   onImportToStudy?: (connection: SheetConnection) => void;
   isPulling?: boolean;
+  isRemoving?: boolean;
 }
 
 export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
@@ -46,6 +47,7 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
   onRemove,
   onImportToStudy,
   isPulling = false,
+  isRemoving = false,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -217,14 +219,15 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
 
                     <button
                       type="button"
+                      disabled={isRemoving}
                       onClick={() => {
                         setMenuOpen(false);
                         setDeleteModalOpen(true);
                       }}
-                      className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-rose-500/10 text-rose-500"
+                      className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-rose-500/10 text-rose-500 disabled:opacity-50"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      <span>Remove Connection</span>
+                      <span>{isRemoving ? 'Removing...' : 'Remove Connection'}</span>
                     </button>
                   </div>
                 </>
@@ -382,12 +385,13 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
             </ThemeButton>
             <ThemeButton
               variant="danger"
+              disabled={isRemoving}
               onClick={() => {
                 setDeleteModalOpen(false);
                 onRemove(connection.id, purgeCacheOption);
               }}
             >
-              Confirm Disconnect
+              {isRemoving ? 'Removing...' : 'Confirm Disconnect'}
             </ThemeButton>
           </div>
         </div>

@@ -35,7 +35,6 @@ import {
 } from '../ui/ThemePrimitives.tsx';
 import {
   ConfirmationBurst,
-  InteractiveSurface3D,
   RollingTimerDigits,
   SubtleConfetti,
   ValidationMessage,
@@ -1086,7 +1085,7 @@ export const PomodoroTimer: React.FC = () => {
           )}
         </svg>
 
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 z-20">
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 z-20 pointer-events-none">
           <SubtleConfetti show={showCelebration} />
           <ConfirmationBurst show={showCelebration} label="Session Complete!" />
 
@@ -1382,16 +1381,15 @@ export const PomodoroTimer: React.FC = () => {
 
   return (
     <>
-      <InteractiveSurface3D maxTilt={3}>
-        <ThemeCard
-          variant="3d"
-          className={`relative overflow-hidden flex flex-col items-center justify-center p-6 sm:p-7 ${
-            isRunning ? 'ff-pulse-running' : isPaused ? 'ff-pulse-paused' : ''
-          }`}
-        >
-          {timerBody}
-        </ThemeCard>
-      </InteractiveSurface3D>
+      <ThemeCard
+        variant="elevated"
+        tilt={false}
+        className={`relative overflow-hidden flex flex-col items-center justify-center p-6 sm:p-7 ${
+          isRunning ? 'ff-pulse-running' : isPaused ? 'ff-pulse-paused' : ''
+        }`}
+      >
+        {timerBody}
+      </ThemeCard>
 
       {/* Multiple Pomodoro Goals Grid */}
       <ThemeCard className="w-full mt-4 p-4 sm:p-5 space-y-3">

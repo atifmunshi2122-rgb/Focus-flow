@@ -215,9 +215,8 @@ export const InteractiveSurface3D: React.FC<InteractiveSurface3DProps> = ({
         style={{
           transform:
             allow3D && tilt.active
-              ? `rotateX(${tilt.rx.toFixed(2)}deg) rotateY(${tilt.ry.toFixed(2)}deg) translateZ(4px)`
-              : 'rotateX(0deg) rotateY(0deg) translateZ(0px)',
-          transformStyle: allow3D ? 'preserve-3d' : undefined,
+              ? `rotateX(${tilt.rx.toFixed(2)}deg) rotateY(${tilt.ry.toFixed(2)}deg)`
+              : undefined,
         }}
       >
         {children}

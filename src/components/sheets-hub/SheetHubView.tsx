@@ -72,6 +72,7 @@ export const SheetHubView: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isPulling, setIsPulling] = useState(false);
+  const [removingConnectionIds, setRemovingConnectionIds] = useState<Record<string, boolean>>({});
   const [isPushing, setIsPushing] = useState(false);
   const [syncingRowUids, setSyncingRowUids] = useState<Record<string, boolean>>({});
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -926,19 +927,31 @@ export const SheetHubView: React.FC = () => {
   };
 
   const handleRemoveConnection = async (connId: string, purgeCache: boolean) => {
+    if (removingConnectionIds[connId]) return;
+    setRemovingConnectionIds((prev) => ({ ...prev, [connId]: true }));
+
+    // Optimistic UI removal so the card disappears immediately without allowing duplicate clicks
+    setConnections((prev) => prev.filter((c) => c.id !== connId));
+    if (activeConnectionId === connId) {
+      setActiveConnectionId(null);
+      setTabs([]);
+      setRowsByTabId({});
+    }
+
     try {
       await sheetHubStore.deleteConnection(activeUserId, connId, purgeCache);
-      setConnections((prev) => prev.filter((c) => c.id !== connId));
-      if (activeConnectionId === connId) {
-        setActiveConnectionId(null);
-        setTabs([]);
-        setRowsByTabId({});
-      }
       await loadConnections(Boolean(firebaseUser?.uid));
       showToast('Spreadsheet connection unlinked cleanly.', 'success');
     } catch (err: any) {
       console.error('[SheetHubView] Failed to remove connection:', err);
+      await loadConnections(Boolean(firebaseUser?.uid)).catch(() => {});
       showToast(err?.message || 'Failed to remove spreadsheet connection.', 'error');
+    } finally {
+      setRemovingConnectionIds((prev) => {
+        const next = { ...prev };
+        delete next[connId];
+        return next;
+      });
     }
   };
 
@@ -1439,6 +1452,7 @@ export const SheetHubView: React.FC = () => {
                   setImportToStudyOpen(true);
                 }}
                 isPulling={isPulling}
+                isRemoving={Boolean(removingConnectionIds[conn.id])}
               />
             ))}
           </div>
