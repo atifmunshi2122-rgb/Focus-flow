@@ -128,6 +128,7 @@ export const PomodoroTimer: React.FC = () => {
     activeSessionId,
     firebaseUser,
     refreshKey,
+    triggerRefresh,
     showToast,
   } = useApp();
 
@@ -137,6 +138,15 @@ export const PomodoroTimer: React.FC = () => {
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [showInterruptionsModal, setShowInterruptionsModal] = useState(false);
+  const [showManualLogModal, setShowManualLogModal] = useState(false);
+  const [manualHours, setManualHours] = useState('1');
+  const [manualMinutes, setManualMinutes] = useState('0');
+  const [manualDate, setManualDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [manualSubjectCode, setManualSubjectCode] = useState('');
+  const [manualTopicId, setManualTopicId] = useState('');
+  const [manualActivityType, setManualActivityType] = useState<'study' | 'practice' | 'theory' | 'revision'>('study');
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
   const [customInputMinutes, setCustomInputMinutes] = useState('25');
   const [customError, setCustomError] = useState<string | null>(null);
   const [resetSpinCount, setResetSpinCount] = useState(0);
@@ -387,6 +397,113 @@ export const PomodoroTimer: React.FC = () => {
       cancelled = true;
     };
   }, [showStudyModal, activeStudySubjectCode, activeStudyTopicId, activeStudyActivityType]);
+
+  // Load Study OS subjects when Manual Time Log modal opens
+  useEffect(() => {
+    if (!showManualLogModal) return;
+    setManualError(null);
+    setManualSubjectCode(activeStudySubjectCode || '');
+    setManualTopicId(activeStudyTopicId || '');
+    setManualActivityType(activeStudyActivityType || 'study');
+    if (studySubjects.length > 0) return;
+    let cancelled = false;
+    api
+      .getStudySubjects()
+      .then((subs) => {
+        if (!cancelled) setStudySubjects(subs);
+      })
+      .catch(console.warn);
+    return () => {
+      cancelled = true;
+    };
+  }, [showManualLogModal, activeStudySubjectCode, activeStudyTopicId, activeStudyActivityType, studySubjects.length]);
+
+  const handleManualSubjectChange = async (newCode: string) => {
+    setManualSubjectCode(newCode);
+    if (!newCode) {
+      setManualTopicId('');
+      return;
+    }
+    try {
+      const tops = await api.getStudyTopics(newCode);
+      setStudyTopics(tops);
+      setManualTopicId(tops[0]?.id || '');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSaveManualLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const h = Number(manualHours) || 0;
+    const m = Number(manualMinutes) || 0;
+    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || m < 0) {
+      setManualError('Please enter valid non-negative hours and minutes.');
+      return;
+    }
+    const totalMinutes = Math.round(h * 60 + m);
+    if (totalMinutes < 1 || totalMinutes > 1440) {
+      setManualError('Total duration must be between 1 minute and 24 hours (1440 minutes).');
+      return;
+    }
+
+    setManualSaving(true);
+    setManualError(null);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const chosenDate = manualDate || todayStr;
+      const endMs =
+        chosenDate === todayStr
+          ? Date.now()
+          : new Date(`${chosenDate}T18:00:00`).getTime() || Date.now();
+      const startMs = endMs - totalMinutes * 60 * 1000;
+      const startedAt = new Date(startMs).toISOString();
+      const endedAt = new Date(endMs).toISOString();
+
+      const created = await api.createFocusSession({
+        mode: 'work',
+        durationMinutes: totalMinutes,
+        durationSeconds: totalMinutes * 60,
+        actualDurationSeconds: totalMinutes * 60,
+        completed: true,
+        status: 'completed',
+        endReason: 'completed',
+        interrupted: false,
+        pauseCount: 0,
+        totalPauseSeconds: 0,
+        startedAt,
+        endedAt,
+        taskId: activeTask?.id || undefined,
+        subjectCode: manualSubjectCode || undefined,
+        topicId: manualTopicId || undefined,
+        activityType: manualSubjectCode || manualTopicId ? manualActivityType : undefined,
+      });
+
+      if (manualTopicId && manualActivityType === 'practice') {
+        api.saveStudyTopic({ id: manualTopicId, practice: true }).catch(console.warn);
+      } else if (manualTopicId && manualActivityType === 'theory') {
+        api.saveStudyTopic({ id: manualTopicId, theory: true }).catch(console.warn);
+      }
+
+      setSessions((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
+      triggerRefresh();
+      setShowManualLogModal(false);
+
+      const hrsPart = Math.floor(totalMinutes / 60);
+      const minsPart = totalMinutes % 60;
+      const label =
+        hrsPart > 0 && minsPart > 0
+          ? `${hrsPart}h ${minsPart}m`
+          : hrsPart > 0
+          ? `${hrsPart}h`
+          : `${minsPart}m`;
+      showToast(`Logged ${label} of study / focus time!`, 'success');
+    } catch (err: any) {
+      setManualError(err?.message || 'Failed to log study time. Please try again.');
+    } finally {
+      setManualSaving(false);
+    }
+  };
 
   const handleSubjectChange = async (newCode: string) => {
     setModalSubjectCode(newCode);
@@ -1315,6 +1432,16 @@ export const PomodoroTimer: React.FC = () => {
       {/* Quick Settings Toggles & Keyboard Shortcuts Bar */}
       <div className="relative z-10 w-full flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[var(--ff-border-color)] text-xs text-[var(--ff-text-muted)]">
         <div className="flex items-center gap-4 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowManualLogModal(true)}
+            className="flex items-center gap-1.5 hover:text-[var(--ff-text-primary)] transition-colors min-h-[36px] font-semibold text-emerald-500"
+            title="Manually log additional study or focus hours/minutes"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Log Time</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsTypingWarmupOpen(true)}
@@ -2250,6 +2377,185 @@ export const PomodoroTimer: React.FC = () => {
             </ThemeButton>
           </div>
         </div>
+      </ThemeModal>
+
+      {/* Manual Additional Study / Focus Time Modal */}
+      <ThemeModal
+        isOpen={showManualLogModal}
+        onClose={() => setShowManualLogModal(false)}
+        title="Log Additional Study / Focus Time"
+        subtitle="Record offline reading, classes, or extra study hours & minutes directly into your Focus Analytics."
+        maxWidthClass="max-w-md"
+      >
+        <form onSubmit={handleSaveManualLog} className="space-y-4">
+          {/* Quick Presets */}
+          <div>
+            <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1.5">
+              Quick Presets
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: '15m', h: '0', m: '15' },
+                { label: '30m', h: '0', m: '30' },
+                { label: '45m', h: '0', m: '45' },
+                { label: '1h', h: '1', m: '0' },
+                { label: '1h 30m', h: '1', m: '30' },
+                { label: '2h', h: '2', m: '0' },
+                { label: '3h', h: '3', m: '0' },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => {
+                    setManualHours(preset.h);
+                    setManualMinutes(preset.m);
+                    setManualError(null);
+                  }}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] hover:border-[var(--ff-accent-border)] text-[var(--ff-text-primary)] transition-colors"
+                >
+                  +{preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Hours & Minutes */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                Hours
+              </label>
+              <ThemeInput
+                type="number"
+                min={0}
+                max={24}
+                value={manualHours}
+                onChange={(e) => {
+                  setManualHours(e.target.value);
+                  setManualError(null);
+                }}
+                placeholder="0"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                Minutes
+              </label>
+              <ThemeInput
+                type="number"
+                min={0}
+                max={1440}
+                value={manualMinutes}
+                onChange={(e) => {
+                  setManualMinutes(e.target.value);
+                  setManualError(null);
+                }}
+                placeholder="30"
+              />
+            </div>
+          </div>
+
+          {/* Live Total Preview */}
+          <div className="px-3 py-2 rounded-lg bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] flex items-center justify-between text-xs">
+            <span className="text-[var(--ff-text-muted)]">Total Time to Log</span>
+            <span className="font-mono font-bold text-[var(--ff-accent-text)]">
+              {(() => {
+                const total = Math.max(0, Math.round((Number(manualHours) || 0) * 60 + (Number(manualMinutes) || 0)));
+                const hrs = Math.floor(total / 60);
+                const mins = total % 60;
+                return `${hrs > 0 ? `${hrs}h ` : ''}${mins}m (${total} min)`;
+              })()}
+            </span>
+          </div>
+
+          {/* Date */}
+          <div>
+            <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+              Date
+            </label>
+            <ThemeInput
+              type="date"
+              value={manualDate}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={(e) => setManualDate(e.target.value)}
+            />
+          </div>
+
+          {/* Optional Study Subject & Topic */}
+          {studySubjects.length > 0 && (
+            <div className="space-y-2.5 pt-2 border-t border-[var(--ff-border-color)]">
+              <label className="block text-xs font-semibold text-[var(--ff-text-secondary)]">
+                Link to Study Subject (Optional)
+              </label>
+              <select
+                value={manualSubjectCode}
+                onChange={(e) => void handleManualSubjectChange(e.target.value)}
+                className="w-full px-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+              >
+                <option value="">Independent Study (No subject)</option>
+                {studySubjects.map((sub) => (
+                  <option key={sub.code} value={sub.code}>
+                    {sub.name} ({sub.code})
+                  </option>
+                ))}
+              </select>
+
+              {manualSubjectCode && (
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    value={manualTopicId}
+                    onChange={(e) => setManualTopicId(e.target.value)}
+                    className="w-full px-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+                  >
+                    <option value="">All / General</option>
+                    {studyTopics
+                      .filter((t) => t.subjectCode === manualSubjectCode)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.unit ? `[${t.unit}] ` : ''}
+                          {t.subtopic || t.topic}
+                        </option>
+                      ))}
+                  </select>
+
+                  <select
+                    value={manualActivityType}
+                    onChange={(e) => setManualActivityType(e.target.value as 'study' | 'practice' | 'theory' | 'revision')}
+                    className="w-full px-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:border-[var(--ff-accent)]"
+                  >
+                    <option value="study">General Study</option>
+                    <option value="theory">Theory</option>
+                    <option value="practice">Practice</option>
+                    <option value="revision">Revision</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
+          <ValidationMessage message={manualError} tone="error" />
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-[var(--ff-border-color)]">
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowManualLogModal(false)}
+              disabled={manualSaving}
+            >
+              Cancel
+            </ThemeButton>
+            <ThemeButton
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={manualSaving}
+              loadingText="Saving..."
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Save Study Time</span>
+            </ThemeButton>
+          </div>
+        </form>
       </ThemeModal>
 
       {/* 60-Second Code-Typing Mental Warmup Modal */}

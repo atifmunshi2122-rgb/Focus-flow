@@ -548,7 +548,7 @@ apiRouter.post('/focus/sessions', async (req: Request, res: Response, _next: Nex
   }
 
   const parsedMinutes =
-    durationMinutes === undefined ? 25 : parsePositiveInt(durationMinutes, 1, 180);
+    durationMinutes === undefined ? 25 : parsePositiveInt(durationMinutes, 1, 1440);
   if (parsedMinutes === null) {
     res.status(400).json({ error: 'durationMinutes must be a positive integer between 1 and 180' });
     return;

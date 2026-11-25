@@ -477,7 +477,7 @@ export const firestoreService = {
   async createFocusSession(userId: string, input: Partial<FocusSession>): Promise<FocusSession> {
     const durationMinutes = Number(input.durationMinutes);
     const safeMinutes =
-      Number.isFinite(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 180
+      Number.isFinite(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 1440
         ? Math.round(durationMinutes)
         : 25;
     const durationSeconds = Number(input.durationSeconds);
