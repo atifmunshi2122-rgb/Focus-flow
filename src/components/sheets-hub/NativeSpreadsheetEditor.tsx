@@ -20,6 +20,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { sheetHubStore } from '../../lib/sheetHub/sheetHubStore.ts';
+import { syncSheetRowCheckboxToStudyOS } from '../../lib/sheetHub/sheetStudySyncService.ts';
 import type {
   SheetCellScalar,
   SheetColumnMapping,
@@ -218,6 +219,18 @@ export const NativeSpreadsheetEditor: React.FC<NativeSpreadsheetEditorProps> = (
       });
       setSaveState('saved');
       setLastSavedTime(new Date().toLocaleTimeString());
+
+      const toggledRow = nextRows.find((r) => r.rowUid === rowUid);
+      if (toggledRow) {
+        void syncSheetRowCheckboxToStudyOS({
+          userId,
+          connection: sheet,
+          tab: activeTab,
+          row: toggledRow,
+          fieldKey,
+          nextValue: nextVal,
+        }).catch((err) => console.warn('[NativeSheet] Direct Study OS sync warning:', err));
+      }
     } catch {
       setSaveState('error');
       showToast('Failed to save checkbox change.', 'error');

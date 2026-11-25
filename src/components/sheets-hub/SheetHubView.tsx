@@ -47,7 +47,7 @@ import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
 import { NativeSpreadsheetEditor } from './NativeSpreadsheetEditor.tsx';
 import { ImportToStudyModal } from './ImportToStudyModal.tsx';
 import { StudyImportHistoryModal } from './StudyImportHistoryModal.tsx';
-import { flushPendingWritebacks } from '../../lib/sheetHub/sheetStudySyncService.ts';
+import { flushPendingWritebacks, syncSheetRowCheckboxToStudyOS } from '../../lib/sheetHub/sheetStudySyncService.ts';
 import type { SheetTemplateHint } from '../../types/sheetHub.ts';
 
 export const SheetHubView: React.FC = () => {
@@ -58,6 +58,7 @@ export const SheetHubView: React.FC = () => {
     authorizeSheetHubReadOnly,
     authorizeSheetHubWrite,
     confirmAction,
+    triggerRefresh,
     showToast,
   } = useApp();
   const activeUserId = firebaseUser?.uid || user?.id || 'usr_guest';
@@ -425,6 +426,20 @@ export const SheetHubView: React.FC = () => {
         showToast(saveErr?.message || 'Failed to save checkbox state locally.', 'error');
         return;
       }
+
+      // Direct Sheet Hub -> Study OS sync (works for both Google Sheets & local/demo sheets)
+      void syncSheetRowCheckboxToStudyOS({
+        userId: activeUserId,
+        connection: activeConnection,
+        tab,
+        row: localUpdatedRow,
+        fieldKey: col.fieldKey,
+        nextValue,
+      })
+        .then((synced) => {
+          if (synced) triggerRefresh();
+        })
+        .catch((err) => console.warn('[SheetHub] Direct Study OS sync warning:', err));
 
       // Demo spreadsheet stays local-only
       if (activeConnection.spreadsheetId === 'sem3-syllabus-sample') {

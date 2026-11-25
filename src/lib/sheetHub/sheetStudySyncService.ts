@@ -1179,6 +1179,117 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
 /**
  * Retrieves the current synchronization health and status for Study OS.
  */
+export async function syncSheetRowCheckboxToStudyOS(input: {
+  userId: string;
+  connection: SheetConnection;
+  tab: SheetTabSchema;
+  row: SheetSyncedRow;
+  fieldKey: string;
+  nextValue: boolean;
+}): Promise<boolean> {
+  const { connection, tab, row, fieldKey, nextValue } = input;
+  const doneCol = findDoneColumn(tab.columns);
+  const editedCol = tab.columns.find((c) => c.fieldKey === fieldKey);
+  const isDoneField =
+    (doneCol && doneCol.fieldKey === fieldKey) ||
+    editedCol?.semanticRole === 'done' ||
+    editedCol?.inferredType === 'checkbox';
+
+  if (!isDoneField) return false;
+
+  const [existingTopics, existingSubjects] = await Promise.all([
+    api.getStudyTopics().catch(() => [] as StudyTopic[]),
+    api.getStudySubjects().catch(() => []),
+  ]);
+  const activeTopics = (existingTopics || []).filter((t) => !t.deletedAt);
+  const activeSubjects = (existingSubjects || []).filter((s) => !s.deletedAt);
+  if (activeTopics.length === 0) return false;
+
+  const subjectNameByCode = new Map(activeSubjects.map((s) => [s.code, s.name]));
+
+  // Priority 1: Direct sourceRowId or sourceMappingKey match
+  let matchedTopic = activeTopics.find(
+    (t) =>
+      (t.sourceRowId && t.sourceRowId === row.rowUid) ||
+      (t.sourceMappingKey &&
+        (t.sourceMappingKey === row.rowUid ||
+          t.sourceMappingKey === `${connection.id}:${tab.sheetId}:${row.rowUid}`))
+  );
+
+  // Priority 2: Semantic hierarchy match against tab's title/group/subgroup columns
+  if (!matchedTopic) {
+    const rowValues = row.values || row.cells || {};
+    const titleCol =
+      tab.columns.find((c) => c.semanticRole === 'title') ||
+      tab.columns.find((c) => c.inferredType === 'text');
+    const groupCol = tab.columns.find((c) => c.semanticRole === 'group');
+    const subgroupCol = tab.columns.find((c) => c.semanticRole === 'subgroup');
+
+    const rowTitle = normalizeForComparison(titleCol ? String(rowValues[titleCol.fieldKey] ?? '') : '');
+    const rowGroup = normalizeForComparison(groupCol ? String(rowValues[groupCol.fieldKey] ?? '') : '');
+    const rowSubgroup = normalizeForComparison(subgroupCol ? String(rowValues[subgroupCol.fieldKey] ?? '') : '');
+
+    if (rowTitle || rowSubgroup) {
+      matchedTopic = activeTopics.find((t) => {
+        if (!isSubjectMatchingTab(t.subjectCode, subjectNameByCode.get(t.subjectCode), tab.sheetTitle)) {
+          return false;
+        }
+        const normSubtopic = normalizeForComparison(t.subtopic || '');
+        const normTopic = normalizeForComparison(t.topic || '');
+        const normUnit = normalizeForComparison(t.unit || '');
+
+        const titleMatches =
+          (rowTitle && (normSubtopic === rowTitle || normTopic === rowTitle)) ||
+          (rowSubgroup && normSubtopic === rowSubgroup);
+        if (!titleMatches) return false;
+
+        if (rowGroup && normUnit && normUnit !== 'general' && normUnit !== rowGroup && normTopic !== rowGroup) {
+          return false;
+        }
+        return true;
+      });
+    }
+  }
+
+  if (!matchedTopic) return false;
+
+  const currentlyDone = Boolean(matchedTopic.theory && matchedTopic.practice);
+  if (currentlyDone === nextValue && matchedTopic.theory === nextValue && matchedTopic.practice === nextValue) {
+    return false;
+  }
+
+  const nowIso = new Date().toISOString();
+  const updatedTopic: StudyTopic = {
+    ...matchedTopic,
+    theory: nextValue,
+    practice: nextValue,
+    sourceRowId: matchedTopic.sourceRowId || row.rowUid,
+    updatedAt: nowIso,
+  };
+
+  await api.saveStudyTopic(updatedTopic);
+
+  // Update subject completedSubtopics count cleanly
+  const subject = activeSubjects.find((s) => s.code === matchedTopic!.subjectCode);
+  if (subject) {
+    const subjectTopics = activeTopics.map((t) => (t.id === updatedTopic.id ? updatedTopic : t));
+    const completedCount = subjectTopics.filter(
+      (t) => t.subjectCode === subject.code && Boolean(t.theory && t.practice)
+    ).length;
+    if (subject.completedSubtopics !== completedCount) {
+      await api
+        .saveStudySubject({
+          ...subject,
+          completedSubtopics: completedCount,
+          updatedAt: nowIso,
+        })
+        .catch(() => {});
+    }
+  }
+
+  return true;
+}
+
 export async function getStudySheetSyncState(userId: string): Promise<StudySheetSyncState> {
   try {
     const connections = await sheetHubStore.listConnections(userId);
