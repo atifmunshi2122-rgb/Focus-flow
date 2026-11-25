@@ -30,6 +30,9 @@ import {
   Sparkles,
   Zap,
   GraduationCap,
+  Trophy,
+  Heart,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useApp, NavTab } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -316,6 +319,9 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onOpenQuickAction 
       case 'Sun': return <Sun className="w-4 h-4" />;
       case 'Moon': return <Moon className="w-4 h-4" />;
       case 'GraduationCap': return <GraduationCap className="w-4 h-4" />;
+      case 'Trophy': return <Trophy className="w-4 h-4" />;
+      case 'Heart': return <Heart className="w-4 h-4" />;
+      case 'FileSpreadsheet': return <FileSpreadsheet className="w-4 h-4" />;
       default: return <Sparkles className="w-4 h-4" />;
     }
   };

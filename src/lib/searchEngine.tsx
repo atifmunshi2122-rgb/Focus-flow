@@ -369,8 +369,12 @@ export function searchUniversalWorkspace(
     { tab: 'bills', label: 'Bills & Payments Tracker', desc: 'Due dates, recurring schedules & payment status', shortcut: 'Alt+6', icon: 'CreditCard' },
     { tab: 'envelopes', label: 'Envelope Budgeting System', desc: 'Category-wise spending caps & real-time utilization', shortcut: 'Alt+E', icon: 'Layers' },
     { tab: 'subscriptions', label: 'Recurring Subscriptions', desc: 'Monthly renewals, subscription audits & leak alerts', shortcut: 'Alt+S', icon: 'Repeat' },
+    { tab: 'vaults', label: 'Couple Shared Vaults', desc: 'Shared savings goals, partner splits & contributions', icon: 'Heart' },
     { tab: 'study', label: 'Study OS & Academic Intelligence', desc: 'Syllabus mastery, Ebbinghaus spaced repetitions & mistake notebook', shortcut: 'Alt+9', icon: 'GraduationCap' },
+    { tab: 'leaderboard', label: 'Study Leaderboard & Squads', desc: 'Private study squads, live presence, weekly challenges & subject rankings', shortcut: 'Alt+L', icon: 'Trophy' },
+    { tab: 'sheet_hub', label: 'Universal Sheet Sync Hub', desc: 'Connect Google Sheets, two-way habit sync & live sheet views', icon: 'FileSpreadsheet' },
     { tab: 'analytics', label: 'Analytics & Visual Intelligence', desc: '12-month trend charts, savings rates, financial analytics & KPI reports', shortcut: 'Alt+7', icon: 'BarChart3' },
+    { tab: 'exports', label: 'Export Center', desc: 'PDF, CSV, Markdown & executive report exports', icon: 'Download' },
     { tab: 'recovery', label: 'Data Recovery & Integrity Center', desc: 'Snapshot backups, restore bin & sync diagnosis', shortcut: 'Alt+R', icon: 'ShieldAlert' },
     { tab: 'settings', label: 'Settings & Theme Studio 2.0', desc: 'Custom 3D themes, physics, palettes & preferences', shortcut: 'Alt+8', icon: 'Settings' },
   ];

@@ -89,6 +89,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     tasks: 'Task Management',
     habits: 'Habit Tracker & Streaks',
     study: 'Study & Academic Management',
+    leaderboard: 'Study Leaderboard & Squads',
     finance: 'Financial Command',
     transactions: 'Transaction Ledger',
     bills: 'Bills & Payments Tracker',
@@ -99,6 +100,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     recovery: 'Data Recovery Center',
     settings: 'Settings & Theme Studio',
     vaults: 'Couple Shared Vaults',
+    sheet_hub: 'Universal Sheet Sync Hub',
   };
 
   const mobileTabLabels: Record<string, string> = {
@@ -110,16 +112,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     tasks: 'Tasks',
     habits: 'Habits',
     study: 'Study OS',
+    leaderboard: 'Leaderboard',
     finance: 'Finance',
     transactions: 'Transactions',
-    bills: 'Bills & Payments',
+    bills: 'Bills',
     envelopes: 'Envelopes',
     subscriptions: 'Subscriptions',
     analytics: 'Analytics',
     exports: 'Exports',
     recovery: 'Recovery',
     settings: 'Settings',
-    vaults: 'Couple Vaults',
+    vaults: 'Vaults',
+    sheet_hub: 'Sheet Hub',
   };
 
   const tabSectionMap: Record<string, string> = {
@@ -131,6 +135,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     tasks: 'Focus Lab',
     habits: 'Focus Lab',
     study: 'Academics & Focus',
+    leaderboard: 'Academics & Focus',
     finance: 'Wealth Command',
     transactions: 'Wealth Command',
     bills: 'Wealth Command',
@@ -141,6 +146,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
     recovery: 'Intelligence',
     settings: 'Preferences',
     vaults: 'Wealth Command',
+    sheet_hub: 'Data & Integrations',
   };
 
   const formatTimerMinSec = (seconds: number) => {
@@ -153,14 +159,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
   return (
     <header
       data-scrolled={isScrolled ? 'true' : 'false'}
-      className="ff-header sticky top-0 z-30 flex items-center justify-between gap-1.5 sm:gap-3 lg:gap-4 h-16 px-2.5 sm:px-4 md:px-6 lg:px-6 2xl:px-8 max-w-full"
+      className="ff-header sticky top-0 z-30 flex items-center justify-between gap-1 sm:gap-3 lg:gap-4 h-16 px-2 sm:px-4 md:px-6 lg:px-6 2xl:px-8 max-w-full"
     >
       {/* Zone 1: Mobile Menu Trigger + Section Heading */}
-      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 mr-2">
+      <div className="flex items-center gap-1 sm:gap-3 min-w-0 flex-1 mr-1 sm:mr-2">
         <button
           type="button"
           onClick={onOpenMobileMenu}
-          className="lg:hidden min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
+          className="lg:hidden min-w-[38px] min-h-[38px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center p-1.5 sm:p-2 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-hover)] transition-colors shrink-0"
           aria-label="Open navigation menu"
         >
           <Menu className="w-5 h-5" />
@@ -535,11 +541,11 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenQuickAct
           variant="primary"
           size="sm"
           onClick={() => onOpenQuickAction()}
-          className="whitespace-nowrap shrink-0 ff-header-quick-action"
+          className="whitespace-nowrap shrink-0 ff-header-quick-action px-2.5 sm:px-3"
+          aria-label="Quick Action"
         >
           <Plus className="w-4 h-4" />
           <span className="hidden sm:inline">Quick Action</span>
-          <span className="hidden xs:inline sm:hidden">Action</span>
         </ThemeButton>
       </div>
     </header>

@@ -82,6 +82,7 @@ export type NavTab =
   | 'tasks'
   | 'habits'
   | 'study'
+  | 'leaderboard'
   | 'finance'
   | 'transactions'
   | 'bills'
@@ -103,6 +104,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'tasks',
   'habits',
   'study',
+  'leaderboard',
   'finance',
   'transactions',
   'bills',
@@ -3029,6 +3031,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       habits: 'Habit Tracker',
       tasks: 'Task Manager',
       study: 'Study Management System',
+      leaderboard: 'Study Leaderboard',
       finance: 'Finance Overview',
       transactions: 'Transactions Ledger',
       bills: 'Bills & Subscriptions',

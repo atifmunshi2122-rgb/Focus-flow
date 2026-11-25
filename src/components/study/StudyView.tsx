@@ -120,7 +120,6 @@ import {
 } from 'lucide-react';
 import { CoaMathMicroLab } from './CoaMathMicroLab.tsx';
 import { SkillTreeLab } from './SkillTreeLab.tsx';
-import { StudyLeaderboardView } from './StudyLeaderboardView.tsx';
 import { WhiteboardCanvas } from './WhiteboardCanvas.tsx';
 import { ExamHallSimulator } from './ExamHallSimulator.tsx';
 
@@ -141,7 +140,6 @@ type StudySubTab =
   | 'activity'
   | 'microlab'
   | 'skilltree'
-  | 'leaderboard'
   | 'whiteboard'
   | 'simulator';
 
@@ -1726,7 +1724,6 @@ export const StudyView: React.FC = () => {
               { id: 'activity', label: 'Activity Log', icon: History },
               { id: 'microlab', label: 'COA/Math Lab', icon: Binary },
               { id: 'skilltree', label: 'Skill Tree', icon: GitBranch },
-              { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
               { id: 'whiteboard', label: 'Rough Whiteboard', icon: PenTool },
               { id: 'simulator', label: 'Exam Simulator', icon: Clock },
             ] as Array<{
@@ -3112,10 +3109,6 @@ export const StudyView: React.FC = () => {
         />
       )}
 
-      {/* SUB-VIEW 15B: STUDY LEADERBOARD & SQUADS */}
-      {activeSubTab === 'leaderboard' && (
-        <StudyLeaderboardView focusSessions={focusSessions} />
-      )}
 
       {/* SUB-VIEW 16: ROUGH-WORK WHITEBOARD CANVAS */}
       {activeSubTab === 'whiteboard' && (

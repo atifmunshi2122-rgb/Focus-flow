@@ -52,6 +52,7 @@ const EnvelopeBudgetManager = lazyWithRetry(() => import('./components/finance/E
 const SubscriptionManager = lazyWithRetry(() => import('./components/finance/SubscriptionManager.tsx').then((m) => ({ default: m.SubscriptionManager })));
 const JointVaultsView = lazyWithRetry(() => import('./components/finance/JointVaultsView.tsx').then((m) => ({ default: m.JointVaultsView })));
 const StudyView = lazyWithRetry(() => import('./components/study/StudyView.tsx').then((m) => ({ default: m.StudyView })));
+const StudyLeaderboardView = lazyWithRetry(() => import('./components/study/StudyLeaderboardView.tsx').then((m) => ({ default: m.StudyLeaderboardView })));
 const AnalyticsReportsView = lazyWithRetry(() => import('./components/analytics/AnalyticsReportsView.tsx').then((m) => ({ default: m.AnalyticsReportsView })));
 const ExportCenterView = lazyWithRetry(() => import('./components/export/ExportCenterView.tsx').then((m) => ({ default: m.ExportCenterView })));
 const ProductivityCalendar = lazyWithRetry(() => import('./components/calendar/ProductivityCalendar.tsx').then((m) => ({ default: m.ProductivityCalendar })));
@@ -70,6 +71,7 @@ import {
   Settings,
   MoreHorizontal,
   GraduationCap,
+  Trophy,
   Flame,
   Calendar,
   Clock,
@@ -80,6 +82,9 @@ import {
   Heart,
   BarChart3,
   Download,
+  FileSpreadsheet,
+  ShieldAlert,
+  LogOut,
 } from 'lucide-react';
 
 const PRIMARY_MOBILE_TABS: NavTab[] = ['dashboard', 'focus', 'tasks', 'finance'];
@@ -87,22 +92,52 @@ const PRIMARY_MOBILE_TABS: NavTab[] = ['dashboard', 'focus', 'tasks', 'finance']
 interface MobileMoreItem {
   id: NavTab;
   label: string;
+  shortLabel: string;
   icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
 }
 
-const MORE_GRID_ITEMS: MobileMoreItem[] = [
-  { id: 'calendar', label: 'Calendar', icon: Calendar },
-  { id: 'clock', label: 'Real Clock', icon: Clock },
-  { id: 'timeblocks', label: 'Time Blocks', icon: Clock },
-  { id: 'bills', label: 'Bills & Payments', icon: CreditCard },
-  { id: 'transactions', label: 'Transactions', icon: ReceiptText },
-  { id: 'vaults', label: 'Couple Vaults', icon: Heart },
-  { id: 'envelopes', label: 'Envelopes', icon: Layers },
-  { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'exports', label: 'Export Center', icon: Download },
-  { id: 'settings', label: 'Settings', icon: Settings },
+const MOBILE_MORE_SECTIONS: Array<{ title: string; items: MobileMoreItem[] }> = [
+  {
+    title: 'Focus & Schedule',
+    items: [
+      { id: 'calendar', label: 'Calendar', shortLabel: 'Calendar', icon: Calendar },
+      { id: 'clock', label: 'Real Clock', shortLabel: 'Clock', icon: Clock },
+      { id: 'timeblocks', label: 'Time Blocks', shortLabel: 'Blocks', icon: Clock },
+    ],
+  },
+  {
+    title: 'Wealth & Finance',
+    items: [
+      { id: 'vaults', label: 'Couple Vaults', shortLabel: 'Vaults', icon: Heart, badge: 'New' },
+      { id: 'transactions', label: 'Transactions', shortLabel: 'Ledger', icon: ReceiptText },
+      { id: 'bills', label: 'Bills & Payments', shortLabel: 'Bills', icon: CreditCard },
+      { id: 'envelopes', label: 'Envelope Budgets', shortLabel: 'Envelopes', icon: Layers },
+      { id: 'subscriptions', label: 'Subscriptions', shortLabel: 'Subs', icon: Repeat },
+    ],
+  },
+  {
+    title: 'Data, Reports & System',
+    items: [
+      { id: 'sheet_hub', label: 'Sheet Sync Hub', shortLabel: 'Sheets', icon: FileSpreadsheet, badge: 'Sync' },
+      { id: 'analytics', label: 'Analytics', shortLabel: 'Analytics', icon: BarChart3 },
+      { id: 'exports', label: 'Export Center', shortLabel: 'Exports', icon: Download },
+      { id: 'recovery', label: 'Data Recovery', shortLabel: 'Recovery', icon: ShieldAlert },
+      { id: 'settings', label: 'Settings', shortLabel: 'Settings', icon: Settings },
+    ],
+  },
 ];
+
+const MOBILE_ACTIVE_TAB_META: Record<string, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
+  study: { label: 'Study', icon: GraduationCap },
+  leaderboard: { label: 'Ranks', icon: Trophy },
+  habits: { label: 'Habits', icon: Flame },
+  ...Object.fromEntries(
+    MOBILE_MORE_SECTIONS.flatMap((sec) =>
+      sec.items.map((item) => [item.id, { label: item.shortLabel, icon: item.icon }])
+    )
+  ),
+};
 
 const MainContent: React.FC = () => {
   const {
@@ -124,6 +159,7 @@ const MainContent: React.FC = () => {
     user,
     isSigningIn,
     signInWithGoogle,
+    signOutGoogle,
     authorizeGoogleSheets,
     authorizeSheetHubReadOnly,
     isRunning,
@@ -216,6 +252,8 @@ const MainContent: React.FC = () => {
           '0': 'clock',
           'o': 'study',
           'O': 'study',
+          'l': 'leaderboard',
+          'L': 'leaderboard',
           'h': 'habits',
           'H': 'habits',
           'c': 'calendar',
@@ -284,7 +322,20 @@ const MainContent: React.FC = () => {
     showToast,
     setKeyboardShortcutsGuideOpen,
     setQuickActionInitialType,
+    mobileMoreOpen,
+    mobileOpen,
   ]);
+
+  // Lock background page scroll while any mobile navigation drawer is open
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (!mobileMoreOpen && !mobileOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [mobileMoreOpen, mobileOpen]);
 
   const previewStyleName = previewThemeConfig
     ? getStyleDefinition(previewThemeConfig.styleId).name
@@ -314,7 +365,10 @@ const MainContent: React.FC = () => {
       <div className="relative z-10 flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
         {/* Top Header */}
         <Header
-          onOpenMobileMenu={() => setMobileOpen(true)}
+          onOpenMobileMenu={() => {
+            setMobileMoreOpen(false);
+            setMobileOpen(true);
+          }}
           onOpenQuickAction={(type) => handleOpenQuickAction(type, undefined, 'global')}
         />
 
@@ -429,6 +483,8 @@ const MainContent: React.FC = () => {
 
                   {currentTab === 'study' && <StudyView />}
 
+                  {currentTab === 'leaderboard' && <StudyLeaderboardView />}
+
                   {currentTab === 'analytics' && <AnalyticsReportsView />}
 
                   {currentTab === 'exports' && <ExportCenterView />}
@@ -508,39 +564,18 @@ const MainContent: React.FC = () => {
             {/* 5th Tab: Intuitive More Overflow Tab */}
             {(() => {
               const isMoreActive = !PRIMARY_MOBILE_TABS.includes(currentTab);
-              const moreIcon =
-                currentTab === 'study'
-                  ? GraduationCap
-                  : currentTab === 'habits'
-                  ? Flame
-                  : currentTab === 'settings'
-                  ? Settings
-                  : currentTab === 'calendar'
-                  ? Calendar
-                  : currentTab === 'clock'
-                  ? Clock
-                  : MoreHorizontal;
-
-              const moreLabel =
-                currentTab === 'study'
-                  ? 'Study'
-                  : currentTab === 'habits'
-                  ? 'Habits'
-                  : currentTab === 'settings'
-                  ? 'Settings'
-                  : currentTab === 'calendar'
-                  ? 'Calendar'
-                  : currentTab === 'clock'
-                  ? 'Clock'
-                  : 'More';
-
-              const Icon = moreIcon;
+              const activeMeta = isMoreActive ? MOBILE_ACTIVE_TAB_META[currentTab] : null;
+              const Icon = activeMeta?.icon || MoreHorizontal;
+              const moreLabel = activeMeta?.label || 'More';
               return (
                 <button
                   type="button"
                   data-tab="more"
                   data-bottom-nav="more"
-                  onClick={() => setMobileMoreOpen((prev) => !prev)}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setMobileMoreOpen((prev) => !prev);
+                  }}
                   className="relative flex flex-col items-center justify-center flex-1 py-1.5 px-1 min-h-[48px] rounded-xl transition-all"
                   style={{
                     color: isMoreActive || mobileMoreOpen ? 'var(--ff-accent-text)' : 'var(--ff-text-muted)',
@@ -625,30 +660,56 @@ const MainContent: React.FC = () => {
                 </button>
               </div>
 
-              {/* Primary Academic & Habits Spotlight */}
+              {/* Primary Academic, Leaderboard & Habits Spotlight */}
               <div className="mb-4">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ff-text-muted)] mb-2 px-1">
-                  Academic & Daily Consistency
+                  Academic, Squads &amp; Daily Consistency
                 </div>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       setCurrentTab('study');
                       setMobileMoreOpen(false);
                     }}
-                    className={`flex items-start gap-3 p-3 rounded-2xl border text-left transition-all min-h-[58px] ${
+                    className={`flex flex-col items-start gap-2 p-3 rounded-2xl border text-left transition-all min-h-[76px] ${
                       currentTab === 'study'
                         ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent)] text-[var(--ff-accent-text)] shadow-sm ring-1 ring-[var(--ff-accent)]'
                         : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-primary)] hover:border-[var(--ff-accent)]'
                     }`}
                   >
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-500 dark:text-indigo-400">
-                      <GraduationCap className="w-5 h-5" />
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-400">
+                      <GraduationCap className="w-4 h-4" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 w-full">
                       <div className="text-xs font-bold truncate">Study OS</div>
-                      <div className="text-[10px] text-[var(--ff-text-muted)] truncate">Syllabus & Revisions</div>
+                      <div className="text-[10px] text-[var(--ff-text-muted)] truncate">Syllabus</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentTab('leaderboard');
+                      setMobileMoreOpen(false);
+                    }}
+                    className={`flex flex-col items-start gap-2 p-3 rounded-2xl border text-left transition-all min-h-[76px] ${
+                      currentTab === 'leaderboard'
+                        ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent)] text-[var(--ff-accent-text)] shadow-sm ring-1 ring-[var(--ff-accent)]'
+                        : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-primary)] hover:border-[var(--ff-accent)]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500/15 text-emerald-400">
+                        <Trophy className="w-4 h-4" />
+                      </div>
+                      <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
+                        Live
+                      </span>
+                    </div>
+                    <div className="min-w-0 w-full">
+                      <div className="text-xs font-bold truncate">Leaderboard</div>
+                      <div className="text-[10px] text-[var(--ff-text-muted)] truncate">Squads</div>
                     </div>
                   </button>
 
@@ -658,53 +719,84 @@ const MainContent: React.FC = () => {
                       setCurrentTab('habits');
                       setMobileMoreOpen(false);
                     }}
-                    className={`flex items-start gap-3 p-3 rounded-2xl border text-left transition-all min-h-[58px] ${
+                    className={`flex flex-col items-start gap-2 p-3 rounded-2xl border text-left transition-all min-h-[76px] ${
                       currentTab === 'habits'
                         ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent)] text-[var(--ff-accent-text)] shadow-sm ring-1 ring-[var(--ff-accent)]'
                         : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-primary)] hover:border-[var(--ff-accent)]'
                     }`}
                   >
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-amber-500/15 text-amber-500 dark:text-amber-400">
-                      <Flame className="w-5 h-5" />
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-amber-500/15 text-amber-400">
+                      <Flame className="w-4 h-4" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 w-full">
                       <div className="text-xs font-bold truncate">Habits</div>
-                      <div className="text-[10px] text-[var(--ff-text-muted)] truncate">Streaks & Logs</div>
+                      <div className="text-[10px] text-[var(--ff-text-muted)] truncate">Streaks</div>
                     </div>
                   </button>
                 </div>
               </div>
 
-              {/* All Other Tools & Workspaces Grid */}
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ff-text-muted)] mb-2 px-1">
-                  Productivity, Finance & Tools
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {MORE_GRID_ITEMS.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = currentTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setCurrentTab(item.id);
-                          setMobileMoreOpen(false);
-                        }}
-                        className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all min-h-[48px] ${
-                          isActive
-                            ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent)] text-[var(--ff-accent-text)] font-semibold'
-                            : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-border-strong)]'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4 shrink-0" />
-                        <span className="text-xs truncate">{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+              {/* Categorized Full Directory (100% parity with Desktop Sidebar) */}
+              <div className="space-y-4">
+                {MOBILE_MORE_SECTIONS.map((section) => (
+                  <div key={section.title}>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ff-text-muted)] mb-2 px-1">
+                      {section.title}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {section.items.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = currentTab === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setCurrentTab(item.id);
+                              setMobileMoreOpen(false);
+                            }}
+                            className={`flex items-center justify-between gap-2 p-3 rounded-xl border text-left transition-all min-h-[48px] ${
+                              isActive
+                                ? 'bg-[var(--ff-accent-soft)] border-[var(--ff-accent)] text-[var(--ff-accent-text)] font-semibold'
+                                : 'bg-[var(--ff-surface-muted)] border-[var(--ff-border-color)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-border-strong)]'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              <Icon className="w-4 h-4 shrink-0" />
+                              <span className="text-xs truncate">{item.label}</span>
+                            </span>
+                            {item.badge && (
+                              <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-[var(--ff-accent-soft)] text-[var(--ff-accent-text)] shrink-0">
+                                {item.badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
+
+              {/* Mobile Account Footer */}
+              {isAuthenticated && (
+                <div className="mt-5 pt-3 border-t border-[var(--ff-border-color)] flex items-center justify-between gap-3">
+                  <div className="text-xs text-[var(--ff-text-muted)] truncate">
+                    Signed in as <strong className="text-[var(--ff-text-primary)]">{user?.name || user?.email}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      void signOutGoogle();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/15 shrink-0"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

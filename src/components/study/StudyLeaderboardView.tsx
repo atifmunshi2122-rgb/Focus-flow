@@ -31,6 +31,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
 import { DEFAULT_TIMEZONE } from '../../lib/dateTime.ts';
 import type { FocusSession } from '../../types/index.ts';
 import type {
@@ -65,14 +66,34 @@ import {
 } from '../ui/ThemePrimitives.tsx';
 
 interface StudyLeaderboardViewProps {
-  focusSessions: FocusSession[];
+  focusSessions?: FocusSession[];
 }
 
-export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focusSessions }) => {
-  const { user, firebaseUser, settings, signInWithGoogle, showToast } = useApp();
+export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focusSessions: focusSessionsProp }) => {
+  const { user, firebaseUser, settings, signInWithGoogle, showToast, refreshKey } = useApp();
   const activeUid = firebaseUser?.uid || null;
   const timezone = settings?.timezone || DEFAULT_TIMEZONE;
   const dailyGoalMinutes = settings?.dailyFocusGoalMinutes || 120;
+  const [loadedSessions, setLoadedSessions] = useState<FocusSession[]>(focusSessionsProp || []);
+
+  useEffect(() => {
+    if (focusSessionsProp) {
+      setLoadedSessions(focusSessionsProp);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getFocusSessions()
+      .then((list) => {
+        if (!cancelled) setLoadedSessions(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [focusSessionsProp, refreshKey, activeUid]);
+
+  const focusSessions = focusSessionsProp ?? loadedSessions;
 
   const [scope, setScope] = useState<'squads' | 'global'>('squads');
   const [period, setPeriod] = useState<LeaderboardPeriod>('today');
