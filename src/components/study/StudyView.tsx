@@ -108,6 +108,7 @@ import {
   Bookmark,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ExternalLink,
   Award,
   Pin,
@@ -116,7 +117,8 @@ import {
   Binary,
   GitBranch,
   PenTool,
-  Trophy,
+  SlidersHorizontal,
+  Layers,
 } from 'lucide-react';
 import { CoaMathMicroLab } from './CoaMathMicroLab.tsx';
 import { SkillTreeLab } from './SkillTreeLab.tsx';
@@ -173,6 +175,9 @@ export const StudyView: React.FC = () => {
   const [selectedTier, setSelectedTier] = useState<string>('all');
   const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [headerToolsOpen, setHeaderToolsOpen] = useState(false);
+  const [moreTabsOpen, setMoreTabsOpen] = useState(false);
+  const [expandedModuleKeys, setExpandedModuleKeys] = useState<Record<string, boolean>>({});
   const [mistakeSeverityFilter, setMistakeSeverityFilter] = useState<'All' | 'High' | 'Medium' | 'Low'>('All');
 
   // Google Sheets Two-Way Sync State
@@ -509,6 +514,68 @@ export const StudyView: React.FC = () => {
       return true;
     });
   }, [activeTopics, selectedSubjectCode, searchQuery, isBookmarksOnly]);
+
+  // Group visible topics by Subject + Module/Unit for clean collapsible accordions
+  const groupedSyllabusModules = useMemo(() => {
+    const subjectMap = new Map(subjects.map((s) => [s.code, s]));
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        subjectCode: string;
+        subjectName: string;
+        subjectColor: string;
+        unit: string;
+        topics: StudyTopic[];
+        masteredCount: number;
+        theoryCount: number;
+      }
+    >();
+
+    for (const item of visibleTopics) {
+      const sub = subjectMap.get(item.subjectCode);
+      const unitLabel = (item.unit || 'General Unit').trim();
+      const key = `${item.subjectCode}::${unitLabel}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          key,
+          subjectCode: item.subjectCode,
+          subjectName: sub?.name || item.subjectCode.replace(/^sub_/i, ''),
+          subjectColor: sub?.color || '#6366f1',
+          unit: unitLabel,
+          topics: [],
+          masteredCount: 0,
+          theoryCount: 0,
+        };
+        groups.set(key, group);
+      }
+      group.topics.push(item);
+      if (item.theory && item.practice) group.masteredCount++;
+      if (item.theory) group.theoryCount++;
+    }
+
+    return Array.from(groups.values());
+  }, [visibleTopics, subjects]);
+
+  const isModuleExpanded = (key: string, idx: number): boolean => {
+    if (searchQuery.trim().length > 0) return true;
+    if (key in expandedModuleKeys) return Boolean(expandedModuleKeys[key]);
+    return idx === 0;
+  };
+
+  const toggleModuleExpanded = (key: string, idx: number) => {
+    const currentlyOpen = isModuleExpanded(key, idx);
+    setExpandedModuleKeys((prev) => ({ ...prev, [key]: !currentlyOpen }));
+  };
+
+  const handleToggleAllModules = (expand: boolean) => {
+    const next: Record<string, boolean> = {};
+    for (const g of groupedSyllabusModules) {
+      next[g.key] = expand;
+    }
+    setExpandedModuleKeys(next);
+  };
 
   // Filtered mistakes
   const visibleMistakes = useMemo(() => {
@@ -1303,39 +1370,37 @@ export const StudyView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* View Header with Academic Branding and Quick Actions */}
-      <div className="flex flex-col gap-3.5 p-5 rounded-3xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-sm overflow-hidden">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 shrink-0">
-              <GraduationCap className="w-6 h-6" />
+      {/* Calm Compact Header with Primary Actions & Tools Dropdown */}
+      <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 p-4 sm:p-5 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-xs">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0">
+            <GraduationCap className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[var(--ff-text-primary)] whitespace-nowrap">
+                Study OS
+              </h1>
+              {isBookmarksOnly && (
+                <ThemeBadge tone="warning">Bookmarks Filter</ThemeBadge>
+              )}
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ff-text-primary)] whitespace-nowrap">
-                  Study OS
-                </h1>
-                <ThemeBadge tone="accent" className="whitespace-nowrap shrink-0">
-                  Academic Intelligence
-                </ThemeBadge>
-              </div>
-              <p className="text-xs sm:text-sm text-[var(--ff-text-muted)] mt-0.5">
-                Syllabus tracking, Ebbinghaus spaced repetitions, and mistake root-cause diagnostics
-              </p>
-            </div>
+            <p className="text-xs text-[var(--ff-text-muted)] truncate">
+              Syllabus mastery, spaced repetition &amp; mistake diagnostics
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-[var(--ff-border-color)]/60">
-          {/* Global Search Bar */}
-          <div className="relative min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Compact Global Search */}
+          <div className="relative flex-1 sm:flex-none min-w-[140px]">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ff-text-muted)]" />
             <input
               type="text"
               value={globalSearchQuery}
               onChange={(e) => setGlobalSearchQuery(e.target.value)}
-              placeholder="Global Search..."
-              className="w-36 sm:w-48 pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
+              placeholder="Search Study OS..."
+              className="w-full sm:w-44 pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
             />
             {searchResults.length > 0 && (
               <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1.5 w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] max-h-72 overflow-y-auto rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-xl z-50 p-2 space-y-1">
@@ -1366,7 +1431,7 @@ export const StudyView: React.FC = () => {
                     }}
                     className="p-2 rounded-xl hover:bg-[var(--ff-surface-muted)] cursor-pointer text-xs transition-colors flex items-center justify-between"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <div className="font-semibold text-[var(--ff-text-primary)] truncate max-w-[200px]">
                         {res.title}
                       </div>
@@ -1374,7 +1439,7 @@ export const StudyView: React.FC = () => {
                         {res.subtitle}
                       </div>
                     </div>
-                    <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-accent-text)]">
+                    <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-accent-text)] shrink-0">
                       {res.type}
                     </span>
                   </div>
@@ -1383,129 +1448,166 @@ export const StudyView: React.FC = () => {
             )}
           </div>
 
-          {/* Bookmarks Toggle */}
-          <ThemeButton
-            variant={isBookmarksOnly ? 'primary' : 'ghost'}
-            size="sm"
-            onClick={() => setIsBookmarksOnly(!isBookmarksOnly)}
-            className={isBookmarksOnly ? 'text-amber-300' : 'text-[var(--ff-text-muted)]'}
-            title="Filter by bookmarked items"
-          >
-            <Bookmark className="w-3.5 h-3.5 mr-1" fill={isBookmarksOnly ? 'currentColor' : 'none'} />
-            Bookmarks
-          </ThemeButton>
-
-          {/* Quick Google Sheets Two-Way Sync Button */}
-          <ThemeButton
-            variant="ghost"
-            size="sm"
-            loading={isSyncingSheets}
-            onClick={() => void handleManualSyncSheets()}
-            className="text-emerald-400 hover:bg-emerald-500/10 text-xs border border-emerald-500/20"
-            title="Synchronize Google Sheets checkboxes with Study OS"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${isSyncingSheets ? 'animate-spin' : ''}`} />
-            Sync Now
-          </ThemeButton>
-
-          {/* Sheet Hub Two-Way Sync Bridge */}
-          <ThemeButton
-            variant="ghost"
-            size="sm"
-            onClick={() => setCurrentTab('sheet_hub')}
-            className="text-emerald-400 hover:bg-emerald-500/10 text-xs border border-emerald-500/20"
-            title="Open Universal Sheet Sync Hub (Two-Way Checkbox Write-Back)"
-          >
-            <CheckSquare className="w-3.5 h-3.5 mr-1 text-emerald-400" />
-            Sheet Hub Sync
-          </ThemeButton>
-
-          {/* Export / Restore */}
-          <ThemeButton
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsExportRestoreOpen(true)}
-            className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
-            title="Export / Restore study data"
-          >
-            <Download className="w-3.5 h-3.5 mr-1" />
-            Portability
-          </ThemeButton>
-
-          {subjects.length > 0 && (
-            <ThemeButton
-              variant="ghost"
-              size="sm"
-              onClick={handleClearAllStudyData}
-              className="text-rose-400 hover:bg-rose-500/10 text-xs"
-              title="Remove all subjects and demo syllabus data"
-            >
-              <Trash2 className="w-3.5 h-3.5 mr-1" />
-              Clear Subjects
-            </ThemeButton>
-          )}
-
-          <ThemeButton
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsLogMistakeOpen(true)}
-            className="text-rose-400 hover:bg-rose-500/10"
-          >
-            <AlertTriangle className="w-4 h-4 mr-1.5" />
-            Log Mistake
-          </ThemeButton>
-
-          <ThemeButton
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setActiveTopicForRevision(null);
-              setIsScheduleRevisionOpen(true);
-            }}
-            className="text-amber-400 hover:bg-amber-500/10"
-          >
-            <RotateCcw className="w-4 h-4 mr-1.5" />
-            Schedule Revision
-          </ThemeButton>
-
-          <ThemeButton
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsAddTierOpen(true)}
-            className="text-[var(--ff-accent-text)] hover:bg-[var(--ff-accent)]/10"
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            New Tier
-          </ThemeButton>
-
-          <ThemeButton
-            variant="ghost"
-            size="sm"
-            onClick={() => handleOpenAddTopic()}
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            Add Topic
-          </ThemeButton>
-
+          {/* Primary Actions */}
           <ThemeButton
             variant="secondary"
             size="sm"
-            onClick={() => setIsSmartSyllabusModalOpen(true)}
-            className="flex items-center gap-1.5"
-            title="Convert Syllabus Goals into Tasks"
+            onClick={() => handleOpenAddTopic()}
+            className="flex items-center gap-1"
           >
-            <Sparkles className="w-3.5 h-3.5 text-accent-indigo" />
-            <span>Syllabus to Tasks</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Topic</span>
           </ThemeButton>
 
           <ThemeButton
             variant="primary"
             size="sm"
             onClick={() => setIsAddSubjectOpen(true)}
+            className="flex items-center gap-1"
           >
-            <Plus className="w-4 h-4 mr-1.5" />
-            New Subject
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Subject</span>
           </ThemeButton>
+
+          {/* Tools Dropdown */}
+          <div className="relative">
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setMoreTabsOpen(false);
+                setHeaderToolsOpen((o) => !o);
+              }}
+              className="flex items-center gap-1.5"
+              aria-expanded={headerToolsOpen}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Tools</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${headerToolsOpen ? 'rotate-180' : ''}`} />
+            </ThemeButton>
+
+            {headerToolsOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setHeaderToolsOpen(false)}
+                  aria-hidden="true"
+                />
+                <div className="absolute right-0 top-full mt-2 w-60 rounded-2xl bg-[var(--ff-surface-elevated)] border border-[var(--ff-border-color)] shadow-2xl z-50 p-1.5 space-y-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeaderToolsOpen(false);
+                      void handleManualSyncSheets();
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-[var(--ff-surface-muted)] flex items-center gap-2.5 text-emerald-400 font-medium text-left"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+                    <span>Sync Sheets Now</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeaderToolsOpen(false);
+                      setCurrentTab('sheet_hub');
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-[var(--ff-surface-muted)] flex items-center gap-2.5 text-[var(--ff-text-primary)] text-left"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Open Sheet Sync Hub</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeaderToolsOpen(false);
+                      setIsSmartSyllabusModalOpen(true);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-[var(--ff-surface-muted)] flex items-center gap-2.5 text-[var(--ff-text-primary)] text-left"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Syllabus to Tasks</span>
+                  </button>
+                  <div className="my-1 border-t border-[var(--ff-border-color)]" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeaderToolsOpen(false);
+                      setActiveTopicForRevision(null);
+                      setIsScheduleRevisionOpen(true);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-[var(--ff-surface-muted)] flex items-center gap-2.5 text-[var(--ff-text-primary)] text-left"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Schedule Revision</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeaderToolsOpen(false);
+                      setIsLogMistakeOpen(true);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-[var(--ff-surface-muted)] flex items-center gap-2.5 text-[var(--ff-text-primary)] text-left"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Log Mistake / Trap</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeaderToolsOpen(false);
+                      setIsAddTierOpen(true);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-[var(--ff-surface-muted)] flex items-center gap-2.5 text-[var(--ff-text-primary)] text-left"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-[var(--ff-accent-text)]" />
+                    <span>New Academic Tier</span>
+                  </button>
+                  <div className="my-1 border-t border-[var(--ff-border-color)]" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsBookmarksOnly(!isBookmarksOnly);
+                      setHeaderToolsOpen(false);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-[var(--ff-surface-muted)] flex items-center justify-between text-[var(--ff-text-primary)] text-left"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Bookmark className="w-3.5 h-3.5 text-amber-400" fill={isBookmarksOnly ? 'currentColor' : 'none'} />
+                      <span>Bookmarks Only</span>
+                    </span>
+                    {isBookmarksOnly && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeaderToolsOpen(false);
+                      setIsExportRestoreOpen(true);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-[var(--ff-surface-muted)] flex items-center gap-2.5 text-[var(--ff-text-primary)] text-left"
+                  >
+                    <Download className="w-3.5 h-3.5 text-[var(--ff-text-muted)]" />
+                    <span>Export / Restore Data</span>
+                  </button>
+                  {subjects.length > 0 && (
+                    <>
+                      <div className="my-1 border-t border-[var(--ff-border-color)]" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHeaderToolsOpen(false);
+                          void handleClearAllStudyData();
+                        }}
+                        className="w-full px-3 py-2 rounded-xl hover:bg-rose-500/10 flex items-center gap-2.5 text-rose-400 text-left"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Clear All Subjects</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1688,22 +1790,45 @@ export const StudyView: React.FC = () => {
         </MotionStaggerItem>
       </MotionStaggerGrid>
 
-      {/* Sub-tab Navigation Bar */}
-      <div className="flex items-start justify-between gap-2 border-b border-[var(--ff-border-color)] pb-2 min-w-0 max-w-full">
-        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 flex-1 min-w-0 py-1">
-          {(
-            [
-              { id: 'overview', label: 'Progress Dashboard', icon: TrendingUp },
-              { id: 'syllabus', label: 'Syllabus & Topics', icon: BookOpen },
-              { id: 'plans', label: 'Study Plans & Tasks', icon: Calendar },
+      {/* Clean Single-Row Sub-Tab Bar (5 Core Tabs + More Tools & Labs Dropdown) */}
+      {(() => {
+        const primaryTabs: Array<{
+          id: StudySubTab;
+          label: string;
+          icon: React.ComponentType<{ className?: string }>;
+          badge?: number;
+        }> = [
+          { id: 'overview', label: 'Overview', icon: TrendingUp },
+          { id: 'syllabus', label: 'Syllabus', icon: BookOpen },
+          {
+            id: 'revisions',
+            label: 'Revisions',
+            icon: RotateCcw,
+            badge: progressSummary.dueRevisionsCount > 0 ? progressSummary.dueRevisionsCount : undefined,
+          },
+          { id: 'plans', label: 'Plans & Tasks', icon: Calendar },
+          {
+            id: 'mistakes',
+            label: 'Mistakes',
+            icon: AlertTriangle,
+            badge: progressSummary.unresolvedMistakesCount > 0 ? progressSummary.unresolvedMistakesCount : undefined,
+          },
+        ];
+
+        const secondaryTabGroups: Array<{
+          title: string;
+          items: Array<{
+            id: StudySubTab;
+            label: string;
+            icon: React.ComponentType<{ className?: string }>;
+            badge?: number;
+          }>;
+        }> = [
+          {
+            title: 'Study Tools',
+            items: [
               { id: 'goals', label: 'Academic Goals', icon: Target },
               { id: 'exams', label: 'Exams & Countdown', icon: Award },
-              {
-                id: 'revisions',
-                label: 'Spaced Repetition',
-                icon: RotateCcw,
-                badge: progressSummary.dueRevisionsCount > 0 ? progressSummary.dueRevisionsCount : undefined,
-              },
               {
                 id: 'flashcards',
                 label: 'Flashcards',
@@ -1713,63 +1838,142 @@ export const StudyView: React.FC = () => {
               { id: 'notes', label: 'Notes', icon: FileText },
               { id: 'resources', label: 'Resources', icon: Link2 },
               { id: 'quizzes', label: 'Quizzes', icon: HelpCircle },
-              {
-                id: 'mistakes',
-                label: 'Mistake Log',
-                icon: AlertTriangle,
-                badge: progressSummary.unresolvedMistakesCount > 0 ? progressSummary.unresolvedMistakesCount : undefined,
-              },
               { id: 'habits', label: 'Academic Habits', icon: CheckSquare },
-              { id: 'analytics', label: 'Analytics & Mastery', icon: TrendingUp },
-              { id: 'activity', label: 'Activity Log', icon: History },
-              { id: 'microlab', label: 'COA/Math Lab', icon: Binary },
+            ],
+          },
+          {
+            title: 'Labs & Insights',
+            items: [
+              { id: 'microlab', label: 'COA / Math Lab', icon: Binary },
               { id: 'skilltree', label: 'Skill Tree', icon: GitBranch },
               { id: 'whiteboard', label: 'Rough Whiteboard', icon: PenTool },
               { id: 'simulator', label: 'Exam Simulator', icon: Clock },
-            ] as Array<{
-              id: StudySubTab;
-              label: string;
-              icon: React.ComponentType<{ className?: string }>;
-              badge?: number;
-            }>
-          ).map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeSubTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveSubTab(tab.id)}
-                className={`relative px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-2 shrink-0 whitespace-nowrap ${
-                  isActive
-                    ? 'text-[var(--ff-text-primary)] bg-[var(--ff-surface-muted)] shadow-sm'
-                    : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--ff-accent-text)]' : ''}`} />
-                <span>{tab.label}</span>
-                {tab.badge !== undefined && (
-                  <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-rose-500/20 text-rose-400 font-bold">
-                    {tab.badge}
-                  </span>
-                )}
-                {isActive && (
-                  <motion.div
-                    layoutId="study-subtab-indicator"
-                    transition={profile.spring}
-                    className="absolute bottom-0 left-2 right-2 h-0.5 bg-[var(--ff-accent)] rounded-full"
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
+              { id: 'analytics', label: 'Analytics & Mastery', icon: TrendingUp },
+              { id: 'activity', label: 'Activity Log', icon: History },
+            ],
+          },
+        ];
 
-        <div className="flex items-center gap-2 pl-2 shrink-0">
-          <ThemeButton variant="ghost" size="sm" onClick={() => void loadData()} title="Refresh data">
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </ThemeButton>
-        </div>
-      </div>
+        const activeSecondary = secondaryTabGroups
+          .flatMap((g) => g.items)
+          .find((item) => item.id === activeSubTab);
+        const ActiveSecondaryIcon = activeSecondary?.icon || Sparkles;
+
+        return (
+          <div className="flex items-center justify-between gap-2 border-b border-[var(--ff-border-color)] pb-2.5 min-w-0">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 min-w-0 flex-1">
+              {primaryTabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeSubTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveSubTab(tab.id);
+                      setMoreTabsOpen(false);
+                    }}
+                    className={`relative px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-2 shrink-0 whitespace-nowrap ${
+                      isActive
+                        ? 'text-[var(--ff-text-primary)] bg-[var(--ff-surface-muted)] shadow-xs'
+                        : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)]/40'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--ff-accent-text)]' : ''}`} />
+                    <span>{tab.label}</span>
+                    {tab.badge !== undefined && (
+                      <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-rose-500/20 text-rose-400 font-bold">
+                        {tab.badge}
+                      </span>
+                    )}
+                    {isActive && (
+                      <motion.div
+                        layoutId="study-subtab-indicator"
+                        transition={profile.spring}
+                        className="absolute bottom-0 left-2.5 right-2.5 h-0.5 bg-[var(--ff-accent)] rounded-full"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+
+              {/* More Tools & Labs Dropdown Pill */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHeaderToolsOpen(false);
+                    setMoreTabsOpen((o) => !o);
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap border ${
+                    activeSecondary
+                      ? 'border-[var(--ff-accent)] bg-[var(--ff-accent)]/10 text-[var(--ff-accent-text)] font-semibold'
+                      : 'border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+                  }`}
+                >
+                  <ActiveSecondaryIcon className="w-4 h-4" />
+                  <span>{activeSecondary ? activeSecondary.label : 'More Labs'}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${moreTabsOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {moreTabsOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setMoreTabsOpen(false)}
+                      aria-hidden="true"
+                    />
+                    <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-auto sm:top-full mt-2 sm:w-[440px] rounded-2xl bg-[var(--ff-surface-elevated)] border border-[var(--ff-border-color)] shadow-2xl z-50 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {secondaryTabGroups.map((group) => (
+                        <div key={group.title} className="space-y-1">
+                          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
+                            {group.title}
+                          </div>
+                          {group.items.map((item) => {
+                            const ItemIcon = item.icon;
+                            const isItemActive = activeSubTab === item.id;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setActiveSubTab(item.id);
+                                  setMoreTabsOpen(false);
+                                }}
+                                className={`w-full px-2.5 py-2 rounded-xl text-xs font-medium flex items-center justify-between gap-2 transition-colors text-left ${
+                                  isItemActive
+                                    ? 'bg-[var(--ff-accent)]/15 text-[var(--ff-accent-text)] font-semibold'
+                                    : 'text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)]'
+                                }`}
+                              >
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <ItemIcon className="w-3.5 h-3.5 shrink-0 opacity-85" />
+                                  <span className="truncate">{item.label}</span>
+                                </span>
+                                {item.badge !== undefined && (
+                                  <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-rose-500/20 text-rose-400 font-bold">
+                                    {item.badge}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <ThemeButton variant="ghost" size="sm" onClick={() => void loadData()} title="Refresh study data">
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              </ThemeButton>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Stale Cache Notice */}
       {isStale && (
@@ -2125,51 +2329,51 @@ export const StudyView: React.FC = () => {
             })}
           </div>
 
-          {/* Topic Checklist Table */}
+          {/* Clean Collapsible Module Accordions & Slim Topic Checklist */}
           <ThemeCard className="overflow-hidden">
-            <div className="p-4 border-b border-[var(--ff-border-color)] flex items-center justify-between flex-wrap gap-2">
+            <div className="px-4 py-3 border-b border-[var(--ff-border-color)] flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-[var(--ff-accent-text)]" />
                 <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                  Syllabus Checklist ({visibleTopics.length} {visibleTopics.length === 1 ? 'topic' : 'topics'})
+                  Syllabus Checklist
                 </h2>
+                <span className="text-xs font-mono tabular-nums text-[var(--ff-text-muted)]">
+                  ({visibleTopics.length} topics • {groupedSyllabusModules.length} modules)
+                </span>
               </div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <div className="flex items-center gap-2 text-xs text-[var(--ff-text-muted)]">
-                  <span className="text-[11px] font-semibold text-[var(--ff-text-muted)] uppercase tracking-wider hidden sm:inline">
-                    Legend:
+
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="hidden md:flex items-center gap-2.5 text-[11px] text-[var(--ff-text-muted)]">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-sm bg-blue-500" /> T: Theory
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <span className="w-2 h-2 rounded bg-blue-500"></span> Theory (T)
+                    <span className="w-2 h-2 rounded-sm bg-emerald-500" /> P: Practice
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <span className="w-2 h-2 rounded bg-emerald-500"></span> Practice (P)
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className="w-2 h-2 rounded bg-purple-500"></span> PYQ (Q)
+                    <span className="w-2 h-2 rounded-sm bg-purple-500" /> Q: PYQ
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <ThemeButton
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setIsSmartSyllabusModalOpen(true)}
-                    className="flex items-center gap-1"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-accent-indigo" />
-                    <span>Syllabus to Tasks</span>
-                  </ThemeButton>
-
-                  <ThemeButton
-                    variant="primary"
-                    size="sm"
-                    onClick={() => handleOpenAddTopic(selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined)}
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" />
-                    Add Topic
-                  </ThemeButton>
-                </div>
+                {groupedSyllabusModules.length > 1 && (
+                  <div className="flex items-center gap-1 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAllModules(true)}
+                      className="px-2 py-1 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors"
+                    >
+                      Expand all
+                    </button>
+                    <span className="text-[var(--ff-border-color)]">/</span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAllModules(false)}
+                      className="px-2 py-1 rounded-lg text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-muted)] transition-colors"
+                    >
+                      Collapse
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2185,205 +2389,228 @@ export const StudyView: React.FC = () => {
                     ? `No syllabus topics matching current filter (${topics.length} total across all subjects).`
                     : 'No syllabus topics added yet.'}
                 </p>
-                <p className="max-w-sm text-xs text-[var(--ff-text-muted)]">
-                  Create topics with Theory, Practice, and PYQ goals to track your syllabus completion and schedule spaced repetition.
-                </p>
                 <ThemeButton
                   variant="primary"
                   size="sm"
                   onClick={() => handleOpenAddTopic(selectedSubjectCode !== 'all' ? selectedSubjectCode : undefined)}
-                  className="mt-1"
                 >
                   <Plus className="w-4 h-4 mr-1.5" />
-                  {selectedSubjectCode !== 'all' && subjects.find((s) => s.code === selectedSubjectCode)
-                    ? `Add Topic to ${subjects.find((s) => s.code === selectedSubjectCode)?.name}`
-                    : 'Add New Topic'}
+                  Add Topic
                 </ThemeButton>
               </div>
             ) : (
               <div className="divide-y divide-[var(--ff-border-color)]">
-                <AnimatePresence initial={false} mode="popLayout">
-                {visibleTopics.map((item) => {
-                  const sub = subjects.find((s) => s.code === item.subjectCode);
-                  const isFullyCompleted = item.theory && item.practice;
+                {groupedSyllabusModules.map((group, idx) => {
+                  const isOpen = isModuleExpanded(group.key, idx);
+                  const doneCount = group.masteredCount > 0 ? group.masteredCount : group.theoryCount;
+                  const pct = group.topics.length > 0 ? Math.round((doneCount / group.topics.length) * 100) : 0;
 
                   return (
-                    <motion.div
-                      key={item.id}
-                      layout
-                      initial={isDisabled ? false : { opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={isDisabled ? { opacity: 0 } : { opacity: 0 }}
-                      transition={profile.listLayout}
-                      className="p-3.5 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[var(--ff-surface-muted)]/50 transition-colors relative overflow-visible"
-                    >
-                      <SubtleConfetti show={celebratingTopicId === item.id} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <div key={group.key} className="bg-[var(--ff-surface-card)]">
+                      {/* Module Accordion Header */}
+                      <button
+                        type="button"
+                        onClick={() => toggleModuleExpanded(group.key, idx)}
+                        className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-[var(--ff-surface-muted)]/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <ChevronRight
+                            className={`w-4 h-4 text-[var(--ff-text-muted)] shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-90 text-[var(--ff-accent-text)]' : ''}`}
+                          />
                           <span
-                            className="text-[10px] px-2 py-0.5 rounded font-mono font-medium text-white shadow-sm"
-                            style={{ backgroundColor: sub?.color || '#6366f1' }}
-                          >
-                            {item.subjectCode}
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: group.subjectColor }}
+                          />
+                          {selectedSubjectCode === 'all' && (
+                            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] shrink-0">
+                              {group.subjectName}
+                            </span>
+                          )}
+                          <span className="text-xs sm:text-sm font-semibold text-[var(--ff-text-primary)] truncate">
+                            {group.unit}
                           </span>
-                          <span className="text-[11px] font-medium text-[var(--ff-text-muted)]">
-                            {item.unit}
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="hidden sm:flex items-center gap-2">
+                            <div className="w-20 h-1.5 rounded-full bg-[var(--ff-surface-muted)] overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{ width: `${pct}%`, backgroundColor: group.subjectColor }}
+                              />
+                            </div>
+                            <span className="text-[11px] font-mono tabular-nums text-[var(--ff-text-muted)] w-8 text-right">
+                              {pct}%
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-mono tabular-nums px-2 py-0.5 rounded-md bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)]">
+                            {doneCount}/{group.topics.length}
                           </span>
-                          <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                        </div>
+                      </button>
+
+                      {/* Compact 1-Line Topic Rows */}
+                      {isOpen && (
+                        <div className="divide-y divide-[var(--ff-border-color)]/50 border-t border-[var(--ff-border-color)]/60 bg-[var(--ff-surface-subtle)]/30">
+                          {group.topics.map((item) => {
+                            const isFullyCompleted = item.theory && item.practice;
+                            const priorityDot =
                               item.priority === 'High'
-                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                ? 'bg-rose-400'
                                 : item.priority === 'Medium'
-                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                            }`}
-                          >
-                            {item.priority}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTopicCompleted(item.id)}
-                            title={
-                              isFullyCompleted
-                                ? 'Click to unmark as completed (syncs FALSE to Google Sheet)'
-                                : 'Click to mark topic as completed (syncs TRUE to Google Sheet)'
-                            }
-                            className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-medium transition-all cursor-pointer ${
-                              isFullyCompleted
-                                ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30 font-semibold shadow-xs'
-                                : 'bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)]'
-                            }`}
-                          >
-                            {isFullyCompleted ? (
-                              <>
-                                <CheckSquare className="w-3 h-3 text-emerald-400" /> Done
-                              </>
-                            ) : (
-                              <>
-                                <Circle className="w-3 h-3 text-[var(--ff-text-muted)]" /> Mark Done
-                              </>
-                            )}
-                          </button>
+                                ? 'bg-amber-400'
+                                : 'bg-blue-400';
+
+                            return (
+                              <div
+                                key={item.id}
+                                className="group/row px-4 sm:px-5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-[var(--ff-surface-muted)]/50 transition-colors relative"
+                              >
+                                <SubtleConfetti show={celebratingTopicId === item.id} />
+                                <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleTopicCompleted(item.id)}
+                                    title={isFullyCompleted ? 'Mark incomplete' : 'Mark topic done'}
+                                    className={`mt-0.5 sm:mt-0 shrink-0 transition-colors ${
+                                      isFullyCompleted
+                                        ? 'text-emerald-400'
+                                        : 'text-[var(--ff-text-muted)] hover:text-emerald-400'
+                                    }`}
+                                  >
+                                    {isFullyCompleted ? (
+                                      <CheckCircle2 className="w-4 h-4" />
+                                    ) : (
+                                      <Circle className="w-4 h-4" />
+                                    )}
+                                  </button>
+
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span
+                                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityDot}`}
+                                        title={`${item.priority} Priority`}
+                                      />
+                                      <span
+                                        className={`text-xs sm:text-sm font-medium truncate ${
+                                          isFullyCompleted
+                                            ? 'line-through text-[var(--ff-text-muted)]'
+                                            : 'text-[var(--ff-text-primary)]'
+                                        }`}
+                                      >
+                                        {item.subtopic || item.topic}
+                                      </span>
+                                    </div>
+                                    {item.notes && (
+                                      <p className="text-[11px] text-[var(--ff-text-muted)] truncate mt-0.5 pl-3.5">
+                                        {item.notes}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Compact T / P / Q Pills + Subtle Quick Actions */}
+                                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                                  <div className="flex items-center gap-1 bg-[var(--ff-surface-muted)] p-0.5 rounded-lg border border-[var(--ff-border-color)]">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleTopicFlag(item.id, 'theory')}
+                                      title="Theory"
+                                      className={`w-6 h-6 rounded-md text-[11px] font-bold transition-all flex items-center justify-center ${
+                                        item.theory
+                                          ? 'bg-blue-500 text-white'
+                                          : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                      }`}
+                                    >
+                                      T
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleTopicFlag(item.id, 'practice')}
+                                      title="Practice"
+                                      className={`w-6 h-6 rounded-md text-[11px] font-bold transition-all flex items-center justify-center ${
+                                        item.practice
+                                          ? 'bg-emerald-500 text-white'
+                                          : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                      }`}
+                                    >
+                                      P
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleTopicFlag(item.id, 'pyq')}
+                                      title="PYQ"
+                                      className={`w-6 h-6 rounded-md text-[11px] font-bold transition-all flex items-center justify-center ${
+                                        item.pyq
+                                          ? 'bg-purple-500 text-white'
+                                          : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                      }`}
+                                    >
+                                      Q
+                                    </button>
+                                  </div>
+
+                                  <div className="flex items-center gap-0.5 sm:opacity-60 sm:group-hover/row:opacity-100 transition-opacity">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveTopicForRevision(item);
+                                        setIsScheduleRevisionOpen(true);
+                                      }}
+                                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-amber-400 hover:bg-amber-500/10"
+                                      title="Schedule Revision"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveStudySubjectCode(item.subjectCode);
+                                        setActiveStudyTopicId(item.id);
+                                        setActiveStudyActivityType('study');
+                                        saveTimerState({
+                                          activeStudySubjectCode: item.subjectCode,
+                                          activeStudyTopicId: item.id,
+                                          activeStudyActivityType: 'study',
+                                        });
+                                        if (timerMode !== 'work' && !isRunning) {
+                                          switchTimerMode('work');
+                                        }
+                                        setCurrentTab('focus');
+                                      }}
+                                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-indigo-400 hover:bg-indigo-500/10"
+                                      title="Start Focus Session"
+                                    >
+                                      <Timer className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleTopicBookmark(item.id)}
+                                      className={`p-1.5 rounded-lg ${
+                                        item.isBookmarked ? 'text-amber-400' : 'text-[var(--ff-text-muted)] hover:text-amber-400'
+                                      }`}
+                                      title="Bookmark"
+                                    >
+                                      <Bookmark className="w-3.5 h-3.5" fill={item.isBookmarked ? 'currentColor' : 'none'} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteTopic(item.id)}
+                                      className="p-1.5 rounded-lg text-[var(--ff-text-muted)] hover:text-rose-400 hover:bg-rose-500/10"
+                                      title="Delete Topic"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-
-                        <h4 className="text-sm font-medium text-[var(--ff-text-primary)] leading-tight">
-                          {item.subtopic || item.topic}
-                        </h4>
-                        {item.topic && item.subtopic && (
-                          <p className="text-xs text-[var(--ff-text-muted)] mt-0.5">
-                            Unit Scope: {item.topic}
-                          </p>
-                        )}
-                        {item.notes && (
-                          <p className="text-xs text-[var(--ff-text-muted)]/80 italic mt-1 bg-[var(--ff-surface-muted)] px-2.5 py-1 rounded-lg border border-[var(--ff-border-color)] inline-block">
-                            💡 {item.notes}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Interactive T / P / Q Checkbox Pills & Actions */}
-                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                        <div className="flex items-center gap-1.5 bg-[var(--ff-surface-muted)] p-1 rounded-xl border border-[var(--ff-border-color)]">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTopicFlag(item.id, 'theory')}
-                            title="Theory: Concept understood"
-                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all duration-200 active:scale-95 flex items-center justify-center ${
-                              item.theory
-                                ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 scale-100'
-                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)]'
-                            }`}
-                          >
-                            T
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTopicFlag(item.id, 'practice')}
-                            title="Practice: Solved problems / implemented"
-                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all duration-200 active:scale-95 flex items-center justify-center ${
-                              item.practice
-                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 scale-100'
-                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)]'
-                            }`}
-                          >
-                            P
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTopicFlag(item.id, 'pyq')}
-                            title="PYQ: Previous Year Questions solved"
-                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all duration-200 active:scale-95 flex items-center justify-center ${
-                              item.pyq
-                                ? 'bg-purple-500 text-white shadow-sm shadow-purple-500/30 scale-100'
-                                : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-surface-subtle)]'
-                            }`}
-                          >
-                            Q
-                          </button>
-                        </div>
-
-                        <ThemeButton
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setActiveTopicForRevision(item);
-                            setIsScheduleRevisionOpen(true);
-                          }}
-                          className="h-8 px-2 text-amber-400 hover:bg-amber-500/10"
-                          title="Schedule Spaced Revision"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                        </ThemeButton>
-
-                        <ThemeButton
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setActiveStudySubjectCode(item.subjectCode);
-                            setActiveStudyTopicId(item.id);
-                            setActiveStudyActivityType('study');
-                            saveTimerState({
-                              activeStudySubjectCode: item.subjectCode,
-                              activeStudyTopicId: item.id,
-                              activeStudyActivityType: 'study',
-                            });
-                            if (timerMode !== 'work' && !isRunning) {
-                              switchTimerMode('work');
-                            }
-                            setCurrentTab('focus');
-                          }}
-                          className="h-8 px-2 text-indigo-400 hover:bg-indigo-500/10"
-                          title="Start Focus Session for this topic"
-                        >
-                          <Timer className="w-3.5 h-3.5" />
-                        </ThemeButton>
-
-                        <button
-                          type="button"
-                          onClick={() => handleToggleTopicBookmark(item.id)}
-                          className={`p-1.5 transition-colors ${
-                            item.isBookmarked ? 'text-amber-400' : 'text-[var(--ff-text-muted)] hover:text-amber-400'
-                          }`}
-                          title={item.isBookmarked ? 'Bookmarked' : 'Add bookmark'}
-                        >
-                          <Bookmark className="w-3.5 h-3.5" fill={item.isBookmarked ? 'currentColor' : 'none'} />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTopic(item.id)}
-                          className="p-1.5 text-[var(--ff-text-muted)] hover:text-rose-400 transition-colors"
-                          title="Delete Topic"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </motion.div>
+                      )}
+                    </div>
                   );
                 })}
-                </AnimatePresence>
               </div>
             )}
           </ThemeCard>
