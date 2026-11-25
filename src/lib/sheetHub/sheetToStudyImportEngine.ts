@@ -27,6 +27,7 @@ import { doc, writeBatch } from 'firebase/firestore';
 import { auth, db, waitForInitialAuth } from '../firebase.ts';
 import { firestoreService } from '../firestoreService.ts';
 import { api } from '../api.ts';
+import { clientDataCache } from '../dataCache.ts';
 import { sheetHubStore } from './sheetHubStore.ts';
 import {
   computeContentHash,
@@ -1010,8 +1011,8 @@ export async function executeSheetToStudyImport(
   // 6D. Recalculate and update totalSubtopics and completedSubtopics on each subject
   for (const subj of subjectsToSave) {
     const activeSubjTopics = [
-      ...topicsToCreate.filter((t) => t.subjectCode === subj.code),
-      ...(existingTopicsBySubjectCode.get(subj.code) || []),
+      ...topicsToCreate.filter((t) => t.subjectCode.toUpperCase() === subj.code.toUpperCase()),
+      ...(existingTopicsBySubjectCode.get(subj.code.toUpperCase()) || []),
     ];
 
     const totalTopicsCount = activeSubjTopics.length;
@@ -1036,11 +1037,13 @@ export async function executeSheetToStudyImport(
     await studyImportHistoryStore.saveTopicSourceMappings(userId, newSourceMappings).catch(() => {});
   }
 
-  // 6F. Mark session completed
+  // 6F. Mark session completed & invalidate Study OS caches so re-imported subjects appear immediately
   session.status = 'completed';
   session.completedAt = new Date().toISOString();
   session.updatedAt = session.completedAt;
   await studyImportHistoryStore.saveImportSession(userId, session).catch(() => {});
+  clientDataCache.invalidate('study');
+  clientDataCache.invalidate('dashboard');
 
   onProgress?.({ stage: 'Import completed successfully!', current: 10, total: 10, percent: 100 });
 

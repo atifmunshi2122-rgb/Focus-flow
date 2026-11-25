@@ -45,6 +45,7 @@ import type { SheetConnection, SheetSyncedRow, SheetTabSchema } from '../../type
 import type { AcademicTier, StudyImportSource, StudySubject, StudyTopic, TopicConflictAnalysis } from '../../types/study.ts';
 import { DEFAULT_ACADEMIC_TIERS } from '../../data/studySeedData.ts';
 import { api } from '../../lib/api.ts';
+import { clientDataCache } from '../../lib/dataCache.ts';
 import { sheetHubStore } from '../../lib/sheetHub/sheetHubStore.ts';
 import { studyImportHistoryStore } from '../../lib/sheetHub/studyImportHistoryStore.ts';
 import {
@@ -146,6 +147,10 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
       setIsImportReadyConfirmed(false);
       setErrorMsg(null);
       setRecognizedSource(null);
+      setImportResult(null);
+      setImportProgress(null);
+      setPreviewData(null);
+      setLoadedRowsByTabId({});
       return;
     }
 
@@ -154,6 +159,9 @@ export const ImportToStudyModal: React.FC<ImportToStudyModalProps> = ({
     async function loadInitialContext() {
       setTabsLoading(true);
       setErrorMsg(null);
+      setImportResult(null);
+      setPreviewData(null);
+      clientDataCache.invalidate('study');
       try {
         const [fetchedTiers, fetchedSubjects, fetchedTopics, fetchedTabs, existingSources] = await Promise.all([
           api.getStudyTiers().catch(() => DEFAULT_ACADEMIC_TIERS),

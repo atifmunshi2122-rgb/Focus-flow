@@ -1143,21 +1143,32 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
           const subjectCode =
             matchedSubject?.code || `sub_${tabSchema.sheetTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
-          const unitCol = tabSchema.columns.find((c) => c.semanticRole === 'group');
-          const topicCol = tabSchema.columns.find((c) => c.semanticRole === 'subgroup' || c.semanticRole === 'title');
-          const subtopicCol = tabSchema.columns.find((c) => c.semanticRole === 'title');
+          const unitCol =
+            tabSchema.columns.find((c) => /^(unit|module|chapter|section)$/i.test((c.headerName || c.displayName || '').trim())) ||
+            tabSchema.columns.find((c) => c.semanticRole === 'group');
+          const topicCol =
+            tabSchema.columns.find((c) => /^(topic|concept|title|name)$/i.test((c.headerName || c.displayName || '').trim())) ||
+            tabSchema.columns.find((c) => c.semanticRole === 'subgroup' || c.semanticRole === 'title');
+          const subtopicCol =
+            tabSchema.columns.find((c) => /^(sub[\s_-]?topic|subtopic|item|detail)$/i.test((c.headerName || c.displayName || '').trim())) ||
+            tabSchema.columns.find((c) => c.semanticRole === 'title' && c !== topicCol) ||
+            tabSchema.columns.find((c) => c.semanticRole === 'title');
 
-          const unitIdx = unitCol ? unitCol.colIndex : headers.findIndex((h) => /^(unit|module|chapter|section)$/i.test(h.trim()));
-          const topicIdx = topicCol ? topicCol.colIndex : headers.findIndex((h) => /^(topic|concept|title|name)$/i.test(h.trim()));
-          const subtopicIdx = subtopicCol ? subtopicCol.colIndex : headers.findIndex((h) => /^(sub[\s_-]?topic|subtopic|item|detail)$/i.test(h.trim()));
+          const unitIdx = headers.findIndex((h) => /^(unit|module|chapter|section)$/i.test(h.trim()));
+          const topicIdx = headers.findIndex((h) => /^(topic|concept|title|name)$/i.test(h.trim()));
+          const subtopicIdx = headers.findIndex((h) => /^(sub[\s_-]?topic|subtopic|item|detail)$/i.test(h.trim()));
+
+          const resolvedUnitIdx = unitIdx >= 0 ? unitIdx : (unitCol ? unitCol.colIndex : -1);
+          const resolvedTopicIdx = topicIdx >= 0 ? topicIdx : (topicCol ? topicCol.colIndex : -1);
+          const resolvedSubtopicIdx = subtopicIdx >= 0 ? subtopicIdx : (subtopicCol ? subtopicCol.colIndex : -1);
 
           for (const pulledRow of pulledTab.rows || []) {
             if (pulledRow.formulaColumns?.includes(doneColIndex)) continue;
 
             const isDone = parseBooleanDone(pulledRow.values[doneColIndex]);
-            const rawUnit = unitIdx >= 0 ? String(pulledRow.values[unitIdx] ?? '').trim() : '';
-            const rawTopic = topicIdx >= 0 ? String(pulledRow.values[topicIdx] ?? '').trim() : '';
-            const rawSubtopic = subtopicIdx >= 0 ? String(pulledRow.values[subtopicIdx] ?? '').trim() : '';
+            const rawUnit = resolvedUnitIdx >= 0 ? String(pulledRow.values[resolvedUnitIdx] ?? '').trim() : '';
+            const rawTopic = resolvedTopicIdx >= 0 ? String(pulledRow.values[resolvedTopicIdx] ?? '').trim() : '';
+            const rawSubtopic = resolvedSubtopicIdx >= 0 ? String(pulledRow.values[resolvedSubtopicIdx] ?? '').trim() : '';
 
             if (isSummaryOrInvalidSyllabusRow(rawUnit, rawTopic, rawSubtopic).isInvalid) continue;
 
@@ -1185,7 +1196,7 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
           const doneCol = findDoneColumn(tabSchema.columns);
           if (!doneCol) continue;
 
-          const storedRows = await sheetHubStore.loadTabRows(userId, tabSchema.id).catch(() => []);
+          const storedRows = await sheetHubStore.loadTabRows(userId, tabSchema.id, conn.id).catch(() => []);
           if (storedRows.length === 0) continue;
 
           const matchedSubject = activeSubjects.find((s) =>
@@ -1194,9 +1205,15 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
           const subjectCode =
             matchedSubject?.code || `sub_${tabSchema.sheetTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
-          const unitCol = tabSchema.columns.find((c) => c.semanticRole === 'group');
-          const topicCol = tabSchema.columns.find((c) => c.semanticRole === 'subgroup' || c.semanticRole === 'title');
+          const unitCol =
+            tabSchema.columns.find((c) => /^(unit|module|chapter|section)$/i.test((c.headerName || c.displayName || '').trim())) ||
+            tabSchema.columns.find((c) => c.semanticRole === 'group');
+          const topicCol =
+            tabSchema.columns.find((c) => /^(topic|concept|title|name)$/i.test((c.headerName || c.displayName || '').trim())) ||
+            tabSchema.columns.find((c) => c.semanticRole === 'subgroup' || c.semanticRole === 'title');
           const subtopicCol =
+            tabSchema.columns.find((c) => /^(sub[\s_-]?topic|subtopic|item|detail)$/i.test((c.headerName || c.displayName || '').trim())) ||
+            tabSchema.columns.find((c) => c.semanticRole === 'title' && c !== topicCol) ||
             tabSchema.columns.find((c) => c.semanticRole === 'title') ||
             tabSchema.columns.find((c) => c.inferredType === 'text');
 
