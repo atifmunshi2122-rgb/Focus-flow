@@ -197,14 +197,15 @@ export function computeSpendingInsights(input: {
   const currentDayNum = Number(todayStr.slice(8, 10)) || 1;
   const daysRemaining = Math.max(1, daysInMonth - currentDayNum + 1);
   const monthlyCap = settings?.monthlyBudgetPaise || 0;
-  const remainingMonthlyPaise = Math.max(0, monthlyCap - thisMonthExpensesPaise);
-  
+  const spentBeforeTodayPaise = Math.max(0, thisMonthExpensesPaise - todayPaise);
+  const remainingAtStartOfDayPaise = Math.max(0, monthlyCap - spentBeforeTodayPaise);
+
   const configuredDailyLimit = settings?.dailySpendingLimitPaise || 0;
   const effectiveDailyLimit =
     configuredDailyLimit > 0
       ? configuredDailyLimit
       : monthlyCap > 0
-        ? Math.round(remainingMonthlyPaise / daysRemaining)
+        ? Math.round(remainingAtStartOfDayPaise / daysRemaining)
         : 0;
 
   const isOverDailyLimit = effectiveDailyLimit > 0 && todayPaise > effectiveDailyLimit;

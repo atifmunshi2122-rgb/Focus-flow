@@ -18,6 +18,7 @@ import {
   FolderSync,
   Eye,
   GraduationCap,
+  Flame,
 } from 'lucide-react';
 import type { SheetConnection } from '../../types/sheetHub.ts';
 import { ThemeCard, ThemeButton, ThemeBadge, ThemeModal } from '../ui/ThemePrimitives.tsx';
@@ -32,6 +33,7 @@ interface SheetConnectionCardProps {
   onReconnect: (connectionId: string) => void;
   onRemove: (connectionId: string, purgeCache: boolean) => void;
   onImportToStudy?: (connection: SheetConnection) => void;
+  onImportToHabits?: (connection: SheetConnection) => void;
   isPulling?: boolean;
   isRemoving?: boolean;
 }
@@ -46,6 +48,7 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
   onReconnect,
   onRemove,
   onImportToStudy,
+  onImportToHabits,
   isPulling = false,
   isRemoving = false,
 }) => {
@@ -173,6 +176,21 @@ export const SheetConnectionCard: React.FC<SheetConnectionCardProps> = ({
                       >
                         <GraduationCap className="w-3.5 h-3.5 text-indigo-500" />
                         <span>Import to Study OS</span>
+                      </button>
+                    )}
+
+                    {onImportToHabits && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onImportToHabits(connection);
+                        }}
+                        className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-[var(--ff-surface-hover)] text-[var(--ff-text-primary)]"
+                        title="Import habit matrix or list tabs into Habit Tracker"
+                      >
+                        <Flame className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Import to Habits</span>
                       </button>
                     )}
 

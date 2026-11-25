@@ -17,6 +17,7 @@ import {
   Lock,
   GraduationCap,
   History,
+  Flame,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -46,12 +47,18 @@ import { ConnectSheetWizard } from './ConnectSheetWizard.tsx';
 import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
 import { NativeSpreadsheetEditor } from './NativeSpreadsheetEditor.tsx';
 import { ImportToStudyModal } from './ImportToStudyModal.tsx';
+import { ImportToHabitsModal } from './ImportToHabitsModal.tsx';
 import { StudyImportHistoryModal } from './StudyImportHistoryModal.tsx';
 import {
   flushPendingWritebacks,
   pollAndSyncGoogleSheetsToStudyOS,
   syncSheetRowCheckboxToStudyOS,
 } from '../../lib/sheetHub/sheetStudySyncService.ts';
+import {
+  flushPendingHabitWritebacks,
+  pollAndSyncGoogleSheetsToHabits,
+  syncSheetRowCheckboxToHabits,
+} from '../../lib/sheetHub/sheetHabitSyncService.ts';
 import type { SheetTemplateHint } from '../../types/sheetHub.ts';
 
 export const SheetHubView: React.FC = () => {
@@ -83,6 +90,7 @@ export const SheetHubView: React.FC = () => {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [schemaModalOpen, setSchemaModalOpen] = useState(false);
   const [importToStudyOpen, setImportToStudyOpen] = useState(false);
+  const [importToHabitsOpen, setImportToHabitsOpen] = useState(false);
   const [importTargetConnection, setImportTargetConnection] = useState<SheetConnection | null>(null);
   const [studyHistoryModalOpen, setStudyHistoryModalOpen] = useState(false);
 
@@ -151,7 +159,7 @@ export const SheetHubView: React.FC = () => {
         // Preload rows for data tabs
         const rowsMap: Record<string, SheetSyncedRow[]> = {};
         for (const tab of loadedTabs) {
-          const tabRows = await sheetHubStore.loadTabRows(activeUserId, tab.id);
+          const tabRows = await sheetHubStore.loadTabRows(activeUserId, tab.id, connId);
           rowsMap[tab.id] = tabRows;
         }
         setRowsByTabId(rowsMap);
@@ -354,7 +362,9 @@ export const SheetHubView: React.FC = () => {
       if (target?.syncMode === 'two_way' || target?.writeAuthStatus === 'expired') {
         const writeToken = await authorizeSheetHubWrite();
         if (writeToken) {
-          const flushed = await flushPendingWritebacks(activeUserId);
+          const flushedStudy = await flushPendingWritebacks(activeUserId);
+          const flushedHabits = await flushPendingHabitWritebacks(activeUserId);
+          const flushed = flushedStudy + flushedHabits;
           if (flushed > 0) {
             showToast(`Reconnected write access and synced ${flushed} pending update(s) to Google Sheets.`, 'success');
           } else {
@@ -431,7 +441,7 @@ export const SheetHubView: React.FC = () => {
         return;
       }
 
-      // Direct Sheet Hub -> Study OS sync (works for both Google Sheets & local/demo sheets)
+      // Direct Sheet Hub -> Study OS & Habit Tracker sync (works for both Google Sheets & local/demo sheets)
       void syncSheetRowCheckboxToStudyOS({
         userId: activeUserId,
         connection: activeConnection,
@@ -444,6 +454,19 @@ export const SheetHubView: React.FC = () => {
           if (synced) triggerRefresh();
         })
         .catch((err) => console.warn('[SheetHub] Direct Study OS sync warning:', err));
+
+      void syncSheetRowCheckboxToHabits({
+        userId: activeUserId,
+        connection: activeConnection,
+        tab,
+        row: localUpdatedRow,
+        fieldKey: col.fieldKey,
+        nextValue,
+      })
+        .then((synced) => {
+          if (synced) triggerRefresh();
+        })
+        .catch((err) => console.warn('[SheetHub] Direct Habit Tracker sync warning:', err));
 
       // Demo spreadsheet stays local-only
       if (activeConnection.spreadsheetId === 'sem3-syllabus-sample') {
@@ -927,10 +950,16 @@ export const SheetHubView: React.FC = () => {
         await loadConnections();
         if (activeConnectionId === connId) await loadActiveWorkspace(connId);
 
-        // Reconcile pulled Sheet Hub rows into Study OS immediately
+        // Reconcile pulled Sheet Hub rows into Study OS & Habit Tracker immediately
         void pollAndSyncGoogleSheetsToStudyOS(activeUserId, { manual: true })
           .then((report) => {
             if (report.updatedTopicsCount > 0) triggerRefresh();
+          })
+          .catch(() => {});
+
+        void pollAndSyncGoogleSheetsToHabits(activeUserId)
+          .then((report) => {
+            if (report.updatedHabitsCount > 0) triggerRefresh();
           })
           .catch(() => {});
 
@@ -1006,10 +1035,11 @@ export const SheetHubView: React.FC = () => {
     return connections;
   }, [connections, filterMode]);
 
-  // ----------------------------------------------------
-  // RENDER: Guided Connect Wizard
-  // ----------------------------------------------------
-  if (wizardOpen) {
+  const renderMainView = () => {
+    // ----------------------------------------------------
+    // RENDER: Guided Connect Wizard
+    // ----------------------------------------------------
+    if (wizardOpen) {
     return (
       <div className="py-2">
         <ConnectSheetWizard
@@ -1080,7 +1110,7 @@ export const SheetHubView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ThemeButton
               variant="primary"
               size="sm"
@@ -1093,6 +1123,20 @@ export const SheetHubView: React.FC = () => {
             >
               <GraduationCap className="w-3.5 h-3.5" />
               <span>Import to Study OS</span>
+            </ThemeButton>
+
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setImportTargetConnection(activeConnection);
+                setImportToHabitsOpen(true);
+              }}
+              className="flex items-center gap-1.5"
+              title="Import habit matrix or list tabs into Habit Tracker"
+            >
+              <Flame className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Import to Habits</span>
             </ThemeButton>
 
             <ThemeButton
@@ -1477,6 +1521,10 @@ export const SheetHubView: React.FC = () => {
                   setImportTargetConnection(c);
                   setImportToStudyOpen(true);
                 }}
+                onImportToHabits={(c) => {
+                  setImportTargetConnection(c);
+                  setImportToHabitsOpen(true);
+                }}
                 isPulling={isPulling}
                 isRemoving={Boolean(removingConnectionIds[conn.id])}
               />
@@ -1593,6 +1641,13 @@ export const SheetHubView: React.FC = () => {
           </div>
         </div>
       </ThemeModal>
+    </div>
+    );
+  };
+
+  return (
+    <>
+      {renderMainView()}
 
       {/* IMPORT TO STUDY OS WIZARD & PREVIEW MODAL */}
       {importToStudyOpen && (importTargetConnection || activeConnection) && (
@@ -1604,6 +1659,27 @@ export const SheetHubView: React.FC = () => {
           }}
           connection={(importTargetConnection || activeConnection)!}
           userId={activeUserId}
+          onImportSuccess={() => triggerRefresh()}
+        />
+      )}
+
+      {/* IMPORT TO HABIT TRACKER WIZARD & PREVIEW MODAL */}
+      {importToHabitsOpen && (importTargetConnection || activeConnection) && (
+        <ImportToHabitsModal
+          isOpen={importToHabitsOpen}
+          onClose={() => {
+            setImportToHabitsOpen(false);
+            setImportTargetConnection(null);
+          }}
+          connection={(importTargetConnection || activeConnection)!}
+          userId={activeUserId}
+          onImportSuccess={(res) => {
+            triggerRefresh();
+            showToast(
+              `Imported ${res.createdHabitsCount} new & updated ${res.updatedHabitsCount} habit(s) (+${res.newCheckinsAddedCount} check-ins)!`,
+              'success'
+            );
+          }}
         />
       )}
 
@@ -1630,6 +1706,6 @@ export const SheetHubView: React.FC = () => {
           showToast={showToast}
         />
       )}
-    </div>
+    </>
   );
 };

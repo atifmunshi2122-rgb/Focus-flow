@@ -910,11 +910,14 @@ var init_db = __esm({
         return this.db.userSettings.find((s) => s.userId === userId);
       }
       getFallbackCategoryId(userId) {
-        const userCat = this.db.categories.find((c) => c.userId === userId || c.userId === "system");
-        if (userCat) return userCat.id;
+        const userCats = this.db.categories.filter((c) => c.userId === userId || c.userId === "system");
+        const miscCat = userCats.find((c) => /misc|other|general/i.test(c.name));
+        if (miscCat) return miscCat.id;
+        if (userCats.length > 0) return userCats[userCats.length - 1].id;
         const { user } = this.ensureUserWorkspace(userId);
-        const created = this.db.categories.find((c) => c.userId === user.id);
-        return created ? created.id : "cat_1";
+        const createdCats = this.db.categories.filter((c) => c.userId === user.id);
+        const createdMisc = createdCats.find((c) => /misc|other|general/i.test(c.name));
+        return createdMisc ? createdMisc.id : createdCats[createdCats.length - 1]?.id || "cat_12";
       }
       reseed(targetUserId) {
         if (!targetUserId || targetUserId === "usr_atif_default") {
@@ -13463,7 +13466,7 @@ apiRouter.post("/focus/sessions", async (req, res, _next) => {
     res.status(400).json({ error: "Invalid focus session mode" });
     return;
   }
-  const parsedMinutes = durationMinutes === void 0 ? 25 : parsePositiveInt(durationMinutes, 1, 180);
+  const parsedMinutes = durationMinutes === void 0 ? 25 : parsePositiveInt(durationMinutes, 1, 1440);
   if (parsedMinutes === null) {
     res.status(400).json({ error: "durationMinutes must be a positive integer between 1 and 180" });
     return;

@@ -64,6 +64,18 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({
     }
   }, [availableTracks, selectedTrackId]);
 
+  // Close node detail modal on Escape key
+  useEffect(() => {
+    if (!selectedNodeId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedNodeId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodeId]);
+
   const activeTree = useMemo<StudySkillTree>(() => {
     return availableTracks.find((t) => t.id === selectedTrackId) || allSubjectsTree;
   }, [availableTracks, selectedTrackId, allSubjectsTree]);

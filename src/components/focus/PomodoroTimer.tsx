@@ -132,6 +132,8 @@ export const PomodoroTimer: React.FC = () => {
     showToast,
   } = useApp();
 
+  const userTimezone = settings?.timezone || DEFAULT_TIMEZONE;
+
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showStatsModal, setShowStatsModal] = useState(false);
@@ -141,7 +143,7 @@ export const PomodoroTimer: React.FC = () => {
   const [showManualLogModal, setShowManualLogModal] = useState(false);
   const [manualHours, setManualHours] = useState('1');
   const [manualMinutes, setManualMinutes] = useState('0');
-  const [manualDate, setManualDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [manualDate, setManualDate] = useState(() => getTodayDateString(userTimezone));
   const [manualSubjectCode, setManualSubjectCode] = useState('');
   const [manualTopicId, setManualTopicId] = useState('');
   const [manualActivityType, setManualActivityType] = useState<'study' | 'practice' | 'theory' | 'revision'>('study');
@@ -345,7 +347,6 @@ export const PomodoroTimer: React.FC = () => {
   };
 
   // Streak summary and goal progress calculations
-  const userTimezone = settings?.timezone || DEFAULT_TIMEZONE;
   const streakSummary = useMemo(
     () => computeFocusStreaks(sessions, undefined, userTimezone),
     [sessions, userTimezone]
@@ -450,7 +451,7 @@ export const PomodoroTimer: React.FC = () => {
     setManualSaving(true);
     setManualError(null);
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getTodayDateString(userTimezone);
       const chosenDate = manualDate || todayStr;
       const endMs =
         chosenDate === todayStr
@@ -2476,7 +2477,7 @@ export const PomodoroTimer: React.FC = () => {
             <ThemeInput
               type="date"
               value={manualDate}
-              max={new Date().toISOString().split('T')[0]}
+              max={getTodayDateString(userTimezone)}
               onChange={(e) => setManualDate(e.target.value)}
             />
           </div>

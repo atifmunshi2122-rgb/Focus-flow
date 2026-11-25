@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { FocusSession } from '../../../../types/index.ts';
 import { getSessionFocusSeconds } from '../../../../lib/pomodoroAnalytics.ts';
-import { formatDateInTimezone } from '../../../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, formatDateInTimezone } from '../../../../lib/dateTime.ts';
+import { useApp } from '../../../../context/AppContext.tsx';
 import { GraphCard } from '../../core/GraphCard.tsx';
 import { GraphTooltip } from '../../core/GraphTooltip.tsx';
 import { Clock } from 'lucide-react';
@@ -22,6 +23,8 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
   endDateStr,
   onExpand,
 }) => {
+  const { settings } = useApp();
+  const timezone = settings?.timezone || DEFAULT_TIMEZONE;
   const [tooltip, setTooltip] = useState<{
     visible: boolean;
     x: number;
@@ -37,7 +40,7 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
 
     sessions.forEach((s) => {
       if ((!s.completed && s.status !== 'completed') || s.mode !== 'work') return;
-      const d = s.startedAt ? s.startedAt.slice(0, 10) : '';
+      const d = s.startedAt ? formatDateInTimezone(s.startedAt, timezone) : '';
       if (!d) return;
 
       const curr = dayMap.get(d) || { minutes: 0, count: 0 };
@@ -46,8 +49,8 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
       dayMap.set(d, curr);
     });
 
-    const start = new Date(startDateStr);
-    const end = new Date(endDateStr);
+    const start = new Date(`${startDateStr}T12:00:00`);
+    const end = new Date(`${endDateStr}T12:00:00`);
     const days: Array<{
       date: string;
       dayName: string;
@@ -60,7 +63,7 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
     if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start <= end) {
       const cur = new Date(start);
       while (cur <= end) {
-        const dateStr = formatDateInTimezone(cur);
+        const dateStr = formatDateInTimezone(cur, timezone);
         const data = dayMap.get(dateStr) || { minutes: 0, count: 0 };
         const dayName = cur.toLocaleDateString(undefined, { weekday: 'short' });
 
@@ -93,7 +96,7 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
       maxMins,
       totalMinutes: days.reduce((acc, d) => acc + d.minutes, 0),
     };
-  }, [sessions, startDateStr, endDateStr]);
+  }, [sessions, startDateStr, endDateStr, timezone]);
 
   const handleExportCsv = () => {
     exportDatasetToCsv(
@@ -114,7 +117,7 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
     <GraphCard
       id="focus-hours-trend"
       title="Focus Hours & 7-Day Moving Average"
-      subtitle={`${Math.round(trendData.totalMinutes / 60)} hours completed · Target: ${dailyGoalMinutes}m/day`}
+      subtitle={`${(trendData.totalMinutes / 60).toFixed(1)}h completed · Target: ${dailyGoalMinutes}m/day`}
       domain="productivity"
       icon={<Clock className="w-4 h-4" />}
       onExpand={onExpand}
@@ -126,10 +129,45 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
       ]}
     >
       <div className="relative pt-4">
-        <div className="flex items-end justify-between gap-1.5 sm:gap-3 h-52 px-2 border-b border-[var(--ff-border-color)]">
-          {trendData.days.map((d) => {
+        <div
+          className={`relative flex items-end justify-between ${
+            trendData.days.length > 14 ? 'gap-0.5 sm:gap-1' : 'gap-1.5 sm:gap-3'
+          } h-52 px-1 sm:px-2 border-b border-[var(--ff-border-color)]`}
+        >
+          {/* 7-Day Moving Average Trend Line Overlay */}
+          {trendData.days.length > 1 && (
+            <svg
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              className="pointer-events-none absolute inset-x-1 sm:inset-x-2 top-0 h-36 w-[calc(100%-0.5rem)] sm:w-[calc(100%-1rem)] z-10 overflow-visible"
+              aria-hidden="true"
+            >
+              <polyline
+                fill="none"
+                stroke="var(--ff-warning)"
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                points={trendData.days
+                  .map((d, idx) => {
+                    const x = ((idx + 0.5) / trendData.days.length) * 100;
+                    const y = Math.max(2, Math.min(98, 100 - (d.movingAvgMinutes / trendData.maxMins) * 100));
+                    return `${x.toFixed(2)},${y.toFixed(2)}`;
+                  })
+                  .join(' ')}
+              />
+            </svg>
+          )}
+
+          {trendData.days.map((d, idx) => {
             const barHeightPct = Math.max(4, Math.round((d.minutes / trendData.maxMins) * 100));
             const isMet = d.minutes >= dailyGoalMinutes;
+            const showLabel =
+              trendData.days.length <= 14 ||
+              idx === 0 ||
+              idx === trendData.days.length - 1 ||
+              idx % 3 === 0;
 
             return (
               <div
@@ -157,7 +195,7 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
                   });
                 }}
                 onMouseLeave={() => setTooltip((prev) => ({ ...prev, visible: false }))}
-                className="flex-1 flex flex-col items-center gap-1.5 group cursor-pointer"
+                className="flex-1 min-w-0 flex flex-col items-center gap-1.5 group cursor-pointer"
               >
                 <div className="w-full flex items-end justify-center h-36 relative">
                   {/* Goal Reference Line indicator if active */}
@@ -172,8 +210,8 @@ export const FocusHoursTrendChart: React.FC<FocusHoursTrendChartProps> = ({
                   />
                 </div>
 
-                <span className="text-[10px] font-mono font-medium text-[var(--ff-text-muted)] group-hover:text-[var(--ff-text-primary)]">
-                  {d.date.slice(8)}
+                <span className="text-[9px] sm:text-[10px] font-mono font-medium text-[var(--ff-text-muted)] group-hover:text-[var(--ff-text-primary)] h-4 leading-4">
+                  {showLabel ? d.date.slice(8) : ''}
                 </span>
               </div>
             );

@@ -285,6 +285,12 @@ export interface Habit {
   deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  // Sheet Hub import linkage (deterministic deduplication & future two-way sync)
+  sourceSpreadsheetId?: string | null;
+  sourceSheetId?: string | number | null;
+  sourceRowId?: string | null;
+  sourceMappingKey?: string | null;
+  sourceLayout?: 'matrix' | 'log' | null;
 }
 
 export interface BudgetEnvelope {

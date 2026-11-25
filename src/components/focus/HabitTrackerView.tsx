@@ -38,8 +38,15 @@ import {
   TrendingUp,
   AlertTriangle,
   RotateCcw,
+  RefreshCw,
 } from 'lucide-react';
 import { MOTION_DURATION, MOTION_EASING } from '../../theme/motionTokens.ts';
+import {
+  flushPendingHabitWritebacks,
+  listPendingHabitWritebacks,
+  pollAndSyncGoogleSheetsToHabits,
+  syncHabitToggleToGoogleSheets,
+} from '../../lib/sheetHub/sheetHabitSyncService.ts';
 
 const CATEGORY_OPTIONS = [
   'General',
@@ -65,8 +72,11 @@ const COLOR_OPTIONS = [
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const HabitTrackerView: React.FC = () => {
-  const { refreshKey, triggerRefresh, confirmAction, settings } = useApp();
+  const { user, firebaseUser, refreshKey, triggerRefresh, confirmAction, settings, showToast, authorizeSheetHubWrite } = useApp();
+  const activeUserId = firebaseUser?.uid || user?.id || 'usr_guest';
   const { isDisabled, profile } = useMotionPreferences();
+  const [syncingSheets, setSyncingSheets] = useState(false);
+  const [pendingWritebacksCount, setPendingWritebacksCount] = useState(0);
 
   const [habits, setHabits] = useState<Habit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,9 +117,14 @@ export const HabitTrackerView: React.FC = () => {
 
   useEffect(() => {
     loadHabits();
-  }, [refreshKey]);
+    setPendingWritebacksCount(listPendingHabitWritebacks(activeUserId).length);
+  }, [refreshKey, activeUserId]);
 
   const stats = useMemo(() => computeAllHabitsStats(habits, todayStr), [habits, todayStr]);
+  const hasLinkedSheetHabits = useMemo(
+    () => habits.some((h) => !h.deletedAt && Boolean(h.sourceSpreadsheetId)),
+    [habits]
+  );
 
   const openCreateModal = () => {
     setEditingHabit(null);
@@ -205,9 +220,51 @@ export const HabitTrackerView: React.FC = () => {
     try {
       await api.toggleHabit(habitId, dateStr);
       triggerRefresh();
+
+      // Phase 2: Two-way sync writeback to linked Google Sheet / Sheet Hub
+      if (targetHabit?.sourceSpreadsheetId) {
+        void syncHabitToggleToGoogleSheets(activeUserId, targetHabit, dateStr, willComplete)
+          .then((syncRes) => {
+            setPendingWritebacksCount(listPendingHabitWritebacks(activeUserId).length);
+            if (syncRes.status === 'queued') {
+              showToast(
+                `Saved locally. Reconnect Google Sheets to push ${targetHabit.title} (${dateStr}).`,
+                'info'
+              );
+            }
+          })
+          .catch((syncErr) => console.warn('[HabitTracker] Sheet sync warning:', syncErr));
+      }
     } catch (err) {
       console.error('Failed to toggle habit:', err);
       await loadHabits(); // revert on failure
+    }
+  };
+
+  const handleSyncHabitsSheet = async () => {
+    if (syncingSheets) return;
+    setSyncingSheets(true);
+    try {
+      if (pendingWritebacksCount > 0) {
+        await authorizeSheetHubWrite().catch(() => null);
+        await flushPendingHabitWritebacks(activeUserId).catch(() => 0);
+      }
+      const report = await pollAndSyncGoogleSheetsToHabits(activeUserId);
+      setPendingWritebacksCount(listPendingHabitWritebacks(activeUserId).length);
+      if (report.updatedHabitsCount > 0 || report.flushedWritebacksCount > 0) {
+        await loadHabits();
+        triggerRefresh();
+        showToast(
+          `Habit Sheet synced: ${report.updatedHabitsCount} updated, ${report.flushedWritebacksCount} pushed.`,
+          'success'
+        );
+      } else if (report.success) {
+        showToast('Habit Sheet is already up to date.', 'info');
+      } else {
+        showToast(report.error || 'Could not sync Habit Sheet.', 'error');
+      }
+    } finally {
+      setSyncingSheets(false);
     }
   };
 
@@ -274,7 +331,25 @@ export const HabitTrackerView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {hasLinkedSheetHabits && (
+            <ThemeButton
+              variant="secondary"
+              size="sm"
+              onClick={handleSyncHabitsSheet}
+              disabled={syncingSheets}
+              className="flex items-center gap-1.5"
+              title="Sync linked Habit Google Sheet (pull latest checkboxes & push queued changes)"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-500 ${syncingSheets ? 'animate-spin' : ''}`} />
+              <span>Sync Sheet</span>
+              {pendingWritebacksCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-500">
+                  {pendingWritebacksCount}
+                </span>
+              )}
+            </ThemeButton>
+          )}
           <ThemeButton
             variant="secondary"
             size="sm"
