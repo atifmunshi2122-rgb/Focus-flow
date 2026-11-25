@@ -67,14 +67,26 @@ export const StudyProgressDashboard: React.FC<StudyProgressDashboardProps> = ({
   }, [subjects]);
 
   const activeTopics = useMemo(() => {
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenConcepts = new Map<string, StudyTopic>();
     const activeCodes = new Set(activeSubjects.map((s) => s.code));
-    return topics.filter((t) => {
-      if (t.deletedAt || seen.has(t.id)) return false;
-      if (activeCodes.size > 0 && !activeCodes.has(t.subjectCode)) return false;
-      seen.add(t.id);
-      return true;
-    });
+    for (const t of topics) {
+      if (t.deletedAt || seenIds.has(t.id)) continue;
+      if (activeCodes.size > 0 && !activeCodes.has(t.subjectCode)) continue;
+      seenIds.add(t.id);
+      const conceptKey = `${(t.subjectCode || '').toUpperCase()}|${(t.unit || 'general').trim().toLowerCase()}|${(t.topic || '').trim().toLowerCase()}|${(t.subtopic || '').trim().toLowerCase()}`;
+      const existing = seenConcepts.get(conceptKey);
+      if (!existing) {
+        seenConcepts.set(conceptKey, t);
+      } else {
+        const existingScore = (existing.theory ? 2 : 0) + (existing.practice ? 2 : 0) + (existing.pyq ? 1 : 0) + (existing.sourceRowId ? 1 : 0);
+        const nextScore = (t.theory ? 2 : 0) + (t.practice ? 2 : 0) + (t.pyq ? 1 : 0) + (t.sourceRowId ? 1 : 0);
+        if (nextScore > existingScore) {
+          seenConcepts.set(conceptKey, t);
+        }
+      }
+    }
+    return Array.from(seenConcepts.values());
   }, [topics, activeSubjects]);
 
   // Overall metrics calculation (strictly based on actual topics)

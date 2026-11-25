@@ -1293,27 +1293,28 @@ export const StudyView: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* View Header with Academic Branding and Quick Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-3xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-sm">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25">
-            <GraduationCap className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ff-text-primary)]">
-                Study OS
-              </h1>
-              <ThemeBadge tone="accent">
-                Academic Intelligence
-              </ThemeBadge>
+      <div className="flex flex-col gap-4 p-5 rounded-3xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 shrink-0">
+              <GraduationCap className="w-6 h-6" />
             </div>
-            <p className="text-xs sm:text-sm text-[var(--ff-text-muted)] mt-0.5">
-              Syllabus tracking, Ebbinghaus spaced repetitions, and mistake root-cause diagnostics
-            </p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--ff-text-primary)] whitespace-nowrap">
+                  Study OS
+                </h1>
+                <ThemeBadge tone="accent" className="whitespace-nowrap shrink-0">
+                  Academic Intelligence
+                </ThemeBadge>
+              </div>
+              <p className="text-xs sm:text-sm text-[var(--ff-text-muted)] mt-0.5">
+                Syllabus tracking, Ebbinghaus spaced repetitions, and mistake root-cause diagnostics
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
           {/* Global Search Bar */}
           <div className="relative min-w-0">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ff-text-muted)]" />
@@ -1493,6 +1494,7 @@ export const StudyView: React.FC = () => {
             <Plus className="w-4 h-4 mr-1.5" />
             New Subject
           </ThemeButton>
+          </div>
         </div>
       </div>
 
@@ -1557,10 +1559,23 @@ export const StudyView: React.FC = () => {
             </div>
             <div className="flex items-baseline gap-2 flex-wrap">
               <span className="text-2xl font-bold font-mono tabular-nums text-[var(--ff-text-primary)]">
-                <AnimatedNumber value={progressSummary.overallCompletionPct} format={(v) => `${Math.round(v)}%`} />
+                <AnimatedNumber
+                  value={
+                    progressSummary.overallCompletionPct > 0
+                      ? progressSummary.overallCompletionPct
+                      : progressSummary.totalTopics > 0
+                      ? Math.round((progressSummary.theoryCompleted / progressSummary.totalTopics) * 100)
+                      : 0
+                  }
+                  format={(v) => `${Math.round(v)}%`}
+                />
               </span>
               <span className="text-xs font-mono tabular-nums text-[var(--ff-text-muted)]">
-                {progressSummary.completedTopics}/{progressSummary.totalTopics} fully mastered
+                {progressSummary.overallCompletionPct > 0
+                  ? `${progressSummary.completedTopics}/${progressSummary.totalTopics} fully mastered`
+                  : progressSummary.theoryCompleted > 0
+                  ? `${progressSummary.theoryCompleted}/${progressSummary.totalTopics} theory · ${progressSummary.completedTopics} mastered`
+                  : `${progressSummary.completedTopics}/${progressSummary.totalTopics} fully mastered`}
               </span>
             </div>
             {progressSummary.theoryCompleted > 0 && (
@@ -1663,8 +1678,8 @@ export const StudyView: React.FC = () => {
       </MotionStaggerGrid>
 
       {/* Sub-tab Navigation Bar */}
-      <div className="flex items-center justify-between gap-2 border-b border-[var(--ff-border-color)] pb-2 min-w-0 max-w-full">
-        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none flex-1 min-w-0 py-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div className="flex items-start justify-between gap-2 border-b border-[var(--ff-border-color)] pb-2 min-w-0 max-w-full">
+        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 flex-1 min-w-0 py-1">
           {(
             [
               { id: 'overview', label: 'Progress Dashboard', icon: TrendingUp },
@@ -1815,7 +1830,9 @@ export const StudyView: React.FC = () => {
                 </span>
                 <span className="text-[var(--ff-text-muted)]">
                   • {syncState.status === 'synced'
-                    ? 'All topic checkboxes synced with Google Sheets'
+                    ? syncState.lastSyncedAt
+                      ? `Synced (${new Date(syncState.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+                      : 'Connected & ready for two-way sync'
                     : syncState.status === 'pending_changes'
                     ? `${syncState.pendingCount} pending updates waiting to write back`
                     : syncState.status === 'read_only'
@@ -1851,7 +1868,7 @@ export const StudyView: React.FC = () => {
           {/* Filters: Academic Tier + Subject Select + Search */}
           <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Academic Tiers */}
-            <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+            <div className="flex flex-wrap items-center gap-1.5 py-1">
               <button
                 type="button"
                 onClick={() => {
@@ -2005,8 +2022,11 @@ export const StudyView: React.FC = () => {
                         className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{ backgroundColor: sub.color || '#6366f1' }}
                       />
-                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] truncate">
-                        {sub.code}
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] whitespace-nowrap"
+                        title={sub.code}
+                      >
+                        {sub.code.replace(/^sub_/i, '').toUpperCase()}
                       </span>
                     </div>
 
