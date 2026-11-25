@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { computeSpendingInsights } from '../src/lib/financeIntelligence.ts';
 import { evaluateDeterministicNotifications } from '../src/lib/notificationsEngine.ts';
 import { buildCsvContent } from '../src/lib/exportReports.ts';
+import { getTodayDateString } from '../src/lib/dateTime.ts';
 import type { ExpenseTransaction, IncomeTransaction, UserSettings, SavingsGoal } from '../src/types/index.ts';
 
 test('Phase 3 — Spending Insights Math & Pattern Recognition', () => {
@@ -143,7 +144,7 @@ test('Phase 3 — Deterministic Financial Alerts & Limits', () => {
       categoryId: 'tech',
       categoryName: 'Tech Equipment',
       amountPaise: 1500000, // ₹15,000 (large single expense)
-      date: new Date().toISOString().slice(0, 10),
+      date: getTodayDateString(),
       description: 'Mac Studio Hardware',
       paymentMethod: 'credit_card',
       notes: '',

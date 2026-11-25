@@ -1,5 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { getTodayDateString } from '../src/lib/dateTime.ts';
 import {
   generateOpenXmlWorkbook,
   WorksheetData,
@@ -1030,7 +1031,7 @@ describe('FocusFlow Premium Export Center Test Suite', () => {
 
     // TEST 6: Unique CSV filenames & ZIP packaging for finance_overview and transactions
     test('Fix 2: finance_overview and transactions CSV exports produce distinct filenames, distinct schemas, and coexist in ZIP', () => {
-      const dateStamp = new Date().toISOString().slice(0, 10);
+      const dateStamp = getTodayDateString();
 
       // 1. Module CSV for finance_overview produces focusflow-finance-overview-${dateStamp}.csv
       const financeOverviewCsv = generateModuleCsv('finance_overview', mockPayload, 'INR');
