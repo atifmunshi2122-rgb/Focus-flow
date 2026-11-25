@@ -16,6 +16,10 @@ import {
   computeSubjectFocusBreakdown,
   computePomodoroGoalProgress,
 } from '../../lib/pomodoroAnalytics.ts';
+import {
+  syncUserLeaderboardStats,
+  updateLiveStudyPresence,
+} from '../../lib/leaderboardService.ts';
 import type { FocusSession } from '../../types/index.ts';
 import type {
   PomodoroAlertTone,
@@ -563,14 +567,75 @@ export const PomodoroTimer: React.FC = () => {
     }
   };
 
+  const liveSessionStartRef = useRef<string | null>(null);
+
+  // Phase 2: Live "Studying Now" presence heartbeat (refreshes every 2m while actively studying)
+  useEffect(() => {
+    const uid = firebaseUser?.uid;
+    if (!uid) return;
+
+    const isActivelyStudying =
+      isRunning && (timerEngine === 'stopwatch' || timerMode === 'work');
+
+    if (!isActivelyStudying) {
+      if (liveSessionStartRef.current) {
+        liveSessionStartRef.current = null;
+        void updateLiveStudyPresence({ uid, isStudyingNow: false });
+      }
+      return;
+    }
+
+    if (!liveSessionStartRef.current) {
+      liveSessionStartRef.current = new Date().toISOString();
+    }
+    const activeSubject =
+      activeStudySubjectCode || activeTask?.title || 'Deep Focus';
+    const sessionStartedAt = liveSessionStartRef.current;
+
+    void updateLiveStudyPresence({
+      uid,
+      isStudyingNow: true,
+      activeSubject,
+      sessionStartedAt,
+    });
+
+    const heartbeatId = window.setInterval(() => {
+      void updateLiveStudyPresence({
+        uid,
+        isStudyingNow: true,
+        activeSubject,
+        sessionStartedAt,
+      });
+    }, 120_000);
+
+    return () => {
+      window.clearInterval(heartbeatId);
+    };
+  }, [firebaseUser?.uid, isRunning, timerEngine, timerMode, activeStudySubjectCode, activeTask?.title]);
+
   useEffect(() => {
     if (completedCycleCount > prevCycleCountRef.current) {
       prevCycleCountRef.current = completedCycleCount;
       setShowCelebration(true);
+      if (firebaseUser?.uid) {
+        api
+          .getFocusSessions()
+          .then((freshSessions) =>
+            syncUserLeaderboardStats({
+              uid: firebaseUser.uid,
+              displayName: firebaseUser.displayName || undefined,
+              dailyGoalMinutes: settings?.dailyFocusGoalMinutes || 120,
+              sessions: freshSessions,
+              timezone: userTimezone,
+              onlyIfExists: true,
+            })
+          )
+          .catch((err) => console.warn('[PomodoroTimer] Leaderboard sync warning:', err));
+      }
       const timer = setTimeout(() => setShowCelebration(false), 2400);
       return () => clearTimeout(timer);
     }
-  }, [completedCycleCount]);
+  }, [completedCycleCount, firebaseUser?.uid, firebaseUser?.displayName, settings?.dailyFocusGoalMinutes, userTimezone]);
 
   // Fullscreen keyboard escape & general shortcut handler
   useEffect(() => {

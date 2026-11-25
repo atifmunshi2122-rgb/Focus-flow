@@ -2727,6 +2727,111 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // STUDY LEADERBOARD & PRIVATE STUDY SQUADS (v1.8+)
+    // ==========================================
+    // Lightweight, zero-finance-leak collections for verified Pomodoro hours.
+    // Users can only write their own profile (with deterministic 16h/day cap).
+    match /leaderboard_profiles/{uid} {
+      function isValidLeaderboardProfile(data, profileUid) {
+        return data.keys().hasOnly([
+            'uid', 'displayName', 'avatarColor', 'isPublic', 'squadIds',
+            'todayKey', 'todayMinutes', 'weekKey', 'weekMinutes',
+            'monthKey', 'monthMinutes', 'streakDays', 'dailyGoalMinutes',
+            'totalSessionsCount', 'updatedAt',
+            'isStudyingNow', 'activeSubject', 'sessionStartedAt', 'lastHeartbeatAt',
+            'todaySubjectMinutes', 'weekSubjectMinutes', 'monthSubjectMinutes'
+          ])
+          && data.uid == profileUid
+          && isNonEmptyString(data.displayName, 48)
+          && isNonEmptyString(data.avatarColor, 32)
+          && data.isPublic is bool
+          && data.squadIds is list
+          && data.squadIds.size() <= 20
+          && isNonEmptyString(data.todayKey, 16)
+          && isBoundedInt(data.todayMinutes, 0, 960)
+          && isNonEmptyString(data.weekKey, 16)
+          && isBoundedInt(data.weekMinutes, 0, 6720)
+          && isNonEmptyString(data.monthKey, 16)
+          && isBoundedInt(data.monthMinutes, 0, 29760)
+          && isBoundedInt(data.streakDays, 0, 3650)
+          && isBoundedInt(data.dailyGoalMinutes, 15, 960)
+          && isBoundedInt(data.totalSessionsCount, 0, 100000)
+          && isIsoDate(data.updatedAt)
+          && (!('isStudyingNow' in data) || data.isStudyingNow is bool)
+          && (!('activeSubject' in data) || isOptionalString(data.activeSubject, 64))
+          && (!('sessionStartedAt' in data) || data.sessionStartedAt == null || data.sessionStartedAt == '' || isIsoDate(data.sessionStartedAt))
+          && (!('lastHeartbeatAt' in data) || data.lastHeartbeatAt == null || data.lastHeartbeatAt == '' || isIsoDate(data.lastHeartbeatAt))
+          && (!('todaySubjectMinutes' in data) || (data.todaySubjectMinutes is map && data.todaySubjectMinutes.size() <= 20))
+          && (!('weekSubjectMinutes' in data) || (data.weekSubjectMinutes is map && data.weekSubjectMinutes.size() <= 20))
+          && (!('monthSubjectMinutes' in data) || (data.monthSubjectMinutes is map && data.monthSubjectMinutes.size() <= 20));
+      }
+
+      // Signed-in users can read own profile, public opt-in profiles, or squadmates' profiles
+      allow read: if isSignedIn() && (
+        request.auth.uid == uid
+        || resource.data.isPublic == true
+        || (resource.data.squadIds is list && resource.data.squadIds.size() > 0)
+      );
+      allow create, update: if isOwner(uid)
+        && isValidLeaderboardProfile(request.resource.data, uid);
+      allow delete: if isOwner(uid);
+    }
+
+    match /study_squads/{squadId} {
+      function isValidSquadCreate(data, sId) {
+        return isValidId(sId)
+          && data.keys().hasOnly([
+            'id', 'name', 'description', 'inviteCode', 'ownerUid',
+            'memberUids', 'createdAt', 'updatedAt',
+            'weeklyGoalHours', 'challengeTitle'
+          ])
+          && data.id == sId
+          && isNonEmptyString(data.name, 64)
+          && isOptionalString(data.get('description', null), 160)
+          && isNonEmptyString(data.inviteCode, 12)
+          && data.ownerUid == request.auth.uid
+          && data.memberUids == [request.auth.uid]
+          && (!('weeklyGoalHours' in data) || isBoundedInt(data.weeklyGoalHours, 0, 2000))
+          && (!('challengeTitle' in data) || isOptionalString(data.challengeTitle, 80))
+          && isIsoDate(data.createdAt)
+          && isIsoDate(data.updatedAt);
+      }
+
+      // Signed-in users can look up squads by invite code or list their own squads
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidSquadCreate(request.resource.data, squadId);
+      // Members can leave, or signed-in user can join (adding only their own UID, max 25 members)
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'updatedAt'])
+        && request.resource.data.memberUids is list
+        && request.resource.data.memberUids.size() <= 25
+        && isIsoDate(request.resource.data.updatedAt)
+        && (
+          // Self-join: adds only own UID
+          (
+            !(request.auth.uid in resource.data.memberUids)
+            && (request.auth.uid in request.resource.data.memberUids)
+            && request.resource.data.memberUids.size() == resource.data.memberUids.size() + 1
+          )
+          ||
+          // Self-leave: removes only own UID
+          (
+            (request.auth.uid in resource.data.memberUids)
+            && !(request.auth.uid in request.resource.data.memberUids)
+            && request.resource.data.memberUids.size() == resource.data.memberUids.size() - 1
+          )
+        );
+      // Squad owner can set or update the Weekly Squad Challenge goal & title
+      allow update: if isSignedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['weeklyGoalHours', 'challengeTitle', 'updatedAt'])
+        && isBoundedInt(request.resource.data.weeklyGoalHours, 0, 2000)
+        && isOptionalString(request.resource.data.get('challengeTitle', null), 80)
+        && isIsoDate(request.resource.data.updatedAt);
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ==========================================
     // EPHEMERAL OAUTH STATES
     // ==========================================
     // Server-managed only; client direct access strictly forbidden
