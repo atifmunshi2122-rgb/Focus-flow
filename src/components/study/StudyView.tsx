@@ -34,6 +34,7 @@ import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import {
   categorizeRevisions,
   computeStudyProgressSummary,
+  deduplicateActiveStudyTopics,
   computeStudyPlanAnalytics,
   computeStudyGoalProgress,
   computeStudyExamReadiness,
@@ -481,10 +482,15 @@ export const StudyView: React.FC = () => {
     });
   }, [subjects, selectedTier]);
 
+  // Canonical deduplicated active topics aligned with KPI & subject cards
+  const activeTopics = useMemo(() => {
+    const activeSubs = subjects.filter((s) => !s.deletedAt);
+    return deduplicateActiveStudyTopics(topics, activeSubs);
+  }, [topics, subjects]);
+
   // Filtered topics by subject, search query, and bookmarks
   const visibleTopics = useMemo(() => {
-    return topics.filter((t) => {
-      if (t.deletedAt) return false;
+    return activeTopics.filter((t) => {
       if (isBookmarksOnly && !t.isBookmarked) return false;
       if (selectedSubjectCode !== 'all' && t.subjectCode !== selectedSubjectCode) return false;
       if (searchQuery.trim()) {
@@ -497,7 +503,7 @@ export const StudyView: React.FC = () => {
       }
       return true;
     });
-  }, [topics, selectedSubjectCode, searchQuery, isBookmarksOnly]);
+  }, [activeTopics, selectedSubjectCode, searchQuery, isBookmarksOnly]);
 
   // Filtered mistakes
   const visibleMistakes = useMemo(() => {
@@ -1293,8 +1299,8 @@ export const StudyView: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* View Header with Academic Branding and Quick Actions */}
-      <div className="flex flex-col gap-4 p-5 rounded-3xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="flex flex-col gap-3.5 p-5 rounded-3xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-sm overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-3.5 min-w-0">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 shrink-0">
               <GraduationCap className="w-6 h-6" />
@@ -1313,8 +1319,9 @@ export const StudyView: React.FC = () => {
               </p>
             </div>
           </div>
+        </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-[var(--ff-border-color)]/60">
           {/* Global Search Bar */}
           <div className="relative min-w-0">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ff-text-muted)]" />
@@ -1494,7 +1501,6 @@ export const StudyView: React.FC = () => {
             <Plus className="w-4 h-4 mr-1.5" />
             New Subject
           </ThemeButton>
-          </div>
         </div>
       </div>
 
@@ -1996,7 +2002,7 @@ export const StudyView: React.FC = () => {
               </div>
             )}
             {visibleSubjects.map((sub) => {
-              const subTopics = topics.filter((t) => t.subjectCode === sub.code && !t.deletedAt);
+              const subTopics = activeTopics.filter((t) => t.subjectCode === sub.code);
               const fullyMastered = subTopics.filter((t) => t.theory && t.practice).length;
               const theoryCount = subTopics.filter((t) => t.theory).length;
               const pct = subTopics.length > 0

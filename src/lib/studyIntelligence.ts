@@ -133,6 +133,54 @@ export function categorizeRevisions(
 }
 
 /**
+ * Deduplicates active (non-deleted) study topics by ID and normalized
+ * (subjectCode, unit, topic, subtopic) key, preferring entries with higher
+ * completion progress or a linked sourceRowId. When activeSubjects is supplied
+ * and non-empty, orphaned topics belonging to deleted/missing subjects are excluded
+ * so KPI cards, subject cards, and the Syllabus Checklist always show identical counts.
+ */
+export function deduplicateActiveStudyTopics(
+  topics: StudyTopic[],
+  activeSubjects?: StudySubject[]
+): StudyTopic[] {
+  const validSubjectCodes =
+    activeSubjects && activeSubjects.length > 0
+      ? new Set(activeSubjects.filter((s) => !s.deletedAt).map((s) => s.code))
+      : null;
+
+  const seenTopicIds = new Set<string>();
+  const seenConceptKeys = new Map<string, StudyTopic>();
+
+  for (const t of topics) {
+    if (t.deletedAt || seenTopicIds.has(t.id)) continue;
+    if (validSubjectCodes && !validSubjectCodes.has(t.subjectCode)) continue;
+    seenTopicIds.add(t.id);
+
+    const conceptKey = `${(t.subjectCode || '').toUpperCase()}|${(t.unit || 'general').trim().toLowerCase()}|${(t.topic || '').trim().toLowerCase()}|${(t.subtopic || '').trim().toLowerCase()}`;
+    const existing = seenConceptKeys.get(conceptKey);
+    if (!existing) {
+      seenConceptKeys.set(conceptKey, t);
+    } else {
+      const existingScore =
+        (existing.theory ? 2 : 0) +
+        (existing.practice ? 2 : 0) +
+        (existing.pyq ? 1 : 0) +
+        (existing.sourceRowId ? 1 : 0);
+      const nextScore =
+        (t.theory ? 2 : 0) +
+        (t.practice ? 2 : 0) +
+        (t.pyq ? 1 : 0) +
+        (t.sourceRowId ? 1 : 0);
+      if (nextScore > existingScore) {
+        seenConceptKeys.set(conceptKey, t);
+      }
+    }
+  }
+
+  return Array.from(seenConceptKeys.values());
+}
+
+/**
  * Computes deterministic Study Progress Summary from live stored entities.
  */
 export function computeStudyProgressSummary(input: {
@@ -147,26 +195,7 @@ export function computeStudyProgressSummary(input: {
   const tz = input.timezone || DEFAULT_TIMEZONE;
   const todayStr = input.todayStr || getTodayDateString(tz);
   const activeSubjects = input.subjects.filter((s) => !s.deletedAt);
-  // Deduplicate active topics by id and normalized (subjectCode, unit, topic, subtopic) key
-  const seenTopicIds = new Set<string>();
-  const seenConceptKeys = new Map<string, StudyTopic>();
-  for (const t of input.topics) {
-    if (t.deletedAt || seenTopicIds.has(t.id)) continue;
-    seenTopicIds.add(t.id);
-    const conceptKey = `${(t.subjectCode || '').toUpperCase()}|${(t.unit || 'general').trim().toLowerCase()}|${(t.topic || '').trim().toLowerCase()}|${(t.subtopic || '').trim().toLowerCase()}`;
-    const existing = seenConceptKeys.get(conceptKey);
-    if (!existing) {
-      seenConceptKeys.set(conceptKey, t);
-    } else {
-      // Prefer the entry with completion progress or sourceRowId
-      const existingScore = (existing.theory ? 2 : 0) + (existing.practice ? 2 : 0) + (existing.pyq ? 1 : 0) + (existing.sourceRowId ? 1 : 0);
-      const nextScore = (t.theory ? 2 : 0) + (t.practice ? 2 : 0) + (t.pyq ? 1 : 0) + (t.sourceRowId ? 1 : 0);
-      if (nextScore > existingScore) {
-        seenConceptKeys.set(conceptKey, t);
-      }
-    }
-  }
-  const activeTopics = Array.from(seenConceptKeys.values());
+  const activeTopics = deduplicateActiveStudyTopics(input.topics, activeSubjects);
   const activeMistakes = input.mistakes.filter((m) => !m.deletedAt);
 
   const totalTopics = activeTopics.length;
