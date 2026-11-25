@@ -1860,7 +1860,7 @@ export const StudyView: React.FC = () => {
         const ActiveSecondaryIcon = activeSecondary?.icon || Sparkles;
 
         return (
-          <div className="flex items-center justify-between gap-2 border-b border-[var(--ff-border-color)] pb-2.5 min-w-0">
+          <div className="relative flex items-center justify-between gap-2 border-b border-[var(--ff-border-color)] pb-2.5 min-w-0">
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 min-w-0 flex-1">
               {primaryTabs.map((tab) => {
                 const Icon = tab.icon;
@@ -1896,8 +1896,10 @@ export const StudyView: React.FC = () => {
                   </button>
                 );
               })}
+            </div>
 
-              {/* More Tools & Labs Dropdown Pill */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* More Tools & Labs Dropdown Pill (outside overflow-x-auto so popover never clips) */}
               <div className="relative shrink-0">
                 <button
                   type="button"
@@ -1905,15 +1907,18 @@ export const StudyView: React.FC = () => {
                     setHeaderToolsOpen(false);
                     setMoreTabsOpen((o) => !o);
                   }}
-                  className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap border ${
+                  aria-expanded={moreTabsOpen}
+                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap border ${
                     activeSecondary
                       ? 'border-[var(--ff-accent)] bg-[var(--ff-accent)]/10 text-[var(--ff-accent-text)] font-semibold'
                       : 'border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
                   }`}
                 >
-                  <ActiveSecondaryIcon className="w-4 h-4" />
-                  <span>{activeSecondary ? activeSecondary.label : 'More Labs'}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${moreTabsOpen ? 'rotate-180' : ''}`} />
+                  <ActiveSecondaryIcon className="w-4 h-4 shrink-0" />
+                  <span className="max-w-[110px] sm:max-w-none truncate">
+                    {activeSecondary ? activeSecondary.label : 'More Labs'}
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${moreTabsOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {moreTabsOpen && (
@@ -1923,7 +1928,7 @@ export const StudyView: React.FC = () => {
                       onClick={() => setMoreTabsOpen(false)}
                       aria-hidden="true"
                     />
-                    <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-auto sm:top-full mt-2 sm:w-[440px] rounded-2xl bg-[var(--ff-surface-elevated)] border border-[var(--ff-border-color)] shadow-2xl z-50 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="absolute right-0 top-full mt-2 w-[min(92vw,440px)] max-h-[70vh] overflow-y-auto rounded-2xl bg-[var(--ff-surface-elevated)] border border-[var(--ff-border-color)] shadow-2xl z-50 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {secondaryTabGroups.map((group) => (
                         <div key={group.title} className="space-y-1">
                           <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--ff-text-muted)]">
@@ -1964,9 +1969,7 @@ export const StudyView: React.FC = () => {
                   </>
                 )}
               </div>
-            </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
               <ThemeButton variant="ghost" size="sm" onClick={() => void loadData()} title="Refresh study data">
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               </ThemeButton>
