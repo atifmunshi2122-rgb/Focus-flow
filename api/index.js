@@ -7847,7 +7847,8 @@ async function createMasterWorkbook(accessToken, fetchImpl = fetch) {
   const createPayload = {
     properties: {
       title: "FocusFlow & Finance \u2014 Master Management Ledger",
-      locale: "en_IN",
+      locale: "en_GB",
+      timeZone: "Asia/Kolkata",
       autoRecalc: "ON_CHANGE"
     },
     sheets: sheetObjects
@@ -11557,8 +11558,8 @@ var GoogleCalendarService = class {
    * Resolves OAuth 2.0 client configuration.
    */
   getOAuthCredentials() {
-    const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim() || process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID?.trim() || GHOST_OAUTH_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim() || "";
+    const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim() || process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID?.trim() || process.env.GOOGLE_CLIENT_ID?.trim() || GHOST_OAUTH_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim() || process.env.GOOGLE_CLIENT_SECRET?.trim() || "";
     const appUrl = (process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
     const redirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI?.trim() || `${appUrl}/api/integrations/google-calendar/oauth/callback`;
     return { clientId, clientSecret, redirectUri };

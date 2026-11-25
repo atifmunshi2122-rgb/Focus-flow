@@ -67,9 +67,13 @@ export class GoogleCalendarService {
     const clientId =
       process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim() ||
       process.env.VITE_GOOGLE_CALENDAR_CLIENT_ID?.trim() ||
+      process.env.GOOGLE_CLIENT_ID?.trim() ||
       GHOST_OAUTH_CLIENT_ID;
 
-    const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim() || '';
+    const clientSecret =
+      process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim() ||
+      process.env.GOOGLE_CLIENT_SECRET?.trim() ||
+      '';
 
     // Standard redirect URI
     const appUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/\/+$/, '');

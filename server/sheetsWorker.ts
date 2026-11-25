@@ -203,7 +203,8 @@ export async function createMasterWorkbook(
   const createPayload = {
     properties: {
       title: 'FocusFlow & Finance — Master Management Ledger',
-      locale: 'en_IN',
+      locale: 'en_GB',
+      timeZone: 'Asia/Kolkata',
       autoRecalc: 'ON_CHANGE',
     },
     sheets: sheetObjects,
