@@ -494,8 +494,8 @@ describe('Universal Sheet Sync Hub — Automatic Checkbox Write-Back & Permissio
 
       assert.match(
         studyViewContent,
-        /Sheet Hub Sync/,
-        'StudyView must render a quick Sheet Hub Sync button'
+        /Sheet Hub Sync|Sync Checkboxes/,
+        'StudyView must render a quick Sheet Hub Sync / Sync Checkboxes button'
       );
     });
 
