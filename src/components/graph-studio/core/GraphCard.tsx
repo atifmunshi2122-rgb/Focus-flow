@@ -64,55 +64,39 @@ export const GraphCard: React.FC<GraphCardProps> = ({
       className={`flex flex-col justify-between overflow-hidden relative group transition-all duration-200 ${className}`}
       id={`graph-${id}`}
     >
-      {/* Top Header Row */}
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-2.5 mb-3">
-        <div className="space-y-0.5 min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            {icon && (
-              <span className="text-[var(--ff-accent-text)] shrink-0">
-                {icon}
-              </span>
-            )}
-            <h3 className="text-sm font-bold text-[var(--ff-text-primary)] whitespace-normal">
-              {title}
-            </h3>
+      {/* Top Header Row (Row 1: Title + Actions, Row 2: Legend pills) */}
+      <div className="flex flex-col gap-2 mb-3">
+        <div className="flex items-start justify-between gap-2.5">
+          <div className="space-y-0.5 min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              {icon && (
+                <span className="text-[var(--ff-accent-text)] shrink-0">
+                  {icon}
+                </span>
+              )}
+              <h3 className="text-sm font-bold text-[var(--ff-text-primary)] whitespace-normal">
+                {title}
+              </h3>
 
-            {badge ? (
-              badge
-            ) : isNotConnected ? (
-              <ThemeBadge tone="neutral">
-                Not Yet Connected
-              </ThemeBadge>
-            ) : null}
+              {badge ? (
+                badge
+              ) : isNotConnected ? (
+                <ThemeBadge tone="neutral">
+                  Not Yet Connected
+                </ThemeBadge>
+              ) : null}
+            </div>
+
+            {subtitle && (
+              <p className="text-xs text-[var(--ff-text-muted)]">
+                {subtitle}
+              </p>
+            )}
           </div>
 
-          {subtitle && (
-            <p className="text-xs text-[var(--ff-text-muted)]">
-              {subtitle}
-            </p>
-          )}
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
-          {legend.length > 0 && (
-            <div className="hidden lg:flex items-center gap-2.5 mr-2 text-[11px] font-medium text-[var(--ff-text-muted)]">
-              {legend.map((l, idx) => (
-                <div key={idx} className="flex items-center gap-1.5">
-                  <span
-                    className="w-2.5 h-2.5 rounded-xs shrink-0"
-                    style={{
-                      backgroundColor: l.color,
-                      border: l.isDashed ? '1px dashed currentColor' : undefined,
-                    }}
-                  />
-                  <span>{l.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {onExportCsv && (
+          {/* Action Controls */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onExportCsv && (
             <button
               type="button"
               onClick={onExportCsv}
@@ -147,7 +131,25 @@ export const GraphCard: React.FC<GraphCardProps> = ({
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
           )}
+          </div>
         </div>
+
+        {legend.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium text-[var(--ff-text-muted)]">
+            {legend.map((l, idx) => (
+              <div key={idx} className="flex items-center gap-1.5">
+                <span
+                  className="w-2.5 h-2.5 rounded-xs shrink-0"
+                  style={{
+                    backgroundColor: l.color,
+                    border: l.isDashed ? '1px dashed currentColor' : undefined,
+                  }}
+                />
+                <span>{l.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Main Content Viewport */}

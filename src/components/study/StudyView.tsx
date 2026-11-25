@@ -431,14 +431,18 @@ export const StudyView: React.FC = () => {
       if (report.success) {
         if (report.updatedTopicsCount > 0) {
           showToast(
-            `Synced with Google Sheets: updated ${report.updatedTopicsCount} topic${
-              report.updatedTopicsCount === 1 ? '' : 's'
-            } across ${report.updatedSubjectsCount} subject${
-              report.updatedSubjectsCount === 1 ? '' : 's'
-            }.`,
-            'success'
+            report.error
+              ? `Updated ${report.updatedTopicsCount} topic(s) from Sheet Hub cache. ${report.error}`
+              : `Synced with Google Sheets: updated ${report.updatedTopicsCount} topic${
+                  report.updatedTopicsCount === 1 ? '' : 's'
+                } across ${report.updatedSubjectsCount} subject${
+                  report.updatedSubjectsCount === 1 ? '' : 's'
+                }.`,
+            report.error ? 'info' : 'success'
           );
           await loadData();
+        } else if (report.error) {
+          showToast(report.error, 'info');
         } else {
           showToast('Google Sheets and Study OS are already up to date.', 'info');
         }

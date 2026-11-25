@@ -47,7 +47,11 @@ import { SchemaMappingEditor } from './SchemaMappingEditor.tsx';
 import { NativeSpreadsheetEditor } from './NativeSpreadsheetEditor.tsx';
 import { ImportToStudyModal } from './ImportToStudyModal.tsx';
 import { StudyImportHistoryModal } from './StudyImportHistoryModal.tsx';
-import { flushPendingWritebacks, syncSheetRowCheckboxToStudyOS } from '../../lib/sheetHub/sheetStudySyncService.ts';
+import {
+  flushPendingWritebacks,
+  pollAndSyncGoogleSheetsToStudyOS,
+  syncSheetRowCheckboxToStudyOS,
+} from '../../lib/sheetHub/sheetStudySyncService.ts';
 import type { SheetTemplateHint } from '../../types/sheetHub.ts';
 
 export const SheetHubView: React.FC = () => {
@@ -922,6 +926,13 @@ export const SheetHubView: React.FC = () => {
         await sheetHubStore.saveConnection(activeUserId, updatedConn);
         await loadConnections();
         if (activeConnectionId === connId) await loadActiveWorkspace(connId);
+
+        // Reconcile pulled Sheet Hub rows into Study OS immediately
+        void pollAndSyncGoogleSheetsToStudyOS(activeUserId, { manual: true })
+          .then((report) => {
+            if (report.updatedTopicsCount > 0) triggerRefresh();
+          })
+          .catch(() => {});
 
         showToast(`Successfully refreshed ${totalPulled.toLocaleString()} records!`, 'success');
       }

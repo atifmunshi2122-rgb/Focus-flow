@@ -82,14 +82,18 @@ export const EstimatedVsActualFocusChart: React.FC<EstimatedVsActualFocusChartPr
               </span>
               <span
                 className={`text-[10px] font-bold px-1.5 py-0.2 rounded font-mono ${
-                  item.bias === 'accurate'
+                  item.actualMins === 0
+                    ? 'text-[var(--ff-text-muted)] bg-[var(--ff-surface-muted)]'
+                    : item.bias === 'accurate'
                     ? 'text-emerald-400 bg-emerald-500/15'
                     : item.bias === 'underestimated'
                     ? 'text-rose-400 bg-rose-500/15'
                     : 'text-amber-400 bg-amber-500/15'
                 }`}
               >
-                {item.bias === 'accurate'
+                {item.actualMins === 0
+                  ? 'Not started'
+                  : item.bias === 'accurate'
                   ? 'Accurate'
                   : item.bias === 'underestimated'
                   ? `+${item.delta}m Overrun`

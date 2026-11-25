@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { X, Download, Table, BarChart2 } from 'lucide-react';
 import { ThemeButton, ThemeBadge } from '../../ui/ThemePrimitives.tsx';
+import { useApp } from '../../../context/AppContext.tsx';
+import { formatCurrency } from '../../../lib/currency.ts';
 
 export interface GraphDetailModalProps {
   isOpen: boolean;
@@ -27,6 +29,36 @@ export const GraphDetailModal: React.FC<GraphDetailModalProps> = ({
   onExportPng,
   children,
 }) => {
+  const { currency } = useApp();
+
+  const { displayHeaders, formattedRows } = useMemo(() => {
+    const paiseColIndices = new Set<number>();
+    const headers = tableHeaders.map((h, idx) => {
+      if (/paise/i.test(h)) {
+        paiseColIndices.add(idx);
+        return h.replace(/\s*\(?paise\)?/i, '').trim() || 'Amount';
+      }
+      return h;
+    });
+
+    const dateIdx = tableHeaders.findIndex((h) => /^date$/i.test(h.trim()));
+    const sorted =
+      dateIdx >= 0
+        ? [...tableRows].sort((a, b) => String(a[dateIdx] ?? '').localeCompare(String(b[dateIdx] ?? '')))
+        : tableRows;
+
+    const rows = sorted.map((row) =>
+      row.map((cell, cIdx) => {
+        if (paiseColIndices.has(cIdx) && typeof cell === 'number' && Number.isFinite(cell)) {
+          return formatCurrency(cell, currency);
+        }
+        return cell;
+      })
+    );
+
+    return { displayHeaders: headers, formattedRows: rows };
+  }, [tableHeaders, tableRows, currency]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -109,7 +141,7 @@ export const GraphDetailModal: React.FC<GraphDetailModalProps> = ({
                 <table className="w-full text-xs text-left">
                   <thead className="bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] font-semibold border-b border-[var(--ff-border-color)] sticky top-0">
                     <tr>
-                      {tableHeaders.map((header, idx) => (
+                      {displayHeaders.map((header, idx) => (
                         <th key={idx} className="py-2 px-3">
                           {header}
                         </th>
@@ -117,7 +149,7 @@ export const GraphDetailModal: React.FC<GraphDetailModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--ff-border-color)] font-mono">
-                    {tableRows.map((row, rIdx) => (
+                    {formattedRows.map((row, rIdx) => (
                       <tr key={rIdx} className="hover:bg-[var(--ff-surface-subtle)]">
                         {row.map((cell, cIdx) => (
                           <td key={cIdx} className="py-2 px-3 text-[var(--ff-text-primary)]">

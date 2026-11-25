@@ -73,7 +73,11 @@ export const CircadianHeatmapChart: React.FC<CircadianHeatmapChartProps> = ({
       title="Hour-of-Day Productivity Heatmap"
       subtitle={
         hourlyData.peakHour.minutes > 0
-          ? `Peak flow window around ${hourlyData.peakHour.label} (${Math.round(hourlyData.peakHour.minutes / 60)}h logged)`
+          ? `Peak flow window around ${hourlyData.peakHour.label} (${
+              hourlyData.peakHour.minutes < 60
+                ? `${hourlyData.peakHour.minutes}m logged`
+                : `${(hourlyData.peakHour.minutes / 60).toFixed(1)}h logged`
+            })`
           : '24-hour distribution of deep work'
       }
       domain="productivity"

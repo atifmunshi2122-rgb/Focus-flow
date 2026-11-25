@@ -89,7 +89,7 @@ export const LiquidCashflowTimelineChart: React.FC<LiquidCashflowTimelineChartPr
       <div className="relative pt-2">
         <GraphSvgContainer viewBoxWidth={700} viewBoxHeight={240}>
           {({ viewBoxWidth, viewBoxHeight }) => {
-            const padL = 60;
+            const padL = 82;
             const padR = 20;
             const padT = 20;
             const padB = 35;

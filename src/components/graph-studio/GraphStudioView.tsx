@@ -75,7 +75,7 @@ export type GraphStudioCategory = 'all' | 'study' | 'finance' | 'productivity' |
 export type TimeframeFilter = 'today' | 'weekly' | 'monthly' | 'yearly' | 'custom';
 
 export const GraphStudioView: React.FC = () => {
-  const { user, currency, settings, refreshKey } = useApp();
+  const { user, currency, settings, refreshKey, showToast } = useApp();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const todayStr = useMemo(() => getTodayDateString(tz), [tz]);
 
@@ -108,6 +108,7 @@ export const GraphStudioView: React.FC = () => {
 
   // Data states
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -141,8 +142,9 @@ export const GraphStudioView: React.FC = () => {
   }, [timeframe, todayStr]);
 
   // Load all required verified data via API
-  const loadStudioData = useCallback(async () => {
-    setLoading(true);
+  const loadStudioData = useCallback(async (manual = false) => {
+    if (manual) setIsRefreshing(true);
+    else setLoading(true);
     setFetchError(null);
 
     try {
@@ -186,13 +188,17 @@ export const GraphStudioView: React.FC = () => {
       setRevisions(revisionList);
       setExams(examList);
       setActivityLogs(activityList);
+      if (manual) {
+        showToast('Analytics refreshed', 'success');
+      }
     } catch (err) {
       console.error('Failed to load Graph Studio metrics:', err);
       setFetchError('Failed to retrieve studio metrics. Please verify network and retry.');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     loadStudioData();
@@ -371,8 +377,14 @@ export const GraphStudioView: React.FC = () => {
             <Printer className="w-3.5 h-3.5 mr-1" /> Print Dossier
           </ThemeButton>
 
-          <ThemeButton variant="secondary" size="sm" onClick={loadStudioData} title="Refresh Data">
-            <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <ThemeButton
+            variant="secondary"
+            size="sm"
+            onClick={() => void loadStudioData(true)}
+            disabled={isRefreshing}
+            title="Refresh Data"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 ${loading || isRefreshing ? 'animate-spin' : ''}`} />
           </ThemeButton>
         </div>
       </ThemeCard>
@@ -452,7 +464,7 @@ export const GraphStudioView: React.FC = () => {
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>{fetchError}</span>
           </div>
-          <ThemeButton variant="secondary" size="xs" onClick={loadStudioData}>
+          <ThemeButton variant="secondary" size="xs" onClick={() => void loadStudioData(true)}>
             Retry
           </ThemeButton>
         </div>
@@ -469,7 +481,7 @@ export const GraphStudioView: React.FC = () => {
               Timeframe Focus Volume
             </span>
             <div className="text-xl font-bold font-mono text-[var(--ff-accent-text)]">
-              <AnimatedNumber value={summaryMetrics.focusHours} format={(v) => `${v}h`} />
+              <AnimatedNumber value={summaryMetrics.focusHours} format={(v) => `${v.toFixed(1)}h`} />
             </div>
             <span className="text-[11px] text-[var(--ff-text-muted)]">
               {summaryMetrics.focusSessionsCount} completed sessions

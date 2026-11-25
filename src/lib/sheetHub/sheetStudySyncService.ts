@@ -958,8 +958,7 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
       (c) =>
         c.status !== 'paused' &&
         c.status !== 'error' &&
-        !c.deletedAt &&
-        !c.isNative
+        !c.deletedAt
     );
 
     if (activeConnections.length === 0) {
@@ -975,6 +974,8 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
     let totalUpdatedTopics = 0;
     const affectedSubjectCodes = new Set<string>();
     const token = await getSheetHubWriteAccessToken().catch(() => null);
+    let livePullFailed = false;
+    let livePullErrorDetail: string | null = null;
 
     // Load existing Study OS state
     const existingTopics = await api.getStudyTopics();
@@ -982,19 +983,90 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
     const existingSubjects = await api.getStudySubjects();
     const activeSubjects = (existingSubjects || []).filter((s) => !s.deletedAt);
 
-    // Build fast lookup index for active topics
+    // Build fast & normalized lookup indexes for active topics
     const topicBySourceKey = new Map<string, StudyTopic>();
     const topicByRowId = new Map<string, StudyTopic>();
     const topicByConcept = new Map<string, StudyTopic>();
+    const topicByNormConcept = new Map<string, StudyTopic>();
+    const topicBySubjectAndTitle = new Map<string, StudyTopic | null>();
 
     for (const t of activeTopics) {
       if (t.sourceMappingKey) topicBySourceKey.set(t.sourceMappingKey, t);
       if (t.sourceRowId) topicByRowId.set(t.sourceRowId, t);
+
       const cKey = `${t.subjectCode.toUpperCase()}|${(t.unit || 'general').trim().toLowerCase()}|${t.topic.trim().toLowerCase()}::${t.subtopic.trim().toLowerCase()}`;
-      if (!topicByConcept.has(cKey)) {
-        topicByConcept.set(cKey, t);
+      if (!topicByConcept.has(cKey)) topicByConcept.set(cKey, t);
+
+      const normSubj = normalizeForComparison(t.subjectCode);
+      const normUnit = normalizeForComparison(t.unit || 'general');
+      const normTop = normalizeForComparison(t.topic || '');
+      const normSub = normalizeForComparison(t.subtopic || '');
+      const normKey = `${normSubj}|${normUnit}|${normTop}|${normSub}`;
+      if (!topicByNormConcept.has(normKey)) topicByNormConcept.set(normKey, t);
+
+      const titleOnlyKey = `${normSubj}|${normSub || normTop}`;
+      if (!topicBySubjectAndTitle.has(titleOnlyKey)) {
+        topicBySubjectAndTitle.set(titleOnlyKey, t);
+      } else {
+        // Mark ambiguous if multiple topics share the exact same title in one subject
+        topicBySubjectAndTitle.set(titleOnlyKey, null);
       }
     }
+
+    const resolveTopicMatch = (
+      rowUid: string | undefined,
+      connId: string,
+      sheetId: string | number,
+      subjectCode: string,
+      unit: string,
+      topic: string,
+      subtopic: string
+    ): StudyTopic | undefined => {
+      if (rowUid) {
+        const byRow = topicByRowId.get(rowUid);
+        if (byRow) return byRow;
+        const bySource =
+          topicBySourceKey.get(rowUid) ||
+          topicBySourceKey.get(`${connId}:${sheetId}:${rowUid}`);
+        if (bySource) return bySource;
+      }
+
+      const rawKey = `${subjectCode.toUpperCase()}|${unit.toLowerCase()}|${topic.toLowerCase()}::${subtopic.toLowerCase()}`;
+      const byRaw = topicByConcept.get(rawKey);
+      if (byRaw) return byRaw;
+
+      const normSubj = normalizeForComparison(subjectCode);
+      const normUnit = normalizeForComparison(unit || 'general');
+      const normTop = normalizeForComparison(topic || '');
+      const normSub = normalizeForComparison(subtopic || '');
+
+      const byNorm = topicByNormConcept.get(`${normSubj}|${normUnit}|${normTop}|${normSub}`);
+      if (byNorm) return byNorm;
+
+      const byTitle = topicBySubjectAndTitle.get(`${normSubj}|${normSub || normTop}`);
+      return byTitle || undefined;
+    };
+
+    const applyTopicCompletion = async (matchedTopic: StudyTopic, isDone: boolean, rowUid?: string) => {
+      const needsUpdate =
+        Boolean(matchedTopic.theory) !== isDone || Boolean(matchedTopic.practice) !== isDone;
+      if (!needsUpdate) return;
+
+      matchedTopic.theory = isDone;
+      matchedTopic.practice = isDone;
+      if (rowUid && !matchedTopic.sourceRowId) {
+        matchedTopic.sourceRowId = rowUid;
+      }
+      matchedTopic.updatedAt = nowIso;
+
+      try {
+        await api.saveStudyTopic(matchedTopic);
+        totalUpdatedTopics++;
+        affectedSubjectCodes.add(matchedTopic.subjectCode);
+      } catch (saveErr) {
+        console.warn('[SheetStudySync] Could not save updated topic:', saveErr);
+      }
+    };
 
     for (const conn of activeConnections) {
       const tabs = await sheetHubStore.listTabsForConnection(userId, conn.id);
@@ -1020,116 +1092,160 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
 
       if (syllabusTabs.length === 0) continue;
 
-      const tabsToPull = syllabusTabs.map((t) => ({
-        sheetId: t.sheetId,
-        sheetTitle: t.sheetTitle,
-        headerRowIndex: t.headerRowIndex || 1,
-      }));
+      let pullRes: Awaited<ReturnType<typeof api.sheetHubPull>> | null = null;
+      if (!conn.isNative && conn.spreadsheetId !== 'sem3-syllabus-sample') {
+        const tabsToPull = syllabusTabs.map((t) => ({
+          sheetId: t.sheetId,
+          sheetTitle: t.sheetTitle,
+          headerRowIndex: t.headerRowIndex || 1,
+        }));
 
-      let pullRes;
-      try {
-        pullRes = await api.sheetHubPull(
-          {
-            spreadsheetId: conn.spreadsheetId,
-            tabs: tabsToPull,
-            publicAccess: Boolean((conn as any).isPublicLink),
-          },
-          token || undefined
-        );
-      } catch (pullErr) {
-        console.warn(`[SheetStudySync] Notice: could not pull from ${conn.spreadsheetId}:`, pullErr);
-        continue;
-      }
-
-      if (!pullRes || !pullRes.tabs) continue;
-
-      for (const pulledTab of pullRes.tabs) {
-        const tabSchema = syllabusTabs.find(
-          (t) => t.sheetTitle.toLowerCase() === pulledTab.sheetTitle.toLowerCase()
-        );
-        if (!tabSchema) continue;
-
-        const doneCol = findDoneColumn(tabSchema.columns);
-        const headers = pulledTab.headers || [];
-        let doneColIndex = doneCol ? doneCol.colIndex : -1;
-        if (doneColIndex < 0) {
-          doneColIndex = headers.findIndex((h) =>
-            /^(done|completed|status|chk|complete|checked)$/i.test(h.trim())
+        try {
+          pullRes = await api.sheetHubPull(
+            {
+              spreadsheetId: conn.spreadsheetId,
+              tabs: tabsToPull,
+              publicAccess: Boolean((conn as any).isPublicLink),
+            },
+            token || undefined
+          );
+        } catch (pullErr: unknown) {
+          livePullFailed = true;
+          livePullErrorDetail =
+            pullErr instanceof Error ? pullErr.message : 'Google Sheets pull failed';
+          console.warn(
+            `[SheetStudySync] Live pull failed for ${conn.spreadsheetId}, falling back to Sheet Hub cache:`,
+            pullErr
           );
         }
-        if (doneColIndex < 0) continue;
+      }
 
-        // Find subject for this tab
-        const matchedSubject = activeSubjects.find((s) =>
-          isSubjectMatchingTab(s.code, s.name, tabSchema.sheetTitle)
-        );
-        const subjectCode = matchedSubject?.code || `sub_${tabSchema.sheetTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+      if (pullRes && pullRes.tabs && pullRes.tabs.length > 0) {
+        for (const pulledTab of pullRes.tabs) {
+          const tabSchema = syllabusTabs.find(
+            (t) => t.sheetTitle.toLowerCase() === pulledTab.sheetTitle.toLowerCase()
+          );
+          if (!tabSchema) continue;
 
-        // Header indices for concept matching
-        const unitIdx = headers.findIndex((h) => /^(unit|module|chapter|section)$/i.test(h.trim()));
-        const topicIdx = headers.findIndex((h) => /^(topic|concept|title|name)$/i.test(h.trim()));
-        const subtopicIdx = headers.findIndex((h) => /^(sub[\s_-]?topic|subtopic|item|detail)$/i.test(h.trim()));
-
-        for (const pulledRow of pulledTab.rows || []) {
-          // Check for formula: never sync formula aggregate rows
-          if (pulledRow.formulaColumns?.includes(doneColIndex)) continue;
-
-          const rawDone = pulledRow.values[doneColIndex];
-          const isDone = parseBooleanDone(rawDone);
-
-          const rawUnit = unitIdx >= 0 ? String(pulledRow.values[unitIdx] ?? '').trim() : '';
-          const rawTopic = topicIdx >= 0 ? String(pulledRow.values[topicIdx] ?? '').trim() : '';
-          const rawSubtopic = subtopicIdx >= 0 ? String(pulledRow.values[subtopicIdx] ?? '').trim() : '';
-
-          if (isSummaryOrInvalidSyllabusRow(rawUnit, rawTopic, rawSubtopic).isInvalid) {
-            continue;
+          const doneCol = findDoneColumn(tabSchema.columns);
+          const headers = pulledTab.headers || [];
+          let doneColIndex = doneCol ? doneCol.colIndex : -1;
+          if (doneColIndex < 0) {
+            doneColIndex = headers.findIndex((h) =>
+              /^(done|completed|status|chk|complete|checked)$/i.test(h.trim())
+            );
           }
+          if (doneColIndex < 0) continue;
 
-          const unit = rawUnit || 'General';
-          const topic = rawTopic || rawSubtopic;
-          const subtopic = rawSubtopic || rawTopic;
+          const matchedSubject = activeSubjects.find((s) =>
+            isSubjectMatchingTab(s.code, s.name, tabSchema.sheetTitle)
+          );
+          const subjectCode =
+            matchedSubject?.code || `sub_${tabSchema.sheetTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
-          // Find topic in Study OS
-          const conceptKey = `${subjectCode.toUpperCase()}|${unit.toLowerCase()}|${topic.toLowerCase()}::${subtopic.toLowerCase()}`;
-          const matchedTopic =
-            (pulledRow as any).rowUid && topicByRowId.get((pulledRow as any).rowUid)
-              ? topicByRowId.get((pulledRow as any).rowUid)
-              : topicByConcept.get(conceptKey);
+          const unitCol = tabSchema.columns.find((c) => c.semanticRole === 'group');
+          const topicCol = tabSchema.columns.find((c) => c.semanticRole === 'subgroup' || c.semanticRole === 'title');
+          const subtopicCol = tabSchema.columns.find((c) => c.semanticRole === 'title');
 
-          if (!matchedTopic) continue;
+          const unitIdx = unitCol ? unitCol.colIndex : headers.findIndex((h) => /^(unit|module|chapter|section)$/i.test(h.trim()));
+          const topicIdx = topicCol ? topicCol.colIndex : headers.findIndex((h) => /^(topic|concept|title|name)$/i.test(h.trim()));
+          const subtopicIdx = subtopicCol ? subtopicCol.colIndex : headers.findIndex((h) => /^(sub[\s_-]?topic|subtopic|item|detail)$/i.test(h.trim()));
 
-          const isCurrentlyDone = Boolean(matchedTopic.theory && matchedTopic.practice);
+          for (const pulledRow of pulledTab.rows || []) {
+            if (pulledRow.formulaColumns?.includes(doneColIndex)) continue;
 
-          if (isDone !== isCurrentlyDone) {
-            matchedTopic.theory = isDone;
-            matchedTopic.practice = isDone;
-            matchedTopic.updatedAt = nowIso;
+            const isDone = parseBooleanDone(pulledRow.values[doneColIndex]);
+            const rawUnit = unitIdx >= 0 ? String(pulledRow.values[unitIdx] ?? '').trim() : '';
+            const rawTopic = topicIdx >= 0 ? String(pulledRow.values[topicIdx] ?? '').trim() : '';
+            const rawSubtopic = subtopicIdx >= 0 ? String(pulledRow.values[subtopicIdx] ?? '').trim() : '';
 
-            try {
-              await api.saveStudyTopic(matchedTopic);
-              totalUpdatedTopics++;
-              affectedSubjectCodes.add(matchedTopic.subjectCode);
-            } catch (saveErr) {
-              console.warn('[SheetStudySync] Could not save updated topic:', saveErr);
-            }
+            if (isSummaryOrInvalidSyllabusRow(rawUnit, rawTopic, rawSubtopic).isInvalid) continue;
+
+            const unit = rawUnit || 'General';
+            const topic = rawTopic || rawSubtopic;
+            const subtopic = rawSubtopic || rawTopic;
+
+            const matchedTopic = resolveTopicMatch(
+              (pulledRow as any).rowUid,
+              conn.id,
+              tabSchema.sheetId,
+              subjectCode,
+              unit,
+              topic,
+              subtopic
+            );
+            if (!matchedTopic) continue;
+
+            await applyTopicCompletion(matchedTopic, isDone, (pulledRow as any).rowUid);
+          }
+        }
+      } else {
+        // Reconcile from Sheet Sync Hub stored rows (Native Sheets, Demo, or when live Google pull fails/offline)
+        for (const tabSchema of syllabusTabs) {
+          const doneCol = findDoneColumn(tabSchema.columns);
+          if (!doneCol) continue;
+
+          const storedRows = await sheetHubStore.loadTabRows(userId, tabSchema.id).catch(() => []);
+          if (storedRows.length === 0) continue;
+
+          const matchedSubject = activeSubjects.find((s) =>
+            isSubjectMatchingTab(s.code, s.name, tabSchema.sheetTitle)
+          );
+          const subjectCode =
+            matchedSubject?.code || `sub_${tabSchema.sheetTitle.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+          const unitCol = tabSchema.columns.find((c) => c.semanticRole === 'group');
+          const topicCol = tabSchema.columns.find((c) => c.semanticRole === 'subgroup' || c.semanticRole === 'title');
+          const subtopicCol =
+            tabSchema.columns.find((c) => c.semanticRole === 'title') ||
+            tabSchema.columns.find((c) => c.inferredType === 'text');
+
+          for (const storedRow of storedRows) {
+            const vals = storedRow.values || storedRow.cells || {};
+            const isDone = parseBooleanDone(vals[doneCol.fieldKey]);
+
+            const rawUnit = unitCol ? String(vals[unitCol.fieldKey] ?? '').trim() : '';
+            const rawTopic = topicCol ? String(vals[topicCol.fieldKey] ?? '').trim() : '';
+            const rawSubtopic = subtopicCol ? String(vals[subtopicCol.fieldKey] ?? '').trim() : '';
+
+            if (isSummaryOrInvalidSyllabusRow(rawUnit, rawTopic, rawSubtopic).isInvalid) continue;
+
+            const unit = rawUnit || 'General';
+            const topic = rawTopic || rawSubtopic;
+            const subtopic = rawSubtopic || rawTopic;
+
+            const matchedTopic = resolveTopicMatch(
+              storedRow.rowUid,
+              conn.id,
+              tabSchema.sheetId,
+              subjectCode,
+              unit,
+              topic,
+              subtopic
+            );
+            if (!matchedTopic) continue;
+
+            await applyTopicCompletion(matchedTopic, isDone, storedRow.rowUid);
           }
         }
       }
 
-      // Update connection lastSyncedAt
-      try {
-        await sheetHubStore.saveConnection(
-          userId,
-          {
-            ...conn,
-            lastSyncedAt: nowIso,
-            lastSuccessfulPullAt: nowIso,
-            updatedAt: nowIso,
-          },
-          { force: true }
-        );
-      } catch {
-        // Non-fatal
+      // Update connection lastSyncedAt only when live pull succeeded or local-only sheet
+      if (!livePullFailed) {
+        try {
+          await sheetHubStore.saveConnection(
+            userId,
+            {
+              ...conn,
+              lastSyncedAt: nowIso,
+              lastSuccessfulPullAt: nowIso,
+              updatedAt: nowIso,
+            },
+            { force: true }
+          );
+        } catch {
+          // Non-fatal
+        }
       }
     }
 
@@ -1156,12 +1272,24 @@ export async function pollAndSyncGoogleSheetsToStudyOS(
       await flushPendingWritebacks(userId).catch(() => {});
     }
 
+    if (livePullFailed && totalUpdatedTopics === 0) {
+      return {
+        success: false,
+        syncedAt: nowIso,
+        updatedTopicsCount: 0,
+        updatedSubjectsCount: 0,
+        error: `Reconnect Google Sheets to pull live changes (${livePullErrorDetail || 'auth expired'}). Local Sheet Hub cache checked.`,
+      };
+    }
+
     return {
       success: true,
       syncedAt: nowIso,
       updatedTopicsCount: totalUpdatedTopics,
       updatedSubjectsCount,
-      error: null,
+      error: livePullFailed
+        ? 'Synced from local Sheet Hub cache; reconnect Google Sheets to pull live changes.'
+        : null,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -137,8 +137,14 @@ export const MonthlyCashflowChart: React.FC<MonthlyCashflowChartProps> = ({
                 />
               </div>
 
-              <span className="text-[11px] font-semibold text-[var(--ff-text-muted)] group-hover:text-[var(--ff-text-primary)]">
-                {m.month.slice(5)}
+              <span className="text-[11px] font-semibold text-[var(--ff-text-muted)] group-hover:text-[var(--ff-text-primary)] whitespace-nowrap">
+                {(() => {
+                  const [yr, mo] = m.month.split('-').map(Number);
+                  if (!yr || !mo) return m.month;
+                  const d = new Date(yr, mo - 1, 1);
+                  const mon = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(d);
+                  return `${mon} '${String(yr).slice(-2)}`;
+                })()}
               </span>
             </div>
           ))}

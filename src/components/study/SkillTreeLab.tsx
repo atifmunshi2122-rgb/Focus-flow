@@ -333,7 +333,7 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({
                           position: 'absolute',
                           left: `${col.x}px`,
                           top: '0px',
-                          width: '216px',
+                          width: '228px',
                         }}
                         className="flex items-center justify-between px-2.5 py-1 rounded-lg bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] hover:border-[var(--ff-accent)] transition-colors text-left"
                         title={`Focus on ${col.subjectName} skill tree`}
@@ -389,19 +389,29 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({
                       const preNode = nodeMap.get(preId);
                       if (!preNode) return null;
 
-                      const startX = (preNode.position?.x || 40) + 108;
-                      const startY = (preNode.position?.y || 32) + 96;
-                      const endX = (node.position?.x || 40) + 108;
-                      const endY = (node.position?.y || 32) + 2;
+                      const preX = preNode.position?.x || 40;
+                      const preY = preNode.position?.y || 32;
+                      const curX = node.position?.x || 40;
+                      const curY = node.position?.y || 32;
+                      const isSameRow = Math.abs(preY - curY) < 12;
+
+                      const startX = isSameRow ? preX + 228 : preX + 114;
+                      const startY = isSameRow ? preY + 52 : preY + 96;
+                      const endX = isSameRow ? curX - 2 : curX + 114;
+                      const endY = isSameRow ? curY + 52 : curY + 2;
 
                       const isComplete = preNode.status === 'completed';
                       const strokeColor = isComplete ? '#10b981' : 'rgba(148, 163, 184, 0.35)';
+                      const midX = (startX + endX) / 2;
                       const midY = (startY + endY) / 2;
+                      const pathD = isSameRow
+                        ? `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`
+                        : `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
 
                       return (
                         <path
                           key={`${preId}->${node.id}`}
-                          d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
+                          d={pathD}
                           fill="none"
                           stroke={strokeColor}
                           strokeWidth={isComplete ? 2.5 : 1.5}
@@ -449,18 +459,24 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({
                           position: 'absolute',
                           left: `${node.position?.x || 40}px`,
                           top: `${node.position?.y || 32}px`,
-                          width: '216px',
+                          width: '228px',
                         }}
                         className={`p-3 rounded-xl bg-[var(--ff-surface)] border text-left transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer ${borderClass} ${
                           isSelected ? 'ring-2 ring-[var(--ff-accent)] ring-offset-2 ring-offset-[var(--ff-surface)]' : ''
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-1 mb-1.5">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${bgBadge}`}>
-                            <Icon className="w-3 h-3" />
-                            {effectiveStatus.replace('_', ' ')}
+                        <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 whitespace-nowrap ${bgBadge}`}>
+                            <Icon className="w-3 h-3 shrink-0" />
+                            {effectiveStatus === 'completed'
+                              ? 'Done'
+                              : effectiveStatus === 'in_progress'
+                              ? 'Active'
+                              : effectiveStatus === 'available'
+                              ? 'Open'
+                              : 'Locked'}
                           </span>
-                          <span className="text-[10px] text-amber-400 font-mono">
+                          <span className="text-[10px] text-amber-400 font-mono shrink-0 whitespace-nowrap">
                             {node.earnedXp}/{node.maxXp} XP
                           </span>
                         </div>
@@ -571,9 +587,16 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({
             </div>
           )}
 
-          {/* Selected Node Details & Live Interactive Topic Checklist */}
+          {/* Selected Node Details & Live Interactive Topic Checklist (Centered Modal) */}
           {selectedNode && (
-            <div className="p-5 rounded-2xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] space-y-4">
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+              onClick={() => setSelectedNodeId(null)}
+            >
+              <div
+                className="w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-2xl space-y-4"
+                onClick={(e) => e.stopPropagation()}
+              >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -763,6 +786,7 @@ export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({
                   </div>
                 )}
               </div>
+            </div>
             </div>
           )}
         </>
