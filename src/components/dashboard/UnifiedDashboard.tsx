@@ -432,6 +432,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   );
 
   const handleToggleHabitFromDashboard = async (habitId: string) => {
+    const previousHabits = habits;
     setHabits((prev) =>
       prev.map((h) => {
         if (h.id !== habitId) return h;
@@ -449,6 +450,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       triggerRefresh();
     } catch (err) {
       console.error('Failed to toggle habit from dashboard:', err);
+      setHabits(previousHabits);
     }
   };
 
@@ -498,6 +500,8 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
     setInitializingSheets(true);
     try {
       await createOrConnectSpreadsheet();
+    } catch (err) {
+      console.error('Failed to initialize master sheets from dashboard:', err);
     } finally {
       setInitializingSheets(false);
     }
@@ -1927,7 +1931,16 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                 return (
                   <div
                     key={id}
-                    className="ff-surface-subtle p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs"
+                    draggable
+                    onDragStart={() => setDraggedWidget(id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => {
+                      if (draggedWidget && draggedWidget !== id) {
+                        moveWidget(draggedWidget, id);
+                      }
+                      setDraggedWidget(null);
+                    }}
+                    className="ff-surface-subtle p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs cursor-grab active:cursor-grabbing"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <GripVertical className="w-3.5 h-3.5 text-[var(--ff-text-muted)] shrink-0" />

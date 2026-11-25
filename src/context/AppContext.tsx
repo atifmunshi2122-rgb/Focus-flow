@@ -2066,6 +2066,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       } else if (engine === 'countdown') {
         const secs = 15 * 60;
+        setTimerMode('work');
         timeLeftRef.current = secs;
         totalDurationRef.current = secs;
         setTimeLeft(secs);
@@ -2637,40 +2638,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         totalPauseSecsRef.current = 0;
 
         if (isLeader) {
+          const pendingCreate = activeSessId ? pendingSessionCreationRef.current[activeSessId] : undefined;
+          const waitPendingCreate = pendingCreate ? pendingCreate.catch(() => null) : Promise.resolve(null);
+
           const savePromise = activeSessId
-            ? api
-                .updateFocusSession(activeSessId, {
-                  completed: true,
-                  status: 'completed',
-                  actualDurationSeconds: actualSecs,
-                  endedAt,
-                  endReason: 'completed',
-                  interrupted: wasInterrupted,
-                  pauseCount: pCount,
-                  totalPauseSeconds: pSecs,
-                })
-                .catch(() =>
-                  api.createFocusSession({
-                    id: activeSessId,
-                    taskId: taskNow,
-                    mode: 'work',
-                    durationMinutes: durationMin,
-                    durationSeconds: safeDurationSecs,
-                    actualDurationSeconds: actualSecs,
+            ? waitPendingCreate.then(() =>
+                api
+                  .updateFocusSession(activeSessId, {
                     completed: true,
                     status: 'completed',
+                    actualDurationSeconds: actualSecs,
+                    endedAt,
                     endReason: 'completed',
                     interrupted: wasInterrupted,
                     pauseCount: pCount,
                     totalPauseSeconds: pSecs,
-                    startedAt,
-                    endedAt,
-                    presetId: activePresetIdRef.current || undefined,
-                    subjectCode: studySubjectNow || undefined,
-                    topicId: studyTopicNow || undefined,
-                    activityType: studyActivityNow || (studySubjectNow || studyTopicNow ? 'study' : undefined),
                   })
-                )
+                  .catch(() =>
+                    api.createFocusSession({
+                      id: activeSessId,
+                      taskId: taskNow,
+                      mode: 'work',
+                      durationMinutes: durationMin,
+                      durationSeconds: safeDurationSecs,
+                      actualDurationSeconds: actualSecs,
+                      completed: true,
+                      status: 'completed',
+                      endReason: 'completed',
+                      interrupted: wasInterrupted,
+                      pauseCount: pCount,
+                      totalPauseSeconds: pSecs,
+                      startedAt,
+                      endedAt,
+                      presetId: activePresetIdRef.current || undefined,
+                      subjectCode: studySubjectNow || undefined,
+                      topicId: studyTopicNow || undefined,
+                      activityType: studyActivityNow || (studySubjectNow || studyTopicNow ? 'study' : undefined),
+                    })
+                  )
+              )
             : api.createFocusSession({
                 taskId: taskNow,
                 mode: 'work',
@@ -2699,26 +2705,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 api.saveStudyTopic({ id: studyTopicNow, theory: true }).catch(console.error);
               }
 
-              await syncCoordinator.syncMutation(
-                'Focus_Sessions',
-                [
-                  newSession.id,
-                  newSession.startedAt.split('T')[0],
-                  'WORK',
-                  newSession.durationMinutes,
-                  newSession.taskTitle ||
-                    (newSession.subjectCode
-                      ? `Study: ${newSession.subjectCode}${newSession.activityType ? ` (${newSession.activityType})` : ''}`
-                      : 'Focus Session'),
-                  'YES',
-                  newSession.startedAt,
-                  newSession.endedAt,
-                ],
-                'append',
-                `Focus_Sessions_append_${newSession.id}`
-              );
-
+              // Refresh UI immediately once session is saved in Firestore/local DB
               refreshNow();
+
+              try {
+                await syncCoordinator.syncMutation(
+                  'Focus_Sessions',
+                  [
+                    newSession.id,
+                    newSession.startedAt.split('T')[0],
+                    'WORK',
+                    newSession.durationMinutes,
+                    newSession.taskTitle ||
+                      (newSession.subjectCode
+                        ? `Study: ${newSession.subjectCode}${newSession.activityType ? ` (${newSession.activityType})` : ''}`
+                        : 'Focus Session'),
+                    'YES',
+                    newSession.startedAt,
+                    newSession.endedAt,
+                  ],
+                  'append',
+                  `Focus_Sessions_append_${newSession.id}`
+                );
+              } catch (syncErr) {
+                console.warn('[Focus] Sheets sync deferred after session save:', syncErr);
+              }
             })
             .catch(console.error);
         }
@@ -2774,8 +2785,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           autoSwitchTimeoutRef.current = setTimeout(() => {
             autoSwitchTimeoutRef.current = null;
             completionHandledRef.current = false;
-            targetEndTimeMsRef.current = Date.now() + workMinutes * 60 * 1000;
-            sessionStartTimeRef.current = new Date().toISOString();
+            const workSecs = workMinutes * 60;
+            const targetEnd = Date.now() + workSecs * 1000;
+            const startIso = new Date().toISOString();
+            targetEndTimeMsRef.current = targetEnd;
+            sessionStartTimeRef.current = startIso;
+            totalDurationRef.current = workSecs;
+            timeLeftRef.current = workSecs;
+
+            const newSessId = `foc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            activeSessionIdRef.current = newSessId;
+            setActiveSessionIdState(newSessId);
+            const createPromise = api.createFocusSession({
+              id: newSessId,
+              mode: 'work',
+              durationMinutes: workMinutes,
+              durationSeconds: workSecs,
+              actualDurationSeconds: 0,
+              completed: false,
+              status: 'in_progress',
+              presetId: activePresetIdRef.current || undefined,
+              taskId: taskNow || undefined,
+              subjectCode: studySubjectNow || undefined,
+              topicId: studyTopicNow || undefined,
+              activityType: studyActivityNow || (studySubjectNow || studyTopicNow ? 'study' : undefined),
+              startedAt: startIso,
+              endedAt: null,
+            });
+            pendingSessionCreationRef.current[newSessId] = createPromise;
+            createPromise
+              .catch(console.warn)
+              .finally(() => {
+                delete pendingSessionCreationRef.current[newSessId];
+              });
+
+            saveTimerState(
+              {
+                timerEngine,
+                timerMode: 'work',
+                isRunning: true,
+                timeLeft: workSecs,
+                totalDuration: workSecs,
+                targetEndTimeMs: targetEnd,
+                stopwatchStartMs: null,
+                sessionStartTime: startIso,
+                activeSessionId: newSessId,
+                activePresetId: activePresetIdRef.current,
+                activeTaskId: taskNow,
+                activeStudySubjectCode: studySubjectNow,
+                activeStudyTopicId: studyTopicNow,
+                activeStudyActivityType: studyActivityNow,
+              },
+              typeof window !== 'undefined' ? window.localStorage : null,
+              fbUserNow?.uid
+            );
             setIsRunning(true);
           }, 1000);
         }

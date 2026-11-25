@@ -108,21 +108,27 @@ export const FocusReceiptModal: React.FC<FocusReceiptModalProps> = ({
   };
 
   const handleShare = async () => {
+    const shareText = `Today on FocusFlow: ${data.totalPomodoroMinutes}m Deep Focus, ${data.completedTasksCount} tasks completed, ${data.currentStreak} day streak! Score: ${data.productivityScore}/100.`;
+    const copyText = `FocusFlow Receipt (${data.date})\nDeep Focus: ${data.totalPomodoroMinutes}m\nTasks: ${data.completedTasksCount}\nStreak: ${data.currentStreak} days\nScore: ${data.productivityScore}/100`;
+
     if (navigator.share) {
       try {
         await navigator.share({
           title: `FocusFlow Daily Receipt - ${data.date}`,
-          text: `Today on FocusFlow: ${data.totalPomodoroMinutes}m Deep Focus, ${data.completedTasksCount} tasks completed, ${data.currentStreak} day streak! Score: ${data.productivityScore}/100.`,
+          text: shareText,
         });
-      } catch {
-        // Share cancelled or unavailable
+        return;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        // Fall through to clipboard copy if share is blocked or unavailable
       }
-    } else {
-      await navigator.clipboard.writeText(
-        `FocusFlow Receipt (${data.date})\nDeep Focus: ${data.totalPomodoroMinutes}m\nTasks: ${data.completedTasksCount}\nStreak: ${data.currentStreak} days\nScore: ${data.productivityScore}/100`
-      );
+    }
+    try {
+      await navigator.clipboard.writeText(copyText);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2500);
+    } catch {
+      // Clipboard unavailable
     }
   };
 
