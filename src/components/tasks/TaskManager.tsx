@@ -949,7 +949,8 @@ export const TaskManager: React.FC = () => {
             return (
               <ThemeCard
                 key={col.id}
-                variant="3d"
+                variant="default"
+                tilt={false}
                 className="space-y-3 min-h-[320px]"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => {
@@ -970,7 +971,7 @@ export const TaskManager: React.FC = () => {
                     {colTasks.length}
                   </ThemeBadge>
                 </div>
-                <div className="space-y-2.5">
+                <div className="space-y-2.5 max-h-[620px] overflow-y-auto pr-1">
                   {colTasks.map((t) => (
                     <div
                       key={t.id}

@@ -250,7 +250,7 @@ service cloud.firestore {
               && isPositivePaise(request.resource.data.amountPaise)
               && request.resource.data.recurrence in ['monthly', 'quarterly', 'yearly']
               && isBoundedInt(request.resource.data.dueDay, 1, 31)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'amountPaise', 'category', 'categoryId', 'recurrence', 'dueDay', 'autoPaid', 'isActive', 'notes', 'updatedAt', 'deletedAt'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'amountPaise', 'category', 'categoryId', 'categoryName', 'recurrence', 'dueDay', 'autoPaid', 'isActive', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -304,7 +304,7 @@ service cloud.firestore {
               && isPositivePaise(request.resource.data.amountPaise)
               && isIsoDate(request.resource.data.dueDate)
               && request.resource.data.status in ['PAID', 'UNPAID', 'OVERDUE']
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'amountPaise', 'dueDate', 'category', 'categoryId', 'periodKey', 'status', 'paymentDate', 'lastPaymentId', 'lastPaymentIdempotencyKey', 'isAutoPay', 'notes', 'updatedAt', 'deletedAt'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['recurringExpenseId', 'name', 'amountPaise', 'dueDate', 'category', 'categoryId', 'categoryName', 'categoryColor', 'periodKey', 'status', 'paymentDate', 'paymentMethod', 'lastPaymentId', 'lastPaymentIdempotencyKey', 'isAutoPay', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -362,7 +362,7 @@ service cloud.firestore {
               && isBoundedInt(request.resource.data.startMinute, 0, 1440)
               && isBoundedInt(request.resource.data.endMinute, 0, 1440)
               && request.resource.data.endMinute > request.resource.data.startMinute
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'date', 'startMinute', 'endMinute', 'color', 'category', 'completed', 'taskId', 'revisionId', 'notes', 'updatedAt', 'deletedAt'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'date', 'startMinute', 'endMinute', 'color', 'category', 'completed', 'taskId', 'revisionId', 'subjectCode', 'topicId', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -384,7 +384,7 @@ service cloud.firestore {
             isSoftDelete(resource.data) || (
               isNonEmptyString(request.resource.data.name, 128)
               && isNonNegativePaise(request.resource.data.allocatedPaise)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'allocatedPaise', 'spentPaise', 'color', 'icon', 'category', 'categoryId', 'monthKey', 'notes', 'updatedAt', 'deletedAt'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'allocatedPaise', 'spentPaise', 'color', 'icon', 'category', 'categoryId', 'categoryName', 'monthKey', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);
@@ -410,7 +410,7 @@ service cloud.firestore {
               && isPositivePaise(request.resource.data.amountPaise)
               && request.resource.data.billingCycle in ['monthly', 'quarterly', 'yearly']
               && isIsoDate(request.resource.data.nextRenewalDate)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'amountPaise', 'billingCycle', 'category', 'categoryId', 'nextRenewalDate', 'reminderDays', 'status', 'autoRenew', 'websiteUrl', 'notes', 'updatedAt', 'deletedAt'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'amountPaise', 'billingCycle', 'category', 'categoryId', 'categoryName', 'nextRenewalDate', 'reminderDays', 'status', 'autoRenew', 'websiteUrl', 'notes', 'updatedAt', 'deletedAt'])
             )
           );
         allow delete: if isOwner(userId);

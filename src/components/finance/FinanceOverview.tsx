@@ -214,6 +214,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({ onOpenQuickAct
           ariaLabel="Finance sections"
           value={subTab}
           onChange={setSubTab}
+          wrap
           options={[
             { id: 'overview', label: 'Overview & Budgets' },
             { id: 'daily', label: 'Daily Tracker' },

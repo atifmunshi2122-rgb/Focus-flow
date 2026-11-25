@@ -56,9 +56,26 @@ export const StudyProgressDashboard: React.FC<StudyProgressDashboardProps> = ({
   const [activeUnitSubject, setActiveUnitSubject] = useState<string>('all');
   const [isUnitBreakdownExpanded, setIsUnitBreakdownExpanded] = useState<boolean>(true);
 
-  // Active records only (filter soft-deleted)
-  const activeSubjects = useMemo(() => subjects.filter((s) => !s.deletedAt), [subjects]);
-  const activeTopics = useMemo(() => topics.filter((t) => !t.deletedAt), [topics]);
+  // Active records only (filter soft-deleted & deduplicate by code/id)
+  const activeSubjects = useMemo(() => {
+    const seen = new Set<string>();
+    return subjects.filter((s) => {
+      if (s.deletedAt || !s.code || seen.has(s.code)) return false;
+      seen.add(s.code);
+      return true;
+    });
+  }, [subjects]);
+
+  const activeTopics = useMemo(() => {
+    const seen = new Set<string>();
+    const activeCodes = new Set(activeSubjects.map((s) => s.code));
+    return topics.filter((t) => {
+      if (t.deletedAt || seen.has(t.id)) return false;
+      if (activeCodes.size > 0 && !activeCodes.has(t.subjectCode)) return false;
+      seen.add(t.id);
+      return true;
+    });
+  }, [topics, activeSubjects]);
 
   // Overall metrics calculation (strictly based on actual topics)
   const metrics = useMemo(() => {

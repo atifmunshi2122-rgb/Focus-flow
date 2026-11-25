@@ -350,7 +350,7 @@ export const TodaysPrioritiesCard: React.FC<TodaysPrioritiesCardProps> = ({
                     className="w-full text-left ff-surface-subtle px-2.5 py-1.5 flex items-center justify-between gap-2 text-xs hover:border-[var(--ff-accent-border)] border border-transparent transition-colors"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-[var(--ff-text-primary)] truncate">
+                      <p className="font-medium text-[var(--ff-text-primary)] whitespace-normal break-words leading-snug line-clamp-2">
                         {ev.title}
                       </p>
                       <p className="text-[10px] text-[var(--ff-text-muted)] capitalize truncate">

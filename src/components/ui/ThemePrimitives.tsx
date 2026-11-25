@@ -239,6 +239,7 @@ interface ThemeSegmentedControlProps<T extends string> {
   ariaLabel?: string;
   className?: string;
   fullWidth?: boolean;
+  wrap?: boolean;
 }
 
 export function ThemeSegmentedControl<T extends string>({
@@ -248,6 +249,7 @@ export function ThemeSegmentedControl<T extends string>({
   ariaLabel,
   className = '',
   fullWidth = false,
+  wrap = false,
 }: ThemeSegmentedControlProps<T>) {
   const controlId = useId();
   const prefersReduced = Boolean(useReducedMotion());
@@ -256,7 +258,7 @@ export function ThemeSegmentedControl<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className={`ff-segmented ${fullWidth ? 'w-full' : ''} overflow-x-auto ${className}`.trim()}
+      className={`ff-segmented ${fullWidth ? 'w-full' : ''} ${wrap ? 'flex-wrap overflow-visible' : 'overflow-x-auto'} ${className}`.trim()}
     >
       {options.map((opt) => {
         const isActive = opt.id === value;

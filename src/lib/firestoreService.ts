@@ -145,6 +145,26 @@ const DEFAULT_CATEGORY_TEMPLATES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
   { name: 'Emergency & Miscellaneous', type: 'variable', icon: 'AlertCircle', color: '#64748b' },
 ];
 
+function resolveCategoryId(
+  cats: ExpenseCategory[],
+  inputCategoryId?: string | null,
+  inputCategoryName?: string | null
+): string {
+  if (inputCategoryId) return inputCategoryId;
+  const rawName = String(inputCategoryName || '').trim().toLowerCase();
+  if (rawName) {
+    const exact = cats.find((c) => c.name.toLowerCase() === rawName);
+    if (exact) return exact.id;
+    const partial = cats.find(
+      (c) => c.name.toLowerCase().includes(rawName) || rawName.includes(c.name.toLowerCase())
+    );
+    if (partial) return partial.id;
+  }
+  const miscCat = cats.find((c) => /misc|other|general/i.test(c.name));
+  if (miscCat) return miscCat.id;
+  return cats[cats.length - 1]?.id || 'cat_12';
+}
+
 function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -1093,18 +1113,7 @@ export const firestoreService = {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Valid amount is required');
 
     const cats = await this.getCategories(userId);
-    let categoryId = input.categoryId;
-    if (!categoryId && (input as any).categoryName) {
-      const rawName = String((input as any).categoryName).trim().toLowerCase();
-      const match = cats.find((c) => c.name.toLowerCase() === rawName) ||
-                    cats.find((c) => c.name.toLowerCase().includes(rawName) || rawName.includes(c.name.toLowerCase()));
-      if (match) {
-        categoryId = match.id;
-      }
-    }
-    if (!categoryId) {
-      categoryId = cats[0]?.id || 'cat_1';
-    }
+    const categoryId = resolveCategoryId(cats, input.categoryId, (input as any).categoryName);
     const dueDayNum = Number(input.dueDay);
     const now = new Date().toISOString();
 
@@ -1222,18 +1231,7 @@ export const firestoreService = {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Valid amount is required');
 
     const cats = await this.getCategories(userId);
-    let categoryId = input.categoryId;
-    if (!categoryId && (input as any).categoryName) {
-      const rawName = String((input as any).categoryName).trim().toLowerCase();
-      const match = cats.find((c) => c.name.toLowerCase() === rawName) ||
-                    cats.find((c) => c.name.toLowerCase().includes(rawName) || rawName.includes(c.name.toLowerCase()));
-      if (match) {
-        categoryId = match.id;
-      }
-    }
-    if (!categoryId) {
-      categoryId = cats[0]?.id || 'cat_1';
-    }
+    const categoryId = resolveCategoryId(cats, input.categoryId, (input as any).categoryName);
     const created: ExpenseTransaction = {
       id:
         typeof input.id === 'string' && /^[a-zA-Z0-9_-]{3,128}$/.test(input.id)

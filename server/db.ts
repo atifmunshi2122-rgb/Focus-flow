@@ -957,11 +957,14 @@ export class DatabaseService {
   }
 
   public getFallbackCategoryId(userId: string): string {
-    const userCat = this.db.categories.find((c) => c.userId === userId || c.userId === 'system');
-    if (userCat) return userCat.id;
+    const userCats = this.db.categories.filter((c) => c.userId === userId || c.userId === 'system');
+    const miscCat = userCats.find((c) => /misc|other|general/i.test(c.name));
+    if (miscCat) return miscCat.id;
+    if (userCats.length > 0) return userCats[userCats.length - 1].id;
     const { user } = this.ensureUserWorkspace(userId);
-    const created = this.db.categories.find((c) => c.userId === user.id);
-    return created ? created.id : 'cat_1';
+    const createdCats = this.db.categories.filter((c) => c.userId === user.id);
+    const createdMisc = createdCats.find((c) => /misc|other|general/i.test(c.name));
+    return createdMisc ? createdMisc.id : createdCats[createdCats.length - 1]?.id || 'cat_12';
   }
 
   public reseed(targetUserId?: string) {

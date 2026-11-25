@@ -64,10 +64,10 @@ export const BinauralBeatsController: React.FC = () => {
           >
             <Headphones className="w-4 h-4" />
           </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-bold text-[var(--ff-text-primary)]">Web Audio Binaural Beats</h4>
-              <ThemeBadge tone="accent">Native Stereo</ThemeBadge>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-xs font-bold text-[var(--ff-text-primary)] whitespace-nowrap">Web Audio Binaural Beats</h4>
+              <ThemeBadge tone="accent" className="shrink-0">Native Stereo</ThemeBadge>
             </div>
             <p className="text-[11px] text-[var(--ff-text-muted)]">
               Pure dual-oscillator frequency difference. Wear stereo headphones for brainwave entrainment.

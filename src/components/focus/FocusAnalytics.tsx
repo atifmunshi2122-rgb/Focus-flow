@@ -55,6 +55,7 @@ export const FocusAnalytics: React.FC = () => {
   const hasCachedFocus = Boolean(cachedSessions || cachedStats);
 
   const [subTab, setSubTab] = useState<'analytics' | 'timeline' | 'planner'>('analytics');
+  const [hideMicroSessions, setHideMicroSessions] = useState<boolean>(true);
   const [stats, setStats] = useState<FocusStatsData | null>(() => cachedStats);
   const [sessions, setSessions] = useState<FocusSession[]>(() => cachedSessions || []);
   const [tasks, setTasks] = useState<Task[]>(() => cachedTasks || []);
@@ -769,25 +770,51 @@ export const FocusAnalytics: React.FC = () => {
 
       {/* Focus Session History Log */}
       <ThemeCard>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <div className="flex items-center gap-2">
             <History className="w-4 h-4" style={{ color: 'var(--ff-accent-text)' }} />
             <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">Session History Log</h3>
           </div>
-          <span className="text-xs text-[var(--ff-text-muted)]">
-            {sessions.length} total recorded
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setHideMicroSessions((v) => !v)}
+              className="px-2 py-0.5 rounded-md border border-[var(--ff-border-color)] text-[11px] font-medium text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"
+              title="Toggle interrupted sessions shorter than 1 minute"
+            >
+              {hideMicroSessions ? 'Show <1m' : 'Hide <1m'}
+            </button>
+            <span className="text-xs text-[var(--ff-text-muted)]">
+              {sessions.length} total recorded
+            </span>
+          </div>
         </div>
 
-        {sessions.length === 0 ? (
-          <EmptyStateIllustration
-            icon={<History className="w-6 h-6" />}
-            title="No completed sessions yet"
-            description="Start your first Pomodoro session above to build focus momentum."
-          />
-        ) : (
+        {(() => {
+          const visibleHistory = hideMicroSessions
+            ? sessions.filter((s) => {
+                if (s.completed) return true;
+                const secs =
+                  typeof s.actualDurationSeconds === 'number' && !Number.isNaN(s.actualDurationSeconds)
+                    ? s.actualDurationSeconds
+                    : (s.durationMinutes || 0) * 60;
+                return secs >= 60;
+              })
+            : sessions;
+
+          if (visibleHistory.length === 0) {
+            return (
+              <EmptyStateIllustration
+                icon={<History className="w-6 h-6" />}
+                title="No completed sessions yet"
+                description="Start your first Pomodoro session above to build focus momentum."
+              />
+            );
+          }
+
+          return (
           <div className="divide-y ff-divider">
-            {sessions.slice(0, 8).map((s) => {
+            {visibleHistory.slice(0, 8).map((s) => {
               const startDate = new Date(s.startedAt);
               const formattedDate = startDate.toLocaleDateString(undefined, {
                 month: 'short',
@@ -867,12 +894,19 @@ export const FocusAnalytics: React.FC = () => {
                         Completed
                       </span>
                     ) : s.status === 'in_progress' ? (
-                      <span
-                        className="block text-[10px] font-semibold"
-                        style={{ color: 'var(--ff-accent-text)' }}
-                      >
-                        In Progress
-                      </span>
+                      (() => {
+                        const ageSecs = Math.max(0, (Date.now() - startDate.getTime()) / 1000);
+                        const maxWindow = Math.max(s.durationSeconds || 3600, 3600) + 3600;
+                        const isStaleSession = ageSecs > maxWindow;
+                        return (
+                          <span
+                            className="block text-[10px] font-semibold"
+                            style={{ color: isStaleSession ? 'var(--ff-warning)' : 'var(--ff-accent-text)' }}
+                          >
+                            {isStaleSession ? 'Incomplete' : 'In Progress'}
+                          </span>
+                        );
+                      })()
                     ) : (
                       <span className="block text-[10px] font-semibold text-amber-500">
                         {s.endReason === 'skipped' ? 'Ended Early' : 'Interrupted'}
@@ -883,7 +917,8 @@ export const FocusAnalytics: React.FC = () => {
               );
             })}
           </div>
-        )}
+          );
+        })()}
       </ThemeCard>
         </>
       )}

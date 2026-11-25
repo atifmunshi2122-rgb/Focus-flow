@@ -251,7 +251,15 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const dailySafeLimitPaise =
     monthlyCapPaise > 0 ? Math.round(remainingBudgetPaise / daysRemaining) : 0;
   const todaySpentPaise = data?.todayExpensesPaise || 0;
-  const isOverDailyLimit = dailySafeLimitPaise > 0 && todaySpentPaise > dailySafeLimitPaise;
+  // Compare today's spending against today's start-of-day allowance (before subtracting today's expenses)
+  const startOfDayRemainingPaise = Math.max(
+    0,
+    monthlyCapPaise - Math.max(0, spentMonthPaise - todaySpentPaise)
+  );
+  const dailyAllowanceTodayPaise =
+    monthlyCapPaise > 0 ? Math.round(startOfDayRemainingPaise / daysRemaining) : 0;
+  const isOverDailyLimit =
+    dailyAllowanceTodayPaise > 0 && todaySpentPaise > dailyAllowanceTodayPaise;
 
   useEffect(() => {
     const id = setInterval(() => setNowClock(new Date()), 1000);
