@@ -1,714 +1,771 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import type { StudySubject, StudyTopic } from '../../types/study.ts';
 import {
-  SkillNode,
-  SkillTreePreset,
-  SkillNodeStatus,
-} from '../../types/features15.ts';
-import { useApp } from '../../context/AppContext.tsx';
-import { api } from '../../lib/api.ts';
-import {
-  SKILL_TREE_PRESETS,
-  resolveNodeStatus,
+  buildStudySkillTreesFromSyllabus,
   computeTreeStats,
-  hasCycle,
+  resolveNodeStatus,
+  type StudySkillNode,
+  type StudySkillTree,
 } from '../../lib/skillTreeEngine.ts';
-import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
+import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
-  Sparkles,
   Lock,
   Unlock,
   CheckCircle2,
-  Clock,
   Play,
-  RotateCcw,
   Plus,
   GitBranch,
-  Layers,
-  AlertCircle,
   Award,
-  ChevronRight,
-  HelpCircle,
+  BookOpen,
+  ExternalLink,
+  CheckSquare,
+  Circle,
+  Sparkles,
 } from 'lucide-react';
-import { playStudyMilestoneSound } from '../../lib/sound.ts';
 
 interface SkillTreeLabProps {
-  onAttachToTopic?: (nodeTitle: string) => void;
+  subjects: StudySubject[];
+  topics: StudyTopic[];
+  onOpenInSyllabus?: (subjectCode: string, unitOrQuery?: string) => void;
+  onToggleTopicFlag?: (topicId: string, flag: 'theory' | 'practice' | 'pyq') => void;
+  onToggleTopicCompleted?: (topicId: string) => void;
+  onAddSubject?: () => void;
+  onAddTopic?: (subjectCode?: string) => void;
 }
 
-export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({ onAttachToTopic }) => {
-  const { user } = useApp();
-  const activeUid = user?.id || 'usr_guest';
-  const storageKey = `focusflow_${activeUid}_skill_tree_state`;
+export const SkillTreeLab: React.FC<SkillTreeLabProps> = ({
+  subjects,
+  topics,
+  onOpenInSyllabus,
+  onToggleTopicFlag,
+  onToggleTopicCompleted,
+  onAddSubject,
+  onAddTopic,
+}) => {
+  const { allSubjectsTree, subjectTrees } = useMemo(
+    () => buildStudySkillTreesFromSyllabus(subjects, topics),
+    [subjects, topics]
+  );
 
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('cs-foundations');
-  const [activePreset, setActivePreset] = useState<SkillTreePreset>(() => {
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.nodes) return parsed;
-      } catch {
-        // fallback
-      }
-    }
-    return SKILL_TREE_PRESETS[0];
-  });
+  const availableTracks = useMemo<StudySkillTree[]>(
+    () => [allSubjectsTree, ...subjectTrees],
+    [allSubjectsTree, subjectTrees]
+  );
 
-  // Sync user-scoped storage & backend
-  useEffect(() => {
-    let isMounted = true;
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.nodes) setActivePreset(parsed);
-      } catch {}
-    } else {
-      setActivePreset(SKILL_TREE_PRESETS[0]);
-    }
-
-    api.getSkillNodes().then((remoteNodes) => {
-      if (isMounted && Array.isArray(remoteNodes) && remoteNodes.length > 0) {
-        setActivePreset((prev) => {
-          const remoteMap = new Map(remoteNodes.map((rn) => [rn.id, rn]));
-          const mergedNodes = prev.nodes.map((node) => {
-            const remote = remoteMap.get(node.id);
-            return remote ? { ...node, status: remote.status, completedAt: remote.completedAt } : node;
-          });
-          const updated = { ...prev, nodes: mergedNodes };
-          try {
-            localStorage.setItem(storageKey, JSON.stringify(updated));
-          } catch {}
-          return updated;
-        });
-      }
-    }).catch(() => {});
-
-    return () => {
-      isMounted = false;
-    };
-  }, [storageKey]);
-
+  const [selectedTrackId, setSelectedTrackId] = useState<string>('all-subjects');
   const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newNodeTitle, setNewNodeTitle] = useState('');
-  const [newNodeCategory, setNewNodeCategory] = useState('');
-  const [newNodeHours, setNewNodeHours] = useState(10);
-  const [newNodePrereqs, setNewNodePrereqs] = useState<string[]>([]);
-  const [cycleError, setCycleError] = useState<string | null>(null);
 
-  // Persist skill tree state locally
-  const saveState = (updatedPreset: SkillTreePreset) => {
-    setActivePreset(updatedPreset);
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(updatedPreset));
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleSelectPreset = (presetId: string) => {
-    const found = SKILL_TREE_PRESETS.find((p) => p.id === presetId);
-    if (found) {
-      setSelectedPresetId(presetId);
-      saveState(JSON.parse(JSON.stringify(found)));
+  // Keep selected track valid if subjects change
+  useEffect(() => {
+    if (!availableTracks.some((t) => t.id === selectedTrackId)) {
+      setSelectedTrackId('all-subjects');
       setSelectedNodeId(null);
     }
-  };
+  }, [availableTracks, selectedTrackId]);
 
-  const stats = useMemo(() => {
-    return computeTreeStats(activePreset.nodes);
-  }, [activePreset.nodes]);
+  const activeTree = useMemo<StudySkillTree>(() => {
+    return availableTracks.find((t) => t.id === selectedTrackId) || allSubjectsTree;
+  }, [availableTracks, selectedTrackId, allSubjectsTree]);
 
-  const selectedNode = useMemo(() => {
-    return activePreset.nodes.find((n) => n.id === selectedNodeId) || null;
-  }, [activePreset.nodes, selectedNodeId]);
+  const stats = useMemo(() => computeTreeStats(activeTree.nodes), [activeTree.nodes]);
 
-  const handleStatusChange = (nodeId: string, newStatus: SkillNodeStatus) => {
-    let targetNode: SkillNode | null = null;
-    const updatedNodes = activePreset.nodes.map((n) => {
-      if (n.id === nodeId) {
-        targetNode = {
-          ...n,
-          status: newStatus,
-          completedAt: newStatus === 'completed' ? new Date().toISOString() : undefined,
-        };
-        return targetNode;
-      }
-      return n;
-    });
+  const nodeMap = useMemo(
+    () => new Map<string, StudySkillNode>(activeTree.nodes.map((n) => [n.id, n])),
+    [activeTree.nodes]
+  );
 
-    if (newStatus === 'completed') {
-      try {
-        playStudyMilestoneSound();
-      } catch {
-        // audio error fallback
-      }
+  const selectedNode = useMemo(
+    () => activeTree.nodes.find((n) => n.id === selectedNodeId) || null,
+    [activeTree.nodes, selectedNodeId]
+  );
+
+  // Map topicId -> live StudyTopic for interactive checklist inside drawer
+  const topicById = useMemo(
+    () => new Map<string, StudyTopic>(topics.map((t) => [t.id, t])),
+    [topics]
+  );
+
+  const selectedNodeTopics = useMemo(() => {
+    if (!selectedNode) return [];
+    return selectedNode.topicIds
+      .map((id) => topicById.get(id))
+      .filter((t): t is StudyTopic => Boolean(t));
+  }, [selectedNode, topicById]);
+
+  // Dynamic SVG canvas dimensions so nothing clips horizontally or vertically
+  const canvasDimensions = useMemo(() => {
+    if (activeTree.nodes.length === 0) {
+      return { width: 700, height: 340 };
     }
-
-    saveState({ ...activePreset, nodes: updatedNodes });
-    if (targetNode) {
-      api.saveSkillNode(targetNode).catch(() => {});
-    }
-  };
-
-  const handleResetProgress = () => {
-    if (!window.confirm('Reset progress for this skill tree? All completed nodes will be locked/available.')) return;
-    const original = SKILL_TREE_PRESETS.find((p) => p.id === activePreset.id) || SKILL_TREE_PRESETS[0];
-    saveState(JSON.parse(JSON.stringify(original)));
-    setSelectedNodeId(null);
-  };
-
-  const handleCreateNode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newNodeTitle.trim()) return;
-
-    const newId = `custom-${Date.now()}`;
-    const candidateNode: SkillNode = {
-      id: newId,
-      trackId: activePreset.id,
-      title: newNodeTitle.trim(),
-      description: `Custom mastery unit for ${newNodeCategory || 'Independent Study'}`,
-      category: newNodeCategory.trim() || 'Custom',
-      tier: newNodePrereqs.length > 0 ? 2 : 1,
-      xpPoints: 100,
-      status: 'available',
-      prerequisites: newNodePrereqs,
-      estimatedHours: newNodeHours,
-      tags: ['Custom'],
-      position: { x: 200, y: (activePreset.nodes.length + 1) * 80 },
+    const maxX = Math.max(...activeTree.nodes.map((n) => (n.position?.x || 0) + 220));
+    const maxY = Math.max(...activeTree.nodes.map((n) => (n.position?.y || 0) + 125));
+    return {
+      width: Math.max(700, maxX + 36),
+      height: Math.max(360, maxY + 40),
     };
+  }, [activeTree.nodes]);
 
-    const nextNodes = [...activePreset.nodes, candidateNode];
-    if (hasCycle(nextNodes)) {
-      setCycleError('Cannot add node: This prerequisite configuration introduces a circular dependency loop!');
-      return;
+  // Subject column headers when viewing All Subjects
+  const subjectColumns = useMemo(() => {
+    if (activeTree.id !== 'all-subjects') return [];
+    const seen = new Map<string, { subjectCode: string; subjectName: string; subjectColor: string; x: number }>();
+    for (const node of activeTree.nodes) {
+      if (!seen.has(node.subjectCode)) {
+        seen.set(node.subjectCode, {
+          subjectCode: node.subjectCode,
+          subjectName: node.subjectName,
+          subjectColor: node.subjectColor,
+          x: node.position?.x || 28,
+        });
+      }
     }
+    return Array.from(seen.values());
+  }, [activeTree]);
 
-    setCycleError(null);
-    saveState({ ...activePreset, nodes: nextNodes });
-    api.saveSkillNode(candidateNode).catch(() => {});
-    setIsAddModalOpen(false);
-    setNewNodeTitle('');
-    setNewNodeCategory('');
-    setNewNodePrereqs([]);
-  };
-
-  // Node position coordinates for SVG graph
-  const nodeMap = useMemo(() => new Map(activePreset.nodes.map((n) => [n.id, n])), [activePreset.nodes]);
+  const activeSubjectsCount = subjects.filter((s) => !s.deletedAt).length;
 
   return (
     <div className="space-y-6">
       {/* Header & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[var(--ff-surface)] border border-[var(--ff-border)] shadow-sm">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-[var(--ff-accent)]/10 text-[var(--ff-accent-text)]">
-              <GitBranch className="w-5 h-5" />
+      <div className="flex flex-col gap-4 p-5 rounded-2xl bg-[var(--ff-surface)] border border-[var(--ff-border)] shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="p-2 rounded-xl bg-[var(--ff-accent)]/10 text-[var(--ff-accent-text)]">
+                <GitBranch className="w-5 h-5" />
+              </span>
+              <h2 className="text-lg font-bold text-[var(--ff-text-primary)]">RPG-Style Skill Tree</h2>
+              <ThemeBadge tone="accent">Live Study Sync</ThemeBadge>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                <Award className="w-3.5 h-3.5" />
+                Lv. {activeTree.level} • {activeTree.rankTitle}
+              </span>
+            </div>
+            <p className="text-xs text-[var(--ff-text-muted)]">
+              Auto-generated from your Study OS subjects &amp; units. Toggling Theory, Practice, or PYQ anywhere updates XP &amp; unlocks nodes live.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Real Subject Track Selector */}
+            <select
+              value={selectedTrackId}
+              onChange={(e) => {
+                setSelectedTrackId(e.target.value);
+                setSelectedNodeId(null);
+              }}
+              className="px-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)] font-medium focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
+            >
+              {availableTracks.map((track) => (
+                <option key={track.id} value={track.id}>
+                  {track.id === 'all-subjects'
+                    ? `All Subjects (${activeSubjectsCount})`
+                    : `${track.name} (${track.nodes.length} unit${track.nodes.length === 1 ? '' : 's'})`}
+                </option>
+              ))}
+            </select>
+
+            {/* View Mode Toggle */}
+            <div className="flex rounded-xl bg-[var(--ff-surface-muted)] p-0.5 border border-[var(--ff-border)]">
+              <button
+                type="button"
+                onClick={() => setViewMode('graph')}
+                className={`px-3 py-1 text-xs rounded-lg font-medium transition-all ${
+                  viewMode === 'graph'
+                    ? 'bg-[var(--ff-accent)] text-white shadow-sm'
+                    : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                }`}
+              >
+                Graph Map
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={`px-3 py-1 text-xs rounded-lg font-medium transition-all ${
+                  viewMode === 'list'
+                    ? 'bg-[var(--ff-accent)] text-white shadow-sm'
+                    : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                }`}
+              >
+                List Roadmap
+              </button>
+            </div>
+
+            {onAddTopic && (
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                onClick={() => onAddTopic(activeTree.subjectCode)}
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add Topic
+              </ThemeButton>
+            )}
+          </div>
+        </div>
+
+        {/* Live XP Bar */}
+        <div className="pt-3 border-t border-[var(--ff-border)]/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-[var(--ff-text-muted)]">
+            <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>
+              <strong className="text-[var(--ff-text-primary)] font-mono">{activeTree.earnedXp} XP</strong>
+              {' / '}
+              <span className="font-mono">{activeTree.totalXp} XP</span> total syllabus XP
+              {' • '}
+              <span className="text-amber-400 font-mono">
+                {activeTree.nextLevelXp - activeTree.earnedXp} XP to Lv. {activeTree.level + 1}
+              </span>
             </span>
-            <h2 className="text-lg font-bold text-[var(--ff-text-primary)]">RPG-Style Skill Tree</h2>
-            <ThemeBadge tone="accent">v1.8 Mastery</ThemeBadge>
           </div>
-          <p className="text-xs text-[var(--ff-text-muted)]">
-            Explore interconnected technical skill branches. Nodes unlock automatically as prerequisites are mastered.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Preset Selector */}
-          <select
-            value={selectedPresetId}
-            onChange={(e) => handleSelectPreset(e.target.value)}
-            className="px-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)] font-medium focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
-          >
-            {SKILL_TREE_PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.category})
-              </option>
-            ))}
-          </select>
-
-          {/* View Mode Toggle */}
-          <div className="flex rounded-xl bg-[var(--ff-surface-muted)] p-0.5 border border-[var(--ff-border)]">
-            <button
-              onClick={() => setViewMode('graph')}
-              className={`px-3 py-1 text-xs rounded-lg font-medium transition-all ${
-                viewMode === 'graph'
-                  ? 'bg-[var(--ff-accent)] text-white shadow-sm'
-                  : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
-              }`}
-            >
-              Graph Map
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1 text-xs rounded-lg font-medium transition-all ${
-                viewMode === 'list'
-                  ? 'bg-[var(--ff-accent)] text-white shadow-sm'
-                  : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
-              }`}
-            >
-              List Roadmap
-            </button>
-          </div>
-
-          <ThemeButton variant="secondary" size="sm" onClick={() => setIsAddModalOpen(true)}>
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            Add Node
-          </ThemeButton>
-
-          <ThemeButton variant="ghost" size="sm" onClick={handleResetProgress} title="Reset Progress">
-            <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
-          </ThemeButton>
-        </div>
-      </div>
-
-      {/* Progress & Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
-          <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">Overall Progress</div>
-          <div className="text-xl font-bold text-[var(--ff-text-primary)] mt-1 flex items-baseline gap-1">
-            <span>{stats.percentage}%</span>
-            <span className="text-xs text-[var(--ff-text-muted)] font-normal">mastered</span>
-          </div>
-          <div className="w-full bg-[var(--ff-surface-muted)] h-1.5 rounded-full mt-2 overflow-hidden">
+          <div className="w-full sm:w-56 bg-[var(--ff-surface-muted)] h-2 rounded-full overflow-hidden">
             <div
-              className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${stats.percentage}%` }}
+              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-amber-400 transition-all duration-500"
+              style={{ width: `${activeTree.levelProgressPct}%` }}
             />
           </div>
         </div>
-
-        <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
-          <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">Completed</div>
-          <div className="text-xl font-bold text-emerald-400 mt-1 flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4" />
-            <span>{stats.completed}</span>
-            <span className="text-xs text-[var(--ff-text-muted)] font-normal">/ {stats.total}</span>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
-          <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">In Progress</div>
-          <div className="text-xl font-bold text-sky-400 mt-1 flex items-center gap-1.5">
-            <Play className="w-4 h-4" />
-            <span>{stats.inProgress}</span>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
-          <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">Available</div>
-          <div className="text-xl font-bold text-amber-400 mt-1 flex items-center gap-1.5">
-            <Unlock className="w-4 h-4" />
-            <span>{stats.available}</span>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
-          <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">Locked</div>
-          <div className="text-xl font-bold text-neutral-400 mt-1 flex items-center gap-1.5">
-            <Lock className="w-4 h-4" />
-            <span>{stats.locked}</span>
-          </div>
-        </div>
       </div>
 
-      {/* Main View Area */}
-      {viewMode === 'graph' ? (
-        <div className="relative rounded-2xl bg-[var(--ff-surface)] border border-[var(--ff-border)] p-4 overflow-x-auto min-h-[460px]">
-          <div className="text-xs font-semibold text-[var(--ff-text-muted)] mb-3 flex items-center justify-between">
-            <span>Interactive Skill Map — Click a node to view details & update progress</span>
-            <span className="text-[11px] text-[var(--ff-text-muted)]">Arrows indicate prerequisites flow</span>
+      {/* Empty State if no subjects exist */}
+      {activeSubjectsCount === 0 ? (
+        <div className="p-10 rounded-2xl bg-[var(--ff-surface)] border border-dashed border-[var(--ff-border)] text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-[var(--ff-surface-muted)] mx-auto flex items-center justify-center text-[var(--ff-accent-text)]">
+            <BookOpen className="w-6 h-6" />
           </div>
-
-          <div className="relative min-w-[700px] min-h-[400px]">
-            {/* SVG Connecting Curves */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
-              <defs>
-                <marker
-                  id="arrowhead"
-                  markerWidth="8"
-                  markerHeight="6"
-                  refX="7"
-                  refY="3"
-                  orient="auto"
-                >
-                  <polygon points="0 0, 8 3, 0 6" fill="rgba(148, 163, 184, 0.5)" />
-                </marker>
-                <marker
-                  id="arrowhead-active"
-                  markerWidth="8"
-                  markerHeight="6"
-                  refX="7"
-                  refY="3"
-                  orient="auto"
-                >
-                  <polygon points="0 0, 8 3, 0 6" fill="#10b981" />
-                </marker>
-              </defs>
-
-              {activePreset.nodes.map((node) => {
-                if (!node.prerequisites) return null;
-                return node.prerequisites.map((preId: string) => {
-                  const preNode = nodeMap.get(preId);
-                  if (!preNode) return null;
-
-                  const startX = (preNode.position?.x || 100) + 100;
-                  const startY = (preNode.position?.y || 100) + 40;
-                  const endX = (node.position?.x || 100) + 100;
-                  const endY = (node.position?.y || 100) + 10;
-
-                  const isComplete = preNode.status === 'completed';
-                  const strokeColor = isComplete ? '#10b981' : 'rgba(148, 163, 184, 0.35)';
-
-                  return (
-                    <path
-                      key={`${preId}->${node.id}`}
-                      d={`M ${startX} ${startY} C ${startX} ${(startY + endY) / 2}, ${endX} ${(startY + endY) / 2}, ${endX} ${endY}`}
-                      fill="none"
-                      stroke={strokeColor}
-                      strokeWidth={isComplete ? 2.5 : 1.5}
-                      strokeDasharray={isComplete ? undefined : '4 4'}
-                      markerEnd={isComplete ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
-                    />
-                  );
-                });
-              })}
-            </svg>
-
-            {/* Nodes */}
-            <div className="relative z-10">
-              {activePreset.nodes.map((node) => {
-                const effectiveStatus = resolveNodeStatus(node, activePreset.nodes);
-                const isSelected = selectedNodeId === node.id;
-
-                let borderClass = 'border-[var(--ff-border)]';
-                let bgBadge = 'bg-neutral-800 text-neutral-400';
-                let Icon = Lock;
-
-                if (effectiveStatus === 'completed') {
-                  borderClass = 'border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.15)]';
-                  bgBadge = 'bg-emerald-500/20 text-emerald-400';
-                  Icon = CheckCircle2;
-                } else if (effectiveStatus === 'in_progress') {
-                  borderClass = 'border-sky-500/70 shadow-[0_0_15px_rgba(14,165,233,0.15)]';
-                  bgBadge = 'bg-sky-500/20 text-sky-400';
-                  Icon = Play;
-                } else if (effectiveStatus === 'available') {
-                  borderClass = 'border-amber-500/50 hover:border-amber-400';
-                  bgBadge = 'bg-amber-500/20 text-amber-300';
-                  Icon = Unlock;
-                }
-
-                return (
-                  <button
-                    key={node.id}
-                    onClick={() => setSelectedNodeId(node.id)}
-                    style={{
-                      position: 'absolute',
-                      left: `${node.position?.x || 50}px`,
-                      top: `${node.position?.y || 50}px`,
-                      width: '210px',
-                    }}
-                    className={`p-3 rounded-xl bg-[var(--ff-surface)] border text-left transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer ${borderClass} ${
-                      isSelected ? 'ring-2 ring-[var(--ff-accent)] ring-offset-2 ring-offset-[var(--ff-surface)]' : ''
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1 mb-1.5">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${bgBadge}`}>
-                        <Icon className="w-3 h-3" />
-                        {effectiveStatus.replace('_', ' ')}
-                      </span>
-                      <span className="text-[10px] text-[var(--ff-text-muted)] font-mono">{node.estimatedHours}h</span>
-                    </div>
-
-                    <div className="text-xs font-bold text-[var(--ff-text-primary)] line-clamp-1">{node.title}</div>
-                    <div className="text-[11px] text-[var(--ff-text-muted)] line-clamp-1 mt-0.5">{node.category}</div>
-                  </button>
-                );
-              })}
-            </div>
+          <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
+            No Study OS Subjects Found Yet
+          </h3>
+          <p className="text-xs text-[var(--ff-text-muted)] max-w-md mx-auto">
+            Add your subjects and syllabus topics (or sync your Google Sheet from Sheet Hub) and your live RPG Skill Tree will generate automatically.
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-1">
+            {onAddSubject && (
+              <ThemeButton variant="primary" size="sm" onClick={onAddSubject}>
+                <Plus className="w-4 h-4 mr-1" />
+                Add First Subject
+              </ThemeButton>
+            )}
           </div>
         </div>
       ) : (
-        /* List / Roadmap View */
-        <div className="space-y-3">
-          {activePreset.nodes.map((node) => {
-            const effectiveStatus = resolveNodeStatus(node, activePreset.nodes);
-            const isSelected = selectedNodeId === node.id;
+        <>
+          {/* Progress & Stat Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+              <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">Units Mastered</div>
+              <div className="text-xl font-bold text-[var(--ff-text-primary)] mt-1 flex items-baseline gap-1">
+                <span>{stats.percentage}%</span>
+                <span className="text-xs text-[var(--ff-text-muted)] font-normal">complete</span>
+              </div>
+              <div className="w-full bg-[var(--ff-surface-muted)] h-1.5 rounded-full mt-2 overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${stats.percentage}%` }}
+                />
+              </div>
+            </div>
 
-            return (
+            <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+              <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">Completed</div>
+              <div className="text-xl font-bold text-emerald-400 mt-1 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{stats.completed}</span>
+                <span className="text-xs text-[var(--ff-text-muted)] font-normal">/ {stats.total}</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+              <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">In Progress</div>
+              <div className="text-xl font-bold text-sky-400 mt-1 flex items-center gap-1.5">
+                <Play className="w-4 h-4" />
+                <span>{stats.inProgress}</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+              <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">Available</div>
+              <div className="text-xl font-bold text-amber-400 mt-1 flex items-center gap-1.5">
+                <Unlock className="w-4 h-4" />
+                <span>{stats.available}</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+              <div className="text-[10px] text-[var(--ff-text-muted)] font-medium uppercase tracking-wider">Locked</div>
+              <div className="text-xl font-bold text-neutral-400 mt-1 flex items-center gap-1.5">
+                <Lock className="w-4 h-4" />
+                <span>{stats.locked}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Main View Area */}
+          {viewMode === 'graph' ? (
+            <div className="relative rounded-2xl bg-[var(--ff-surface)] border border-[var(--ff-border)] p-4 overflow-x-auto">
+              <div className="text-xs font-semibold text-[var(--ff-text-muted)] mb-3 flex flex-wrap items-center justify-between gap-2">
+                <span>Live Syllabus Skill Map — Click any Unit node to inspect &amp; check off its topics</span>
+                <span className="text-[11px] text-[var(--ff-text-muted)]">
+                  +15 XP Theory • +20 XP Practice • +15 XP PYQ
+                </span>
+              </div>
+
               <div
-                key={node.id}
-                onClick={() => setSelectedNodeId(node.id)}
-                className={`p-4 rounded-xl bg-[var(--ff-surface)] border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                  isSelected
-                    ? 'border-[var(--ff-accent)] shadow-sm'
-                    : 'border-[var(--ff-border)] hover:border-[var(--ff-accent)]/40'
-                }`}
+                className="relative"
+                style={{
+                  minWidth: `${canvasDimensions.width}px`,
+                  height: `${canvasDimensions.height + (subjectColumns.length > 0 ? 34 : 0)}px`,
+                }}
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-[var(--ff-text-primary)]">{node.title}</span>
+                {/* Subject Column Labels in All Subjects Mode */}
+                {subjectColumns.length > 0 && (
+                  <div className="relative z-10 h-8">
+                    {subjectColumns.map((col) => (
+                      <button
+                        key={col.subjectCode}
+                        type="button"
+                        onClick={() => {
+                          setSelectedTrackId(`subject-${col.subjectCode}`);
+                          setSelectedNodeId(null);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          left: `${col.x}px`,
+                          top: '0px',
+                          width: '216px',
+                        }}
+                        className="flex items-center justify-between px-2.5 py-1 rounded-lg bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] hover:border-[var(--ff-accent)] transition-colors text-left"
+                        title={`Focus on ${col.subjectName} skill tree`}
+                      >
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: col.subjectColor }}
+                          />
+                          <span className="text-xs font-bold text-[var(--ff-text-primary)] truncate">
+                            {col.subjectName}
+                          </span>
+                        </span>
+                        <span className="text-[10px] font-mono text-[var(--ff-text-muted)] shrink-0">
+                          Focus →
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* SVG Connecting Curves */}
+                <svg
+                  className="absolute inset-0 w-full h-full pointer-events-none z-0"
+                  style={{ top: subjectColumns.length > 0 ? '34px' : '0px' }}
+                >
+                  <defs>
+                    <marker
+                      id="arrowhead"
+                      markerWidth="8"
+                      markerHeight="6"
+                      refX="7"
+                      refY="3"
+                      orient="auto"
+                    >
+                      <polygon points="0 0, 8 3, 0 6" fill="rgba(148, 163, 184, 0.55)" />
+                    </marker>
+                    <marker
+                      id="arrowhead-active"
+                      markerWidth="8"
+                      markerHeight="6"
+                      refX="7"
+                      refY="3"
+                      orient="auto"
+                    >
+                      <polygon points="0 0, 8 3, 0 6" fill="#10b981" />
+                    </marker>
+                  </defs>
+
+                  {activeTree.nodes.map((node) => {
+                    if (!node.prerequisites || node.prerequisites.length === 0) return null;
+                    return node.prerequisites.map((preId: string) => {
+                      const preNode = nodeMap.get(preId);
+                      if (!preNode) return null;
+
+                      const startX = (preNode.position?.x || 40) + 108;
+                      const startY = (preNode.position?.y || 32) + 96;
+                      const endX = (node.position?.x || 40) + 108;
+                      const endY = (node.position?.y || 32) + 2;
+
+                      const isComplete = preNode.status === 'completed';
+                      const strokeColor = isComplete ? '#10b981' : 'rgba(148, 163, 184, 0.35)';
+                      const midY = (startY + endY) / 2;
+
+                      return (
+                        <path
+                          key={`${preId}->${node.id}`}
+                          d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
+                          fill="none"
+                          stroke={strokeColor}
+                          strokeWidth={isComplete ? 2.5 : 1.5}
+                          strokeDasharray={isComplete ? undefined : '4 4'}
+                          markerEnd={isComplete ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
+                        />
+                      );
+                    });
+                  })}
+                </svg>
+
+                {/* Skill Unit Nodes */}
+                <div
+                  className="relative z-10"
+                  style={{ top: subjectColumns.length > 0 ? '4px' : '0px' }}
+                >
+                  {activeTree.nodes.map((node) => {
+                    const effectiveStatus = resolveNodeStatus(node, activeTree.nodes);
+                    const isSelected = selectedNodeId === node.id;
+
+                    let borderClass = 'border-[var(--ff-border)]';
+                    let bgBadge = 'bg-neutral-800 text-neutral-400';
+                    let Icon = Lock;
+
+                    if (effectiveStatus === 'completed') {
+                      borderClass = 'border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.15)]';
+                      bgBadge = 'bg-emerald-500/20 text-emerald-400';
+                      Icon = CheckCircle2;
+                    } else if (effectiveStatus === 'in_progress') {
+                      borderClass = 'border-sky-500/70 shadow-[0_0_15px_rgba(14,165,233,0.15)]';
+                      bgBadge = 'bg-sky-500/20 text-sky-400';
+                      Icon = Play;
+                    } else if (effectiveStatus === 'available') {
+                      borderClass = 'border-amber-500/50 hover:border-amber-400';
+                      bgBadge = 'bg-amber-500/20 text-amber-300';
+                      Icon = Unlock;
+                    }
+
+                    return (
+                      <button
+                        key={node.id}
+                        type="button"
+                        onClick={() => setSelectedNodeId(node.id)}
+                        style={{
+                          position: 'absolute',
+                          left: `${node.position?.x || 40}px`,
+                          top: `${node.position?.y || 32}px`,
+                          width: '216px',
+                        }}
+                        className={`p-3 rounded-xl bg-[var(--ff-surface)] border text-left transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer ${borderClass} ${
+                          isSelected ? 'ring-2 ring-[var(--ff-accent)] ring-offset-2 ring-offset-[var(--ff-surface)]' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${bgBadge}`}>
+                            <Icon className="w-3 h-3" />
+                            {effectiveStatus.replace('_', ' ')}
+                          </span>
+                          <span className="text-[10px] text-amber-400 font-mono">
+                            {node.earnedXp}/{node.maxXp} XP
+                          </span>
+                        </div>
+
+                        <div className="text-xs font-bold text-[var(--ff-text-primary)] line-clamp-1" title={node.title}>
+                          {node.title}
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-[var(--ff-text-muted)] mt-1">
+                          <span className="truncate max-w-[120px]">{node.subjectName}</span>
+                          <span className="font-mono text-[10px]">
+                            {node.masteredTopics > 0
+                              ? `${node.masteredTopics}/${node.totalTopics} mastered`
+                              : `${node.theoryTopics}/${node.totalTopics} theory`}
+                          </span>
+                        </div>
+
+                        <div className="w-full bg-[var(--ff-surface-muted)] h-1.5 rounded-full mt-2 overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-300"
+                            style={{
+                              width: `${node.progressPct}%`,
+                              backgroundColor:
+                                effectiveStatus === 'completed'
+                                  ? '#10b981'
+                                  : node.subjectColor || '#6366f1',
+                            }}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* List / Roadmap View */
+            <div className="space-y-3">
+              {activeTree.nodes.map((node) => {
+                const effectiveStatus = resolveNodeStatus(node, activeTree.nodes);
+                const isSelected = selectedNodeId === node.id;
+
+                return (
+                  <div
+                    key={node.id}
+                    onClick={() => setSelectedNodeId(node.id)}
+                    className={`p-4 rounded-xl bg-[var(--ff-surface)] border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      isSelected
+                        ? 'border-[var(--ff-accent)] shadow-sm'
+                        : 'border-[var(--ff-border)] hover:border-[var(--ff-accent)]/40'
+                    }`}
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: node.subjectColor }}
+                        />
+                        <span className="text-xs font-bold text-[var(--ff-text-primary)]">
+                          {node.subjectName} — {node.title}
+                        </span>
+                        <ThemeBadge
+                          tone={
+                            effectiveStatus === 'completed'
+                              ? 'success'
+                              : effectiveStatus === 'in_progress'
+                              ? 'accent'
+                              : effectiveStatus === 'available'
+                              ? 'warning'
+                              : 'neutral'
+                          }
+                        >
+                          {effectiveStatus.replace('_', ' ')}
+                        </ThemeBadge>
+                        <span className="text-[10px] text-amber-400 font-mono">
+                          {node.earnedXp}/{node.maxXp} XP
+                        </span>
+                      </div>
+                      <p className="text-xs text-[var(--ff-text-muted)] line-clamp-1">{node.description}</p>
+                      <div className="flex items-center gap-3 text-[11px] text-[var(--ff-text-muted)] font-mono">
+                        <span className="text-blue-400">T: {node.theoryTopics}/{node.totalTopics}</span>
+                        <span className="text-emerald-400">P: {node.practiceTopics}/{node.totalTopics}</span>
+                        <span className="text-purple-400">Q: {node.pyqTopics}/{node.totalTopics}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <span className="text-xs font-bold font-mono text-[var(--ff-text-primary)]">
+                        {node.progressPct}%
+                      </span>
+                      {onOpenInSyllabus && (
+                        <ThemeButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenInSyllabus(node.subjectCode, node.unitName);
+                          }}
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                          Syllabus
+                        </ThemeButton>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Selected Node Details & Live Interactive Topic Checklist */}
+          {selectedNode && (
+            <div className="p-5 rounded-2xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: selectedNode.subjectColor }}
+                    />
+                    <h3 className="text-base font-bold text-[var(--ff-text-primary)]">
+                      {selectedNode.subjectName} — {selectedNode.title}
+                    </h3>
                     <ThemeBadge
                       tone={
-                        effectiveStatus === 'completed'
+                        resolveNodeStatus(selectedNode, activeTree.nodes) === 'completed'
                           ? 'success'
-                          : effectiveStatus === 'in_progress'
+                          : resolveNodeStatus(selectedNode, activeTree.nodes) === 'in_progress'
                           ? 'accent'
-                          : effectiveStatus === 'available'
-                          ? 'warning'
-                          : 'neutral'
+                          : 'warning'
                       }
                     >
-                      {effectiveStatus.replace('_', ' ')}
+                      {resolveNodeStatus(selectedNode, activeTree.nodes).replace('_', ' ').toUpperCase()}
                     </ThemeBadge>
-                    <span className="text-[10px] text-[var(--ff-text-muted)] font-mono">{node.estimatedHours}h</span>
                   </div>
-                  <p className="text-xs text-[var(--ff-text-muted)]">{node.description}</p>
-                  {node.prerequisites && node.prerequisites.length > 0 && (
-                    <div className="flex items-center gap-1 text-[11px] text-[var(--ff-text-muted)] mt-1">
-                      <span>Prerequisites:</span>
-                      {node.prerequisites.map((preId: string) => {
-                        const preNode = nodeMap.get(preId);
-                        const isDone = preNode?.status === 'completed';
-                        return (
-                          <span
-                            key={preId}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              isDone ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-300'
-                            }`}
-                          >
-                            {preNode?.title || preId}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <p className="text-xs text-[var(--ff-text-muted)] mt-1">{selectedNode.description}</p>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center">
-                  {effectiveStatus !== 'completed' && effectiveStatus !== 'locked' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleStatusChange(node.id, 'completed');
-                      }}
-                      className="px-3 py-1 text-xs rounded-lg font-medium bg-emerald-600 text-white hover:bg-emerald-500 transition-colors flex items-center gap-1"
+                <div className="flex items-center gap-2 shrink-0">
+                  {onOpenInSyllabus && (
+                    <ThemeButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => onOpenInSyllabus(selectedNode.subjectCode, selectedNode.unitName)}
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Mark Mastered
-                    </button>
+                      <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                      Open in Syllabus
+                    </ThemeButton>
                   )}
-                  {effectiveStatus === 'available' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleStatusChange(node.id, 'in_progress');
-                      }}
-                      className="px-3 py-1 text-xs rounded-lg font-medium bg-sky-600 text-white hover:bg-sky-500 transition-colors flex items-center gap-1"
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      Start
-                    </button>
-                  )}
-                  {effectiveStatus === 'completed' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleStatusChange(node.id, 'available');
-                      }}
-                      className="px-2.5 py-1 text-xs rounded-lg font-medium text-neutral-400 hover:text-white transition-colors"
-                    >
-                      Undo
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Selected Node Details Drawer */}
-      {selectedNode && (
-        <div className="p-5 rounded-2xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] space-y-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-[var(--ff-text-primary)]">{selectedNode.title}</h3>
-                <ThemeBadge
-                  tone={
-                    resolveNodeStatus(selectedNode, activePreset.nodes) === 'completed'
-                      ? 'success'
-                      : resolveNodeStatus(selectedNode, activePreset.nodes) === 'in_progress'
-                      ? 'accent'
-                      : 'warning'
-                  }
-                >
-                  {resolveNodeStatus(selectedNode, activePreset.nodes).toUpperCase()}
-                </ThemeBadge>
-              </div>
-              <p className="text-xs text-[var(--ff-text-muted)] mt-1">{selectedNode.description}</p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {onAttachToTopic && (
-                <ThemeButton
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => onAttachToTopic(selectedNode.title)}
-                >
-                  Attach to Study Topic
-                </ThemeButton>
-              )}
-              <button
-                onClick={() => setSelectedNodeId(null)}
-                className="text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="p-3 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
-              <span className="text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider block">Estimated Effort</span>
-              <span className="text-sm font-bold text-[var(--ff-text-primary)] mt-0.5 block">{selectedNode.estimatedHours} Hours</span>
-            </div>
-
-            <div className="p-3 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
-              <span className="text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider block">Discipline Category</span>
-              <span className="text-sm font-bold text-[var(--ff-text-primary)] mt-0.5 block">{selectedNode.category}</span>
-            </div>
-
-            <div className="p-3 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
-              <span className="text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider block">Prerequisites Status</span>
-              <span className="text-sm font-bold text-[var(--ff-text-primary)] mt-0.5 block">
-                {selectedNode.prerequisites && selectedNode.prerequisites.length > 0
-                  ? `${selectedNode.prerequisites.filter((p: string) => nodeMap.get(p)?.status === 'completed').length} / ${selectedNode.prerequisites.length} Met`
-                  : 'None (Root Node)'}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--ff-border)]">
-            <span className="text-xs text-[var(--ff-text-muted)] mr-2 font-medium">Update Mastery State:</span>
-            <ThemeButton
-              variant={selectedNode.status === 'in_progress' ? 'primary' : 'secondary'}
-              size="sm"
-              disabled={resolveNodeStatus(selectedNode, activePreset.nodes) === 'locked'}
-              onClick={() => handleStatusChange(selectedNode.id, 'in_progress')}
-            >
-              <Play className="w-3.5 h-3.5 mr-1" />
-              In Progress
-            </ThemeButton>
-
-            <ThemeButton
-              variant={selectedNode.status === 'completed' ? 'primary' : 'secondary'}
-              size="sm"
-              disabled={resolveNodeStatus(selectedNode, activePreset.nodes) === 'locked'}
-              onClick={() => handleStatusChange(selectedNode.id, 'completed')}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-              Mark Completed
-            </ThemeButton>
-
-            <ThemeButton
-              variant="ghost"
-              size="sm"
-              onClick={() => handleStatusChange(selectedNode.id, 'available')}
-            >
-              Reset
-            </ThemeButton>
-          </div>
-        </div>
-      )}
-
-      {/* Add Custom Node Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-[var(--ff-surface)] border border-[var(--ff-border)] p-5 space-y-4 shadow-xl">
-            <h3 className="text-base font-bold text-[var(--ff-text-primary)]">Add Custom Skill Node</h3>
-
-            {cycleError && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{cycleError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleCreateNode} className="space-y-3">
-              <div>
-                <label className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">Node Title</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Asynchronous Microservices"
-                  value={newNodeTitle}
-                  onChange={(e) => setNewNodeTitle(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">Category</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Distributed Systems"
-                  value={newNodeCategory}
-                  onChange={(e) => setNewNodeCategory(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">Estimated Hours</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="500"
-                  value={newNodeHours}
-                  onChange={(e) => setNewNodeHours(parseInt(e.target.value, 10) || 1)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-[var(--ff-text-muted)] block mb-1">Prerequisites (Optional)</label>
-                <div className="max-h-32 overflow-y-auto space-y-1 p-2 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)]">
-                  {activePreset.nodes.map((n: SkillNode) => (
-                    <label key={n.id} className="flex items-center gap-2 text-xs text-[var(--ff-text-primary)] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={newNodePrereqs.includes(n.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setNewNodePrereqs([...newNodePrereqs, n.id]);
-                          } else {
-                            setNewNodePrereqs(newNodePrereqs.filter((id) => id !== n.id));
-                          }
-                        }}
-                        className="rounded border-[var(--ff-border)] text-[var(--ff-accent)]"
-                      />
-                      <span>{n.title}</span>
-                    </label>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedNodeId(null)}
+                    className="px-2.5 py-1.5 text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                  >
+                    Close
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3">
-                <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsAddModalOpen(false)}>
-                  Cancel
-                </ThemeButton>
-                <ThemeButton type="submit" variant="primary" size="sm">
-                  Add Node
-                </ThemeButton>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+                  <span className="text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider block">Unit XP</span>
+                  <span className="text-sm font-bold font-mono text-amber-400 mt-0.5 block">
+                    {selectedNode.earnedXp} / {selectedNode.maxXp} XP
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+                  <span className="text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider block">Theory / Practice / PYQ</span>
+                  <span className="text-sm font-bold font-mono text-[var(--ff-text-primary)] mt-0.5 block">
+                    {selectedNode.theoryTopics}T · {selectedNode.practiceTopics}P · {selectedNode.pyqTopics}Q
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+                  <span className="text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider block">Topics Mastered</span>
+                  <span className="text-sm font-bold font-mono text-emerald-400 mt-0.5 block">
+                    {selectedNode.masteredTopics} / {selectedNode.totalTopics} ({selectedNode.progressPct}%)
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)]">
+                  <span className="text-[10px] text-[var(--ff-text-muted)] uppercase tracking-wider block">Prerequisite Unit</span>
+                  <span className="text-sm font-bold text-[var(--ff-text-primary)] mt-0.5 block truncate">
+                    {selectedNode.prerequisites.length > 0
+                      ? nodeMap.get(selectedNode.prerequisites[0])?.title || 'Previous Unit'
+                      : 'Root Unit (Unlocked)'}
+                  </span>
+                </div>
               </div>
-            </form>
-          </div>
-        </div>
+
+              {/* Live Unit Topics List with T / P / Q / Done Toggles */}
+              <div className="space-y-2 pt-2 border-t border-[var(--ff-border)]">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[var(--ff-text-primary)]">
+                    Unit Topics ({selectedNodeTopics.length}) — Check off to earn XP live
+                  </span>
+                  {onAddTopic && (
+                    <button
+                      type="button"
+                      onClick={() => onAddTopic(selectedNode.subjectCode)}
+                      className="text-xs text-[var(--ff-accent-text)] hover:underline flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" /> Add Topic
+                    </button>
+                  )}
+                </div>
+
+                {selectedNodeTopics.length === 0 ? (
+                  <p className="text-xs text-[var(--ff-text-muted)] py-2">
+                    No topics in this unit yet. Add topics to start earning XP!
+                  </p>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+                    {selectedNodeTopics.map((topic) => {
+                      const isDone = Boolean(topic.theory && topic.practice);
+                      return (
+                        <div
+                          key={topic.id}
+                          className="p-2.5 rounded-xl bg-[var(--ff-surface)] border border-[var(--ff-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-[var(--ff-text-primary)] truncate">
+                              {topic.subtopic || topic.topic}
+                            </div>
+                            {topic.topic && topic.subtopic && (
+                              <div className="text-[10px] text-[var(--ff-text-muted)] truncate">
+                                {topic.topic}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                            {onToggleTopicCompleted && (
+                              <button
+                                type="button"
+                                onClick={() => onToggleTopicCompleted(topic.id)}
+                                className={`text-[10px] px-2 py-1 rounded-lg flex items-center gap-1 font-medium border transition-colors ${
+                                  isDone
+                                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                    : 'bg-[var(--ff-surface-muted)] text-[var(--ff-text-muted)] border-[var(--ff-border)] hover:text-[var(--ff-text-primary)]'
+                                }`}
+                              >
+                                {isDone ? (
+                                  <>
+                                    <CheckSquare className="w-3 h-3" /> Done
+                                  </>
+                                ) : (
+                                  <>
+                                    <Circle className="w-3 h-3" /> Mark Done
+                                  </>
+                                )}
+                              </button>
+                            )}
+
+                            {onToggleTopicFlag && (
+                              <div className="flex items-center gap-1 bg-[var(--ff-surface-muted)] p-0.5 rounded-lg border border-[var(--ff-border)]">
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleTopicFlag(topic.id, 'theory')}
+                                  title="Theory (+15 XP)"
+                                  className={`w-6 h-6 rounded text-[11px] font-bold transition-colors ${
+                                    topic.theory
+                                      ? 'bg-blue-500 text-white'
+                                      : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                  }`}
+                                >
+                                  T
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleTopicFlag(topic.id, 'practice')}
+                                  title="Practice (+20 XP)"
+                                  className={`w-6 h-6 rounded text-[11px] font-bold transition-colors ${
+                                    topic.practice
+                                      ? 'bg-emerald-500 text-white'
+                                      : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                  }`}
+                                >
+                                  P
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleTopicFlag(topic.id, 'pyq')}
+                                  title="PYQ (+15 XP)"
+                                  className={`w-6 h-6 rounded text-[11px] font-bold transition-colors ${
+                                    topic.pyq
+                                      ? 'bg-purple-500 text-white'
+                                      : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                                  }`}
+                                >
+                                  Q
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

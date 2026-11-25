@@ -3085,7 +3085,23 @@ export const StudyView: React.FC = () => {
 
       {/* SUB-VIEW 15: RPG-STYLE SKILL TREE */}
       {activeSubTab === 'skilltree' && (
-        <SkillTreeLab onAttachToTopic={(topicName) => setSearchQuery(topicName)} />
+        <SkillTreeLab
+          subjects={subjects}
+          topics={activeTopics}
+          onOpenInSyllabus={(subjectCode, unitOrQuery) => {
+            setSelectedSubjectCode(subjectCode);
+            setSearchQuery(unitOrQuery || '');
+            setActiveSubTab('syllabus');
+          }}
+          onToggleTopicFlag={(topicId, flag) => {
+            void handleToggleTopicFlag(topicId, flag);
+          }}
+          onToggleTopicCompleted={(topicId) => {
+            void handleToggleTopicCompleted(topicId);
+          }}
+          onAddSubject={() => setIsAddSubjectOpen(true)}
+          onAddTopic={(subCode) => handleOpenAddTopic(subCode)}
+        />
       )}
 
       {/* SUB-VIEW 16: ROUGH-WORK WHITEBOARD CANVAS */}

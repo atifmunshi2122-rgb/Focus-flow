@@ -15,6 +15,7 @@ import {
   resolveNodeStatus,
   computeTreeStats,
   SKILL_TREE_PRESETS,
+  buildStudySkillTreesFromSyllabus,
 } from '../src/lib/skillTreeEngine.ts';
 import { BINAURAL_PRESETS } from '../src/lib/binauralBeats.ts';
 import { STATIC_TYPING_SNIPPETS } from '../src/lib/typingSnippets.ts';
@@ -205,6 +206,29 @@ describe('FocusFlow & Finance v1.8.0 — 15 Zero-AI Features Test Suite', () => 
         assert.ok(preset.nodes.length >= 3);
         assert.strictEqual(hasCycle(preset.nodes), false, `Preset ${preset.id} contains cyclic dependencies`);
       }
+    });
+
+    it('builds live acyclic skill trees from real Study OS subjects and topics with XP & unlock chaining', () => {
+      const mockSubjects = [
+        { id: 's1', userId: 'u1', code: 'COA', name: 'COA', tierId: 't1', color: '#3b82f6', totalSubtopics: 3, completedSubtopics: 2, createdAt: '', updatedAt: '' },
+      ];
+      const mockTopics = [
+        { id: 't1', userId: 'u1', subjectCode: 'COA', unit: 'Unit 1', topic: 'CPU', subtopic: 'Pipelining', priority: 'High' as const, theory: true, practice: true, pyq: true, revisionCount: 0, createdAt: '', updatedAt: '' },
+        { id: 't2', userId: 'u1', subjectCode: 'COA', unit: 'Unit 2', topic: 'Memory', subtopic: 'Cache Mapping', priority: 'High' as const, theory: true, practice: false, pyq: false, revisionCount: 0, createdAt: '', updatedAt: '' },
+        { id: 't3', userId: 'u1', subjectCode: 'COA', unit: 'Unit 10', topic: 'IO', subtopic: 'DMA', priority: 'Medium' as const, theory: false, practice: false, pyq: false, revisionCount: 0, createdAt: '', updatedAt: '' },
+      ];
+      const { allSubjectsTree, subjectTrees } = buildStudySkillTreesFromSyllabus(mockSubjects, mockTopics);
+      assert.strictEqual(subjectTrees.length, 1);
+      assert.strictEqual(allSubjectsTree.nodes.length, 3);
+      assert.strictEqual(hasCycle(allSubjectsTree.nodes), false);
+      // Natural sort: Unit 1 -> Unit 2 -> Unit 10
+      assert.deepStrictEqual(subjectTrees[0].nodes.map((n) => n.unitName), ['Unit 1', 'Unit 2', 'Unit 10']);
+      // Statuses: Unit 1 completed (50 XP), Unit 2 in_progress (15 XP), Unit 10 locked (0 XP)
+      assert.strictEqual(subjectTrees[0].nodes[0].status, 'completed');
+      assert.strictEqual(subjectTrees[0].nodes[1].status, 'in_progress');
+      assert.strictEqual(subjectTrees[0].nodes[2].status, 'locked');
+      assert.strictEqual(allSubjectsTree.earnedXp, 65);
+      assert.strictEqual(allSubjectsTree.totalXp, 150);
     });
   });
 
