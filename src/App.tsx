@@ -90,6 +90,7 @@ import {
   ShieldAlert,
   LogOut,
   Users,
+  Sparkles,
 } from 'lucide-react';
 
 const PRIMARY_MOBILE_TABS: NavTab[] = ['dashboard', 'focus', 'tasks', 'finance'];
@@ -109,6 +110,8 @@ const MOBILE_MORE_SECTIONS: Array<{ title: string; items: MobileMoreItem[] }> = 
       { id: 'calendar', label: 'Calendar', shortLabel: 'Calendar', icon: Calendar },
       { id: 'clock', label: 'Real Clock', shortLabel: 'Clock', icon: Clock },
       { id: 'timeblocks', label: 'Time Blocks', shortLabel: 'Blocks', icon: Clock },
+      { id: 'planner', label: 'Smart Planner', shortLabel: 'Planner', icon: Calendar, badge: 'Auto' },
+      { id: 'avatar_studio', label: 'Avatar Studio', shortLabel: 'Avatar', icon: Sparkles, badge: '3D' },
     ],
   },
   {

@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo, useState } from 'react';
+import React, { Component, Suspense, useMemo, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import {
@@ -26,6 +26,27 @@ import {
 import type { StudyActivity } from '../../features/study-room/types.ts';
 import { updateUserAvatarConfig } from '../../lib/leaderboardService.ts';
 import StudyAvatar from '../study-room/StudyAvatar.tsx';
+import { AnimeCharacterSvg } from '../study-room/AnimeCharacterSvg.tsx';
+
+class AvatarWebGLErrorBoundary extends Component<
+  { fallback: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { fallback: React.ReactNode; children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(err: unknown) {
+    console.warn('Avatar 3D WebGL fallback triggered:', err);
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
 
 const PREVIEW_ACTIVITIES: { id: StudyActivity; label: string }[] = [
   { id: 'idle', label: 'Idle' },
@@ -238,45 +259,92 @@ export const AvatarStudioView: React.FC = () => {
             </span>
           </div>
 
-          <div className="relative h-[420px] w-full bg-gradient-to-b from-[#0b1120] via-[#131b2e] to-[#0f172a]">
-            <Canvas shadows camera={{ position: [0, 1.35, 2.35], fov: 38 }}>
-              <ambientLight intensity={0.75} />
-              <hemisphereLight args={['#c7d2fe', '#1e293b', 0.9]} />
-              <directionalLight position={[2.5, 4, 2.5]} intensity={1.35} castShadow />
-              <directionalLight position={[-2.5, 2, -2]} intensity={0.45} color="#818cf8" />
+          <div className="relative h-[300px] sm:h-[420px] w-full bg-gradient-to-b from-[#0b1120] via-[#131b2e] to-[#0f172a]">
+            <AvatarWebGLErrorBoundary
+              fallback={
+                <div className="h-full w-full flex flex-col items-center justify-center gap-3 p-6 text-center">
+                  <div className="w-24 h-24">
+                    <AnimeCharacterSvg
+                      variant="bust"
+                      activity={previewActivity}
+                      isLive
+                      identity={{
+                        id: selectedEntry.id,
+                        label: selectedEntry.displayName,
+                        modelUrl: selectedEntry.modelUrl,
+                        style: selectedEntry.style,
+                        skinTone: selectedEntry.defaults.skinTone,
+                        hairColor: sanitizedPreviewConfig.customization.hairColor || selectedEntry.defaults.hairColor,
+                        hairHighlight: selectedEntry.defaults.hairHighlight,
+                        eyeColor: sanitizedPreviewConfig.customization.eyeColor || selectedEntry.defaults.eyeColor,
+                        outfitPrimary: sanitizedPreviewConfig.customization.outfitColor || selectedEntry.defaults.outfitColor,
+                        outfitSecondary: selectedEntry.defaults.outfitSecondary,
+                        accessories: sanitizedPreviewConfig.customization.accessories || [],
+                        customization: sanitizedPreviewConfig.customization,
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-300 max-w-xs">
+                    3D WebGL preview is unavailable on this device. Your customized avatar will still sync and render in 2D Lounge &amp; Pods!
+                  </p>
+                </div>
+              }
+            >
+              <div className="h-full w-full touch-none">
+                <Canvas
+                  shadows
+                  dpr={[1, 1.5]}
+                  gl={{ powerPreference: 'high-performance', antialias: true }}
+                  camera={{ position: [0, 1.35, 2.35], fov: 38 }}
+                  onCreated={({ gl }) => {
+                    gl.domElement.addEventListener(
+                      'webglcontextlost',
+                      (event) => {
+                        event.preventDefault();
+                      },
+                      false
+                    );
+                  }}
+                >
+                  <ambientLight intensity={0.75} />
+                  <hemisphereLight args={['#c7d2fe', '#1e293b', 0.9]} />
+                  <directionalLight position={[2.5, 4, 2.5]} intensity={1.35} castShadow />
+                  <directionalLight position={[-2.5, 2, -2]} intensity={0.45} color="#818cf8" />
 
-              <Suspense fallback={null}>
-                <StudyAvatar
-                  modelUrl={sanitizedPreviewConfig.modelUrl}
-                  name={userDisplayName}
-                  activity={previewActivity}
-                  position={[0, -0.55, 0]}
-                  rotation={[0, 0.2, 0]}
-                  scale={1.08}
-                  nameplateHeight={1.65}
-                  customization={sanitizedPreviewConfig.customization}
-                  isLive
-                  isSelected
-                  subtitle="Live 3D Preview"
-                />
-                <ContactShadows
-                  position={[0, -0.55, 0]}
-                  opacity={0.45}
-                  scale={4}
-                  blur={2}
-                  far={2}
-                />
-              </Suspense>
+                  <Suspense fallback={null}>
+                    <StudyAvatar
+                      modelUrl={sanitizedPreviewConfig.modelUrl}
+                      name={userDisplayName}
+                      activity={previewActivity}
+                      position={[0, -0.55, 0]}
+                      rotation={[0, 0.2, 0]}
+                      scale={1.08}
+                      nameplateHeight={1.65}
+                      customization={sanitizedPreviewConfig.customization}
+                      isLive
+                      isSelected
+                      subtitle="Live 3D Preview"
+                    />
+                    <ContactShadows
+                      position={[0, -0.55, 0]}
+                      opacity={0.45}
+                      scale={4}
+                      blur={2}
+                      far={2}
+                    />
+                  </Suspense>
 
-              <OrbitControls
-                enablePan={false}
-                minDistance={1.4}
-                maxDistance={3.8}
-                minPolarAngle={Math.PI / 6}
-                maxPolarAngle={Math.PI / 1.9}
-                target={[0, 0.35, 0]}
-              />
-            </Canvas>
+                  <OrbitControls
+                    enablePan={false}
+                    minDistance={1.4}
+                    maxDistance={3.8}
+                    minPolarAngle={Math.PI / 6}
+                    maxPolarAngle={Math.PI / 1.9}
+                    target={[0, 0.35, 0]}
+                  />
+                </Canvas>
+              </div>
+            </AvatarWebGLErrorBoundary>
 
             {/* Activity Preview Bar */}
             <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-center gap-1.5 bg-slate-950/75 backdrop-blur-md border border-white/10 rounded-xl p-1.5">
