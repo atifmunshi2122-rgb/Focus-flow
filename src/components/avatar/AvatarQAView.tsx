@@ -128,7 +128,9 @@ const QACameraController: React.FC<QACameraControllerProps> = ({
 };
 
 export const AvatarQAView: React.FC = () => {
-  const { firebaseUser, isAuthenticated, signInWithGoogle, setCurrentTab, showToast } = useApp();
+  const { user, firebaseUser, isAuthenticated, signInWithGoogle, setCurrentTab, showToast } = useApp();
+  const activeUid = firebaseUser?.uid || user?.id || 'usr_guest';
+  const qaChecklistStorageKey = `${QA_CHECKLIST_STORAGE_KEY}_${activeUid}`;
 
   const [selectedAvatarId, setSelectedAvatarId] = useState<QAAvatarId>('avatar-01');
   const [cameraPreset, setCameraPreset] = useState<CameraViewPreset>('front');
@@ -151,17 +153,22 @@ export const AvatarQAView: React.FC = () => {
   const [capturedFiles, setCapturedFiles] = useState<string[]>([]);
 
   // Local QA session checklist state (keyed by avatarId -> itemId -> status)
-  const [checklistByAvatar, setChecklistByAvatar] = useState<
-    Record<QAAvatarId, Record<string, ChecklistStatus>>
-  >(() => {
+  const readQaChecklist = (storageKey: string): Record<QAAvatarId, Record<string, ChecklistStatus>> => {
     try {
-      const raw = localStorage.getItem(QA_CHECKLIST_STORAGE_KEY);
+      const raw = localStorage.getItem(storageKey);
       if (raw) return JSON.parse(raw);
     } catch {
       // ignore storage errors
     }
     return { 'avatar-01': {}, 'avatar-02': {} };
-  });
+  };
+  const [checklistByAvatar, setChecklistByAvatar] = useState<
+    Record<QAAvatarId, Record<string, ChecklistStatus>>
+  >(() => readQaChecklist(qaChecklistStorageKey));
+
+  useEffect(() => {
+    setChecklistByAvatar(readQaChecklist(qaChecklistStorageKey));
+  }, [qaChecklistStorageKey]);
 
   const catalogEntry: AvatarCatalogEntry = useMemo(
     () => getAvatarCatalogEntry(selectedAvatarId),
@@ -204,7 +211,7 @@ export const AvatarQAView: React.FC = () => {
         },
       };
       try {
-        localStorage.setItem(QA_CHECKLIST_STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(qaChecklistStorageKey, JSON.stringify(next));
       } catch {
         // ignore storage errors
       }
@@ -216,7 +223,7 @@ export const AvatarQAView: React.FC = () => {
     setChecklistByAvatar((prev) => {
       const next = { ...prev, [selectedAvatarId]: {} };
       try {
-        localStorage.setItem(QA_CHECKLIST_STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(qaChecklistStorageKey, JSON.stringify(next));
       } catch {
         // ignore storage errors
       }

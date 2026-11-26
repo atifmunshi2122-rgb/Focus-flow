@@ -1,4 +1,4 @@
-import React, { Component, Suspense, useMemo, useState } from 'react';
+import React, { Component, Suspense, useEffect, useMemo, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import {
@@ -86,12 +86,15 @@ function buildEntryDefaultsCustomization(entry: AvatarCatalogEntry): UserAvatarC
   };
 }
 
-function loadInitialAvatarConfig(settingsAvatarConfig?: UserAvatarConfig | null): UserAvatarConfig {
+function loadInitialAvatarConfig(
+  storageKey: string,
+  settingsAvatarConfig?: UserAvatarConfig | null
+): UserAvatarConfig {
   if (settingsAvatarConfig && typeof settingsAvatarConfig === 'object') {
     return validateAndSanitizeAvatarConfig(settingsAvatarConfig);
   }
   try {
-    const raw = localStorage.getItem(LOCAL_AVATAR_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw) {
       return validateAndSanitizeAvatarConfig(JSON.parse(raw));
     }
@@ -102,15 +105,24 @@ function loadInitialAvatarConfig(settingsAvatarConfig?: UserAvatarConfig | null)
 }
 
 export const AvatarStudioView: React.FC = () => {
-  const { settings, updateSettings, firebaseUser, showToast } = useApp();
+  const { user, settings, updateSettings, firebaseUser, showToast } = useApp();
+  const activeUid = firebaseUser?.uid || user?.id || 'usr_guest';
+  const localAvatarStorageKey = `${LOCAL_AVATAR_STORAGE_KEY}_${activeUid}`;
 
   const [savedConfig, setSavedConfig] = useState<UserAvatarConfig>(() =>
-    loadInitialAvatarConfig(settings?.avatarConfig ?? null)
+    loadInitialAvatarConfig(localAvatarStorageKey, settings?.avatarConfig ?? null)
   );
   const [draftAvatarId, setDraftAvatarId] = useState<string>(savedConfig.avatarId);
   const [draftCustomization, setDraftCustomization] = useState<UserAvatarCustomization>(
     () => ({ ...savedConfig.customization })
   );
+
+  useEffect(() => {
+    const reloaded = loadInitialAvatarConfig(localAvatarStorageKey, settings?.avatarConfig ?? null);
+    setSavedConfig(reloaded);
+    setDraftAvatarId(reloaded.avatarId);
+    setDraftCustomization({ ...reloaded.customization });
+  }, [localAvatarStorageKey, settings?.avatarConfig]);
   const [previewActivity, setPreviewActivity] = useState<StudyAvatarActivity>('studying');
   const [activeCategory, setActiveCategory] = useState<CustomizationTab>('hair');
   const [styleFilter, setStyleFilter] = useState<'all' | 'male' | 'female'>('all');
@@ -202,7 +214,7 @@ export const AvatarStudioView: React.FC = () => {
       });
 
       try {
-        localStorage.setItem(LOCAL_AVATAR_STORAGE_KEY, JSON.stringify(clean));
+        localStorage.setItem(localAvatarStorageKey, JSON.stringify(clean));
       } catch {
         // ignore storage errors
       }

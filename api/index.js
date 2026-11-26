@@ -990,6 +990,95 @@ var init_db = __esm({
           const preservedAuditLogs = (this.db.auditLogs || []).filter((l) => l.userId !== "usr_atif_default");
           const preservedSyncQueue = (this.db.syncQueue || []).filter((sq) => sq.userId !== "usr_atif_default");
           const preservedStudyTiers = (this.db.studyTiers || []).filter((st) => st.userId && st.userId !== "usr_atif_default");
+          const preservedStudySubjects = (this.db.studySubjects || []).filter((s) => s.userId !== "usr_atif_default");
+          const preservedStudyTopics = (this.db.studyTopics || []).filter((t) => t.userId !== "usr_atif_default");
+          const preservedStudyRevisions = (this.db.studyRevisions || []).filter((r) => r.userId !== "usr_atif_default");
+          const preservedStudyMistakes = (this.db.studyMistakes || []).filter((m) => m.userId !== "usr_atif_default");
+          const preservedHabits = (this.db.habits || []).filter((h) => h.userId !== "usr_atif_default");
+          const preservedJointVaults = (this.db.jointVaults || []).filter(
+            (v) => v.createdBy !== "usr_atif_default" || v.memberUids.some((u) => u !== "usr_atif_default")
+          );
+          const preservedVaultIds = new Set(preservedJointVaults.map((v) => v.id));
+          const preservedVaultMembers = (this.db.vaultMembers || []).filter(
+            (m) => m.vaultId ? preservedVaultIds.has(m.vaultId) : m.uid !== "usr_atif_default"
+          );
+          const preservedVaultInvitations = (this.db.vaultInvitations || []).filter(
+            (inv) => preservedVaultIds.has(inv.vaultId)
+          );
+          const preservedVaultContributions = (this.db.vaultContributions || []).filter(
+            (c) => preservedVaultIds.has(c.vaultId)
+          );
+          const preservedVaultExpenses = (this.db.vaultExpenses || []).filter(
+            (e) => preservedVaultIds.has(e.vaultId)
+          );
+          const preservedVaultSettlements = (this.db.vaultSettlements || []).filter(
+            (s) => preservedVaultIds.has(s.vaultId)
+          );
+          const preservedVaultActivities = (this.db.vaultActivities || []).filter(
+            (a) => preservedVaultIds.has(a.vaultId)
+          );
+          const preservedSkillNodes = (this.db.skillNodes || []).filter((n) => n.userId !== "usr_atif_default");
+          const preservedWhiteboardDrawings = (this.db.whiteboardDrawings || []).filter(
+            (w) => w.userId !== "usr_atif_default"
+          );
+          const preservedExamSimulations = (this.db.examSimulations || []).filter(
+            (e) => e.userId !== "usr_atif_default"
+          );
+          const preservedDecisionEntries = (this.db.decisionEntries || []).filter(
+            (d) => d.userId !== "usr_atif_default"
+          );
+          const preservedDoomscrollLogs = (this.db.doomscrollLogs || []).filter(
+            (d) => d.userId !== "usr_atif_default"
+          );
+          const preservedLifeMilestones = (this.db.lifeMilestones || []).filter(
+            (m) => m.userId !== "usr_atif_default"
+          );
+          const preservedTimeCapsules = (this.db.timeCapsules || []).filter(
+            (c) => c.userId !== "usr_atif_default"
+          );
+          const preservedEmergencyProfiles = (this.db.emergencyAssetProfiles || []).filter(
+            (p) => p.userId !== "usr_atif_default"
+          );
+          const preservedGamification = (this.db.gamificationProfiles || []).filter(
+            (g) => g.userId !== "usr_atif_default"
+          );
+          const preservedXpTransactions = (this.db.xpTransactions || []).filter(
+            (x) => x.userId !== "usr_atif_default"
+          );
+          const preservedFriendships = (this.db.friendships || []).filter(
+            (f) => f.requesterId !== "usr_atif_default" && f.recipientId !== "usr_atif_default"
+          );
+          const preservedSquads = (this.db.socialSquads || []).filter(
+            (s) => s.ownerId !== "usr_atif_default"
+          );
+          const preservedSquadIds = new Set(preservedSquads.map((s) => s.id));
+          const preservedSquadMembers = (this.db.squadMembers || []).filter(
+            (m) => preservedSquadIds.has(m.squadId) && m.userId !== "usr_atif_default"
+          );
+          const preservedSquadInvitations = (this.db.squadInvitations || []).filter(
+            (inv) => preservedSquadIds.has(inv.squadId) && inv.senderId !== "usr_atif_default" && inv.recipientId !== "usr_atif_default"
+          );
+          const preservedRoomInvitations = (this.db.roomInvitations || []).filter(
+            (inv) => inv.senderId !== "usr_atif_default" && inv.recipientId !== "usr_atif_default"
+          );
+          const preservedGroupSessions = (this.db.groupSessions || []).filter(
+            (s) => s.hostId !== "usr_atif_default"
+          );
+          const preservedStudyChatMessages = (this.db.studyChatMessages || []).filter(
+            (m) => m.senderId !== "usr_atif_default"
+          );
+          const preservedSocialActivities = (this.db.socialActivities || []).filter(
+            (a) => a.actorId !== "usr_atif_default"
+          );
+          const preservedSocialNotifications = (this.db.socialNotifications || []).filter(
+            (n) => n.userId !== "usr_atif_default"
+          );
+          const preservedPrivacySettings = (this.db.userPrivacySettings || []).filter(
+            (p) => p.userId !== "usr_atif_default"
+          );
+          const preservedUserReports = (this.db.userReports || []).filter(
+            (r) => r.reporterId !== "usr_atif_default" && r.targetUserId !== "usr_atif_default"
+          );
           this.db = {
             users: preservedUsers,
             userSettings: preservedSettings,
@@ -1008,8 +1097,39 @@ var init_db = __esm({
             auditLogs: preservedAuditLogs,
             syncQueue: preservedSyncQueue,
             studyTiers: preservedStudyTiers,
-            gamificationProfiles: [],
-            xpTransactions: []
+            studySubjects: preservedStudySubjects,
+            studyTopics: preservedStudyTopics,
+            studyRevisions: preservedStudyRevisions,
+            studyMistakes: preservedStudyMistakes,
+            jointVaults: preservedJointVaults,
+            vaultMembers: preservedVaultMembers,
+            vaultInvitations: preservedVaultInvitations,
+            vaultContributions: preservedVaultContributions,
+            vaultExpenses: preservedVaultExpenses,
+            vaultSettlements: preservedVaultSettlements,
+            vaultActivities: preservedVaultActivities,
+            skillNodes: preservedSkillNodes,
+            whiteboardDrawings: preservedWhiteboardDrawings,
+            examSimulations: preservedExamSimulations,
+            decisionEntries: preservedDecisionEntries,
+            doomscrollLogs: preservedDoomscrollLogs,
+            lifeMilestones: preservedLifeMilestones,
+            timeCapsules: preservedTimeCapsules,
+            emergencyAssetProfiles: preservedEmergencyProfiles,
+            gamificationProfiles: preservedGamification,
+            xpTransactions: preservedXpTransactions,
+            friendships: preservedFriendships,
+            socialSquads: preservedSquads,
+            squadMembers: preservedSquadMembers,
+            squadInvitations: preservedSquadInvitations,
+            roomInvitations: preservedRoomInvitations,
+            groupSessions: preservedGroupSessions,
+            studyChatMessages: preservedStudyChatMessages,
+            socialActivities: preservedSocialActivities,
+            socialNotifications: preservedSocialNotifications,
+            userPrivacySettings: preservedPrivacySettings,
+            userReports: preservedUserReports,
+            ...preservedHabits.length > 0 ? { habits: preservedHabits } : {}
           };
           this.ensureSeedDataForUser("usr_atif_default", true);
           this.checkRecurringBills("usr_atif_default");
@@ -1629,7 +1749,7 @@ var init_db = __esm({
       }
       // Transaction support: Mark bill as paid atomically & idempotently
       markBillAsPaid(userId, billId, paidDate, paymentMethod = "upi_bank", notes, idempotencyKey) {
-        const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId);
+        const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId && !b.deletedAt);
         if (!bill) {
           return { success: false, error: "Bill not found" };
         }
@@ -1714,7 +1834,7 @@ var init_db = __esm({
       }
       // Safe undo payment: preserve historical payment record with 'reversed' status
       undoBillPayment(userId, billId) {
-        const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId);
+        const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId && !b.deletedAt);
         if (!bill) {
           return { success: false, error: "Bill not found" };
         }
@@ -1847,7 +1967,14 @@ var init_db = __esm({
         const toEnv = this.db.envelopes.find((e) => e.id === toId && e.userId === userId && !e.deletedAt);
         if (!fromEnv || !toEnv) return { success: false, error: "Envelope not found" };
         if (amountPaise <= 0) return { success: false, error: "Transfer amount must be positive" };
-        if (fromEnv.allocatedPaise < amountPaise) {
+        let spentPaise = 0;
+        if (fromEnv.categoryId) {
+          spentPaise = this.db.expenseTransactions.filter(
+            (e) => e.userId === userId && !e.deletedAt && e.categoryId === fromEnv.categoryId && e.date.startsWith(fromEnv.monthKey)
+          ).reduce((sum, e) => sum + (e.amountPaise || 0), 0);
+        }
+        const availablePaise = Math.max(0, fromEnv.allocatedPaise - spentPaise);
+        if (availablePaise < amountPaise) {
           return { success: false, error: "Source envelope has insufficient funds" };
         }
         const nowIso = (/* @__PURE__ */ new Date()).toISOString();
@@ -1884,6 +2011,7 @@ var init_db = __esm({
         const nowIso = (/* @__PURE__ */ new Date()).toISOString();
         const id = input.id || `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         const idx = this.db.subscriptions.findIndex((s) => s.id === id && s.userId === userId);
+        const parsedReminderDays = input.reminderDays !== void 0 && input.reminderDays !== null ? Number(input.reminderDays) : 3;
         const sub = {
           id,
           userId,
@@ -1892,7 +2020,7 @@ var init_db = __esm({
           categoryId: input.categoryId || "cat_subscriptions",
           billingCycle: input.billingCycle || "monthly",
           nextRenewalDate: input.nextRenewalDate || getTodayDateString(DEFAULT_TIMEZONE),
-          reminderDays: Math.max(0, Number(input.reminderDays) || 3),
+          reminderDays: Number.isFinite(parsedReminderDays) ? Math.max(0, Math.floor(parsedReminderDays)) : 3,
           autoRenew: input.autoRenew !== false,
           status: input.status || "active",
           websiteUrl: input.websiteUrl || "",
@@ -2217,7 +2345,11 @@ var init_db = __esm({
         this.db.studyTiers = this.db.studyTiers || [];
         const nowIso = (/* @__PURE__ */ new Date()).toISOString();
         const id = input.id || `tier_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        const existingIdx = this.db.studyTiers.findIndex((t) => t.id === id);
+        const existingAny = this.db.studyTiers.find((t) => t.id === id);
+        if (existingAny && existingAny.userId !== userId) {
+          throw new Error("Forbidden: Cannot overwrite a study tier owned by another user");
+        }
+        const existingIdx = this.db.studyTiers.findIndex((t) => t.id === id && t.userId === userId);
         const tier = {
           id: existingIdx >= 0 ? this.db.studyTiers[existingIdx].id : id,
           userId,
@@ -2591,7 +2723,12 @@ var init_db = __esm({
         this.ensureJointVaultsArrays();
         if (data.id) {
           const existing = (this.db.jointVaults || []).find((v) => v.id === data.id);
-          if (existing) return existing;
+          if (existing) {
+            if (!existing.memberUids.includes(creatorUser.id)) {
+              throw new Error("Forbidden: Joint vault ID already exists");
+            }
+            return existing;
+          }
         }
         const nowIso = (/* @__PURE__ */ new Date()).toISOString();
         const vaultId = data.id || `vlt_${crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random().toString(36).slice(2, 8)}`;
@@ -2611,6 +2748,7 @@ var init_db = __esm({
           updatedAt: nowIso
         };
         const creatorMember = {
+          vaultId,
           uid: creatorUser.id,
           email: creatorUser.email || `${creatorUser.id}@focusflow.app`,
           name: creatorUser.name || "Vault Creator",
@@ -2646,9 +2784,17 @@ var init_db = __esm({
         const vault = (this.db.jointVaults || []).find((v) => v.id === vaultId);
         if (!vault) return null;
         if (!vault.memberUids.includes(userId)) return null;
-        const members = (this.db.vaultMembers || []).filter(
-          (m) => m.status === "active" && vault.memberUids.includes(m.uid)
+        const rawMembers = (this.db.vaultMembers || []).filter(
+          (m) => m.status === "active" && vault.memberUids.includes(m.uid) && (!m.vaultId || m.vaultId === vaultId)
         );
+        const memberByUid = /* @__PURE__ */ new Map();
+        for (const m of rawMembers) {
+          const existing = memberByUid.get(m.uid);
+          if (!existing || m.vaultId === vaultId && existing.vaultId !== vaultId) {
+            memberByUid.set(m.uid, m);
+          }
+        }
+        const members = Array.from(memberByUid.values());
         const contributions = (this.db.vaultContributions || []).filter((c) => c.vaultId === vaultId);
         const expenses = (this.db.vaultExpenses || []).filter((e) => e.vaultId === vaultId);
         const settlements = (this.db.vaultSettlements || []).filter((s) => s.vaultId === vaultId);
@@ -2738,6 +2884,7 @@ var init_db = __esm({
         };
         vault.updatedAt = nowIso;
         const newMember = {
+          vaultId: vault.id,
           uid: user.id,
           email: user.email || `${user.id}@focusflow.app`,
           name: user.name || "Partner",
@@ -2957,6 +3104,9 @@ var init_db = __esm({
         if (!vault) throw new Error("Vault not found");
         if (!vault.memberUids.includes(fromUser.id)) throw new Error("Unauthorized");
         if (!vault.memberUids.includes(data.toUid)) throw new Error("Recipient must be a vault member");
+        if (fromUser.id === data.toUid) {
+          throw new Error("Cannot record a settlement payment to yourself");
+        }
         if (!data.amountPaise || !Number.isInteger(data.amountPaise) || data.amountPaise <= 0) {
           throw new Error("Settlement amount must be a positive integer in paise");
         }
@@ -3018,9 +3168,10 @@ var init_db = __esm({
         if (vault.memberUids.length <= 1) {
           throw new Error("Single remaining member cannot leave vault. Please archive the vault instead.");
         }
-        const member = (this.db.vaultMembers || []).find((m) => m.uid === userId);
+        const member = (this.db.vaultMembers || []).find((m) => m.uid === userId && m.vaultId === vaultId) || (this.db.vaultMembers || []).find((m) => m.uid === userId && !m.vaultId);
         if (member) {
           member.status = "left";
+          member.leftAt = (/* @__PURE__ */ new Date()).toISOString();
         }
         vault.memberUids = vault.memberUids.filter((id) => id !== userId);
         vault.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -4187,8 +4338,12 @@ var init_vaultBackendService = __esm({
           },
           body: JSON.stringify(queryBody)
         });
+        if (!queryRes.ok) {
+          const errText = await queryRes.text();
+          throw new VaultServiceError(`Firestore query failed (${queryRes.status}): ${errText}`, 500);
+        }
         const queryResults = await queryRes.json();
-        const firstResult = queryResults.find((r) => r.document);
+        const firstResult = Array.isArray(queryResults) ? queryResults.find((r) => r.document) : void 0;
         if (!firstResult || !firstResult.document) {
           throw new VaultServiceError("Invalid invitation code", 400, "INVALID_CODE");
         }
@@ -4264,18 +4419,43 @@ var init_vaultBackendService = __esm({
         if (!vaultData.memberUids.includes(user.id)) {
           throw new VaultServiceError("Unauthorized to revoke invitations for this vault", 403, "UNAUTHORIZED");
         }
+        const inviteDocPath = `${baseUrl}/sharedVaults/${encodeURIComponent(vaultId)}/invitations/${encodeURIComponent(inviteId)}`;
+        const inviteRes = await fetch(inviteDocPath, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (inviteRes.status === 404) {
+          throw new VaultServiceError("Invitation not found", 404, "INVITATION_NOT_FOUND");
+        }
+        if (!inviteRes.ok) {
+          const errText = await inviteRes.text();
+          throw new VaultServiceError(
+            `Failed to fetch vault invitation (${inviteRes.status}): ${errText}`,
+            500,
+            "FIRESTORE_READ_FAILED"
+          );
+        }
+        const inviteDoc = await inviteRes.json();
+        const inviteData = fromFirestoreDoc(inviteDoc);
+        if (inviteData.status !== "pending") {
+          throw new VaultServiceError(
+            `Invitation cannot be revoked because it is already ${inviteData.status}`,
+            400,
+            "INVITATION_NOT_PENDING"
+          );
+        }
         const nowIso = (/* @__PURE__ */ new Date()).toISOString();
         const writes = [
           {
             update: {
-              name: `${baseUrl}/sharedVaults/${vaultId}/invitations/${inviteId}`,
+              name: inviteDoc.name || `${baseUrl}/sharedVaults/${vaultId}/invitations/${inviteId}`,
               fields: {
                 status: { stringValue: "revoked" },
                 revokedAt: { stringValue: nowIso },
                 updatedAt: { stringValue: nowIso }
               }
             },
-            updateMask: { fieldPaths: ["status", "revokedAt", "updatedAt"] }
+            updateMask: { fieldPaths: ["status", "revokedAt", "updatedAt"] },
+            currentDocument: inviteDoc.updateTime ? { updateTime: inviteDoc.updateTime } : { exists: true }
           }
         ];
         const commitRes = await fetch(`${baseUrl}:commit`, {
@@ -4286,7 +4466,18 @@ var init_vaultBackendService = __esm({
           },
           body: JSON.stringify({ writes })
         });
-        return { success: commitRes.ok };
+        if (!commitRes.ok) {
+          const errText = await commitRes.text();
+          if (commitRes.status === 409 || commitRes.status === 412 || errText.includes("FAILED_PRECONDITION")) {
+            throw new VaultServiceError(
+              "Invitation state changed before revoke could commit. Please retry.",
+              409,
+              "CONCURRENT_MODIFICATION"
+            );
+          }
+          return { success: false };
+        }
+        return { success: true };
       }
       /**
        * Reverses a vault expense.
@@ -4390,12 +4581,28 @@ var init_vaultBackendService = __esm({
           const vault = fromFirestoreDoc(vDoc);
           if (!vault.memberUids || !vault.memberUids.includes(userId)) return null;
           const fetchList = async (col) => {
-            const res = await fetch(`${baseUrl}/sharedVaults/${vaultId}/${col}?pageSize=100`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-            if (!res.ok) return [];
-            const data = await res.json();
-            return (data.documents || []).map(fromFirestoreDoc);
+            const allDocs = [];
+            let pageToken = "";
+            let pages = 0;
+            do {
+              const qs = pageToken ? `?pageSize=100&pageToken=${encodeURIComponent(pageToken)}` : "?pageSize=100";
+              const res = await fetch(`${baseUrl}/sharedVaults/${vaultId}/${col}${qs}`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              if (!res.ok) {
+                if (res.status === 404 && pages === 0) break;
+                throw new Error(`Failed to fetch ${col} (HTTP ${res.status})`);
+              }
+              const data = await res.json();
+              if (Array.isArray(data.documents)) {
+                for (const doc of data.documents) {
+                  allDocs.push(fromFirestoreDoc(doc));
+                }
+              }
+              pageToken = typeof data.nextPageToken === "string" ? data.nextPageToken : "";
+              pages++;
+            } while (pageToken && pages < 50);
+            return allDocs;
           };
           const [members, contributions, expenses, settlements, activities] = await Promise.all([
             fetchList("members"),
@@ -5428,28 +5635,108 @@ function extractZipEntries(buf) {
   if (eocdOffset < 0) throw new Error("Invalid ZIP archive: missing EOCD");
   const cdOffset = buf.readUInt32LE(eocdOffset + 16);
   const totalEntries = buf.readUInt16LE(eocdOffset + 10);
+  if (cdOffset < 0 || cdOffset >= buf.length) {
+    throw new Error("Invalid ZIP archive: central directory offset out of bounds");
+  }
+  if (totalEntries > MAX_ZIP_ENTRIES) {
+    throw new Error(`Invalid XLSX archive: too many ZIP entries (${totalEntries})`);
+  }
   let pos = cdOffset;
+  let totalUncompressedBytes = 0;
   for (let idx = 0; idx < totalEntries; idx++) {
+    if (pos + 46 > buf.length) {
+      throw new Error("Invalid ZIP archive: truncated central directory entry");
+    }
     if (buf.readUInt32LE(pos) !== 33639248) break;
     const compressionMethod = buf.readUInt16LE(pos + 10);
     const compressedSize = buf.readUInt32LE(pos + 20);
+    const declaredUncompressedSize = buf.readUInt32LE(pos + 24);
     const nameLen = buf.readUInt16LE(pos + 28);
     const extraLen = buf.readUInt16LE(pos + 30);
     const commentLen = buf.readUInt16LE(pos + 32);
     const localHeaderOffset = buf.readUInt32LE(pos + 42);
+    const entryRecordEnd = pos + 46 + nameLen + extraLen + commentLen;
+    if (entryRecordEnd > buf.length) {
+      throw new Error("Invalid ZIP archive: entry metadata exceeds buffer bounds");
+    }
     const name = buf.toString("utf-8", pos + 46, pos + 46 + nameLen);
+    if (localHeaderOffset < 0 || localHeaderOffset + 30 > buf.length) {
+      throw new Error(`Invalid ZIP archive: local header offset out of bounds for "${name}"`);
+    }
+    if (buf.readUInt32LE(localHeaderOffset) !== 67324752) {
+      throw new Error(`Invalid ZIP archive: invalid local header signature for "${name}"`);
+    }
     const localNameLen = buf.readUInt16LE(localHeaderOffset + 26);
     const localExtraLen = buf.readUInt16LE(localHeaderOffset + 28);
     const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
-    const compressedSlice = buf.subarray(dataStart, dataStart + compressedSize);
-    const content = compressionMethod === 0 ? Buffer.from(compressedSlice) : compressionMethod === 8 ? zlib.inflateRawSync(compressedSlice) : Buffer.alloc(0);
+    const dataEnd = dataStart + compressedSize;
+    if (dataStart < 0 || compressedSize > MAX_ENTRY_UNCOMPRESSED_BYTES || dataEnd > buf.length) {
+      throw new Error(`Invalid XLSX archive: entry "${name}" bounds exceed safe archive limits`);
+    }
+    if (declaredUncompressedSize > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+      throw new Error(
+        `Invalid XLSX archive: entry "${name}" exceeds safe uncompressed size limit`
+      );
+    }
+    const compressedSlice = buf.subarray(dataStart, dataEnd);
+    let content;
+    if (compressionMethod === 0) {
+      if (compressedSlice.length > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+        throw new Error(`Invalid XLSX archive: stored entry "${name}" exceeds size limit`);
+      }
+      content = Buffer.from(compressedSlice);
+    } else if (compressionMethod === 8) {
+      try {
+        content = zlib.inflateRawSync(compressedSlice, {
+          maxOutputLength: MAX_ENTRY_UNCOMPRESSED_BYTES
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (err instanceof RangeError || /buffer length|maxOutputLength|too large/i.test(msg)) {
+          throw new Error(
+            `Invalid XLSX archive: entry "${name}" exceeded safe decompression limit (Zip Bomb protection)`
+          );
+        }
+        throw new Error(`Invalid XLSX archive: failed to inflate "${name}": ${msg}`);
+      }
+    } else {
+      content = Buffer.alloc(0);
+    }
+    totalUncompressedBytes += content.length;
+    if (totalUncompressedBytes > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+      throw new Error("Invalid XLSX archive: total uncompressed size exceeds safe limit");
+    }
     entries.set(name, content);
-    pos += 46 + nameLen + extraLen + commentLen;
+    pos = entryRecordEnd;
   }
   return entries;
 }
 function decodeXmlEntities(str) {
-  return str.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'");
+  return str.replace(/&(lt|gt|quot|apos|amp|#x[0-9a-fA-F]+|#[0-9]+);/g, (full, entity) => {
+    switch (entity) {
+      case "lt":
+        return "<";
+      case "gt":
+        return ">";
+      case "quot":
+        return '"';
+      case "apos":
+        return "'";
+      case "amp":
+        return "&";
+      default: {
+        if (entity.startsWith("#x") || entity.startsWith("#X")) {
+          const cp = Number.parseInt(entity.slice(2), 16);
+          return Number.isFinite(cp) && cp > 0 && cp <= 1114111 ? String.fromCodePoint(cp) : full;
+        }
+        if (entity.startsWith("#")) {
+          const cp = Number.parseInt(entity.slice(1), 10);
+          return Number.isFinite(cp) && cp > 0 && cp <= 1114111 ? String.fromCodePoint(cp) : full;
+        }
+        return full;
+      }
+    }
+  });
 }
 function colRefToIndex0(colLetters) {
   let idx = 0;
@@ -5587,8 +5874,12 @@ function parseLocalXlsxFixture(filePath) {
   }
   return parseXlsxBuffer(fs4.readFileSync(filePath));
 }
+var MAX_ZIP_ENTRIES, MAX_ENTRY_UNCOMPRESSED_BYTES, MAX_TOTAL_UNCOMPRESSED_BYTES;
 var init_localXlsxParser = __esm({
   "server/localXlsxParser.ts"() {
+    MAX_ZIP_ENTRIES = 500;
+    MAX_ENTRY_UNCOMPRESSED_BYTES = 10 * 1024 * 1024;
+    MAX_TOTAL_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
   }
 });
 
@@ -5934,39 +6225,36 @@ function awardAuthoritativeXP(db, userId, req) {
   const timezone = settings?.timezone || DEFAULT_TIMEZONE;
   const profile = getOrCreateProfile(db, userId, timezone);
   const previousLevel = profile.level;
+  const periodKeys = getPeriodKeys(timezone);
   const eventId = (req.eventId || "").trim();
   const sourceId = (req.sourceId || "").trim();
   const source = req.source;
+  const emptyFailure = (alreadyAwarded = false) => ({
+    awarded: false,
+    alreadyAwarded,
+    xpAdded: 0,
+    previousLevel,
+    newLevel: profile.level,
+    leveledUp: false,
+    profile,
+    progress: calculateXPProgress(profile.totalXP),
+    unlockedAchievements: [],
+    transactions: []
+  });
   if (!eventId || !sourceId || !source) {
-    return {
-      awarded: false,
-      alreadyAwarded: false,
-      xpAdded: 0,
-      previousLevel,
-      newLevel: previousLevel,
-      leveledUp: false,
-      profile,
-      progress: calculateXPProgress(profile.totalXP),
-      unlockedAchievements: [],
-      transactions: []
-    };
+    return emptyFailure(false);
+  }
+  if (source === "daily_goal" && sourceId !== periodKeys.dailyKey) {
+    return emptyFailure(false);
+  }
+  if (source === "streak" && (!/^\d+$/.test(sourceId) || sourceId !== String(Number(sourceId)))) {
+    return emptyFailure(false);
   }
   const duplicate = (db.xpTransactions || []).find(
     (tx) => tx.userId === userId && (tx.id === eventId || tx.source === source && tx.sourceId === sourceId)
   );
   if (duplicate) {
-    return {
-      awarded: false,
-      alreadyAwarded: true,
-      xpAdded: 0,
-      previousLevel,
-      newLevel: profile.level,
-      leveledUp: false,
-      profile,
-      progress: calculateXPProgress(profile.totalXP),
-      unlockedAchievements: [],
-      transactions: []
-    };
+    return emptyFailure(true);
   }
   let rewardAmount = 0;
   let description = "";
@@ -6142,9 +6430,22 @@ function getPaginatedGamificationLeaderboard(db, currentUserId, options = {}) {
   const page = Math.max(1, Math.floor(options.page || 1));
   const limit = Math.min(50, Math.max(1, Math.floor(options.limit || 10)));
   const profiles = db.gamificationProfiles || [];
+  const periodKeysByTz = /* @__PURE__ */ new Map();
+  const getKeysForTimezone = (tz) => {
+    let cached = periodKeysByTz.get(tz);
+    if (!cached) {
+      cached = getPeriodKeys(tz);
+      periodKeysByTz.set(tz, cached);
+    }
+    return cached;
+  };
   const rows = profiles.map((p) => {
-    const user = db.users.find((u) => u.id === p.userId);
-    const sortXP = category === "weekly" ? p.weeklyXP || 0 : category === "monthly" ? p.monthlyXP || 0 : p.totalXP || 0;
+    const user = (db.users || []).find((u) => u.id === p.userId);
+    const userTz = (db.userSettings || []).find((s) => s.userId === p.userId)?.timezone || DEFAULT_TIMEZONE;
+    const currentKeys = getKeysForTimezone(userTz);
+    const effectiveWeeklyXP = p.weekKey === currentKeys.weekKey ? p.weeklyXP || 0 : 0;
+    const effectiveMonthlyXP = p.monthKey === currentKeys.monthKey ? p.monthlyXP || 0 : 0;
+    const sortXP = category === "weekly" ? effectiveWeeklyXP : category === "monthly" ? effectiveMonthlyXP : p.totalXP || 0;
     return {
       userId: p.userId,
       displayName: user?.name || "Focus Student",
@@ -7157,6 +7458,217 @@ function validateAndSanitizeAvatarConfig(raw) {
 import crypto3 from "crypto";
 import fs3 from "fs";
 import path3 from "path";
+
+// server/security.ts
+var rateLimitMap = /* @__PURE__ */ new Map();
+var cleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of rateLimitMap.entries()) {
+    if (now > record.resetAt) {
+      rateLimitMap.delete(key);
+    }
+  }
+}, 3e5);
+if (cleanupTimer.unref) {
+  cleanupTimer.unref();
+}
+function configureTrustProxy(app2, trustProxyEnv) {
+  if (!trustProxyEnv || trustProxyEnv.trim() === "" || trustProxyEnv === "false" || trustProxyEnv === "0") {
+    app2.set("trust proxy", false);
+    return false;
+  }
+  const trimmed = trustProxyEnv.trim();
+  if (trimmed.toLowerCase() === "true") {
+    app2.set("trust proxy", true);
+    return true;
+  }
+  if (/^[+-]?\d+$/.test(trimmed)) {
+    const hops = parseInt(trimmed, 10);
+    if (!isNaN(hops) && hops > 0) {
+      app2.set("trust proxy", hops);
+      return hops;
+    }
+    app2.set("trust proxy", false);
+    return false;
+  }
+  try {
+    app2.set("trust proxy", trimmed);
+    return trimmed;
+  } catch (err) {
+    console.warn(
+      `[Security] Warning: Invalid TRUST_PROXY configuration "${trimmed}" (${err instanceof Error ? err.message : String(err)}). Failing safely to trust proxy = false.`
+    );
+    app2.set("trust proxy", false);
+    return false;
+  }
+}
+function resolveClientIp(req) {
+  const trustProxySetting = req.app?.get ? req.app.get("trust proxy") : false;
+  const isProxyTrusted = Boolean(trustProxySetting);
+  let rawIp;
+  if (isProxyTrusted && req.ip) {
+    rawIp = req.ip;
+  } else {
+    rawIp = req.socket?.remoteAddress;
+  }
+  if (!rawIp) {
+    rawIp = req.ip || "unknown_client";
+  }
+  if (rawIp.startsWith("::ffff:")) {
+    rawIp = rawIp.slice(7);
+  }
+  return rawIp;
+}
+function rateLimiter(options = {}) {
+  const windowMs = options.windowMs || 6e4;
+  const maxRequests = options.maxRequests || 300;
+  const message = options.message || "Too many requests. Please slow down and try again.";
+  return (req, res, next) => {
+    const authUser = req.auth?.userId;
+    const clientIp = resolveClientIp(req);
+    const key = authUser ? `usr:${authUser}:${req.method}` : `ip:${clientIp}:${req.method}`;
+    const now = Date.now();
+    let record = rateLimitMap.get(key);
+    if (!record || now > record.resetAt) {
+      record = {
+        count: 1,
+        resetAt: now + windowMs
+      };
+      rateLimitMap.set(key, record);
+    } else {
+      record.count += 1;
+    }
+    const remaining = Math.max(0, maxRequests - record.count);
+    const resetSeconds = Math.ceil((record.resetAt - now) / 1e3);
+    res.setHeader("X-RateLimit-Limit", maxRequests);
+    res.setHeader("X-RateLimit-Remaining", remaining);
+    res.setHeader("X-RateLimit-Reset", resetSeconds);
+    if (record.count > maxRequests) {
+      res.status(429).json({
+        error: message,
+        retryAfterSeconds: resetSeconds
+      });
+      return;
+    }
+    next();
+  };
+}
+function securityHeaders(req, res, next) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+}
+function sanitizeLogData(data) {
+  if (!data || typeof data !== "object") return data;
+  if (Array.isArray(data)) return data.map(sanitizeLogData);
+  const clean = {};
+  for (const [key, value] of Object.entries(data)) {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey.includes("token") || lowerKey.includes("password") || lowerKey.includes("secret") || lowerKey.includes("authorization") || lowerKey.includes("auth") || lowerKey.includes("apikey") || lowerKey.includes("key") || lowerKey.includes("card") || lowerKey.includes("creditcard") || lowerKey.includes("credential")) {
+      clean[key] = "[REDACTED_SECRET]";
+    } else if (typeof value === "object" && value !== null) {
+      clean[key] = sanitizeLogData(value);
+    } else {
+      clean[key] = value;
+    }
+  }
+  return clean;
+}
+var sanitizeForLogging = sanitizeLogData;
+function corsHandler(req, res, next) {
+  const origin = req.headers.origin;
+  const allowedOriginsEnv = process.env.ALLOWED_ORIGINS;
+  const appUrl = process.env.APP_URL;
+  const requestHost = req.headers.host;
+  let sameHostOrigin = false;
+  if (origin && requestHost) {
+    try {
+      const parsedOrigin = new URL(origin);
+      const trustProxySetting = req.app?.get ? req.app.get("trust proxy") : false;
+      const isProxyTrusted = Boolean(trustProxySetting);
+      const forwardedProtoRaw = typeof req.headers["x-forwarded-proto"] === "string" ? req.headers["x-forwarded-proto"].split(",")[0].trim().toLowerCase() : void 0;
+      let expectedScheme;
+      if (typeof req.protocol === "string" && req.protocol) {
+        expectedScheme = req.protocol.toLowerCase();
+      } else if (isProxyTrusted && (forwardedProtoRaw === "http" || forwardedProtoRaw === "https")) {
+        expectedScheme = forwardedProtoRaw;
+      } else if (req.socket && typeof req.socket.encrypted === "boolean") {
+        expectedScheme = req.socket.encrypted ? "https" : "http";
+      } else if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(requestHost)) {
+        expectedScheme = "https";
+      }
+      const protocolMatches = expectedScheme ? parsedOrigin.protocol === `${expectedScheme}:` : parsedOrigin.protocol === "http:" || parsedOrigin.protocol === "https:";
+      sameHostOrigin = parsedOrigin.host === requestHost && protocolMatches;
+    } catch {
+      sameHostOrigin = false;
+    }
+  }
+  let isAllowed = false;
+  let isWildcardCors = false;
+  if (!origin || sameHostOrigin) {
+    isAllowed = true;
+  } else if (allowedOriginsEnv && allowedOriginsEnv.trim() !== "") {
+    const list = allowedOriginsEnv.split(",").map((o) => o.trim()).filter(Boolean);
+    if (list.includes(origin)) {
+      isAllowed = true;
+    } else if (list.includes("*")) {
+      isAllowed = true;
+      isWildcardCors = true;
+    }
+  } else if (appUrl && appUrl.trim() !== "") {
+    try {
+      const trimmedAppUrl = appUrl.trim();
+      const normalizedAppUrl = trimmedAppUrl.startsWith("http://") || trimmedAppUrl.startsWith("https://") ? trimmedAppUrl : `https://${trimmedAppUrl}`;
+      const appOrigin = new URL(normalizedAppUrl).origin;
+      isAllowed = origin === trimmedAppUrl || origin === appOrigin;
+    } catch {
+      isAllowed = false;
+    }
+  } else if (process.env.NODE_ENV !== "production") {
+    isAllowed = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  }
+  if (origin && isAllowed) {
+    if (isWildcardCors) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+    } else {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Vary", "Origin");
+    }
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, x-demo-session, x-user-id, x-google-access-token, X-CSRF-Token, X-Requested-With, Accept, Accept-Version"
+    );
+    res.setHeader("Access-Control-Max-Age", "86400");
+  }
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+}
+function errorHandler(err, req, res, _next) {
+  const sanitized = sanitizeLogData(
+    err instanceof Error ? { message: err.message, stack: err.stack } : { error: err }
+  );
+  console.error("[API Error]", JSON.stringify(sanitized));
+  if (res.headersSent) return;
+  const isProd = process.env.NODE_ENV === "production";
+  const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
+  res.status(500).json({
+    error: isProd ? "Internal Server Error" : errorMessage,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+
+// server/auth.ts
 var GOOGLE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com";
 var GUEST_ID_REGEX = /^gst_[a-zA-Z0-9_-]{8,64}$/;
 var PRODUCTION_PROJECT_ID2 = "focus-flow-by-atif";
@@ -7421,7 +7933,7 @@ async function requireUserContext(req, res, next) {
   } else if (!isProduction && process.env.DEMO_MODE === "shared") {
     demoSessionId = "usr_atif_default";
   } else {
-    const clientIp = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.socket.remoteAddress || "localhost";
+    const clientIp = resolveClientIp(req) || "localhost";
     const clientUa = req.headers["user-agent"] || "generic";
     const hash = crypto3.createHash("sha256").update(`${clientIp}:${clientUa}`).digest("hex").slice(0, 16);
     demoSessionId = `gst_${hash}`;
@@ -7431,200 +7943,6 @@ async function requireUserContext(req, res, next) {
     isGuest: true
   };
   next();
-}
-
-// server/security.ts
-var rateLimitMap = /* @__PURE__ */ new Map();
-var cleanupTimer = setInterval(() => {
-  const now = Date.now();
-  for (const [key, record] of rateLimitMap.entries()) {
-    if (now > record.resetAt) {
-      rateLimitMap.delete(key);
-    }
-  }
-}, 3e5);
-if (cleanupTimer.unref) {
-  cleanupTimer.unref();
-}
-function configureTrustProxy(app2, trustProxyEnv) {
-  if (!trustProxyEnv || trustProxyEnv.trim() === "" || trustProxyEnv === "false" || trustProxyEnv === "0") {
-    app2.set("trust proxy", false);
-    return false;
-  }
-  const trimmed = trustProxyEnv.trim();
-  if (trimmed.toLowerCase() === "true") {
-    app2.set("trust proxy", true);
-    return true;
-  }
-  if (/^[+-]?\d+$/.test(trimmed)) {
-    const hops = parseInt(trimmed, 10);
-    if (!isNaN(hops) && hops > 0) {
-      app2.set("trust proxy", hops);
-      return hops;
-    }
-    app2.set("trust proxy", false);
-    return false;
-  }
-  try {
-    app2.set("trust proxy", trimmed);
-    return trimmed;
-  } catch (err) {
-    console.warn(
-      `[Security] Warning: Invalid TRUST_PROXY configuration "${trimmed}" (${err instanceof Error ? err.message : String(err)}). Failing safely to trust proxy = false.`
-    );
-    app2.set("trust proxy", false);
-    return false;
-  }
-}
-function resolveClientIp(req) {
-  const trustProxySetting = req.app?.get ? req.app.get("trust proxy") : false;
-  const isProxyTrusted = Boolean(trustProxySetting);
-  let rawIp;
-  if (isProxyTrusted && req.ip) {
-    rawIp = req.ip;
-  } else {
-    rawIp = req.socket?.remoteAddress;
-  }
-  if (!rawIp) {
-    rawIp = req.ip || "unknown_client";
-  }
-  if (rawIp.startsWith("::ffff:")) {
-    rawIp = rawIp.slice(7);
-  }
-  return rawIp;
-}
-function rateLimiter(options = {}) {
-  const windowMs = options.windowMs || 6e4;
-  const maxRequests = options.maxRequests || 300;
-  const message = options.message || "Too many requests. Please slow down and try again.";
-  return (req, res, next) => {
-    const authUser = req.auth?.userId;
-    const clientIp = resolveClientIp(req);
-    const key = authUser ? `usr:${authUser}:${req.method}` : `ip:${clientIp}:${req.method}`;
-    const now = Date.now();
-    let record = rateLimitMap.get(key);
-    if (!record || now > record.resetAt) {
-      record = {
-        count: 1,
-        resetAt: now + windowMs
-      };
-      rateLimitMap.set(key, record);
-    } else {
-      record.count += 1;
-    }
-    const remaining = Math.max(0, maxRequests - record.count);
-    const resetSeconds = Math.ceil((record.resetAt - now) / 1e3);
-    res.setHeader("X-RateLimit-Limit", maxRequests);
-    res.setHeader("X-RateLimit-Remaining", remaining);
-    res.setHeader("X-RateLimit-Reset", resetSeconds);
-    if (record.count > maxRequests) {
-      res.status(429).json({
-        error: message,
-        retryAfterSeconds: resetSeconds
-      });
-      return;
-    }
-    next();
-  };
-}
-function securityHeaders(req, res, next) {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
-  if (process.env.NODE_ENV === "production") {
-    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  }
-  next();
-}
-function sanitizeLogData(data) {
-  if (!data || typeof data !== "object") return data;
-  if (Array.isArray(data)) return data.map(sanitizeLogData);
-  const clean = {};
-  for (const [key, value] of Object.entries(data)) {
-    const lowerKey = key.toLowerCase();
-    if (lowerKey.includes("token") || lowerKey.includes("password") || lowerKey.includes("secret") || lowerKey.includes("authorization") || lowerKey.includes("auth") || lowerKey.includes("apikey") || lowerKey.includes("key") || lowerKey.includes("card") || lowerKey.includes("creditcard") || lowerKey.includes("credential")) {
-      clean[key] = "[REDACTED_SECRET]";
-    } else if (typeof value === "object" && value !== null) {
-      clean[key] = sanitizeLogData(value);
-    } else {
-      clean[key] = value;
-    }
-  }
-  return clean;
-}
-var sanitizeForLogging = sanitizeLogData;
-function corsHandler(req, res, next) {
-  const origin = req.headers.origin;
-  const allowedOriginsEnv = process.env.ALLOWED_ORIGINS;
-  const appUrl = process.env.APP_URL;
-  const requestHost = req.headers.host;
-  let sameHostOrigin = false;
-  if (origin && requestHost) {
-    try {
-      sameHostOrigin = new URL(origin).host === requestHost;
-    } catch {
-      sameHostOrigin = false;
-    }
-  }
-  let isAllowed = false;
-  let isWildcardCors = false;
-  if (!origin || sameHostOrigin) {
-    isAllowed = true;
-  } else if (allowedOriginsEnv && allowedOriginsEnv.trim() !== "") {
-    const list = allowedOriginsEnv.split(",").map((o) => o.trim()).filter(Boolean);
-    if (list.includes(origin)) {
-      isAllowed = true;
-    } else if (list.includes("*")) {
-      isAllowed = true;
-      isWildcardCors = true;
-    }
-  } else if (appUrl && appUrl.trim() !== "") {
-    try {
-      const trimmedAppUrl = appUrl.trim();
-      const normalizedAppUrl = trimmedAppUrl.startsWith("http://") || trimmedAppUrl.startsWith("https://") ? trimmedAppUrl : `https://${trimmedAppUrl}`;
-      const appOrigin = new URL(normalizedAppUrl).origin;
-      isAllowed = origin === trimmedAppUrl || origin === appOrigin;
-    } catch {
-      isAllowed = false;
-    }
-  } else if (process.env.NODE_ENV !== "production") {
-    isAllowed = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-  }
-  if (origin && isAllowed) {
-    if (isWildcardCors) {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-    } else {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-      res.setHeader("Vary", "Origin");
-    }
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, x-demo-session, x-user-id, x-google-access-token, X-CSRF-Token, X-Requested-With, Accept, Accept-Version"
-    );
-    res.setHeader("Access-Control-Max-Age", "86400");
-  }
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
-  }
-  next();
-}
-function errorHandler(err, req, res, _next) {
-  const sanitized = sanitizeLogData(
-    err instanceof Error ? { message: err.message, stack: err.stack } : { error: err }
-  );
-  console.error("[API Error]", JSON.stringify(sanitized));
-  if (res.headersSent) return;
-  const isProd = process.env.NODE_ENV === "production";
-  const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
-  res.status(500).json({
-    error: isProd ? "Internal Server Error" : errorMessage,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  });
 }
 
 // server/routes.ts
@@ -7651,6 +7969,7 @@ var ALLOWED_STUDY_PRIORITIES = ["High", "Medium", "Low"];
 var ALLOWED_REVISION_DIFFICULTIES = ["easy", "medium", "hard"];
 var ALLOWED_REVISION_STATUSES = ["scheduled", "due", "overdue", "mastered"];
 var ALLOWED_MISTAKE_SEVERITIES = ["High", "Medium", "Low"];
+var ALLOWED_HABIT_FREQUENCIES = ["daily", "weekly", "custom"];
 function parsePositiveInt(value, min = 1, max = Number.MAX_SAFE_INTEGER) {
   if (value === null || value === void 0 || typeof value === "boolean") return null;
   if (typeof value === "string" && value.trim() === "") return null;
@@ -7674,6 +7993,10 @@ function parseOptionalString(value, maxLen = 2e3) {
   const trimmed = value.trim();
   if (trimmed.length > maxLen) return null;
   return trimmed;
+}
+function escapeSheetFormulaCell(value) {
+  const str = String(value ?? "");
+  return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
 }
 function parseIsoDate(value) {
   if (typeof value !== "string") return null;
@@ -9556,6 +9879,15 @@ async function historicalResync(spreadsheetId, accessToken, data, confirmed, fet
     updatedRangesCount: syncResult.updatedRangesCount
   };
 }
+function sanitizeSheetRowValues(payload, fallbackId) {
+  const row = Array.isArray(payload) ? payload : [fallbackId];
+  return row.map((cell) => {
+    if (typeof cell === "string") return escapeSheetFormulaCell(cell);
+    if (typeof cell === "number") return Number.isFinite(cell) ? cell : "";
+    if (typeof cell === "boolean") return cell;
+    return cell === null || cell === void 0 ? "" : escapeSheetFormulaCell(String(cell));
+  });
+}
 function escapeSheetTitleForA1(title) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(title)) {
     return `'${title.replace(/'/g, "''")}'`;
@@ -9701,7 +10033,7 @@ async function flushQueueOperations(spreadsheetId, accessToken, ops, fetchImpl =
                 "Content-Type": "application/json"
               },
               body: JSON.stringify({
-                values: [Array.isArray(op.payload) ? op.payload : [recordId]]
+                values: [sanitizeSheetRowValues(op.payload, recordId)]
               })
             }
           );
@@ -9712,8 +10044,8 @@ async function flushQueueOperations(spreadsheetId, accessToken, ops, fetchImpl =
         } else {
           const appendRes = await fetchImpl(
             `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
-              `${escapeSheetTitleForA1(op.sheetName)}!A2:append`
-            )}?valueInputOption=USER_ENTERED`,
+              `${escapeSheetTitleForA1(op.sheetName)}!A2`
+            )}:append?valueInputOption=USER_ENTERED`,
             {
               method: "POST",
               headers: {
@@ -9721,7 +10053,7 @@ async function flushQueueOperations(spreadsheetId, accessToken, ops, fetchImpl =
                 "Content-Type": "application/json"
               },
               body: JSON.stringify({
-                values: [Array.isArray(op.payload) ? op.payload : [recordId]]
+                values: [sanitizeSheetRowValues(op.payload, recordId)]
               })
             }
           );
@@ -9787,8 +10119,8 @@ async function flushQueueOperations(spreadsheetId, accessToken, ops, fetchImpl =
         }
         const appendRes = await fetchImpl(
           `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
-            `${escapeSheetTitleForA1(op.sheetName)}!A2:append`
-          )}?valueInputOption=USER_ENTERED`,
+            `${escapeSheetTitleForA1(op.sheetName)}!A2`
+          )}:append?valueInputOption=USER_ENTERED`,
           {
             method: "POST",
             headers: {
@@ -9796,7 +10128,7 @@ async function flushQueueOperations(spreadsheetId, accessToken, ops, fetchImpl =
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
-              values: [Array.isArray(op.payload) ? op.payload : [recordId]]
+              values: [sanitizeSheetRowValues(op.payload, recordId)]
             })
           }
         );
@@ -10439,9 +10771,9 @@ async function fetchPublicSpreadsheetXlsx(spreadsheetId, fetchImpl = fetch) {
     );
   }
   if (!res.ok) {
-    const errMsg = await readGoogleError(res);
+    const errDetail = await readGoogleError(res);
     throw new SheetHubWorkerError(
-      `Unable to read public spreadsheet (HTTP ${res.status}): ${errMsg}`,
+      `Unable to read public spreadsheet (HTTP ${res.status}): ${errDetail.message}`,
       res.status >= 400 && res.status < 500 ? res.status : 502,
       "SHEETS_UPSTREAM_ERROR"
     );
@@ -10584,7 +10916,7 @@ async function pullPublicSpreadsheetTabs(input, fetchImpl = fetch) {
 }
 
 // server/routes.ts
-import crypto8 from "crypto";
+import crypto9 from "crypto";
 
 // server/firebaseAdmin.ts
 import { getApps, initializeApp, cert, applicationDefault, deleteApp } from "firebase-admin/app";
@@ -11187,9 +11519,14 @@ var V18StorageService = class {
     if (this.isFirestoreAuthoritative()) {
       try {
         const snap = await this.firestore.collection("users").doc(userId).collection("doomscroll_logs").get();
-        const batch = this.firestore.batch();
-        snap.docs.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
+        const docs = Array.isArray(snap?.docs) ? snap.docs : [];
+        const BATCH_LIMIT = 450;
+        for (let i = 0; i < docs.length; i += BATCH_LIMIT) {
+          const chunk = docs.slice(i, i + BATCH_LIMIT);
+          const batch = this.firestore.batch();
+          chunk.forEach((d) => batch.delete(d.ref));
+          await batch.commit();
+        }
       } catch (err) {
         console.warn(`[V18Storage] Firestore clearDoomscrollLogs failed for ${userId}:`, err);
       }
@@ -11376,7 +11713,7 @@ var V18StorageService = class {
     };
     if (this.isFirestoreAuthoritative()) {
       const docRef = this.firestore.collection("users").doc(userId).collection("emergency_profile").doc("default");
-      await docRef.set(stripUndefined(safeProfile), { merge: true });
+      await docRef.set(stripUndefined(safeProfile));
     }
     wrapDbCall(() => dbService.saveEmergencyProfile(safeProfile));
     return safeProfile;
@@ -11413,7 +11750,7 @@ function normalizeCellWriteValue(value) {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : "";
   }
-  return String(value);
+  return escapeSheetFormulaCell(String(value));
 }
 function parseGoogleErrorMessage(rawText, status) {
   if (!rawText) return `Google Sheets API write error (${status})`;
@@ -12304,6 +12641,7 @@ var LocalFileLedgerRepository = class {
 };
 var DurableIdempotencyLedger = class {
   constructor(customStoragePathOrRepo) {
+    this.cachedDefaultRepository = null;
     if (customStoragePathOrRepo && typeof customStoragePathOrRepo === "object" && "claimOperation" in customStoragePathOrRepo) {
       if (isProductionEnvironment() && customStoragePathOrRepo.storageType === "file") {
         throw new SheetHubWorkerError(
@@ -12333,15 +12671,34 @@ var DurableIdempotencyLedger = class {
           "PRODUCTION_STORAGE_VIOLATION"
         );
       }
-      return this.customRepository || new FirestoreTransactionalLedgerRepository({
-        projectId: PRODUCTION_PROJECT_ID
-      });
+      if (this.customRepository) return this.customRepository;
+      if (this.cachedDefaultRepository?.key !== "prod_firestore") {
+        this.cachedDefaultRepository = {
+          key: "prod_firestore",
+          repo: new FirestoreTransactionalLedgerRepository({
+            projectId: PRODUCTION_PROJECT_ID
+          })
+        };
+      }
+      return this.cachedDefaultRepository.repo;
     }
     if (this.customRepository) return this.customRepository;
     if (process.env.IDEMPOTENCY_STORAGE === "firestore") {
-      return new FirestoreTransactionalLedgerRepository();
+      if (this.cachedDefaultRepository?.key !== "dev_firestore") {
+        this.cachedDefaultRepository = {
+          key: "dev_firestore",
+          repo: new FirestoreTransactionalLedgerRepository()
+        };
+      }
+      return this.cachedDefaultRepository.repo;
     }
-    return new LocalFileLedgerRepository();
+    if (this.cachedDefaultRepository?.key !== "file") {
+      this.cachedDefaultRepository = {
+        key: "file",
+        repo: new LocalFileLedgerRepository()
+      };
+    }
+    return this.cachedDefaultRepository.repo;
   }
   get storageType() {
     return this.repository.storageType;
@@ -12896,15 +13253,15 @@ async function ensureDriveProgressTrackerTab(spreadsheetId, accessToken, topics,
   }
   const headerRow = ["Module / Unit", "Topic", "Subtopic", "Completed", "Last Synced"];
   const topicRows = (topics || []).map((t) => [
-    t.unit || "",
-    t.topic || "",
-    t.subtopic || "",
+    escapeSheetFormulaCell(t.unit || ""),
+    escapeSheetFormulaCell(t.topic || ""),
+    escapeSheetFormulaCell(t.subtopic || ""),
     Boolean(t.isCompleted),
     (/* @__PURE__ */ new Date()).toISOString()
   ]);
   const allRows = [headerRow, ...topicRows];
   const updateUrl = `${SHEETS_API_BASE4}/${encodeURIComponent(spreadsheetId)}/values/'Progress Tracker'!A1:E${allRows.length}?valueInputOption=USER_ENTERED`;
-  await fetchImpl(updateUrl, {
+  const updateRes = await fetchImpl(updateUrl, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -12916,6 +13273,9 @@ async function ensureDriveProgressTrackerTab(spreadsheetId, accessToken, topics,
       values: allRows
     })
   });
+  if (!updateRes.ok) {
+    return false;
+  }
   return true;
 }
 
@@ -12929,13 +13289,26 @@ var AppsScriptBridgeError = class extends Error {
     this.code = code;
   }
 };
-function toCanonicalJson(data) {
-  const keys = Object.keys(data).filter((k) => k !== "signature").sort();
+function canonicalizeJsonValue(val, isRoot = false) {
+  if (val === null || typeof val !== "object") {
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val.map((item) => canonicalizeJsonValue(item, false));
+  }
+  const obj = val;
+  if (typeof obj.toJSON === "function") {
+    return canonicalizeJsonValue(obj.toJSON(), false);
+  }
+  const keys = Object.keys(obj).filter((k) => (!isRoot || k !== "signature") && obj[k] !== void 0).sort();
   const sorted = {};
   for (const k of keys) {
-    sorted[k] = data[k];
+    sorted[k] = canonicalizeJsonValue(obj[k], false);
   }
-  return JSON.stringify(sorted);
+  return sorted;
+}
+function toCanonicalJson(data) {
+  return JSON.stringify(canonicalizeJsonValue(data, true));
 }
 function computeAppsScriptHmac(canonicalString, secret) {
   return crypto4.createHmac("sha256", secret).update(canonicalString, "utf8").digest("hex");
@@ -12960,7 +13333,7 @@ async function dispatchAppsScriptWriteback(update, options = {}) {
   const sheetTitle = (update.sheetTitle || "").trim();
   const rowNumber = Number(update.rowNumber);
   const colLetter = (update.colLetter || "").trim().toUpperCase();
-  const value = update.value;
+  const value = typeof update.value === "string" ? escapeSheetFormulaCell(update.value) : update.value;
   if (!spreadsheetId) {
     throw new AppsScriptBridgeError("spreadsheetId is required.", 400, "INVALID_SPREADSHEET_ID");
   }
@@ -13160,6 +13533,7 @@ function decryptToken(payload, customKey) {
 var GHOST_OAUTH_CLIENT_ID = "1010159085609-hcetogi5vbajkg9706m6t9u9h11olfd7.apps.googleusercontent.com";
 
 // server/integrations/googleCalendarService.ts
+init_dateTime();
 init_db();
 var GoogleCalendarService = class {
   constructor(customFirestore) {
@@ -13188,12 +13562,75 @@ var GoogleCalendarService = class {
    * Starts the OAuth authorization code flow.
    * Generates a single-use expiring state nonce securely bound to the user's UID.
    */
+  /**
+   * Validates an optional OAuth redirectUri override against the configured callback path
+   * and allowlisted origins to prevent open redirects and authorization code theft.
+   */
+  resolveValidatedRedirectUri(redirectUriOverride, defaultRedirectUri) {
+    const trimmed = typeof redirectUriOverride === "string" ? redirectUriOverride.trim() : "";
+    if (!trimmed) {
+      return defaultRedirectUri;
+    }
+    const createInvalidError = (reason) => {
+      const err = new Error(`Invalid OAuth redirectUri: ${reason}`);
+      err.code = "INVALID_REDIRECT_URI";
+      err.status = 400;
+      return err;
+    };
+    let parsed;
+    let defaultUrl;
+    try {
+      parsed = new URL(trimmed);
+      defaultUrl = new URL(defaultRedirectUri);
+    } catch {
+      throw createInvalidError("malformed URL");
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw createInvalidError("unsupported protocol");
+    }
+    if (parsed.username || parsed.password || parsed.hash || parsed.search) {
+      throw createInvalidError("credentials, query parameters, and hash fragments are not permitted");
+    }
+    if (trimmed === defaultRedirectUri || parsed.href === defaultUrl.href) {
+      return defaultRedirectUri;
+    }
+    if (parsed.pathname !== defaultUrl.pathname) {
+      throw createInvalidError("pathname must match configured OAuth callback path");
+    }
+    const allowedOrigins = /* @__PURE__ */ new Set([defaultUrl.origin]);
+    const addOriginCandidate = (raw) => {
+      if (!raw || !raw.trim() || raw.trim() === "*") return;
+      const val = raw.trim();
+      const normalized = val.startsWith("http://") || val.startsWith("https://") ? val : `https://${val}`;
+      try {
+        allowedOrigins.add(new URL(normalized).origin);
+      } catch {
+      }
+    };
+    addOriginCandidate(process.env.GOOGLE_CALENDAR_REDIRECT_URI);
+    addOriginCandidate(process.env.APP_URL);
+    if (process.env.ALLOWED_ORIGINS) {
+      process.env.ALLOWED_ORIGINS.split(",").forEach(addOriginCandidate);
+    }
+    const isLocalhostHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    const isLocalDevOrigin = process.env.NODE_ENV !== "production" && isLocalhostHost;
+    if (!allowedOrigins.has(parsed.origin) && !isLocalDevOrigin) {
+      throw createInvalidError("origin is not in allowlist");
+    }
+    if (parsed.protocol === "http:" && !isLocalhostHost && defaultUrl.origin !== parsed.origin) {
+      throw createInvalidError("non-localhost redirectUri must use HTTPS");
+    }
+    return parsed.origin + parsed.pathname;
+  }
+  /**
+   * Generates a secure OAuth authorization URL with a single-use state nonce stored in Firestore.
+   */
   async startOAuthFlow(userId, redirectUriOverride) {
     if (!userId || userId.startsWith("gst_")) {
       throw new Error("Authenticated user account required to initiate Calendar OAuth");
     }
     const { clientId, redirectUri: defaultRedirectUri } = this.getOAuthCredentials();
-    const redirectUri = redirectUriOverride || defaultRedirectUri;
+    const redirectUri = this.resolveValidatedRedirectUri(redirectUriOverride, defaultRedirectUri);
     const stateId = crypto6.randomBytes(32).toString("hex");
     const now = Date.now();
     const expiresAt = now + 10 * 60 * 1e3;
@@ -13424,9 +13861,14 @@ var GoogleCalendarService = class {
     }
     await integrationRef.delete();
     const linksSnap = await this.firestore.collection("users").doc(userId).collection("calendar_event_links").get();
-    const batch = this.firestore.batch();
-    linksSnap.docs.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
+    const docs = linksSnap?.docs || [];
+    const BATCH_LIMIT = 450;
+    for (let i = 0; i < docs.length; i += BATCH_LIMIT) {
+      const batch = this.firestore.batch();
+      const chunk = docs.slice(i, i + BATCH_LIMIT);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
   }
   /**
    * Lists the user's Google Calendars.
@@ -13539,18 +13981,32 @@ var GoogleCalendarService = class {
    * Updates an existing event on Google Calendar.
    */
   async updateEvent(userId, eventId, eventData) {
+    const linkQuery = await this.firestore.collection("users").doc(userId).collection("calendar_event_links").where("googleEventId", "==", eventId).limit(1).get();
+    if (linkQuery.empty) {
+      const err = new Error("Cannot update external Google Calendar events that were not synced by FocusFlow");
+      err.code = "EXTERNAL_EVENT_PROTECTION";
+      throw err;
+    }
+    const linkData = linkQuery.docs[0]?.data?.();
+    if (linkData?.managePolicy === "external_readonly") {
+      const err = new Error("Cannot update read-only external Google Calendar events");
+      err.code = "EXTERNAL_EVENT_PROTECTION";
+      throw err;
+    }
     const accessToken = await this.getValidAccessToken(userId);
     if (!accessToken) {
       throw new Error("Google Calendar is not connected or authorization expired");
     }
-    const calendarId = encodeURIComponent(eventData.calendarId || "primary");
+    const { calendarId: requestedCalendarId, ...patchBody } = eventData || {};
+    const targetCalendarId = requestedCalendarId || linkData?.calendarId || "primary";
+    const calendarId = encodeURIComponent(targetCalendarId);
     const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodeURIComponent(eventId)}`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(eventData)
+      body: JSON.stringify(patchBody)
     });
     if (!res.ok) {
       throw new Error(`Failed to update calendar event (${res.status}): ${await res.text()}`);
@@ -13631,19 +14087,24 @@ var GoogleCalendarService = class {
     let removed = 0;
     for (const task of tasks) {
       if (!task.dueDate) continue;
+      const dueDateYmd = String(task.dueDate).slice(0, 10);
+      if (!parseDateString(dueDateYmd)) continue;
+      const endDateYmd = addDays(dueDateYmd, 1);
       const title = `[Task] ${task.title}`;
-      const description = `Priority: ${task.priority.toUpperCase()}
-Status: ${task.status}
+      const priority = typeof task.priority === "string" && task.priority ? task.priority.toUpperCase() : "MEDIUM";
+      const status = typeof task.status === "string" && task.status ? task.status : "todo";
+      const description = `Priority: ${priority}
+Status: ${status}
 FocusFlow Task ID: ${task.id}`;
-      const checksum = crypto6.createHash("sha256").update(`${title}|${task.dueDate}|${task.status}|${task.priority}`).digest("hex");
+      const checksum = crypto6.createHash("sha256").update(`${title}|${dueDateYmd}|${endDateYmd}|${status}|${priority}`).digest("hex");
       const existingLink = linkMap.get(task.id);
       if (!existingLink) {
         try {
           const created = await this.createEvent(userId, {
             summary: title,
             description,
-            start: { date: task.dueDate },
-            end: { date: task.dueDate },
+            start: { date: dueDateYmd },
+            end: { date: endDateYmd },
             calendarId
           });
           await linksRef.doc(task.id).set({
@@ -13664,8 +14125,8 @@ FocusFlow Task ID: ${task.id}`;
           await this.updateEvent(userId, existingLink.googleEventId, {
             summary: title,
             description,
-            start: { date: task.dueDate },
-            end: { date: task.dueDate },
+            start: { date: dueDateYmd },
+            end: { date: endDateYmd },
             calendarId
           });
           await linksRef.doc(task.id).update({
@@ -13678,11 +14139,51 @@ FocusFlow Task ID: ${task.id}`;
         }
       }
     }
-    const formatMinutesToIso = (dateStr, totalMinutes) => {
+    const resolveUserTimezone = async () => {
+      let candidate;
+      try {
+        const settingsDoc = await this.firestore.collection("users").doc(userId).collection("settings").doc("default").get();
+        if (settingsDoc?.exists && typeof settingsDoc.data?.()?.timezone === "string") {
+          candidate = settingsDoc.data().timezone;
+        }
+      } catch {
+      }
+      if (!candidate) {
+        candidate = dbService.getRaw().userSettings?.find((s) => s.userId === userId)?.timezone;
+      }
+      if (candidate && candidate.trim()) {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: candidate.trim() });
+          return candidate.trim();
+        } catch {
+        }
+      }
+      return DEFAULT_TIMEZONE;
+    };
+    const userTimezone = await resolveUserTimezone();
+    const formatMinutesToIso = (dateStr, totalMinutes, timezone) => {
       const clamped = Math.max(0, Math.min(24 * 60 - 1, Math.floor(totalMinutes)));
-      const hh = String(Math.floor(clamped / 60)).padStart(2, "0");
-      const mm = String(clamped % 60).padStart(2, "0");
-      return `${dateStr}T${hh}:${mm}:00+05:30`;
+      const hh = Math.floor(clamped / 60);
+      const mm = clamped % 60;
+      const hhStr = String(hh).padStart(2, "0");
+      const mmStr = String(mm).padStart(2, "0");
+      const parsedDate = parseDateString(dateStr);
+      if (!parsedDate) {
+        return `${dateStr}T${hhStr}:${mmStr}:00Z`;
+      }
+      const approxUtc = Date.UTC(parsedDate.year, parsedDate.month - 1, parsedDate.day, hh, mm, 0);
+      const p1 = getZonedDateParts(new Date(approxUtc), timezone);
+      const zonedMs1 = Date.UTC(p1.year, p1.month - 1, p1.day, p1.hour, p1.minute, 0);
+      const offset1 = Math.round((zonedMs1 - approxUtc) / 6e4);
+      const targetUtc = approxUtc - offset1 * 6e4;
+      const p2 = getZonedDateParts(new Date(targetUtc), timezone);
+      const zonedMs2 = Date.UTC(p2.year, p2.month - 1, p2.day, p2.hour, p2.minute, 0);
+      const finalOffset = Math.round((zonedMs2 - targetUtc) / 6e4);
+      const sign = finalOffset >= 0 ? "+" : "-";
+      const absOffset = Math.abs(finalOffset);
+      const offHh = String(Math.floor(absOffset / 60)).padStart(2, "0");
+      const offMm = String(absOffset % 60).padStart(2, "0");
+      return `${dateStr}T${hhStr}:${mmStr}:00${sign}${offHh}:${offMm}`;
     };
     for (const block of timeBlocks) {
       if (!block || !block.id || !block.date || typeof block.startMinute !== "number" || typeof block.endMinute !== "number" || block.endMinute <= block.startMinute) {
@@ -13692,9 +14193,9 @@ FocusFlow Task ID: ${task.id}`;
       const description = `Category: ${block.category || "General"}
 Status: ${block.completed ? "Completed" : "Planned"}
 FocusFlow TimeBlock ID: ${block.id}`;
-      const startIso = formatMinutesToIso(block.date, block.startMinute);
-      const endIso = formatMinutesToIso(block.date, block.endMinute);
-      const checksum = crypto6.createHash("sha256").update(`${title}|${startIso}|${endIso}|${block.completed ? "1" : "0"}|${block.category || ""}`).digest("hex");
+      const startIso = formatMinutesToIso(block.date, block.startMinute, userTimezone);
+      const endIso = formatMinutesToIso(block.date, block.endMinute, userTimezone);
+      const checksum = crypto6.createHash("sha256").update(`${title}|${startIso}|${endIso}|${userTimezone}|${block.completed ? "1" : "0"}|${block.category || ""}`).digest("hex");
       const linkKey = `tb_${block.id}`;
       const existingLink = linkMap.get(linkKey) || linkMap.get(block.id);
       if (!existingLink) {
@@ -13702,8 +14203,8 @@ FocusFlow TimeBlock ID: ${block.id}`;
           const created = await this.createEvent(userId, {
             summary: title,
             description,
-            start: { dateTime: startIso, timeZone: "Asia/Kolkata" },
-            end: { dateTime: endIso, timeZone: "Asia/Kolkata" },
+            start: { dateTime: startIso, timeZone: userTimezone },
+            end: { dateTime: endIso, timeZone: userTimezone },
             calendarId
           });
           await linksRef.doc(linkKey).set({
@@ -13724,8 +14225,8 @@ FocusFlow TimeBlock ID: ${block.id}`;
           await this.updateEvent(userId, existingLink.googleEventId, {
             summary: title,
             description,
-            start: { dateTime: startIso, timeZone: "Asia/Kolkata" },
-            end: { dateTime: endIso, timeZone: "Asia/Kolkata" },
+            start: { dateTime: startIso, timeZone: userTimezone },
+            end: { dateTime: endIso, timeZone: userTimezone },
             calendarId
           });
           await linksRef.doc(existingLink.sourceId).update({
@@ -13857,8 +14358,16 @@ import { Router as Router2 } from "express";
 var googleCalendarRouter = Router2();
 function handleCalendarError(res, err, fallbackMessage) {
   const msg = err instanceof Error ? err.message : fallbackMessage;
+  const errCode = err && typeof err === "object" ? err.code : void 0;
   const isAuthError = msg.includes("authorization expired") || msg.includes("revoked") || msg.includes("not connected") || msg.includes("invalid_grant");
-  const isExternalProtection = msg.includes("EXTERNAL_EVENT_PROTECTION");
+  const isExternalProtection = errCode === "EXTERNAL_EVENT_PROTECTION" || msg.includes("EXTERNAL_EVENT_PROTECTION");
+  if (errCode === "INVALID_REDIRECT_URI") {
+    res.status(400).json({
+      error: msg,
+      code: "INVALID_REDIRECT_URI"
+    });
+    return;
+  }
   if (msg.includes("FIREBASE_ADMIN_UNAVAILABLE") || msg.includes("service account")) {
     res.status(503).json({
       error: msg,
@@ -13914,10 +14423,24 @@ googleCalendarRouter.use("/integrations/google-calendar", requireServiceAccount)
 googleCalendarRouter.get("/integrations/google-calendar/oauth/start", async (req, res) => {
   try {
     const authReq = req;
+    if (req.query.redirectUri !== void 0 && typeof req.query.redirectUri !== "string") {
+      res.status(400).json({
+        error: "Invalid redirectUri parameter",
+        code: "INVALID_REDIRECT_URI"
+      });
+      return;
+    }
     const redirectUri = req.query.redirectUri;
     const { authUrl, stateId } = await googleCalendarService.startOAuthFlow(authReq.auth.userId, redirectUri);
     res.json({ authUrl, stateId });
   } catch (err) {
+    if (err?.code === "INVALID_REDIRECT_URI" || err?.status === 400) {
+      res.status(400).json({
+        error: err.message || "Invalid redirectUri",
+        code: err.code || "INVALID_REDIRECT_URI"
+      });
+      return;
+    }
     handleCalendarError(res, err, "Failed to start OAuth flow");
   }
 });
@@ -13980,11 +14503,15 @@ googleCalendarRouter.patch("/integrations/google-calendar/events/:eventId", asyn
   try {
     const authReq = req;
     const eventId = req.params.eventId;
-    const calendarId = req.query.calendarId;
+    const queryCalendarId = typeof req.query.calendarId === "string" && req.query.calendarId.trim() ? req.query.calendarId.trim() : void 0;
+    const bodyObj = req.body && typeof req.body === "object" ? req.body : {};
+    const bodyCalendarId = typeof bodyObj.calendarId === "string" && bodyObj.calendarId.trim() ? bodyObj.calendarId.trim() : void 0;
+    const resolvedCalendarId = queryCalendarId ?? bodyCalendarId;
+    const { calendarId: _stripCalendarId, ...eventPayload } = bodyObj;
     const updated = await googleCalendarService.updateEvent(
       authReq.auth.userId,
       eventId,
-      { ...req.body, calendarId }
+      resolvedCalendarId ? { ...eventPayload, calendarId: resolvedCalendarId } : eventPayload
     );
     res.json(updated);
   } catch (err) {
@@ -14326,6 +14853,7 @@ function evaluateDeterministicNotifications(input) {
 var PushNotificationService = class {
   constructor(customFirestore) {
     this.customFirestore = null;
+    this.customMessaging = null;
     if (customFirestore) {
       this.customFirestore = customFirestore;
     }
@@ -14333,8 +14861,14 @@ var PushNotificationService = class {
   setFirestoreForTesting(db) {
     this.customFirestore = db;
   }
+  setMessagingForTesting(messaging) {
+    this.customMessaging = messaging;
+  }
   get firestore() {
     return this.customFirestore || getAdminFirestore();
+  }
+  get messaging() {
+    return this.customMessaging || getAdminMessaging();
   }
   /**
    * Registers a web push device token and installation identifier.
@@ -14392,8 +14926,25 @@ var PushNotificationService = class {
     if (!userId || userId.startsWith("gst_") || !hasServiceAccountCredentials() && !this.customFirestore) {
       return { enabled: false, deviceCount: 0, devices: [] };
     }
-    const snap = await this.firestore.collection("users").doc(userId).collection("fcm_installations").get();
-    const devices = snap.docs.map((d) => {
+    const colRef = this.firestore.collection("users").doc(userId).collection("fcm_installations");
+    const hasWhere = typeof colRef.where === "function";
+    let rawDocs = [];
+    if (hasWhere) {
+      const snap = await colRef.where("enabled", "==", true).get();
+      rawDocs = snap?.docs || [];
+      if (rawDocs.length === 0 && this.customFirestore && typeof colRef.get === "function") {
+        const fallbackSnap = await colRef.get();
+        rawDocs = (fallbackSnap?.docs || []).filter((d) => d.data?.()?.enabled === true);
+      }
+    } else {
+      const snap = await colRef.get();
+      rawDocs = snap?.docs || [];
+    }
+    const devices = rawDocs.filter((d) => {
+      const data = d.data?.();
+      if (!data) return false;
+      return hasWhere ? data.enabled === true : data.enabled !== false;
+    }).map((d) => {
       const data = d.data();
       return {
         installationId: data.installationId || d.id,
@@ -14416,43 +14967,47 @@ var PushNotificationService = class {
     if (!userId || userId.startsWith("gst_")) {
       return { delivered: 0, failed: 0, skipped: true };
     }
-    let settings = dbService.getUserSettings(userId);
-    if (hasServiceAccountCredentials() || this.customFirestore) {
-      try {
-        const settingsCol = this.firestore.collection("users").doc(userId).collection("settings");
-        const defaultDoc = await settingsCol.doc("default").get();
-        if (defaultDoc.exists) {
-          settings = defaultDoc.data();
-        } else if (!settings) {
-          const legacyDoc = await settingsCol.doc("preferences").get().catch(() => null);
-          if (legacyDoc?.exists) {
-            settings = legacyDoc.data();
+    const bypassPrefs = notification.bypassPreferences === true || notification.category === "test";
+    if (!bypassPrefs) {
+      let settings = dbService.getUserSettings(userId);
+      if (hasServiceAccountCredentials() || this.customFirestore) {
+        try {
+          const settingsCol = this.firestore.collection("users").doc(userId).collection("settings");
+          const defaultDoc = await settingsCol.doc("default").get();
+          if (defaultDoc.exists) {
+            settings = defaultDoc.data();
+          } else if (!settings) {
+            const legacyDoc = await settingsCol.doc("preferences").get().catch(() => null);
+            if (legacyDoc?.exists) {
+              settings = legacyDoc.data();
+            }
           }
+        } catch {
         }
-      } catch {
+      }
+      const prefs = settings?.notificationPrefs || {};
+      if (prefs.enabled === false) {
+        return { delivered: 0, failed: 0, skipped: true };
+      }
+      if (notification.category) {
+        if (notification.category === "task" && prefs.taskDeadlines === false) return { delivered: 0, failed: 0, skipped: true };
+        if (notification.category === "bill" && prefs.upcomingBills === false && prefs.overdueBills === false) return { delivered: 0, failed: 0, skipped: true };
+        if (notification.category === "focus" && prefs.focusCompletion === false) return { delivered: 0, failed: 0, skipped: true };
+        if (notification.category === "budget" && prefs.budgetWarnings === false) return { delivered: 0, failed: 0, skipped: true };
+        if (notification.category === "sync" && prefs.syncFailures === false) return { delivered: 0, failed: 0, skipped: true };
+        if (notification.category === "study" && prefs.studyReminders === false) return { delivered: 0, failed: 0, skipped: true };
       }
     }
-    const prefs = settings?.notificationPrefs || {};
-    if (prefs.enabled === false) {
-      return { delivered: 0, failed: 0, skipped: true };
-    }
-    if (notification.category) {
-      if (notification.category === "task" && prefs.taskDeadlines === false) return { delivered: 0, failed: 0, skipped: true };
-      if (notification.category === "bill" && prefs.upcomingBills === false && prefs.overdueBills === false) return { delivered: 0, failed: 0, skipped: true };
-      if (notification.category === "focus" && prefs.focusCompletion === false) return { delivered: 0, failed: 0, skipped: true };
-      if (notification.category === "budget" && prefs.budgetWarnings === false) return { delivered: 0, failed: 0, skipped: true };
-      if (notification.category === "sync" && prefs.syncFailures === false) return { delivered: 0, failed: 0, skipped: true };
-      if (notification.category === "study" && prefs.studyReminders === false) return { delivered: 0, failed: 0, skipped: true };
-    }
-    const installationsSnap = await this.firestore.collection("users").doc(userId).collection("fcm_installations").where("enabled", "==", true).get();
-    if (installationsSnap.empty) {
+    const instCol = this.firestore.collection("users").doc(userId).collection("fcm_installations");
+    const installationsSnap = typeof instCol.where === "function" ? await instCol.where("enabled", "==", true).get() : await instCol.get();
+    if (!installationsSnap || installationsSnap.empty || !(installationsSnap.docs || []).length) {
       return { delivered: 0, failed: 0 };
     }
     const tokens = [];
     const docMap = /* @__PURE__ */ new Map();
     installationsSnap.docs.forEach((d) => {
       const data = d.data();
-      if (data.token) {
+      if (data && data.enabled !== false && data.token) {
         tokens.push(data.token);
         docMap.set(data.token, d.ref);
       }
@@ -14460,74 +15015,84 @@ var PushNotificationService = class {
     if (tokens.length === 0) {
       return { delivered: 0, failed: 0 };
     }
-    const messaging = getAdminMessaging();
+    const FCM_MULTICAST_LIMIT = 500;
+    const messaging = this.messaging;
     const targetTab = notification.targetTab || "dashboard";
-    const response = await messaging.sendEachForMulticast({
-      tokens,
-      notification: {
-        title: notification.title,
-        body: notification.body
-      },
-      data: {
-        targetTab,
-        category: notification.category || "general",
-        tag: notification.tag || `focusflow_${Date.now()}`,
-        ...notification.data || {}
-      },
-      webpush: {
+    const tagValue = notification.tag || `focusflow_${Date.now()}`;
+    let delivered = 0;
+    let failed = 0;
+    const staleRefs = [];
+    for (let i = 0; i < tokens.length; i += FCM_MULTICAST_LIMIT) {
+      const tokenChunk = tokens.slice(i, i + FCM_MULTICAST_LIMIT);
+      const response = await messaging.sendEachForMulticast({
+        tokens: tokenChunk,
         notification: {
-          icon: "/icon-192.png",
-          badge: "/icon-192.png",
-          tag: notification.tag
+          title: notification.title,
+          body: notification.body
         },
-        fcmOptions: {
-          link: `/?tab=${targetTab}`
-        }
-      }
-    });
-    let staleCount = 0;
-    const cleanupBatch = this.firestore.batch();
-    response.responses.forEach((resp, idx) => {
-      if (!resp.success && resp.error) {
-        const code = resp.error.code;
-        if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
-          const badToken = tokens[idx];
-          const ref = docMap.get(badToken);
-          if (ref) {
-            cleanupBatch.delete(ref);
-            staleCount++;
+        data: {
+          targetTab,
+          category: notification.category || "general",
+          tag: tagValue,
+          ...notification.data || {}
+        },
+        webpush: {
+          notification: {
+            icon: "/icon-192.png",
+            badge: "/icon-192.png",
+            tag: notification.tag
+          },
+          fcmOptions: {
+            link: `/?tab=${targetTab}`
           }
         }
-      }
-    });
-    if (staleCount > 0) {
+      });
+      delivered += response.successCount || 0;
+      failed += response.failureCount || 0;
+      (response.responses || []).forEach((resp, idx) => {
+        if (!resp.success && resp.error) {
+          const code = resp.error.code;
+          if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
+            const badToken = tokenChunk[idx];
+            const ref = docMap.get(badToken);
+            if (ref) {
+              staleRefs.push(ref);
+            }
+          }
+        }
+      });
+    }
+    const FIRESTORE_BATCH_LIMIT = 450;
+    for (let i = 0; i < staleRefs.length; i += FIRESTORE_BATCH_LIMIT) {
+      const cleanupBatch = this.firestore.batch();
+      staleRefs.slice(i, i + FIRESTORE_BATCH_LIMIT).forEach((ref) => cleanupBatch.delete(ref));
       await cleanupBatch.commit().catch((err) => {
         console.warn("[FCM] Stale device token cleanup batch error:", err);
       });
     }
     return {
-      delivered: response.successCount,
-      failed: response.failureCount
+      delivered,
+      failed
     };
   }
   /**
-   * Sends an immediate test notification.
+   * Sends an immediate test notification bypassing category preference toggles.
    */
   async sendTestNotification(userId) {
     return this.sendNotification(userId, {
       title: "FocusFlow Notification Test",
       body: "Push notifications are connected and working properly on your device!",
-      category: "focus",
+      category: "test",
+      bypassPreferences: true,
       targetTab: "settings",
       tag: "test_notification"
     });
   }
   /**
    * Processes and dispatches scheduled notifications across users.
-   * Employs the notification_delivery_ledger for at-most-once idempotency.
+   * Employs atomic notification_delivery_ledger claims for at-most-once idempotency.
    */
   async processScheduledNotifications() {
-    const todayStr = getTodayDateString(DEFAULT_TIMEZONE);
     let dispatchedCount = 0;
     let processedUsers = 0;
     const rawDb = dbService.getRaw();
@@ -14550,63 +15115,210 @@ var PushNotificationService = class {
       }
     }
     const userIds = Array.from(userIdsSet);
+    const isAlreadyExistsError = (err) => {
+      if (!err || typeof err !== "object") return false;
+      const code = err.code;
+      const msg = String(err.message || "");
+      return code === 6 || code === "already-exists" || code === "ALREADY_EXISTS" || /already[-_ ]exists/i.test(msg);
+    };
     for (const userId of userIds) {
       const deviceStatus = await this.getDeviceStatus(userId);
       if (!deviceStatus.enabled || deviceStatus.deviceCount === 0) continue;
       processedUsers++;
       let settings = dbService.getUserSettings(userId) || null;
-      let tasks = rawDb.tasks.filter((t) => t.userId === userId && !t.deletedAt);
-      let bills = rawDb.bills.filter((b) => b.userId === userId && !b.deletedAt);
+      let tasks = (rawDb.tasks || []).filter((t) => t.userId === userId && !t.deletedAt);
+      let bills = (rawDb.bills || []).filter((b) => b.userId === userId && !b.deletedAt);
+      let expenses = (rawDb.expenseTransactions || []).filter((e) => e.userId === userId && !e.deletedAt);
+      let focusSessions = (rawDb.focusSessions || []).filter((s) => s.userId === userId);
+      let categories = (rawDb.categories || []).filter(
+        (c) => c.userId === userId || c.userId === "usr_atif_default"
+      );
+      let savingsGoals = (rawDb.savingsGoals || []).filter((g) => g.userId === userId);
+      let habits = (rawDb.habits || []).filter((h) => h.userId === userId && !h.deletedAt);
       if (hasServiceAccountCredentials() || this.customFirestore) {
         try {
           const userRef = this.firestore.collection("users").doc(userId);
           const settingsCol = userRef.collection("settings");
-          const [tSnap, bSnap, defaultSnap] = await Promise.all([
-            userRef.collection("tasks").get(),
-            userRef.collection("bills").get(),
-            settingsCol.doc("default").get()
+          const safeGetCol = (colName) => typeof userRef.collection === "function" ? Promise.resolve(userRef.collection(colName)?.get?.()).catch(() => null) : Promise.resolve(null);
+          const safeGetSettingsDoc = (docId) => typeof settingsCol?.doc === "function" ? Promise.resolve(settingsCol.doc(docId)?.get?.()).catch(() => null) : Promise.resolve(null);
+          const [
+            tSnap,
+            bSnap,
+            eSnap,
+            fSnap,
+            hSnap,
+            defaultSnap,
+            legacySnap,
+            categoriesDoc,
+            savingsGoalsDoc
+          ] = await Promise.all([
+            safeGetCol("tasks"),
+            safeGetCol("bills"),
+            safeGetCol("expenses"),
+            safeGetCol("focus_sessions"),
+            safeGetCol("habits"),
+            safeGetSettingsDoc("default"),
+            safeGetSettingsDoc("preferences"),
+            safeGetSettingsDoc("categories"),
+            safeGetSettingsDoc("savings_goals")
           ]);
-          tasks = tSnap.docs.map((d) => d.data()).filter((t) => !t.deletedAt);
-          bills = bSnap.docs.map((d) => d.data()).filter((b) => !b.deletedAt);
-          if (defaultSnap.exists) {
+          if (tSnap && Array.isArray(tSnap.docs) && (tSnap.docs.length > 0 || tasks.length === 0)) {
+            tasks = tSnap.docs.map((d) => d.data()).filter((t) => !t.deletedAt);
+          }
+          if (bSnap && Array.isArray(bSnap.docs) && (bSnap.docs.length > 0 || bills.length === 0)) {
+            bills = bSnap.docs.map((d) => d.data()).filter((b) => !b.deletedAt);
+          }
+          if (eSnap && Array.isArray(eSnap.docs) && (eSnap.docs.length > 0 || expenses.length === 0)) {
+            expenses = eSnap.docs.map((d) => d.data()).filter((e) => !e.deletedAt);
+          }
+          if (fSnap && Array.isArray(fSnap.docs) && (fSnap.docs.length > 0 || focusSessions.length === 0)) {
+            focusSessions = fSnap.docs.map((d) => d.data());
+          }
+          if (hSnap && Array.isArray(hSnap.docs) && (hSnap.docs.length > 0 || habits.length === 0)) {
+            habits = hSnap.docs.map((d) => d.data()).filter((h) => !h.deletedAt);
+          }
+          if (defaultSnap?.exists) {
             settings = defaultSnap.data();
-          } else {
-            const legacySnap = await settingsCol.doc("preferences").get().catch(() => null);
-            if (legacySnap?.exists) {
-              settings = legacySnap.data();
-            }
+          } else if (legacySnap?.exists) {
+            settings = legacySnap.data();
+          }
+          if (categoriesDoc?.exists && Array.isArray(categoriesDoc.data?.()?.items)) {
+            categories = categoriesDoc.data().items;
+          }
+          if (savingsGoalsDoc?.exists && Array.isArray(savingsGoalsDoc.data?.()?.items)) {
+            savingsGoals = savingsGoalsDoc.data().items;
           }
         } catch (err) {
           console.warn(`[FCM] Error loading Firestore records for ${userId}:`, err);
         }
       }
-      const dashboard = null;
-      const financeSummary = null;
-      const userTodayStr = getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE);
+      const userTimezone = settings?.timezone || DEFAULT_TIMEZONE;
+      const now = /* @__PURE__ */ new Date();
+      const userTodayStr = getTodayDateString(userTimezone);
+      const currentMonthKey = userTodayStr.slice(0, 7);
+      const monthlyExpenses = expenses.filter(
+        (e) => typeof e?.date === "string" && e.date.startsWith(currentMonthKey)
+      );
+      const monthlyExpensesPaise = monthlyExpenses.reduce(
+        (sum, e) => sum + (Number(e.amountPaise) || 0),
+        0
+      );
+      const todayExpensesPaise = expenses.filter((e) => e?.date === userTodayStr).reduce((sum, e) => sum + (Number(e.amountPaise) || 0), 0);
+      const todayFocusSeconds = focusSessions.filter((s) => {
+        if (!s || !s.completed || s.mode !== "work" || !s.startedAt) return false;
+        try {
+          return formatDateInTimezone(s.startedAt, userTimezone) === userTodayStr;
+        } catch {
+          return false;
+        }
+      }).reduce((sum, s) => {
+        const secs = typeof s.durationSeconds === "number" ? s.durationSeconds : Math.round((Number(s.durationMinutes) || 0) * 60);
+        return sum + Math.max(0, secs);
+      }, 0);
+      const categoryMap = {};
+      for (const exp of monthlyExpenses) {
+        const cat = categories.find((c) => c.id === exp.categoryId);
+        const catId = exp.categoryId || "other";
+        if (!categoryMap[catId]) {
+          categoryMap[catId] = {
+            categoryId: catId,
+            name: cat?.name || (exp.type === "fixed" ? "Fixed Expense" : "Uncategorized"),
+            color: cat?.color || "#94a3b8",
+            amountPaise: 0
+          };
+        }
+        categoryMap[catId].amountPaise += Number(exp.amountPaise) || 0;
+      }
+      const dashboard = {
+        todayFocusMinutes: Math.round(todayFocusSeconds / 60),
+        completedPomodoroSessions: 0,
+        focusStreakDays: 0,
+        todayExpensesPaise,
+        monthlyIncomePaise: 0,
+        monthlyExpensesPaise,
+        fixedExpensesPaise: monthlyExpenses.filter((e) => e.type === "fixed").reduce((sum, e) => sum + (Number(e.amountPaise) || 0), 0),
+        variableExpensesPaise: monthlyExpenses.filter((e) => e.type === "variable").reduce((sum, e) => sum + (Number(e.amountPaise) || 0), 0),
+        remainingBalancePaise: -monthlyExpensesPaise,
+        paidBillsCount: bills.filter((b) => b.status === "PAID").length,
+        unpaidBillsCount: bills.filter((b) => b.status === "UNPAID" || b.status === "OVERDUE").length,
+        totalPaidAmountPaise: 0,
+        totalUnpaidAmountPaise: 0,
+        upcomingPayments: [],
+        recentTransactions: []
+      };
+      const financeSummary = {
+        filter: "month",
+        startDate: `${currentMonthKey}-01`,
+        endDate: userTodayStr,
+        totalIncomePaise: 0,
+        totalExpensePaise: monthlyExpensesPaise,
+        fixedExpensesPaise: dashboard.fixedExpensesPaise,
+        variableExpensesPaise: dashboard.variableExpensesPaise,
+        remainingBalancePaise: -monthlyExpensesPaise,
+        totalPaidAmountPaise: 0,
+        totalUnpaidAmountPaise: 0,
+        paidBillsCount: dashboard.paidBillsCount,
+        unpaidBillsCount: dashboard.unpaidBillsCount,
+        categoryBreakdown: Object.values(categoryMap).sort((a, b) => b.amountPaise - a.amountPaise),
+        monthlyTrend: []
+      };
       const items = evaluateDeterministicNotifications({
         settings: settings || null,
         tasks,
         bills,
         dashboard,
-        financeSummary
+        financeSummary,
+        expenses,
+        savingsGoals,
+        habits,
+        now
       });
       for (const item of items) {
         const entryId = `${item.category}_${item.id}_${userTodayStr}`;
         const ledgerRef = this.firestore.collection("users").doc(userId).collection("notification_delivery_ledger").doc(entryId);
-        const existing = await ledgerRef.get();
-        if (existing.exists) {
-          continue;
+        const canAtomicCreate = typeof ledgerRef.create === "function";
+        if (canAtomicCreate) {
+          try {
+            await ledgerRef.create({
+              entryId,
+              category: item.category,
+              title: item.title,
+              body: item.message,
+              targetTab: item.targetTab,
+              claimedAt: (/* @__PURE__ */ new Date()).toISOString(),
+              status: "claiming"
+            });
+          } catch (claimErr) {
+            if (isAlreadyExistsError(claimErr)) {
+              continue;
+            }
+            throw claimErr;
+          }
+        } else {
+          const existing = await ledgerRef.get();
+          if (existing.exists) {
+            continue;
+          }
         }
-        const res = await this.sendNotification(userId, {
-          title: item.title,
-          body: item.message,
-          category: item.category,
-          targetTab: item.targetTab,
-          tag: entryId
-        });
+        let res;
+        try {
+          res = await this.sendNotification(userId, {
+            title: item.title,
+            body: item.message,
+            category: item.category,
+            targetTab: item.targetTab,
+            tag: entryId
+          });
+        } catch (sendErr) {
+          if (canAtomicCreate && typeof ledgerRef.delete === "function") {
+            await ledgerRef.delete().catch(() => {
+            });
+          }
+          throw sendErr;
+        }
         if (res.delivered > 0) {
           dispatchedCount += res.delivered;
-          await ledgerRef.set({
+          const sentPayload = {
             entryId,
             category: item.category,
             title: item.title,
@@ -14614,6 +15326,26 @@ var PushNotificationService = class {
             targetTab: item.targetTab,
             deliveredAt: (/* @__PURE__ */ new Date()).toISOString(),
             status: "sent"
+          };
+          if (canAtomicCreate && typeof ledgerRef.update === "function") {
+            await ledgerRef.update(sentPayload);
+          } else {
+            await ledgerRef.set(sentPayload);
+          }
+        } else if (res.skipped && canAtomicCreate) {
+          const skippedPayload = {
+            entryId,
+            category: item.category,
+            status: "skipped",
+            updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          if (typeof ledgerRef.update === "function") {
+            await ledgerRef.update(skippedPayload);
+          } else {
+            await ledgerRef.set(skippedPayload, { merge: true });
+          }
+        } else if (canAtomicCreate && typeof ledgerRef.delete === "function") {
+          await ledgerRef.delete().catch(() => {
           });
         }
       }
@@ -14711,8 +15443,15 @@ pushRouter.post("/notifications/test", async (req, res) => {
 });
 
 // server/routes/cronNotificationRoutes.ts
+import crypto8 from "node:crypto";
 import { Router as Router4 } from "express";
 var cronNotificationRouter = Router4();
+function safeSecretEqual(candidate, expected) {
+  if (!candidate || !expected) return false;
+  const candidateDigest = crypto8.createHash("sha256").update(candidate, "utf8").digest();
+  const expectedDigest = crypto8.createHash("sha256").update(expected, "utf8").digest();
+  return crypto8.timingSafeEqual(candidateDigest, expectedDigest);
+}
 function verifyCronSecret(req, res) {
   const expectedSecret = process.env.CRON_SECRET?.trim();
   if (!expectedSecret && process.env.NODE_ENV === "test") {
@@ -14724,8 +15463,10 @@ function verifyCronSecret(req, res) {
   }
   const authHeader = req.headers.authorization;
   const cronHeader = req.headers["x-cron-secret"];
-  const bearerMatch = typeof authHeader === "string" && authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() === expectedSecret : false;
-  const headerMatch = cronHeader === expectedSecret;
+  const bearerToken = typeof authHeader === "string" && authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const bearerMatch = bearerToken ? safeSecretEqual(bearerToken, expectedSecret) : false;
+  const headerSecret = typeof cronHeader === "string" ? cronHeader.trim() : "";
+  const headerMatch = headerSecret ? safeSecretEqual(headerSecret, expectedSecret) : false;
   if (!bearerMatch && !headerMatch) {
     res.status(401).json({ error: "Unauthorized: Invalid or missing CRON_SECRET" });
     return false;
@@ -15007,7 +15748,7 @@ apiRouter.get("/dashboard", (req, res) => {
   const userSessions = db.focusSessions.filter((s) => s.userId === userId);
   const todaySessions = userSessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === todayStr && s.completed);
   const weekSessions = userSessions.filter(
-    (s) => s.completed && s.mode === "work" && s.startedAt.slice(0, 10) >= weekStartStr
+    (s) => s.completed && s.mode === "work" && formatDateInTimezone(s.startedAt, tz) >= weekStartStr
   );
   const getSessionDurationSecs = (s) => typeof s.actualDurationSeconds === "number" && !Number.isNaN(s.actualDurationSeconds) ? s.actualDurationSeconds : typeof s.durationSeconds === "number" && !Number.isNaN(s.durationSeconds) ? s.durationSeconds : (s.durationMinutes || 0) * 60;
   const todayFocusSeconds = todaySessions.filter((s) => s.mode === "work").reduce((acc, s) => acc + getSessionDurationSecs(s), 0);
@@ -16106,7 +16847,7 @@ apiRouter.put("/finance/expenses/:id", async (req, res, next) => {
     return;
   }
   const body = req.body && typeof req.body === "object" ? req.body : {};
-  const { categoryId, amountPaise, date, description, paymentMethod, notes, type } = body;
+  const { categoryId, categoryName, amountPaise, date, description, paymentMethod, notes, type } = body;
   if (categoryId !== void 0) {
     if (typeof categoryId !== "string" || !categoryId.trim()) {
       res.status(400).json({ error: "Invalid categoryId", code: "INVALID_CATEGORY" });
@@ -16121,6 +16862,16 @@ apiRouter.put("/finance/expenses/:id", async (req, res, next) => {
       return;
     }
     expense.categoryId = trimmedCat;
+  } else if (typeof categoryName === "string" && categoryName.trim()) {
+    const trimmedName = categoryName.trim().toLowerCase();
+    const nameMatch = db.categories.find(
+      (c) => (c.userId === userId || c.userId === "usr_atif_default" || c.userId === "system") && c.name.trim().toLowerCase() === trimmedName
+    ) || db.categories.find(
+      (c) => (c.userId === userId || c.userId === "usr_atif_default" || c.userId === "system") && (c.name.toLowerCase().includes(trimmedName) || trimmedName.includes(c.name.toLowerCase()))
+    );
+    if (nameMatch) {
+      expense.categoryId = nameMatch.id;
+    }
   }
   if (amountPaise !== void 0) {
     const parsedAmount = parsePositiveInt(amountPaise, 1, 1e9);
@@ -17156,6 +17907,10 @@ apiRouter.post("/study/tiers", async (req, res, next) => {
     await dbService.flush();
     res.json(tier);
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Forbidden")) {
+      res.status(403).json({ error: err.message });
+      return;
+    }
     res.status(500).json({ error: "Database persistence failed" });
   }
 });
@@ -17974,6 +18729,39 @@ apiRouter.post("/sheet-hub/drive-duplicate/reconcile", async (req, res) => {
     sendSheetHubError(res, err, "Failed to reconcile operation.");
   }
 });
+async function verifyAppsScriptConnectionOwnership(userId, connectionId, spreadsheetId) {
+  const rawDb = dbService.getRawDatabase();
+  const localConns = [
+    ...Array.isArray(rawDb.sheetHubConnections) ? rawDb.sheetHubConnections : [],
+    ...Array.isArray(rawDb.sheetConnections) ? rawDb.sheetConnections : []
+  ];
+  const localMatch = localConns.find((c) => c && c.id === connectionId);
+  if (localMatch) {
+    if (localMatch.userId !== userId) return false;
+    if (spreadsheetId && localMatch.spreadsheetId && localMatch.spreadsheetId !== spreadsheetId) {
+      return false;
+    }
+    return true;
+  }
+  if (hasServiceAccountCredentials()) {
+    try {
+      const adminDb = getAdminFirestore();
+      const canonicalSnap = await adminDb.collection("users").doc(userId).collection("sheet_hub_connections").doc(connectionId).get();
+      const snap = canonicalSnap.exists ? canonicalSnap : await adminDb.collection("users").doc(userId).collection("sheet_connections").doc(connectionId).get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        if (data.userId && data.userId !== userId) return false;
+        if (spreadsheetId && data.spreadsheetId && data.spreadsheetId !== spreadsheetId) {
+          return false;
+        }
+        return true;
+      }
+    } catch (err) {
+      console.warn("[AppsScriptWriteback] Connection ownership verification failed:", err);
+    }
+  }
+  return false;
+}
 apiRouter.post("/sheet-hub/apps-script-writeback", async (req, res) => {
   const authCtx = getAuth(req);
   if (!authCtx || authCtx.isGuest) {
@@ -18003,6 +18791,18 @@ apiRouter.post("/sheet-hub/apps-script-writeback", async (req, res) => {
     res.status(403).json({
       error: `Spreadsheet "${spreadsheetId}" is not allowlisted for Apps Script write-back. Only the dedicated test spreadsheet is permitted.`,
       code: "SPREADSHEET_NOT_ALLOWLISTED"
+    });
+    return;
+  }
+  const isOwner = await verifyAppsScriptConnectionOwnership(
+    authCtx.userId,
+    connectionId.trim(),
+    typeof spreadsheetId === "string" ? spreadsheetId.trim() : void 0
+  );
+  if (!isOwner) {
+    res.status(403).json({
+      error: "Tenant isolation violation: connection does not belong to the authenticated user.",
+      code: "TENANT_ISOLATION_VIOLATION"
     });
     return;
   }
@@ -18461,7 +19261,7 @@ apiRouter.post("/skill-nodes", async (req, res) => {
   const status = allowedStatuses.includes(body.status) ? body.status : "available";
   const tier = typeof body.tier === "number" && body.tier >= 1 && body.tier <= 10 ? Math.floor(body.tier) : 1;
   const xpPoints = typeof body.xpPoints === "number" && body.xpPoints >= 0 ? Math.floor(body.xpPoints) : 10;
-  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `sn_${Date.now()}_${crypto8.randomBytes(6).toString("hex")}`;
+  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `sn_${Date.now()}_${crypto9.randomBytes(6).toString("hex")}`;
   const node = {
     id: recordId,
     userId: auth.userId,
@@ -18569,7 +19369,7 @@ apiRouter.post("/whiteboard", async (req, res) => {
     });
     return;
   }
-  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `wb_${Date.now()}_${crypto8.randomBytes(6).toString("hex")}`;
+  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `wb_${Date.now()}_${crypto9.randomBytes(6).toString("hex")}`;
   const drawing = {
     id: recordId,
     userId: auth.userId,
@@ -18673,7 +19473,7 @@ apiRouter.post("/exam-simulations", async (req, res) => {
   const totalDurationMinutes = typeof body.totalDurationMinutes === "number" && body.totalDurationMinutes > 0 ? Math.min(body.totalDurationMinutes, 1440) : 180;
   const allowedStatuses = ["idle", "running", "paused", "completed", "in_progress"];
   const status = allowedStatuses.includes(body.status) ? body.status : "idle";
-  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `sim_${Date.now()}_${crypto8.randomBytes(6).toString("hex")}`;
+  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `sim_${Date.now()}_${crypto9.randomBytes(6).toString("hex")}`;
   const sim = {
     id: recordId,
     title,
@@ -18776,7 +19576,7 @@ apiRouter.post("/decisions", async (req, res) => {
   const allowedCategories = ["career", "academic", "financial", "personal", "health"];
   const category = allowedCategories.includes(body.category) ? body.category : "personal";
   const confidenceScore = typeof body.confidenceScore === "number" && body.confidenceScore >= 1 && body.confidenceScore <= 10 ? Math.floor(body.confidenceScore) : 5;
-  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `dec_${Date.now()}_${crypto8.randomBytes(6).toString("hex")}`;
+  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `dec_${Date.now()}_${crypto9.randomBytes(6).toString("hex")}`;
   const decision = {
     id: recordId,
     userId: auth.userId,
@@ -18882,7 +19682,7 @@ apiRouter.post("/doomscroll-tax", async (req, res) => {
     res.status(400).json({ error: "minutes is required and must be a positive number" });
     return;
   }
-  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `tax_${Date.now()}_${crypto8.randomBytes(6).toString("hex")}`;
+  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `tax_${Date.now()}_${crypto9.randomBytes(6).toString("hex")}`;
   const log = {
     id: recordId,
     userId: auth.userId,
@@ -18960,9 +19760,8 @@ apiRouter.delete("/doomscroll-tax", async (req, res) => {
     res.status(500).json({ error: "Database persistence failed" });
   }
 });
-function getTrustedServerToday(req) {
-  const tz = req.query.tz || req.headers["x-timezone"] || DEFAULT_TIMEZONE;
-  return getTodayDateString(tz);
+function getTrustedServerToday() {
+  return getTodayDateString(DEFAULT_TIMEZONE);
 }
 function isTimeCapsuleUnlockedOnServer(capsule, serverToday) {
   if (!capsule.unlockDate) return true;
@@ -18996,7 +19795,7 @@ apiRouter.get("/time-capsules", async (req, res) => {
   const auth = requireAuthUser(req, res);
   if (!auth) return;
   try {
-    const serverToday = getTrustedServerToday(req);
+    const serverToday = getTrustedServerToday();
     const capsules = await v18StorageService.getTimeCapsules(auth.userId);
     const sanitized = capsules.map((c) => sanitizeTimeCapsuleForResponse(c, serverToday));
     res.json(sanitized);
@@ -19008,7 +19807,7 @@ apiRouter.get("/time-capsules/:id", async (req, res) => {
   const auth = requireAuthUser(req, res);
   if (!auth) return;
   try {
-    const serverToday = getTrustedServerToday(req);
+    const serverToday = getTrustedServerToday();
     const capsule = await v18StorageService.getTimeCapsule(auth.userId, req.params.id);
     if (!capsule) {
       res.status(404).json({ error: "Time capsule not found", code: "NOT_FOUND" });
@@ -19033,14 +19832,19 @@ apiRouter.post("/time-capsules", async (req, res) => {
   const body = req.body || {};
   const title = typeof body.title === "string" ? body.title.trim().slice(0, 256) : "";
   const content = typeof body.content === "string" ? body.content.trim().slice(0, 2e4) : "";
-  const unlockDate = typeof body.unlockDate === "string" ? body.unlockDate.trim().slice(0, 32) : "";
-  if (!title || !content || !unlockDate) {
+  const rawUnlockDate = typeof body.unlockDate === "string" ? body.unlockDate.trim() : "";
+  if (!title || !content || !rawUnlockDate) {
     res.status(400).json({ error: "title, content, and unlockDate are required" });
     return;
   }
-  const serverToday = getTrustedServerToday(req);
+  const unlockDate = parseIsoDate(rawUnlockDate);
+  if (!unlockDate) {
+    res.status(400).json({ error: "unlockDate must be a valid YYYY-MM-DD date" });
+    return;
+  }
+  const serverToday = getTrustedServerToday();
   const isUnlocked = isTimeCapsuleUnlockedOnServer({ unlockDate }, serverToday);
-  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `cap_${Date.now()}_${crypto8.randomBytes(6).toString("hex")}`;
+  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `cap_${Date.now()}_${crypto9.randomBytes(6).toString("hex")}`;
   const capsule = {
     id: recordId,
     userId: auth.userId,
@@ -19071,7 +19875,7 @@ apiRouter.put("/time-capsules/:id", async (req, res) => {
   const auth = requireAuthUser(req, res);
   if (!auth) return;
   try {
-    const serverToday = getTrustedServerToday(req);
+    const serverToday = getTrustedServerToday();
     const existing = await v18StorageService.getTimeCapsule(auth.userId, req.params.id);
     if (!existing) {
       res.status(404).json({ error: "Time capsule not found", code: "NOT_FOUND" });
@@ -19081,9 +19885,25 @@ apiRouter.put("/time-capsules/:id", async (req, res) => {
       res.status(403).json({ error: "Cross-user write forbidden", code: "FORBIDDEN" });
       return;
     }
+    const wasUnlocked = isTimeCapsuleUnlockedOnServer(existing, serverToday);
     const body = req.body || {};
-    const effectiveUnlockDate = typeof body.unlockDate === "string" && body.unlockDate.trim() ? body.unlockDate.trim().slice(0, 32) : existing.unlockDate;
-    const isUnlocked = isTimeCapsuleUnlockedOnServer({ unlockDate: effectiveUnlockDate }, serverToday);
+    let effectiveUnlockDate = existing.unlockDate;
+    if (body.unlockDate !== void 0) {
+      const parsedUnlockDate = parseIsoDate(body.unlockDate);
+      if (!parsedUnlockDate) {
+        res.status(400).json({ error: "unlockDate must be a valid YYYY-MM-DD date" });
+        return;
+      }
+      if (!wasUnlocked && (parsedUnlockDate < existing.unlockDate || parsedUnlockDate <= serverToday)) {
+        res.status(403).json({
+          error: "Cannot shorten or bypass unlockDate on a sealed time capsule",
+          code: "CAPSULE_SEALED"
+        });
+        return;
+      }
+      effectiveUnlockDate = parsedUnlockDate;
+    }
+    const isUnlocked = wasUnlocked && isTimeCapsuleUnlockedOnServer({ unlockDate: effectiveUnlockDate }, serverToday);
     const updates = {
       unlockDate: effectiveUnlockDate,
       isUnlocked,
@@ -19178,7 +19998,7 @@ apiRouter.post("/life-milestones", async (req, res) => {
   const category = allowedCategories.includes(body.category) ? body.category : "personal";
   const age = typeof body.age === "number" && body.age >= 0 && body.age <= 120 ? Math.floor(body.age) : 25;
   const weekIndex = typeof body.weekIndex === "number" && body.weekIndex >= 0 ? Math.floor(body.weekIndex) : age * 52;
-  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `m_${Date.now()}_${crypto8.randomBytes(6).toString("hex")}`;
+  const recordId = typeof body.id === "string" && body.id ? body.id.slice(0, 128) : `m_${Date.now()}_${crypto9.randomBytes(6).toString("hex")}`;
   const milestone = {
     id: recordId,
     weekIndex,
@@ -19453,14 +20273,29 @@ apiRouter.get("/social/overview", (req, res) => {
   const friends = getFriendsOverview(db, userId);
   const squads = getUserSquadsOverview(db, userId);
   const privacy = getUserPrivacy(db, userId);
+  const acceptedFriendIds = new Set(friends.friends.map((f) => f.userId));
+  const mySquadIds = new Set(squads.squads.map((s) => s.id));
   const roomInvitations = (db.roomInvitations || []).filter(
     (r) => r.recipientId === userId && r.status === "pending" && r.expiresAt > Date.now()
   );
   const notifications = (db.socialNotifications || []).filter((n) => n.userId === userId).slice(0, 30);
-  const activities = (db.socialActivities || []).slice(0, 30);
-  const activeSessions = (db.groupSessions || []).filter(
-    (s) => s.status === "scheduled" || s.status === "running" || s.status === "paused"
-  );
+  const activities = (db.socialActivities || []).filter((a) => {
+    if (isBlockedBetween(db, userId, a.actorId)) return false;
+    if (a.actorId === userId) return true;
+    if (a.visibility === "private") return false;
+    if (a.squadId) return mySquadIds.has(a.squadId);
+    return acceptedFriendIds.has(a.actorId);
+  }).slice(0, 30);
+  const activeSessions = (db.groupSessions || []).filter((s) => {
+    if (s.status !== "scheduled" && s.status !== "running" && s.status !== "paused") {
+      return false;
+    }
+    if (isBlockedBetween(db, userId, s.hostId)) return false;
+    if (s.hostId === userId) return true;
+    if (Array.isArray(s.participantIds) && s.participantIds.includes(userId)) return true;
+    if (s.squadId) return mySquadIds.has(s.squadId);
+    return acceptedFriendIds.has(s.hostId);
+  });
   res.json({
     ...friends,
     ...squads,
@@ -19741,6 +20576,77 @@ apiRouter.post("/habits", async (req, res) => {
   await dbService.save();
   res.status(201).json(created);
 });
+function validateAndApplyHabitUpdate(habit, rawBody) {
+  const body = rawBody && typeof rawBody === "object" ? rawBody : {};
+  if (body.title !== void 0) {
+    const title = parseNonEmptyString(body.title, 128);
+    if (!title) return { ok: false, error: "title must be a non-empty string up to 128 characters" };
+    habit.title = title;
+  }
+  if (body.category !== void 0) {
+    const category = parseNonEmptyString(body.category, 64);
+    if (!category) return { ok: false, error: "category must be a non-empty string up to 64 characters" };
+    habit.category = category;
+  }
+  if (body.frequency !== void 0) {
+    const freq = parseEnum(body.frequency, ALLOWED_HABIT_FREQUENCIES);
+    if (!freq) return { ok: false, error: "frequency must be daily, weekly, or custom" };
+    habit.frequency = freq;
+  }
+  if (body.targetPerWeek !== void 0) {
+    const target = parsePositiveInt(body.targetPerWeek, 1, 7);
+    if (target === null) return { ok: false, error: "targetPerWeek must be an integer between 1 and 7" };
+    habit.targetPerWeek = target;
+  }
+  if (body.scheduledDays !== void 0) {
+    if (!Array.isArray(body.scheduledDays)) {
+      return { ok: false, error: "scheduledDays must be an array of integers (0-6)" };
+    }
+    const normalizedDays = Array.from(
+      new Set(
+        body.scheduledDays.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+      )
+    ).sort((a, b) => a - b);
+    if (normalizedDays.length !== body.scheduledDays.length) {
+      return { ok: false, error: "scheduledDays may only contain unique integers between 0 and 6" };
+    }
+    habit.scheduledDays = normalizedDays;
+  }
+  if (body.completedDates !== void 0) {
+    if (!Array.isArray(body.completedDates)) {
+      return { ok: false, error: "completedDates must be an array of YYYY-MM-DD strings" };
+    }
+    const validDates = [];
+    for (const d of body.completedDates) {
+      const parsed = parseIsoDate(d);
+      if (!parsed) return { ok: false, error: "completedDates entries must be valid YYYY-MM-DD dates" };
+      validDates.push(parsed);
+    }
+    habit.completedDates = Array.from(new Set(validDates)).sort();
+  }
+  if (body.bestStreakDays !== void 0) {
+    const streak = parseNonNegativeInt(body.bestStreakDays, 1e4);
+    if (streak === null) return { ok: false, error: "bestStreakDays must be a non-negative integer" };
+    habit.bestStreakDays = streak;
+  }
+  if (body.archived !== void 0) {
+    if (typeof body.archived !== "boolean") return { ok: false, error: "archived must be a boolean" };
+    habit.archived = body.archived;
+  }
+  for (const field of ["sourceSpreadsheetId", "sourceSheetId", "sourceRowId", "sourceMappingKey", "sourceLayout"]) {
+    if (body[field] !== void 0) {
+      if (body[field] === null) {
+        delete habit[field];
+      } else if (typeof body[field] === "string" && body[field].length <= 256) {
+        habit[field] = body[field].trim();
+      } else {
+        return { ok: false, error: `${field} must be a string up to 256 characters` };
+      }
+    }
+  }
+  habit.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  return { ok: true };
+}
 apiRouter.post("/habits/:id/toggle", async (req, res) => {
   const { userId } = getAuth(req);
   const db = dbService.getRawDatabase();
@@ -19750,7 +20656,20 @@ apiRouter.post("/habits/:id/toggle", async (req, res) => {
     res.status(404).json({ error: "Habit not found" });
     return;
   }
-  const dateStr = String(req.body?.dateStr || req.body?.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
+  const userSettings = Array.isArray(db.userSettings) ? db.userSettings.find((s) => s.userId === userId) : void 0;
+  const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+  const rawDate = req.body?.dateStr ?? req.body?.date;
+  let dateStr;
+  if (rawDate !== void 0 && rawDate !== null && rawDate !== "") {
+    const parsedDate = parseIsoDate(rawDate);
+    if (!parsedDate) {
+      res.status(400).json({ error: "dateStr must be a valid YYYY-MM-DD date" });
+      return;
+    }
+    dateStr = parsedDate;
+  } else {
+    dateStr = getTodayDateString(tz);
+  }
   const set = new Set(Array.isArray(habit.completedDates) ? habit.completedDates : []);
   if (set.has(dateStr)) set.delete(dateStr);
   else set.add(dateStr);
@@ -19759,7 +20678,7 @@ apiRouter.post("/habits/:id/toggle", async (req, res) => {
   await dbService.save();
   res.json(habit);
 });
-apiRouter.put("/habits/:id", async (req, res) => {
+var handleUpdateHabit = async (req, res) => {
   const { userId } = getAuth(req);
   const db = dbService.getRawDatabase();
   const list = Array.isArray(db.habits) ? db.habits : [];
@@ -19768,23 +20687,16 @@ apiRouter.put("/habits/:id", async (req, res) => {
     res.status(404).json({ error: "Habit not found" });
     return;
   }
-  Object.assign(habit, req.body || {}, { id: habit.id, userId, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
-  await dbService.save();
-  res.json(habit);
-});
-apiRouter.patch("/habits/:id", async (req, res) => {
-  const { userId } = getAuth(req);
-  const db = dbService.getRawDatabase();
-  const list = Array.isArray(db.habits) ? db.habits : [];
-  const habit = list.find((h) => h.id === req.params.id && h.userId === userId && !h.deletedAt);
-  if (!habit) {
-    res.status(404).json({ error: "Habit not found" });
+  const applied = validateAndApplyHabitUpdate(habit, req.body);
+  if (!applied.ok) {
+    res.status(400).json({ error: applied.error });
     return;
   }
-  Object.assign(habit, req.body || {}, { id: habit.id, userId, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
   await dbService.save();
   res.json(habit);
-});
+};
+apiRouter.put("/habits/:id", handleUpdateHabit);
+apiRouter.patch("/habits/:id", handleUpdateHabit);
 apiRouter.delete("/habits/:id", async (req, res) => {
   const { userId } = getAuth(req);
   const db = dbService.getRawDatabase();

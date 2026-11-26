@@ -41,7 +41,9 @@ function getMondayOfWeek(d: Date): Date {
 }
 
 export const SmartPlannerHubView: React.FC = () => {
-  const { settings, updateSettings, showToast } = useApp();
+  const { user, firebaseUser, settings, updateSettings, showToast } = useApp();
+  const activeUid = firebaseUser?.uid || user?.id || 'usr_guest';
+  const plannerStorageKey = `ff_study_planner_settings_${activeUid}`;
   const timezone = settings?.timezone || DEFAULT_TIMEZONE;
 
   const [subTab, setSubTab] = useState<PlannerSubTab>('planner');
@@ -55,18 +57,27 @@ export const SmartPlannerHubView: React.FC = () => {
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
   const [, setSyncingTimeBlocks] = useState(false);
 
-  const [plannerSettings, setPlannerSettings] = useState<StudyPlannerSettings>(() => {
+  const readPlannerSettings = (storageKey: string): StudyPlannerSettings => {
     if (settings?.studyPlannerSettings) {
       return sanitizeStudyPlannerSettings(settings.studyPlannerSettings);
     }
     try {
-      const saved = localStorage.getItem('ff_study_planner_settings');
+      const saved = localStorage.getItem(storageKey);
       if (saved) return sanitizeStudyPlannerSettings(JSON.parse(saved));
     } catch {
       // ignore storage errors
     }
     return { ...defaultStudyPlannerSettings };
-  });
+  };
+
+  const [plannerSettings, setPlannerSettings] = useState<StudyPlannerSettings>(() =>
+    readPlannerSettings(plannerStorageKey)
+  );
+
+  useEffect(() => {
+    setPlannerSettings(readPlannerSettings(plannerStorageKey));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannerStorageKey, settings?.studyPlannerSettings]);
 
   const [weekStart, setWeekStart] = useState<Date>(() => getMondayOfWeek(new Date()));
   const [plannedSessions, setPlannedSessions] = useState<PlannedStudySession[]>([]);
@@ -234,7 +245,7 @@ export const SmartPlannerHubView: React.FC = () => {
     const clean = sanitizeStudyPlannerSettings(next);
     setPlannerSettings(clean);
     try {
-      localStorage.setItem('ff_study_planner_settings', JSON.stringify(clean));
+      localStorage.setItem(plannerStorageKey, JSON.stringify(clean));
     } catch {
       // ignore storage write errors
     }

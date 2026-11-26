@@ -1307,9 +1307,17 @@ export const firestoreService = {
       const [snap, cats] = await Promise.all([getDoc(doc(db, path)), this.getCategories(userId)]);
       if (!snap.exists()) throw new Error('Expense record not found');
       const existing = snap.data() as ExpenseTransaction;
+      const requestedCatName =
+        !updates.categoryId && typeof updates.categoryName === 'string' && updates.categoryName.trim()
+          ? updates.categoryName.trim().toLowerCase()
+          : '';
+      const resolvedCat = requestedCatName
+        ? cats.find((c) => c.name.trim().toLowerCase() === requestedCatName)
+        : undefined;
       const next: ExpenseTransaction = {
         ...existing,
         ...updates,
+        ...(resolvedCat ? { categoryId: resolvedCat.id, categoryName: resolvedCat.name } : {}),
         id,
         userId,
         description:
@@ -2544,6 +2552,7 @@ export const firestoreService = {
 
     let txMeta: { fromName: string; toName: string } | null = null;
     try {
+      const expenses = await listSubcollection<ExpenseTransaction>(`users/${userId}/expenses`);
       const result = await runTransaction(db, async (tx) => {
         const [fromSnap, toSnap] = await Promise.all([tx.get(fromRef), tx.get(toRef)]);
         if (!fromSnap.exists() || !toSnap.exists()) {
@@ -2551,7 +2560,19 @@ export const firestoreService = {
         }
         const fromEnv = fromSnap.data() as BudgetEnvelope;
         const toEnv = toSnap.data() as BudgetEnvelope;
-        if ((fromEnv.allocatedPaise || 0) < cleanAmount) {
+        let spentPaise = 0;
+        if (fromEnv.categoryId) {
+          spentPaise = expenses
+            .filter(
+              (e) =>
+                !e.deletedAt &&
+                e.categoryId === fromEnv.categoryId &&
+                e.date.startsWith(fromEnv.monthKey)
+            )
+            .reduce((sum, e) => sum + (e.amountPaise || 0), 0);
+        }
+        const availablePaise = Math.max(0, (fromEnv.allocatedPaise || 0) - spentPaise);
+        if (availablePaise < cleanAmount) {
           return { success: false as const, error: 'Insufficient funds in source envelope' };
         }
 
@@ -4760,6 +4781,9 @@ export const firestoreService = {
     vaultId: string,
     data: { toUid: string; toName?: string; amountPaise: number; date?: string; notes?: string }
   ): Promise<VaultSettlement> {
+    if (!data.toUid || data.toUid === user.uid) {
+      throw new Error('Cannot record a settlement payment to yourself');
+    }
     const nowIso = new Date().toISOString();
     const settlementId = `vstl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const settlement: VaultSettlement = {

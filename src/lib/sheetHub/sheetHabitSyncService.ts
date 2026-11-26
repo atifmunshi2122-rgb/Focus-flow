@@ -69,6 +69,29 @@ export interface HabitSheetsPullReport {
 }
 
 const PENDING_HABIT_WRITEBACK_KEY = (userId: string) => `ff_pending_habit_writeback_${userId}`;
+const MAX_HABIT_WRITEBACK_ATTEMPTS = 5;
+
+function classifyHabitPushError(err: unknown): {
+  isAuthErr: boolean;
+  isPermanentErr: boolean;
+  message: string;
+} {
+  const message = err instanceof Error ? err.message : String(err);
+  const isAuthErr =
+    message.includes('401') ||
+    message.includes('SHEETS_AUTH_REQUIRED') ||
+    message.includes('UNAUTHENTICATED') ||
+    message.includes('invalid_grant');
+  const isPermanentErr =
+    !isAuthErr &&
+    (/\b400\b/.test(message) ||
+      /\b403\b/.test(message) ||
+      /\b404\b/.test(message) ||
+      message.includes('NOT_FOUND') ||
+      message.includes('PERMISSION_DENIED') ||
+      message.includes('INVALID_ARGUMENT'));
+  return { isAuthErr, isPermanentErr, message };
+}
 
 function readPendingQueue(userId: string): PendingHabitWriteback[] {
   if (typeof window === 'undefined' || !window.localStorage) return [];
@@ -335,14 +358,10 @@ export async function syncHabitToggleToGoogleSheets(
 
       return { status: 'synced', synced: true, sheetTitle: tab.sheetTitle, cellRef };
     } catch (pushErr: unknown) {
-      const msg = pushErr instanceof Error ? pushErr.message : String(pushErr);
-      const isAuthErr =
-        msg.includes('401') ||
-        msg.includes('SHEETS_AUTH_REQUIRED') ||
-        msg.includes('UNAUTHENTICATED') ||
-        msg.includes('invalid_grant');
+      const { isAuthErr, isPermanentErr, message } = classifyHabitPushError(pushErr);
 
-      if (isAuthErr) {
+      // Queue auth failures AND transient network/5xx/rate-limit failures; skip permanent 400/403/404 errors
+      if (!isPermanentErr) {
         enqueuePendingHabitWriteback(userId, {
           userId,
           connectionId: conn.id,
@@ -361,10 +380,10 @@ export async function syncHabitToggleToGoogleSheets(
           synced: false,
           sheetTitle: tab.sheetTitle,
           cellRef,
-          error: 'OAUTH_TOKEN_EXPIRED',
+          error: isAuthErr ? 'OAUTH_TOKEN_EXPIRED' : message,
         };
       }
-      return { status: 'error', synced: false, sheetTitle: tab.sheetTitle, cellRef, error: msg };
+      return { status: 'error', synced: false, sheetTitle: tab.sheetTitle, cellRef, error: message };
     }
   } catch (err: unknown) {
     return {
@@ -386,6 +405,7 @@ export async function flushPendingHabitWritebacks(userId: string): Promise<numbe
   if (!writeToken) return 0;
 
   let flushed = 0;
+  const flushedEntries: PendingHabitWriteback[] = [];
   const remaining: PendingHabitWriteback[] = [];
   const now = new Date().toISOString();
 
@@ -406,17 +426,85 @@ export async function flushPendingHabitWritebacks(userId: string): Promise<numbe
         writeToken
       );
       flushed++;
+      flushedEntries.push(entry);
     } catch (err: unknown) {
-      remaining.push({
-        ...entry,
-        attempts: entry.attempts + 1,
-        lastAttemptAt: now,
-        lastError: err instanceof Error ? err.message : String(err),
-      });
+      const { isPermanentErr, message } = classifyHabitPushError(err);
+      const nextAttempts = (entry.attempts || 0) + 1;
+      if (!isPermanentErr && nextAttempts < MAX_HABIT_WRITEBACK_ATTEMPTS) {
+        remaining.push({
+          ...entry,
+          attempts: nextAttempts,
+          lastAttemptAt: now,
+          lastError: message,
+        });
+      }
     }
   }
 
   writePendingQueue(userId, remaining);
+
+  // Clear pending_push / dirtyFields on successfully flushed Sheet Hub cache rows
+  if (flushedEntries.length > 0) {
+    const byConn = new Map<string, PendingHabitWriteback[]>();
+    for (const fe of flushedEntries) {
+      const list = byConn.get(fe.connectionId) || [];
+      list.push(fe);
+      byConn.set(fe.connectionId, list);
+    }
+    for (const [connectionId, entries] of byConn.entries()) {
+      try {
+        const tabs = await sheetHubStore.listTabsForConnection(userId, connectionId);
+        const bySheetTitle = new Map<string, PendingHabitWriteback[]>();
+        for (const e of entries) {
+          const list = bySheetTitle.get(e.sheetTitle) || [];
+          list.push(e);
+          bySheetTitle.set(e.sheetTitle, list);
+        }
+        for (const [sheetTitle, sheetEntries] of bySheetTitle.entries()) {
+          const tab = tabs.find((t) => t.sheetTitle === sheetTitle);
+          if (!tab) continue;
+          const rows = await sheetHubStore.loadTabRows(userId, tab.id, connectionId).catch(() => []);
+          if (rows.length === 0) continue;
+          let rowsModified = false;
+          const nextRows = rows.map((row) => {
+            const matching = sheetEntries.filter((se) => se.rowNumber === row.lastKnownSheetRow);
+            if (matching.length === 0) return row;
+            rowsModified = true;
+            const nextBase = { ...(row.baseValues || {}) };
+            let nextDirty = [...(row.dirtyFields || [])];
+            for (const m of matching) {
+              const col = (tab.columns || []).find((c) => c.colLetter === m.colLetter);
+              if (col) {
+                nextBase[col.fieldKey] = m.value;
+                nextDirty = nextDirty.filter((f) => f !== col.fieldKey);
+              } else {
+                nextDirty = [];
+              }
+            }
+            return {
+              ...row,
+              baseValues: nextBase,
+              dirtyFields: nextDirty,
+              sheetSyncedAt: now,
+              status: nextDirty.length === 0 ? ('synced' as const) : ('pending_push' as const),
+              updatedAt: now,
+            };
+          });
+          if (rowsModified) {
+            await sheetHubStore.saveTabRowsChunked({
+              userId,
+              connectionId,
+              tabId: tab.id,
+              rows: nextRows,
+            });
+          }
+        }
+      } catch {
+        // Non-fatal cache sync cleanup
+      }
+    }
+  }
+
   return flushed;
 }
 
@@ -582,23 +670,37 @@ export async function pollAndSyncGoogleSheetsToHabits(
           for (const pt of pullRes.tabs || []) {
             const tab = habitTabs.find((t) => t.sheetId === pt.sheetId || t.sheetTitle === pt.sheetTitle);
             if (!tab) continue;
+            const existingRows = await sheetHubStore.loadTabRows(userId, tab.id, conn.id).catch(() => []);
+            const existingBySheetRow = new Map(existingRows.map((er) => [er.lastKnownSheetRow, er]));
             const syncedRows: SheetSyncedRow[] = (pt.rows || []).map((r) => {
               const rowVals: Record<string, any> = {};
               for (const col of tab.columns) {
                 rowVals[col.fieldKey] = r.values[col.colIndex] ?? null;
               }
+              const existingRow = existingBySheetRow.get(r.sheetRowNumber);
+              const hasDirtyLocalEdits =
+                Boolean(existingRow?.dirtyFields && existingRow.dirtyFields.length > 0) ||
+                existingRow?.status === 'pending_push';
+              const mergedValues = { ...rowVals };
+              if (hasDirtyLocalEdits && existingRow) {
+                for (const dirtyField of existingRow.dirtyFields || []) {
+                  if (dirtyField in (existingRow.values || {})) {
+                    mergedValues[dirtyField] = existingRow.values[dirtyField];
+                  }
+                }
+              }
               return {
-                rowUid: `row_${tab.sheetId}_${r.sheetRowNumber}`,
+                rowUid: existingRow?.rowUid || `row_${tab.sheetId}_${r.sheetRowNumber}`,
                 lastKnownSheetRow: r.sheetRowNumber,
-                values: rowVals,
+                values: mergedValues,
                 baseValues: rowVals,
                 rowHash: `hash_${r.sheetRowNumber}`,
-                version: 1,
-                lastSyncOrigin: 'sheet',
-                dirtyFields: [],
-                localUpdatedAt: null,
+                version: (existingRow?.version || 0) + 1,
+                lastSyncOrigin: hasDirtyLocalEdits ? (existingRow?.lastSyncOrigin || 'app') : 'sheet',
+                dirtyFields: hasDirtyLocalEdits ? [...(existingRow?.dirtyFields || [])] : [],
+                localUpdatedAt: hasDirtyLocalEdits ? (existingRow?.localUpdatedAt ?? nowIso) : null,
                 sheetSyncedAt: nowIso,
-                status: 'synced',
+                status: hasDirtyLocalEdits ? 'pending_push' : 'synced',
               };
             });
             await sheetHubStore.saveTabRowsChunked({
@@ -631,25 +733,36 @@ export async function pollAndSyncGoogleSheetsToHabits(
         tabs: tabInputs,
         existingHabits: activeHabits,
         spreadsheetId,
-        mergeMode: 'merge',
+        mergeMode: 'replace',
       });
 
+      const pendingAfterFlush = readPendingQueue(userId);
       const existingById = new Map(activeHabits.map((h) => [h.id, h]));
       for (const item of preview.habits) {
         if (!item.isExistingMatch || !item.existingHabitId) continue;
         const existing = existingById.get(item.existingHabitId);
         if (!existing) continue;
 
+        // Re-apply any still-pending un-flushed local toggles so pull never clobbers unsynced offline edits
+        const finalDateSet = new Set(item.mergedDates);
+        for (const pending of pendingAfterFlush) {
+          if (pending.habitId !== existing.id || !pending.dateStr) continue;
+          if (pending.value) finalDateSet.add(pending.dateStr);
+          else finalDateSet.delete(pending.dateStr);
+        }
+        const finalDates = Array.from(finalDateSet).sort();
+        const finalBestStreak = Math.max(existing.bestStreakDays || 0, computeBestStreak(finalDates));
+
         const prevSorted = [...(existing.completedDates || [])].sort();
         const datesChanged =
-          item.mergedDates.length !== prevSorted.length ||
-          item.mergedDates.some((d, idx) => d !== prevSorted[idx]);
+          finalDates.length !== prevSorted.length ||
+          finalDates.some((d, idx) => d !== prevSorted[idx]);
 
         if (!datesChanged) continue;
 
         await api.updateHabit(existing.id, {
-          completedDates: item.mergedDates,
-          bestStreakDays: item.bestStreakDays,
+          completedDates: finalDates,
+          bestStreakDays: finalBestStreak,
         });
         updatedHabitsCount++;
       }

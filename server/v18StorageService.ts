@@ -637,9 +637,15 @@ export class V18StorageService {
           .doc(userId)
           .collection('doomscroll_logs')
           .get();
-        const batch = this.firestore.batch();
-        snap.docs.forEach((d: any) => batch.delete(d.ref));
-        await batch.commit();
+        const docs = Array.isArray(snap?.docs) ? snap.docs : [];
+        // Firestore batch writes are strictly capped at 500 operations per commit
+        const BATCH_LIMIT = 450;
+        for (let i = 0; i < docs.length; i += BATCH_LIMIT) {
+          const chunk = docs.slice(i, i + BATCH_LIMIT);
+          const batch = this.firestore.batch();
+          chunk.forEach((d: any) => batch.delete(d.ref));
+          await batch.commit();
+        }
       } catch (err) {
         console.warn(`[V18Storage] Firestore clearDoomscrollLogs failed for ${userId}:`, err);
       }
@@ -901,7 +907,9 @@ export class V18StorageService {
         .collection('emergency_profile')
         .doc('default');
 
-      await docRef.set(stripUndefined(safeProfile), { merge: true });
+      // Full replacement ensures cleared optional fields (e.g. bloodGroup, primaryHospital, instructionsNote)
+      // are actually removed instead of remaining sticky via merge: true.
+      await docRef.set(stripUndefined(safeProfile));
     }
 
     wrapDbCall(() => dbService.saveEmergencyProfile(safeProfile));

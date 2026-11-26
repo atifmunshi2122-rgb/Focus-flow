@@ -44,6 +44,7 @@ import {
   ALLOWED_REVISION_DIFFICULTIES,
   ALLOWED_REVISION_STATUSES,
   ALLOWED_MISTAKE_SEVERITIES,
+  ALLOWED_HABIT_FREQUENCIES,
   calculateBoundedStreakDays,
   computeBestStreakDays,
   computeNextRecurrenceDueDate,
@@ -99,6 +100,7 @@ import { googleCalendarOAuthCallbackRouter } from './routes/googleCalendarOAuthC
 import { googleCalendarRouter } from './routes/googleCalendarRoutes.js';
 import { pushRouter } from './routes/pushRoutes.js';
 import { cronNotificationRouter } from './routes/cronNotificationRoutes.js';
+import { getAdminFirestore, hasServiceAccountCredentials } from './firebaseAdmin.js';
 
 export const apiRouter = Router();
 
@@ -404,7 +406,7 @@ apiRouter.get('/dashboard', (req: Request, res: Response) => {
   const userSessions = db.focusSessions.filter((s) => s.userId === userId);
   const todaySessions = userSessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === todayStr && s.completed);
   const weekSessions = userSessions.filter(
-    (s) => s.completed && s.mode === 'work' && s.startedAt.slice(0, 10) >= weekStartStr
+    (s) => s.completed && s.mode === 'work' && formatDateInTimezone(s.startedAt, tz) >= weekStartStr
   );
 
   const getSessionDurationSecs = (s: FocusSession) =>
@@ -1795,7 +1797,7 @@ apiRouter.put('/finance/expenses/:id', async (req: Request, res: Response, next:
   }
 
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-  const { categoryId, amountPaise, date, description, paymentMethod, notes, type } = body;
+  const { categoryId, categoryName, amountPaise, date, description, paymentMethod, notes, type } = body;
 
   if (categoryId !== undefined) {
     if (typeof categoryId !== 'string' || !categoryId.trim()) {
@@ -1811,6 +1813,22 @@ apiRouter.put('/finance/expenses/:id', async (req: Request, res: Response, next:
       return;
     }
     expense.categoryId = trimmedCat;
+  } else if (typeof categoryName === 'string' && categoryName.trim()) {
+    const trimmedName = categoryName.trim().toLowerCase();
+    const nameMatch =
+      db.categories.find(
+        (c) =>
+          (c.userId === userId || c.userId === 'usr_atif_default' || c.userId === 'system') &&
+          c.name.trim().toLowerCase() === trimmedName
+      ) ||
+      db.categories.find(
+        (c) =>
+          (c.userId === userId || c.userId === 'usr_atif_default' || c.userId === 'system') &&
+          (c.name.toLowerCase().includes(trimmedName) || trimmedName.includes(c.name.toLowerCase()))
+      );
+    if (nameMatch) {
+      expense.categoryId = nameMatch.id;
+    }
   }
 
   if (amountPaise !== undefined) {
@@ -3012,6 +3030,10 @@ apiRouter.post('/study/tiers', async (req: Request, res: Response, next: NextFun
     await dbService.flush();
     res.json(tier);
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Forbidden')) {
+      res.status(403).json({ error: err.message });
+      return;
+    }
     res.status(500).json({ error: 'Database persistence failed' });
   }
 });
@@ -3940,6 +3962,59 @@ apiRouter.post('/sheet-hub/drive-duplicate/reconcile', async (req: Request, res:
   }
 });
 
+async function verifyAppsScriptConnectionOwnership(
+  userId: string,
+  connectionId: string,
+  spreadsheetId?: string
+): Promise<boolean> {
+  const rawDb = dbService.getRawDatabase() as any;
+  const localConns: any[] = [
+    ...(Array.isArray(rawDb.sheetHubConnections) ? rawDb.sheetHubConnections : []),
+    ...(Array.isArray(rawDb.sheetConnections) ? rawDb.sheetConnections : []),
+  ];
+  const localMatch = localConns.find((c) => c && c.id === connectionId);
+  if (localMatch) {
+    if (localMatch.userId !== userId) return false;
+    if (spreadsheetId && localMatch.spreadsheetId && localMatch.spreadsheetId !== spreadsheetId) {
+      return false;
+    }
+    return true;
+  }
+
+  if (hasServiceAccountCredentials()) {
+    try {
+      const adminDb = getAdminFirestore();
+      const canonicalSnap = await adminDb
+        .collection('users')
+        .doc(userId)
+        .collection('sheet_hub_connections')
+        .doc(connectionId)
+        .get();
+      const snap = canonicalSnap.exists
+        ? canonicalSnap
+        : await adminDb
+            .collection('users')
+            .doc(userId)
+            .collection('sheet_connections')
+            .doc(connectionId)
+            .get();
+
+      if (snap.exists) {
+        const data = snap.data() || {};
+        if (data.userId && data.userId !== userId) return false;
+        if (spreadsheetId && data.spreadsheetId && data.spreadsheetId !== spreadsheetId) {
+          return false;
+        }
+        return true;
+      }
+    } catch (err) {
+      console.warn('[AppsScriptWriteback] Connection ownership verification failed:', err);
+    }
+  }
+
+  return false;
+}
+
 apiRouter.post('/sheet-hub/apps-script-writeback', async (req: Request, res: Response) => {
   const authCtx = getAuth(req);
   if (!authCtx || authCtx.isGuest) {
@@ -3961,7 +4036,7 @@ apiRouter.post('/sheet-hub/apps-script-writeback', async (req: Request, res: Res
   }
 
   // Connection ownership verification
-  // Rejects connections belonging to other tenants
+  // Rejects spoofed userId and verifies connectionId actually belongs to authCtx.userId
   const requestedUserId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
   if (requestedUserId && requestedUserId !== authCtx.userId) {
     res.status(403).json({
@@ -3976,6 +4051,19 @@ apiRouter.post('/sheet-hub/apps-script-writeback', async (req: Request, res: Res
     res.status(403).json({
       error: `Spreadsheet "${spreadsheetId}" is not allowlisted for Apps Script write-back. Only the dedicated test spreadsheet is permitted.`,
       code: 'SPREADSHEET_NOT_ALLOWLISTED',
+    });
+    return;
+  }
+
+  const isOwner = await verifyAppsScriptConnectionOwnership(
+    authCtx.userId,
+    connectionId.trim(),
+    typeof spreadsheetId === 'string' ? spreadsheetId.trim() : undefined
+  );
+  if (!isOwner) {
+    res.status(403).json({
+      error: 'Tenant isolation violation: connection does not belong to the authenticated user.',
+      code: 'TENANT_ISOLATION_VIOLATION',
     });
     return;
   }
@@ -5048,9 +5136,9 @@ apiRouter.delete('/doomscroll-tax', async (req: Request, res: Response) => {
 // -------------------------------------------------------------
 // 6. Time Capsule Letters (Date-Restricted Reflections)
 // -------------------------------------------------------------
-function getTrustedServerToday(req: Request): string {
-  const tz = (req.query.tz as string) || (req.headers['x-timezone'] as string) || DEFAULT_TIMEZONE;
-  return getTodayDateString(tz);
+// Never trust client-controlled req.query.tz or x-timezone for lock enforcement.
+function getTrustedServerToday(): string {
+  return getTodayDateString(DEFAULT_TIMEZONE);
 }
 
 function isTimeCapsuleUnlockedOnServer(capsule: { unlockDate?: string }, serverToday: string): boolean {
@@ -5088,7 +5176,7 @@ apiRouter.get('/time-capsules', async (req: Request, res: Response) => {
   const auth = requireAuthUser(req, res);
   if (!auth) return;
   try {
-    const serverToday = getTrustedServerToday(req);
+    const serverToday = getTrustedServerToday();
     const capsules = await v18StorageService.getTimeCapsules(auth.userId);
     const sanitized = capsules.map((c) => sanitizeTimeCapsuleForResponse(c, serverToday));
     res.json(sanitized);
@@ -5101,7 +5189,7 @@ apiRouter.get('/time-capsules/:id', async (req: Request, res: Response) => {
   const auth = requireAuthUser(req, res);
   if (!auth) return;
   try {
-    const serverToday = getTrustedServerToday(req);
+    const serverToday = getTrustedServerToday();
     const capsule = await v18StorageService.getTimeCapsule(auth.userId, req.params.id);
     if (!capsule) {
       res.status(404).json({ error: 'Time capsule not found', code: 'NOT_FOUND' });
@@ -5127,14 +5215,20 @@ apiRouter.post('/time-capsules', async (req: Request, res: Response) => {
   const body = req.body || {};
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 256) : '';
   const content = typeof body.content === 'string' ? body.content.trim().slice(0, 20000) : '';
-  const unlockDate = typeof body.unlockDate === 'string' ? body.unlockDate.trim().slice(0, 32) : '';
+  const rawUnlockDate = typeof body.unlockDate === 'string' ? body.unlockDate.trim() : '';
 
-  if (!title || !content || !unlockDate) {
+  if (!title || !content || !rawUnlockDate) {
     res.status(400).json({ error: 'title, content, and unlockDate are required' });
     return;
   }
 
-  const serverToday = getTrustedServerToday(req);
+  const unlockDate = parseIsoDate(rawUnlockDate);
+  if (!unlockDate) {
+    res.status(400).json({ error: 'unlockDate must be a valid YYYY-MM-DD date' });
+    return;
+  }
+
+  const serverToday = getTrustedServerToday();
   // Never trust client-provided isUnlocked. Calculate strictly using trusted server time!
   const isUnlocked = isTimeCapsuleUnlockedOnServer({ unlockDate }, serverToday);
 
@@ -5172,7 +5266,7 @@ apiRouter.put('/time-capsules/:id', async (req: Request, res: Response) => {
   const auth = requireAuthUser(req, res);
   if (!auth) return;
   try {
-    const serverToday = getTrustedServerToday(req);
+    const serverToday = getTrustedServerToday();
     const existing = await v18StorageService.getTimeCapsule(auth.userId, req.params.id);
     if (!existing) {
       res.status(404).json({ error: 'Time capsule not found', code: 'NOT_FOUND' });
@@ -5183,11 +5277,27 @@ apiRouter.put('/time-capsules/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    const wasUnlocked = isTimeCapsuleUnlockedOnServer(existing, serverToday);
     const body = req.body || {};
-    const effectiveUnlockDate = typeof body.unlockDate === 'string' && body.unlockDate.trim()
-      ? body.unlockDate.trim().slice(0, 32)
-      : existing.unlockDate;
-    const isUnlocked = isTimeCapsuleUnlockedOnServer({ unlockDate: effectiveUnlockDate }, serverToday);
+
+    let effectiveUnlockDate = existing.unlockDate;
+    if (body.unlockDate !== undefined) {
+      const parsedUnlockDate = parseIsoDate(body.unlockDate);
+      if (!parsedUnlockDate) {
+        res.status(400).json({ error: 'unlockDate must be a valid YYYY-MM-DD date' });
+        return;
+      }
+      if (!wasUnlocked && (parsedUnlockDate < existing.unlockDate || parsedUnlockDate <= serverToday)) {
+        res.status(403).json({
+          error: 'Cannot shorten or bypass unlockDate on a sealed time capsule',
+          code: 'CAPSULE_SEALED',
+        });
+        return;
+      }
+      effectiveUnlockDate = parsedUnlockDate;
+    }
+
+    const isUnlocked = wasUnlocked && isTimeCapsuleUnlockedOnServer({ unlockDate: effectiveUnlockDate }, serverToday);
 
     const updates: Partial<TimeCapsuleLetter> = {
       unlockDate: effectiveUnlockDate,
@@ -5628,14 +5738,31 @@ apiRouter.get('/social/overview', (req: Request, res: Response) => {
   const friends = socialService.getFriendsOverview(db, userId);
   const squads = socialService.getUserSquadsOverview(db, userId);
   const privacy = socialService.getUserPrivacy(db, userId);
+  const acceptedFriendIds = new Set(friends.friends.map((f) => f.userId));
+  const mySquadIds = new Set(squads.squads.map((s) => s.id));
   const roomInvitations = (db.roomInvitations || []).filter(
     (r) => r.recipientId === userId && r.status === 'pending' && r.expiresAt > Date.now()
   );
   const notifications = (db.socialNotifications || []).filter((n) => n.userId === userId).slice(0, 30);
-  const activities = (db.socialActivities || []).slice(0, 30);
-  const activeSessions = (db.groupSessions || []).filter(
-    (s) => s.status === 'scheduled' || s.status === 'running' || s.status === 'paused'
-  );
+  const activities = (db.socialActivities || [])
+    .filter((a) => {
+      if (socialService.isBlockedBetween(db, userId, a.actorId)) return false;
+      if (a.actorId === userId) return true;
+      if (a.visibility === 'private') return false;
+      if (a.squadId) return mySquadIds.has(a.squadId);
+      return acceptedFriendIds.has(a.actorId);
+    })
+    .slice(0, 30);
+  const activeSessions = (db.groupSessions || []).filter((s) => {
+    if (s.status !== 'scheduled' && s.status !== 'running' && s.status !== 'paused') {
+      return false;
+    }
+    if (socialService.isBlockedBetween(db, userId, s.hostId)) return false;
+    if (s.hostId === userId) return true;
+    if (Array.isArray(s.participantIds) && s.participantIds.includes(userId)) return true;
+    if (s.squadId) return mySquadIds.has(s.squadId);
+    return acceptedFriendIds.has(s.hostId);
+  });
   res.json({
     ...friends,
     ...squads,
@@ -5943,6 +6070,91 @@ apiRouter.post('/habits', async (req: Request, res: Response) => {
   res.status(201).json(created);
 });
 
+function validateAndApplyHabitUpdate(
+  habit: Record<string, any>,
+  rawBody: unknown
+): { ok: true } | { ok: false; error: string } {
+  const body = (rawBody && typeof rawBody === 'object' ? rawBody : {}) as Record<string, unknown>;
+
+  if (body.title !== undefined) {
+    const title = parseNonEmptyString(body.title, 128);
+    if (!title) return { ok: false, error: 'title must be a non-empty string up to 128 characters' };
+    habit.title = title;
+  }
+
+  if (body.category !== undefined) {
+    const category = parseNonEmptyString(body.category, 64);
+    if (!category) return { ok: false, error: 'category must be a non-empty string up to 64 characters' };
+    habit.category = category;
+  }
+
+  if (body.frequency !== undefined) {
+    const freq = parseEnum(body.frequency, ALLOWED_HABIT_FREQUENCIES);
+    if (!freq) return { ok: false, error: 'frequency must be daily, weekly, or custom' };
+    habit.frequency = freq;
+  }
+
+  if (body.targetPerWeek !== undefined) {
+    const target = parsePositiveInt(body.targetPerWeek, 1, 7);
+    if (target === null) return { ok: false, error: 'targetPerWeek must be an integer between 1 and 7' };
+    habit.targetPerWeek = target;
+  }
+
+  if (body.scheduledDays !== undefined) {
+    if (!Array.isArray(body.scheduledDays)) {
+      return { ok: false, error: 'scheduledDays must be an array of integers (0-6)' };
+    }
+    const normalizedDays = Array.from(
+      new Set(
+        body.scheduledDays.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+      )
+    ).sort((a, b) => a - b);
+    if (normalizedDays.length !== body.scheduledDays.length) {
+      return { ok: false, error: 'scheduledDays may only contain unique integers between 0 and 6' };
+    }
+    habit.scheduledDays = normalizedDays;
+  }
+
+  if (body.completedDates !== undefined) {
+    if (!Array.isArray(body.completedDates)) {
+      return { ok: false, error: 'completedDates must be an array of YYYY-MM-DD strings' };
+    }
+    const validDates: string[] = [];
+    for (const d of body.completedDates) {
+      const parsed = parseIsoDate(d);
+      if (!parsed) return { ok: false, error: 'completedDates entries must be valid YYYY-MM-DD dates' };
+      validDates.push(parsed);
+    }
+    habit.completedDates = Array.from(new Set(validDates)).sort();
+  }
+
+  if (body.bestStreakDays !== undefined) {
+    const streak = parseNonNegativeInt(body.bestStreakDays, 10000);
+    if (streak === null) return { ok: false, error: 'bestStreakDays must be a non-negative integer' };
+    habit.bestStreakDays = streak;
+  }
+
+  if (body.archived !== undefined) {
+    if (typeof body.archived !== 'boolean') return { ok: false, error: 'archived must be a boolean' };
+    habit.archived = body.archived;
+  }
+
+  for (const field of ['sourceSpreadsheetId', 'sourceSheetId', 'sourceRowId', 'sourceMappingKey', 'sourceLayout'] as const) {
+    if (body[field] !== undefined) {
+      if (body[field] === null) {
+        delete habit[field];
+      } else if (typeof body[field] === 'string' && body[field].length <= 256) {
+        habit[field] = body[field].trim();
+      } else {
+        return { ok: false, error: `${field} must be a string up to 256 characters` };
+      }
+    }
+  }
+
+  habit.updatedAt = new Date().toISOString();
+  return { ok: true };
+}
+
 apiRouter.post('/habits/:id/toggle', async (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const db = dbService.getRawDatabase() as any;
@@ -5952,7 +6164,22 @@ apiRouter.post('/habits/:id/toggle', async (req: Request, res: Response) => {
     res.status(404).json({ error: 'Habit not found' });
     return;
   }
-  const dateStr = String(req.body?.dateStr || req.body?.date || new Date().toISOString().slice(0, 10));
+  const userSettings = Array.isArray(db.userSettings)
+    ? db.userSettings.find((s: any) => s.userId === userId)
+    : undefined;
+  const tz = userSettings?.timezone || DEFAULT_TIMEZONE;
+  const rawDate = req.body?.dateStr ?? req.body?.date;
+  let dateStr: string;
+  if (rawDate !== undefined && rawDate !== null && rawDate !== '') {
+    const parsedDate = parseIsoDate(rawDate);
+    if (!parsedDate) {
+      res.status(400).json({ error: 'dateStr must be a valid YYYY-MM-DD date' });
+      return;
+    }
+    dateStr = parsedDate;
+  } else {
+    dateStr = getTodayDateString(tz);
+  }
   const set = new Set<string>(Array.isArray(habit.completedDates) ? habit.completedDates : []);
   if (set.has(dateStr)) set.delete(dateStr);
   else set.add(dateStr);
@@ -5962,7 +6189,7 @@ apiRouter.post('/habits/:id/toggle', async (req: Request, res: Response) => {
   res.json(habit);
 });
 
-apiRouter.put('/habits/:id', async (req: Request, res: Response) => {
+const handleUpdateHabit = async (req: Request, res: Response) => {
   const { userId } = getAuth(req);
   const db = dbService.getRawDatabase() as any;
   const list = Array.isArray(db.habits) ? db.habits : [];
@@ -5971,24 +6198,17 @@ apiRouter.put('/habits/:id', async (req: Request, res: Response) => {
     res.status(404).json({ error: 'Habit not found' });
     return;
   }
-  Object.assign(habit, req.body || {}, { id: habit.id, userId, updatedAt: new Date().toISOString() });
+  const applied = validateAndApplyHabitUpdate(habit, req.body);
+  if (!applied.ok) {
+    res.status(400).json({ error: applied.error });
+    return;
+  }
   await dbService.save();
   res.json(habit);
-});
+};
 
-apiRouter.patch('/habits/:id', async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  const db = dbService.getRawDatabase() as any;
-  const list = Array.isArray(db.habits) ? db.habits : [];
-  const habit = list.find((h: any) => h.id === req.params.id && h.userId === userId && !h.deletedAt);
-  if (!habit) {
-    res.status(404).json({ error: 'Habit not found' });
-    return;
-  }
-  Object.assign(habit, req.body || {}, { id: habit.id, userId, updatedAt: new Date().toISOString() });
-  await dbService.save();
-  res.json(habit);
-});
+apiRouter.put('/habits/:id', handleUpdateHabit);
+apiRouter.patch('/habits/:id', handleUpdateHabit);
 
 apiRouter.delete('/habits/:id', async (req: Request, res: Response) => {
   const { userId } = getAuth(req);

@@ -7,12 +7,22 @@ export const googleCalendarRouter = Router();
 
 function handleCalendarError(res: Response, err: unknown, fallbackMessage: string): void {
   const msg = err instanceof Error ? err.message : fallbackMessage;
+  const errCode = err && typeof err === 'object' ? (err as { code?: string }).code : undefined;
   const isAuthError =
     msg.includes('authorization expired') ||
     msg.includes('revoked') ||
     msg.includes('not connected') ||
     msg.includes('invalid_grant');
-  const isExternalProtection = msg.includes('EXTERNAL_EVENT_PROTECTION');
+  const isExternalProtection =
+    errCode === 'EXTERNAL_EVENT_PROTECTION' || msg.includes('EXTERNAL_EVENT_PROTECTION');
+
+  if (errCode === 'INVALID_REDIRECT_URI') {
+    res.status(400).json({
+      error: msg,
+      code: 'INVALID_REDIRECT_URI',
+    });
+    return;
+  }
 
   if (msg.includes('FIREBASE_ADMIN_UNAVAILABLE') || msg.includes('service account')) {
     res.status(503).json({
@@ -78,10 +88,24 @@ googleCalendarRouter.use('/integrations/google-calendar', requireServiceAccount)
 googleCalendarRouter.get('/integrations/google-calendar/oauth/start', async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthenticatedRequest;
+    if (req.query.redirectUri !== undefined && typeof req.query.redirectUri !== 'string') {
+      res.status(400).json({
+        error: 'Invalid redirectUri parameter',
+        code: 'INVALID_REDIRECT_URI',
+      });
+      return;
+    }
     const redirectUri = req.query.redirectUri as string | undefined;
     const { authUrl, stateId } = await googleCalendarService.startOAuthFlow(authReq.auth.userId, redirectUri);
     res.json({ authUrl, stateId });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === 'INVALID_REDIRECT_URI' || err?.status === 400) {
+      res.status(400).json({
+        error: err.message || 'Invalid redirectUri',
+        code: err.code || 'INVALID_REDIRECT_URI',
+      });
+      return;
+    }
     handleCalendarError(res, err, 'Failed to start OAuth flow');
   }
 });
@@ -157,12 +181,22 @@ googleCalendarRouter.patch('/integrations/google-calendar/events/:eventId', asyn
   try {
     const authReq = req as AuthenticatedRequest;
     const eventId = req.params.eventId;
-    const calendarId = req.query.calendarId as string | undefined;
+    const queryCalendarId =
+      typeof req.query.calendarId === 'string' && req.query.calendarId.trim()
+        ? req.query.calendarId.trim()
+        : undefined;
+    const bodyObj = req.body && typeof req.body === 'object' ? req.body : {};
+    const bodyCalendarId =
+      typeof bodyObj.calendarId === 'string' && bodyObj.calendarId.trim()
+        ? bodyObj.calendarId.trim()
+        : undefined;
+    const resolvedCalendarId = queryCalendarId ?? bodyCalendarId;
+    const { calendarId: _stripCalendarId, ...eventPayload } = bodyObj;
 
     const updated = await googleCalendarService.updateEvent(
       authReq.auth.userId,
       eventId,
-      { ...req.body, calendarId }
+      resolvedCalendarId ? { ...eventPayload, calendarId: resolvedCalendarId } : eventPayload
     );
     res.json(updated);
   } catch (err) {

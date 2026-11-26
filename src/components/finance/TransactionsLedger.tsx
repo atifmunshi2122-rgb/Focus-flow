@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { formatCurrency, toPaise } from '../../lib/currency.ts';
+import { formatCurrency, formatPaiseForInput, toPaise } from '../../lib/currency.ts';
+import type { ExpenseCategory } from '../../types/index.ts';
 import { TimeVsMoneyBadge } from './TimeVsMoneyBadge.tsx';
 import {
   ThemeButton,
@@ -44,6 +45,7 @@ interface UnifiedTransaction {
   type: 'income' | 'fixed' | 'variable';
   name: string;
   category: string;
+  categoryId?: string;
   amountPaise: number;
   date: string;
   notes?: string;
@@ -71,6 +73,7 @@ export const TransactionsLedger: React.FC = () => {
       type: e.type,
       name: e.description,
       category: e.categoryName || 'General',
+      categoryId: e.categoryId,
       amountPaise: e.amountPaise,
       date: e.date,
       notes: e.notes,
@@ -80,6 +83,7 @@ export const TransactionsLedger: React.FC = () => {
   }, []);
 
   const [transactions, setTransactions] = useState<UnifiedTransaction[]>(initialTransactions);
+  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>([]);
   const [loading, setLoading] = useState(initialTransactions.length === 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [incomeCursor, setIncomeCursor] = useState<string | null>(null);
@@ -124,7 +128,7 @@ export const TransactionsLedger: React.FC = () => {
   const handleOpenEdit = (t: UnifiedTransaction) => {
     setEditingTx(t);
     setEditName(t.name);
-    setEditAmount(String(Math.round(t.amountPaise / 100)));
+    setEditAmount(formatPaiseForInput(t.amountPaise));
     setEditDate(t.date);
     setEditCategory(t.category);
     setEditPaymentMethod(t.paymentMethod || 'upi_bank');
@@ -151,11 +155,25 @@ export const TransactionsLedger: React.FC = () => {
           notes: editNotes,
         });
       } else {
+        const availableCats =
+          expenseCategories.length > 0
+            ? expenseCategories
+            : await api.getCategories().catch(() => [] as ExpenseCategory[]);
+        if (expenseCategories.length === 0 && availableCats.length > 0) {
+          setExpenseCategories(availableCats);
+        }
+        const normalizedCatName = editCategory.trim().toLowerCase();
+        const matchedCat = normalizedCatName
+          ? availableCats.find((c) => c.name.trim().toLowerCase() === normalizedCatName)
+          : undefined;
+        const resolvedCategoryId = matchedCat?.id || editingTx.categoryId;
+
         await api.updateExpense(editingTx.id, {
           description: editName.trim(),
           amountPaise: toPaise(amountNum),
           date: editDate,
-          categoryName: editCategory,
+          ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
+          categoryName: matchedCat?.name || editCategory.trim(),
           paymentMethod: editPaymentMethod as any,
           notes: editNotes,
         });
@@ -205,6 +223,7 @@ export const TransactionsLedger: React.FC = () => {
       type: e.type,
       name: e.description,
       category: e.categoryName || 'General',
+      categoryId: e.categoryId,
       amountPaise: e.amountPaise,
       date: e.date,
       notes: e.notes,
@@ -218,8 +237,13 @@ export const TransactionsLedger: React.FC = () => {
     if (!clientDataCache.getTransactions()) {
       setLoading(true);
     }
-    Promise.all([api.getIncomesPage(25, null), api.getExpensesPage(25, null)])
-      .then(([incPage, expPage]) => {
+    Promise.all([
+      api.getIncomesPage(25, null),
+      api.getExpensesPage(25, null),
+      api.getCategories().catch(() => [] as ExpenseCategory[]),
+    ])
+      .then(([incPage, expPage, cats]) => {
+        if (cats.length > 0) setExpenseCategories(cats);
         clientDataCache.setTransactions(incPage.items, expPage.items);
         setIncomeCursor(incPage.nextCursor);
         setHasMoreIncomes(incPage.hasMore);
@@ -968,10 +992,18 @@ export const TransactionsLedger: React.FC = () => {
                   Category
                 </label>
                 <ThemeInput
+                  list={editingTx.type !== 'income' ? 'ledger-expense-categories' : undefined}
                   value={editCategory}
                   onChange={(e) => setEditCategory(e.target.value)}
                   placeholder="Category"
                 />
+                {editingTx.type !== 'income' && expenseCategories.length > 0 && (
+                  <datalist id="ledger-expense-categories">
+                    {expenseCategories.map((cat) => (
+                      <option key={cat.id} value={cat.name} />
+                    ))}
+                  </datalist>
+                )}
               </div>
 
               {editingTx.type !== 'income' && (

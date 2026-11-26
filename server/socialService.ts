@@ -87,7 +87,7 @@ export function updateUserPrivacy(
   return next;
 }
 
-function isBlockedBetween(db: DatabaseSchema, a: string, b: string): boolean {
+export function isBlockedBetween(db: DatabaseSchema, a: string, b: string): boolean {
   ensureSocialCollections(db);
   return db.friendships!.some(
     (f) =>

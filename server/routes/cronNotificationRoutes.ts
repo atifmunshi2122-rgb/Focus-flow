@@ -1,10 +1,19 @@
+import crypto from 'node:crypto';
 import { Router, Request, Response } from 'express';
 import { pushNotificationService } from '../integrations/pushNotificationService.js';
 
 export const cronNotificationRouter = Router();
 
+function safeSecretEqual(candidate: string, expected: string): boolean {
+  if (!candidate || !expected) return false;
+  // Hash both values with SHA-256 to normalize length before timingSafeEqual
+  const candidateDigest = crypto.createHash('sha256').update(candidate, 'utf8').digest();
+  const expectedDigest = crypto.createHash('sha256').update(expected, 'utf8').digest();
+  return crypto.timingSafeEqual(candidateDigest, expectedDigest);
+}
+
 /**
- * Validates CRON_SECRET authorization header or query param.
+ * Validates CRON_SECRET authorization header in constant time.
  */
 function verifyCronSecret(req: Request, res: Response): boolean {
   const expectedSecret = process.env.CRON_SECRET?.trim();
@@ -22,11 +31,14 @@ function verifyCronSecret(req: Request, res: Response): boolean {
   const authHeader = req.headers.authorization;
   const cronHeader = req.headers['x-cron-secret'];
 
-  const bearerMatch = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
-    ? authHeader.slice(7).trim() === expectedSecret
-    : false;
+  const bearerToken =
+    typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : '';
+  const bearerMatch = bearerToken ? safeSecretEqual(bearerToken, expectedSecret) : false;
 
-  const headerMatch = cronHeader === expectedSecret;
+  const headerSecret = typeof cronHeader === 'string' ? cronHeader.trim() : '';
+  const headerMatch = headerSecret ? safeSecretEqual(headerSecret, expectedSecret) : false;
 
   if (!bearerMatch && !headerMatch) {
     res.status(401).json({ error: 'Unauthorized: Invalid or missing CRON_SECRET' });

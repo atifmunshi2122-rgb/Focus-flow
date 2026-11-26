@@ -49,6 +49,146 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
+interface CreateJointVaultModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (e: React.FormEvent) => void;
+  currency: string;
+  createName: string;
+  setCreateName: (value: string) => void;
+  createTarget: string;
+  setCreateTarget: (value: string) => void;
+  createMonthly: string;
+  setCreateMonthly: (value: string) => void;
+  createDesc: string;
+  setCreateDesc: (value: string) => void;
+}
+
+const CreateJointVaultModal: React.FC<CreateJointVaultModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  currency,
+  createName,
+  setCreateName,
+  createTarget,
+  setCreateTarget,
+  createMonthly,
+  setCreateMonthly,
+  createDesc,
+  setCreateDesc,
+}) => (
+  <ThemeModal isOpen={isOpen} onClose={onClose} title="Create Couple Joint Vault">
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div>
+        <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">Vault Name *</label>
+        <ThemeInput
+          required
+          placeholder="e.g. Dream House Downpayment, Euro Trip"
+          value={createName}
+          onChange={(e) => setCreateName(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">Savings Goal ({currency}) *</label>
+        <ThemeInput
+          required
+          type="number"
+          min="1"
+          step="any"
+          placeholder="e.g. 50000"
+          value={createTarget}
+          onChange={(e) => setCreateTarget(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">Monthly Target ({currency}) (Optional)</label>
+        <ThemeInput
+          type="number"
+          min="0"
+          step="any"
+          placeholder="e.g. 5000"
+          value={createMonthly}
+          onChange={(e) => setCreateMonthly(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">Description (Optional)</label>
+        <ThemeInput
+          placeholder="What are you both saving towards?"
+          value={createDesc}
+          onChange={(e) => setCreateDesc(e.target.value)}
+        />
+      </div>
+      <div className="pt-2 flex justify-end gap-2">
+        <ThemeButton variant="secondary" size="sm" type="button" onClick={onClose}>
+          Cancel
+        </ThemeButton>
+        <ThemeButton variant="primary" size="sm" type="submit">
+          Create Vault
+        </ThemeButton>
+      </div>
+    </form>
+  </ThemeModal>
+);
+
+interface JoinJointVaultModalProps {
+  isOpen: boolean;
+  isJoining: boolean;
+  joinCode: string;
+  joinError: string | null;
+  onClose: () => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onCodeChange: (value: string) => void;
+}
+
+const JoinJointVaultModal: React.FC<JoinJointVaultModalProps> = ({
+  isOpen,
+  isJoining,
+  joinCode,
+  joinError,
+  onClose,
+  onSubmit,
+  onCodeChange,
+}) => (
+  <ThemeModal isOpen={isOpen} onClose={onClose} title="Join Partner's Vault">
+    <form onSubmit={onSubmit} className="space-y-4">
+      {joinError && (
+        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-semibold">Unable to Join Vault</p>
+            <p className="mt-0.5">{joinError}</p>
+          </div>
+        </div>
+      )}
+      <div>
+        <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">
+          Enter 10-12 Character Invite Code *
+        </label>
+        <ThemeInput
+          required
+          disabled={isJoining}
+          placeholder="e.g. ABC123XYZ"
+          value={joinCode}
+          onChange={(e) => onCodeChange(e.target.value.toUpperCase())}
+        />
+        <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
+          Ask your partner to generate a single-use invite code from their vault.
+        </span>
+      </div>
+      <div className="pt-2 flex justify-end gap-2">
+        <ThemeButton variant="secondary" size="sm" type="button" disabled={isJoining} onClick={onClose}>
+          Cancel
+        </ThemeButton>
+        <ThemeButton variant="primary" size="sm" type="submit" disabled={isJoining || !joinCode.trim()}>
+          {isJoining ? 'Joining Vault...' : 'Join Vault'}
+        </ThemeButton>
+      </div>
+    </form>
+  </ThemeModal>
+);
+
 export const JointVaultsView: React.FC = () => {
   const { user, currency, showToast, refreshKey } = useApp();
   const { isDisabled } = useMotionPreferences();
@@ -324,8 +464,15 @@ export const JointVaultsView: React.FC = () => {
       return;
     }
 
-    const { debtorUid, creditorUid, creditorName } = currentSummary.settlement;
+    const { debtorUid, creditorUid, debtorName, creditorName } = currentSummary.settlement;
     if (!debtorUid || !creditorUid) return;
+    if (!user?.id || user.id !== debtorUid || user.id === creditorUid) {
+      showToast(
+        `Only ${debtorName || 'the debtor'} can record a settlement payment to ${creditorName || 'the creditor'}`,
+        'error'
+      );
+      return;
+    }
 
     try {
       await api.recordVaultSettlement(currentSummary.vault.id, {
@@ -428,45 +575,76 @@ export const JointVaultsView: React.FC = () => {
 
   if (loadError && vaults.length === 0) {
     return (
-      <ThemeCard className="p-8 text-center my-6">
-        <div className="max-w-md mx-auto flex flex-col items-center">
-          <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mb-4">
-            <AlertTriangle className="w-6 h-6" />
+      <>
+        <ThemeCard className="p-8 text-center my-6">
+          <div className="max-w-md mx-auto flex flex-col items-center">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mb-4">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-1">
+              Unable to Load Joint Vaults
+            </h3>
+            <p className="text-sm text-[var(--ff-text-muted)] mb-5">{loadError}</p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <ThemeButton variant="primary" size="sm" onClick={loadVaults}>
+                <RotateCcw className="w-4 h-4 mr-2" />
+                <span>Retry Connection</span>
+              </ThemeButton>
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setIsCreateModalOpen(true);
+                }}
+              >
+                <Plus className="w-4 h-4 mr-1.5" />
+                <span>Create Joint Vault</span>
+              </ThemeButton>
+              <ThemeButton
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setIsJoinModalOpen(true);
+                }}
+              >
+                <Users className="w-4 h-4 mr-1.5" />
+                <span>Join with Code</span>
+              </ThemeButton>
+            </div>
           </div>
-          <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-1">
-            Unable to Load Joint Vaults
-          </h3>
-          <p className="text-sm text-[var(--ff-text-muted)] mb-5">{loadError}</p>
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <ThemeButton variant="primary" size="sm" onClick={loadVaults}>
-              <RotateCcw className="w-4 h-4 mr-2" />
-              <span>Retry Connection</span>
-            </ThemeButton>
-            <ThemeButton
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setLoadError(null);
-                setIsCreateModalOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-1.5" />
-              <span>Create Joint Vault</span>
-            </ThemeButton>
-            <ThemeButton
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setLoadError(null);
-                setIsJoinModalOpen(true);
-              }}
-            >
-              <Users className="w-4 h-4 mr-1.5" />
-              <span>Join with Code</span>
-            </ThemeButton>
-          </div>
-        </div>
-      </ThemeCard>
+        </ThemeCard>
+        <CreateJointVaultModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          onSubmit={handleCreateVault}
+          currency={currency}
+          createName={createName}
+          setCreateName={setCreateName}
+          createTarget={createTarget}
+          setCreateTarget={setCreateTarget}
+          createMonthly={createMonthly}
+          setCreateMonthly={setCreateMonthly}
+          createDesc={createDesc}
+          setCreateDesc={setCreateDesc}
+        />
+        <JoinJointVaultModal
+          isOpen={isJoinModalOpen}
+          isJoining={isJoining}
+          joinCode={joinCode}
+          joinError={joinError}
+          onClose={() => {
+            if (!isJoining) {
+              setIsJoinModalOpen(false);
+              setJoinError(null);
+            }
+          }}
+          onSubmit={handleJoinVault}
+          onCodeChange={(val) => {
+            setJoinCode(val);
+            if (joinError) setJoinError(null);
+          }}
+        />
+      </>
     );
   }
 
@@ -825,10 +1003,16 @@ export const JointVaultsView: React.FC = () => {
           </div>
 
           {!settlement.settled && (
-            <ThemeButton variant="primary" size="xs" onClick={() => setIsSettleModalOpen(true)} className="shrink-0">
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-              <span>Record Settlement</span>
-            </ThemeButton>
+            user?.id && settlement.debtorUid && user.id === settlement.debtorUid && user.id !== settlement.creditorUid ? (
+              <ThemeButton variant="primary" size="xs" onClick={() => setIsSettleModalOpen(true)} className="shrink-0">
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                <span>Record Settlement</span>
+              </ThemeButton>
+            ) : (
+              <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 shrink-0">
+                Awaiting payment from {settlement.debtorName}
+              </span>
+            )
           )}
         </div>
       )}
@@ -1192,7 +1376,12 @@ export const JointVaultsView: React.FC = () => {
             <ThemeButton variant="secondary" size="sm" type="button" onClick={() => setIsSettleModalOpen(false)}>
               Cancel
             </ThemeButton>
-            <ThemeButton variant="primary" size="sm" type="submit">
+            <ThemeButton
+              variant="primary"
+              size="sm"
+              type="submit"
+              disabled={!user?.id || user.id !== settlement?.debtorUid || user.id === settlement?.creditorUid}
+            >
               Confirm Settlement
             </ThemeButton>
           </div>
@@ -1233,69 +1422,38 @@ export const JointVaultsView: React.FC = () => {
         </form>
       </ThemeModal>
 
-      {/* MODAL 6: Join Partner's Vault (Accessible from Active View) */}
-      <ThemeModal
+      {/* MODAL 6 & 7: Join Partner's Vault & Create Couple Joint Vault (Accessible from Active View) */}
+      <JoinJointVaultModal
         isOpen={isJoinModalOpen}
+        isJoining={isJoining}
+        joinCode={joinCode}
+        joinError={joinError}
         onClose={() => {
           if (!isJoining) {
             setIsJoinModalOpen(false);
             setJoinError(null);
           }
         }}
-        title="Join Partner's Vault"
-      >
-        <form onSubmit={handleJoinVault} className="space-y-4">
-          {joinError && (
-            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="font-semibold">Unable to Join Vault</p>
-                <p className="mt-0.5">{joinError}</p>
-              </div>
-            </div>
-          )}
-          <div>
-            <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">
-              Enter 10-12 Character Invite Code *
-            </label>
-            <ThemeInput
-              required
-              disabled={isJoining}
-              placeholder="e.g. ABC123XYZ"
-              value={joinCode}
-              onChange={(e) => {
-                setJoinCode(e.target.value.toUpperCase());
-                if (joinError) setJoinError(null);
-              }}
-            />
-            <span className="text-[11px] text-[var(--ff-text-muted)] mt-1 block">
-              Ask your partner to generate a single-use invite code from their vault.
-            </span>
-          </div>
-          <div className="pt-2 flex justify-end gap-2">
-            <ThemeButton
-              variant="secondary"
-              size="sm"
-              type="button"
-              disabled={isJoining}
-              onClick={() => {
-                setIsJoinModalOpen(false);
-                setJoinError(null);
-              }}
-            >
-              Cancel
-            </ThemeButton>
-            <ThemeButton
-              variant="primary"
-              size="sm"
-              type="submit"
-              disabled={isJoining || !joinCode.trim()}
-            >
-              {isJoining ? 'Joining Vault...' : 'Join Vault'}
-            </ThemeButton>
-          </div>
-        </form>
-      </ThemeModal>
+        onSubmit={handleJoinVault}
+        onCodeChange={(val) => {
+          setJoinCode(val);
+          if (joinError) setJoinError(null);
+        }}
+      />
+      <CreateJointVaultModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSubmit={handleCreateVault}
+        currency={currency}
+        createName={createName}
+        setCreateName={setCreateName}
+        createTarget={createTarget}
+        setCreateTarget={setCreateTarget}
+        createMonthly={createMonthly}
+        setCreateMonthly={setCreateMonthly}
+        createDesc={createDesc}
+        setCreateDesc={setCreateDesc}
+      />
     </div>
   );
 };

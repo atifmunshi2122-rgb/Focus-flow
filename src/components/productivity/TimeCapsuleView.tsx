@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TimeCapsuleLetter } from '../../types/features15.ts';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
@@ -65,12 +65,27 @@ export const TimeCapsuleView: React.FC = () => {
   const [unlockPreset, setUnlockPreset] = useState<'6m' | '1y' | '3y' | 'custom'>('1y');
   const [customDate, setCustomDate] = useState('');
 
-  // Sync user-scoped storage & backend
-  const loadCapsules = async () => {
+  const loadSeqRef = useRef<number>(0);
+
+  // Sync user-scoped storage & backend with cancellation + account-switch state isolation
+  const loadCapsules = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setIsLoading(true);
     setApiError(null);
+    setSelectedCapsule(null);
+    setIsWriteModalOpen(false);
+
+    try {
+      const saved = localStorage.getItem(storageKey);
+      const parsed = saved ? JSON.parse(saved) : null;
+      setCapsules(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setCapsules([]);
+    }
+
     try {
       const remote = await api.getTimeCapsules();
+      if (seq !== loadSeqRef.current) return;
       if (Array.isArray(remote)) {
         setCapsules(remote);
         try {
@@ -78,16 +93,22 @@ export const TimeCapsuleView: React.FC = () => {
         } catch {}
       }
     } catch (err: unknown) {
+      if (seq !== loadSeqRef.current) return;
       const msg = err instanceof Error ? err.message : 'Failed to load time capsules from server';
       setApiError(msg);
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [storageKey]);
 
   useEffect(() => {
     loadCapsules();
-  }, [storageKey]);
+    return () => {
+      loadSeqRef.current += 1;
+    };
+  }, [loadCapsules]);
 
   const saveState = (updated: TimeCapsuleLetter[]) => {
     setCapsules(updated);

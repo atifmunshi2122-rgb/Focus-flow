@@ -732,9 +732,9 @@ async function fetchPublicSpreadsheetXlsx(
   }
 
   if (!res.ok) {
-    const errMsg = await readGoogleError(res);
+    const errDetail = await readGoogleError(res);
     throw new SheetHubWorkerError(
-      `Unable to read public spreadsheet (HTTP ${res.status}): ${errMsg}`,
+      `Unable to read public spreadsheet (HTTP ${res.status}): ${errDetail.message}`,
       res.status >= 400 && res.status < 500 ? res.status : 502,
       'SHEETS_UPSTREAM_ERROR'
     );

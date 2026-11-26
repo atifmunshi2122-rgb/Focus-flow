@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   EmergencyAssetProfile,
   MaskedAccountRecord,
@@ -129,16 +129,23 @@ export const EmergencyAssetSummary: React.FC = () => {
   // Data Loading & Persistence
   // --------------------------------------------------------------------------
 
+  const loadSeqRef = useRef<number>(0);
+
   const loadProfile = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setIsLoading(true);
     setFetchError(null);
+    setProfile(null);
+    setIsEditing(false);
+    setIsPrintModalOpen(false);
+    setIsDeleteConfirmOpen(false);
 
     // Check local user cache first for instant feedback
     try {
       const cached = localStorage.getItem(storageKey);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (isProfileConfigured(parsed)) {
+        if (isProfileConfigured(parsed) && seq === loadSeqRef.current) {
           setProfile(parsed);
         }
       }
@@ -148,6 +155,7 @@ export const EmergencyAssetSummary: React.FC = () => {
 
     try {
       const remote = await api.getEmergencyProfile();
+      if (seq !== loadSeqRef.current) return;
       if (isProfileConfigured(remote)) {
         setProfile(remote);
         try {
@@ -163,16 +171,22 @@ export const EmergencyAssetSummary: React.FC = () => {
       }
       setFetchError(null);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       const msg = err instanceof Error ? err.message : 'Failed to connect to backend server';
       setFetchError(msg);
       // NEVER fall back to fake sample data upon network or server error
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [storageKey]);
 
   useEffect(() => {
     loadProfile();
+    return () => {
+      loadSeqRef.current += 1;
+    };
   }, [loadProfile]);
 
   // Synchronize edit form when entering edit mode
@@ -1025,13 +1039,21 @@ export const EmergencyAssetSummary: React.FC = () => {
         </div>
 
         {/* Section 1: Vital Personal & Emergency Medical Information */}
-        <div className="space-y-3">
+        <div
+          className={`space-y-3 ${
+            !exportSections.personalInfo && !exportSections.contacts ? 'print:hidden' : ''
+          }`}
+        >
           <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-900 border-b border-neutral-300 pb-1 flex items-center gap-1.5">
             <Heart className="w-3.5 h-3.5 text-rose-600" />
             1. Vital Medical & Next-of-Kin Contacts
           </h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div
+            className={`grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs ${
+              !exportSections.personalInfo ? 'print:hidden' : ''
+            }`}
+          >
             <div className="p-3 rounded-lg bg-neutral-50 border border-neutral-200">
               <span className="text-[10px] text-neutral-500 uppercase block font-bold">Full Legal Name</span>
               <span className="font-bold text-sm text-neutral-900">{profile?.fullName || 'Not Provided'}</span>
@@ -1048,7 +1070,7 @@ export const EmergencyAssetSummary: React.FC = () => {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className={`overflow-x-auto ${!exportSections.contacts ? 'print:hidden' : ''}`}>
             <table className="w-full text-left text-xs border border-neutral-200">
               <thead className="bg-neutral-100 text-neutral-700">
                 <tr>
@@ -1085,10 +1107,10 @@ export const EmergencyAssetSummary: React.FC = () => {
         </div>
 
         {/* Section 2: Masked Bank & Investment Accounts */}
-        <div className="space-y-3">
+        <div className={`space-y-3 ${!exportSections.accounts ? 'print:hidden' : ''}`}>
           <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-900 border-b border-neutral-300 pb-1 flex items-center gap-1.5">
             <Building className="w-3.5 h-3.5 text-sky-600" />
-            2. Bank Accounts & Investment Portfolios (Masked)
+            2. Bank Accounts & Investment Portfolios ({exportMasked ? 'Masked' : 'Unmasked'})
           </h2>
 
           <div className="overflow-x-auto">
@@ -1097,7 +1119,7 @@ export const EmergencyAssetSummary: React.FC = () => {
                 <tr>
                   <th className="py-2 px-3">Financial Institution</th>
                   <th className="py-2 px-3">Account Nickname</th>
-                  <th className="py-2 px-3">Masked Account No.</th>
+                  <th className="py-2 px-3">Account Ref</th>
                   <th className="py-2 px-3">Type</th>
                   <th className="py-2 px-3">Nominee Registered</th>
                 </tr>
@@ -1115,7 +1137,12 @@ export const EmergencyAssetSummary: React.FC = () => {
                       <td className="py-2 px-3 font-bold">{acc.institution}</td>
                       <td className="py-2 px-3">{acc.nickname}</td>
                       <td className="py-2 px-3 font-mono font-bold text-neutral-800">
-                        {showMasked ? acc.maskedNumber : `${acc.maskedNumber} [Verified]`}
+                        <span className="print:hidden">
+                          {showMasked ? maskReference(acc.maskedNumber) : `${acc.maskedNumber} [Verified]`}
+                        </span>
+                        <span className="hidden print:inline">
+                          {exportMasked ? maskReference(acc.maskedNumber) : acc.maskedNumber}
+                        </span>
                       </td>
                       <td className="py-2 px-3">{acc.accountType}</td>
                       <td className="py-2 px-3 font-medium text-emerald-800">
@@ -1130,7 +1157,7 @@ export const EmergencyAssetSummary: React.FC = () => {
         </div>
 
         {/* Section 3: Insurance Policies */}
-        <div className="space-y-3">
+        <div className={`space-y-3 ${!exportSections.policies ? 'print:hidden' : ''}`}>
           <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-900 border-b border-neutral-300 pb-1 flex items-center gap-1.5">
             <FileText className="w-3.5 h-3.5 text-amber-600" />
             3. Insurance Policies & Emergency TPA Claims
@@ -1142,7 +1169,7 @@ export const EmergencyAssetSummary: React.FC = () => {
                 <tr>
                   <th className="py-2 px-3">Insurer</th>
                   <th className="py-2 px-3">Policy Type</th>
-                  <th className="py-2 px-3">Masked Policy No.</th>
+                  <th className="py-2 px-3">Policy Ref</th>
                   <th className="py-2 px-3">Coverage</th>
                   <th className="py-2 px-3">24/7 Claim Helpline</th>
                 </tr>
@@ -1159,7 +1186,14 @@ export const EmergencyAssetSummary: React.FC = () => {
                     <tr key={p.id}>
                       <td className="py-2 px-3 font-bold">{p.provider}</td>
                       <td className="py-2 px-3">{p.policyType}</td>
-                      <td className="py-2 px-3 font-mono font-bold">{p.policyNumber}</td>
+                      <td className="py-2 px-3 font-mono font-bold">
+                        <span className="print:hidden">
+                          {showMasked ? maskReference(p.policyNumber || '') : p.policyNumber || '—'}
+                        </span>
+                        <span className="hidden print:inline">
+                          {exportMasked ? maskReference(p.policyNumber || '') : p.policyNumber || '—'}
+                        </span>
+                      </td>
                       <td className="py-2 px-3 font-mono font-bold text-emerald-800">
                         ₹ {(((p.coverageAmountPaise || 0) / 100)).toLocaleString()}
                       </td>
@@ -1174,7 +1208,7 @@ export const EmergencyAssetSummary: React.FC = () => {
 
         {/* Section 4: Physical Locker & Legal Document Locations */}
         {(profile?.notes || profile?.importantDocumentLocations) && (
-          <div className="space-y-2 pt-2 border-t border-neutral-200">
+          <div className={`space-y-2 pt-2 border-t border-neutral-200 ${!exportSections.documentNotes ? 'print:hidden' : ''}`}>
             <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-900">
               4. Physical Document Locker & Key Instructions
             </h2>

@@ -27,7 +27,10 @@ class GoogleSheetsSyncCoordinator {
   private lastSyncedAt: string | null = null;
   private lastError: string | null = null;
   private pendingCount = 0;
-  private isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  private isOnline =
+    typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+      ? navigator.onLine
+      : true;
 
   private activeSpreadsheetId: string | null = null;
   private activeAccessToken: string | null = null;
@@ -95,12 +98,58 @@ class GoogleSheetsSyncCoordinator {
     });
   }
 
+  public reset(): void {
+    const hadState =
+      this.activeSpreadsheetId !== null ||
+      this.activeAccessToken !== null ||
+      this.status !== 'idle' ||
+      this.lastSyncedAt !== null ||
+      this.lastError !== null ||
+      this.pendingCount !== 0 ||
+      this.hasPendingFlush;
+
+    this.activeSpreadsheetId = null;
+    this.activeAccessToken = null;
+    this.status = 'idle';
+    this.lastSyncedAt = null;
+    this.lastError = null;
+    this.pendingCount = 0;
+    this.hasPendingFlush = false;
+
+    if (hadState) {
+      this.emitChange();
+    }
+  }
+
   public setCredentials(spreadsheetId: string | null, accessToken: string | null): void {
-    const idChanged = this.activeSpreadsheetId !== spreadsheetId;
+    if (!spreadsheetId && !accessToken) {
+      this.reset();
+      return;
+    }
+
+    const previousSpreadsheetId = this.activeSpreadsheetId;
+    const idChanged = previousSpreadsheetId !== spreadsheetId;
     const tokenChanged = this.activeAccessToken !== accessToken;
 
     this.activeSpreadsheetId = spreadsheetId;
     this.activeAccessToken = accessToken;
+
+    if (!spreadsheetId) {
+      this.status = 'idle';
+      this.lastSyncedAt = null;
+      this.lastError = null;
+      this.pendingCount = 0;
+      this.hasPendingFlush = false;
+      this.emitChange();
+      return;
+    }
+
+    if (previousSpreadsheetId && idChanged) {
+      this.lastSyncedAt = null;
+      this.lastError = null;
+      this.status = this.pendingCount > 0 ? 'pending' : 'idle';
+      this.emitChange();
+    }
 
     if ((idChanged || tokenChanged) && spreadsheetId && accessToken) {
       if (this.status === 'auth_required' || this.status === 'permission_denied') {

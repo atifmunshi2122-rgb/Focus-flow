@@ -44,11 +44,12 @@ const SEED_ENTRIES: DoomscrollTaxEntry[] = [
 ];
 
 export const DoomscrollTaxJar: React.FC = () => {
-  const { user } = useApp();
+  const { user, showToast } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_doomscroll_jar_v1`;
 
   const [taxRatePer15Min, setTaxRatePer15Min] = useState<number>(25); // ₹25 per 15 min default
+  const [transferError, setTransferError] = useState<string | null>(null);
   const [entries, setEntries] = useState<DoomscrollTaxEntry[]>(() => {
     const saved = localStorage.getItem(storageKey);
     if (saved) {
@@ -76,7 +77,7 @@ export const DoomscrollTaxJar: React.FC = () => {
     }
 
     api.getDoomscrollLogs().then((remote) => {
-      if (isMounted && Array.isArray(remote) && remote.length > 0) {
+      if (isMounted && Array.isArray(remote)) {
         setEntries(remote);
         try {
           localStorage.setItem(storageKey, JSON.stringify(remote));
@@ -144,20 +145,27 @@ export const DoomscrollTaxJar: React.FC = () => {
   const handleEmptyJar = async () => {
     if (totalJarAmountPaise <= 0) return;
     if (!window.confirm('Transfer this Discipline Jar balance to your active Savings Goal?')) return;
+    setTransferError(null);
     try {
-      const goals = await api.getSavingsGoals().catch(() => []);
+      const goals = await api.getSavingsGoals();
       const targetGoal = Array.isArray(goals) && goals.length > 0 ? goals[0] : undefined;
-      if (targetGoal) {
-        await api.updateSavingsGoal(targetGoal.id, {
-          savedPaise: (targetGoal.savedPaise || 0) + totalJarAmountPaise,
-        });
+      if (!targetGoal) {
+        const msg = 'No active Savings Goal found. Create a savings goal before transferring your jar balance.';
+        setTransferError(msg);
+        showToast?.(msg, 'error');
+        return;
       }
+      await api.updateSavingsGoal(targetGoal.id, {
+        savedPaise: (targetGoal.savedPaise || 0) + totalJarAmountPaise,
+      });
       setIsTransferredNotice(true);
       saveState([]);
       api.clearDoomscrollLogs().catch(() => {});
       setTimeout(() => setIsTransferredNotice(false), 5000);
     } catch (err) {
-      console.error('Failed to transfer Discipline Jar to savings goal:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to transfer Discipline Jar to savings goal';
+      setTransferError(msg);
+      showToast?.(msg, 'error');
     }
   };
 
@@ -252,7 +260,14 @@ export const DoomscrollTaxJar: React.FC = () => {
         </div>
       </div>
 
-      {/* Transfer Notice */}
+      {/* Transfer Notice / Error */}
+      {transferError && (
+        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{transferError}</span>
+        </div>
+      )}
+
       {isTransferredNotice && (
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
           <Sparkles className="w-4 h-4 shrink-0" />

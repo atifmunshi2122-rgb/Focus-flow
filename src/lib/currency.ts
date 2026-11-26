@@ -110,4 +110,15 @@ export function fromPaise(paise: number): number {
   return paise / 100;
 }
 
+/**
+ * Formats integer paise/cents for decimal text/number inputs without rounding away fractional cents.
+ */
+export function formatPaiseForInput(paise?: number | null): string {
+  if (typeof paise !== 'number' || !Number.isFinite(paise) || paise <= 0) return '';
+  const roundedPaise = Math.round(paise);
+  return roundedPaise % 100 === 0
+    ? String(roundedPaise / 100)
+    : (roundedPaise / 100).toFixed(2);
+}
+
 export const toMajorCurrency = fromPaise;

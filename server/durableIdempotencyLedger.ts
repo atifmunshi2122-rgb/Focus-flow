@@ -1057,6 +1057,7 @@ export class LocalFileLedgerRepository implements IdempotencyLedgerRepository {
 
 export class DurableIdempotencyLedger implements IdempotencyLedgerRepository {
   private customRepository?: IdempotencyLedgerRepository;
+  private cachedDefaultRepository: { key: string; repo: IdempotencyLedgerRepository } | null = null;
 
   constructor(customStoragePathOrRepo?: string | null | IdempotencyLedgerRepository) {
     if (customStoragePathOrRepo && typeof customStoragePathOrRepo === 'object' && 'claimOperation' in customStoragePathOrRepo) {
@@ -1089,18 +1090,37 @@ export class DurableIdempotencyLedger implements IdempotencyLedgerRepository {
           'PRODUCTION_STORAGE_VIOLATION'
         );
       }
-      return this.customRepository || new FirestoreTransactionalLedgerRepository({
-        projectId: PRODUCTION_PROJECT_ID,
-      });
+      if (this.customRepository) return this.customRepository;
+      if (this.cachedDefaultRepository?.key !== 'prod_firestore') {
+        this.cachedDefaultRepository = {
+          key: 'prod_firestore',
+          repo: new FirestoreTransactionalLedgerRepository({
+            projectId: PRODUCTION_PROJECT_ID,
+          }),
+        };
+      }
+      return this.cachedDefaultRepository.repo;
     }
 
     if (this.customRepository) return this.customRepository;
 
     if (process.env.IDEMPOTENCY_STORAGE === 'firestore') {
-      return new FirestoreTransactionalLedgerRepository();
+      if (this.cachedDefaultRepository?.key !== 'dev_firestore') {
+        this.cachedDefaultRepository = {
+          key: 'dev_firestore',
+          repo: new FirestoreTransactionalLedgerRepository(),
+        };
+      }
+      return this.cachedDefaultRepository.repo;
     }
 
-    return new LocalFileLedgerRepository();
+    if (this.cachedDefaultRepository?.key !== 'file') {
+      this.cachedDefaultRepository = {
+        key: 'file',
+        repo: new LocalFileLedgerRepository(),
+      };
+    }
+    return this.cachedDefaultRepository.repo;
   }
 
   public get storageType(): 'firestore' | 'file' {

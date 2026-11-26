@@ -1025,6 +1025,101 @@ export class DatabaseService {
       const preservedAuditLogs = (this.db.auditLogs || []).filter((l) => l.userId !== 'usr_atif_default');
       const preservedSyncQueue = (this.db.syncQueue || []).filter((sq) => sq.userId !== 'usr_atif_default');
       const preservedStudyTiers = (this.db.studyTiers || []).filter((st) => st.userId && st.userId !== 'usr_atif_default');
+      const preservedStudySubjects = (this.db.studySubjects || []).filter((s) => s.userId !== 'usr_atif_default');
+      const preservedStudyTopics = (this.db.studyTopics || []).filter((t) => t.userId !== 'usr_atif_default');
+      const preservedStudyRevisions = (this.db.studyRevisions || []).filter((r) => r.userId !== 'usr_atif_default');
+      const preservedStudyMistakes = (this.db.studyMistakes || []).filter((m) => m.userId !== 'usr_atif_default');
+      const preservedHabits = ((this.db as any).habits || []).filter((h: any) => h.userId !== 'usr_atif_default');
+
+      const preservedJointVaults = (this.db.jointVaults || []).filter(
+        (v) => v.createdBy !== 'usr_atif_default' || v.memberUids.some((u) => u !== 'usr_atif_default')
+      );
+      const preservedVaultIds = new Set(preservedJointVaults.map((v) => v.id));
+      const preservedVaultMembers = (this.db.vaultMembers || []).filter((m) =>
+        m.vaultId ? preservedVaultIds.has(m.vaultId) : m.uid !== 'usr_atif_default'
+      );
+      const preservedVaultInvitations = (this.db.vaultInvitations || []).filter((inv) =>
+        preservedVaultIds.has(inv.vaultId)
+      );
+      const preservedVaultContributions = (this.db.vaultContributions || []).filter((c) =>
+        preservedVaultIds.has(c.vaultId)
+      );
+      const preservedVaultExpenses = (this.db.vaultExpenses || []).filter((e) =>
+        preservedVaultIds.has(e.vaultId)
+      );
+      const preservedVaultSettlements = (this.db.vaultSettlements || []).filter((s) =>
+        preservedVaultIds.has(s.vaultId)
+      );
+      const preservedVaultActivities = (this.db.vaultActivities || []).filter((a) =>
+        preservedVaultIds.has(a.vaultId)
+      );
+
+      const preservedSkillNodes = (this.db.skillNodes || []).filter((n) => n.userId !== 'usr_atif_default');
+      const preservedWhiteboardDrawings = (this.db.whiteboardDrawings || []).filter(
+        (w) => w.userId !== 'usr_atif_default'
+      );
+      const preservedExamSimulations = (this.db.examSimulations || []).filter(
+        (e) => e.userId !== 'usr_atif_default'
+      );
+      const preservedDecisionEntries = (this.db.decisionEntries || []).filter(
+        (d) => d.userId !== 'usr_atif_default'
+      );
+      const preservedDoomscrollLogs = (this.db.doomscrollLogs || []).filter(
+        (d) => d.userId !== 'usr_atif_default'
+      );
+      const preservedLifeMilestones = (this.db.lifeMilestones || []).filter(
+        (m) => m.userId !== 'usr_atif_default'
+      );
+      const preservedTimeCapsules = (this.db.timeCapsules || []).filter(
+        (c) => c.userId !== 'usr_atif_default'
+      );
+      const preservedEmergencyProfiles = (this.db.emergencyAssetProfiles || []).filter(
+        (p) => p.userId !== 'usr_atif_default'
+      );
+      const preservedGamification = (this.db.gamificationProfiles || []).filter(
+        (g) => g.userId !== 'usr_atif_default'
+      );
+      const preservedXpTransactions = (this.db.xpTransactions || []).filter(
+        (x) => x.userId !== 'usr_atif_default'
+      );
+
+      const preservedFriendships = (this.db.friendships || []).filter(
+        (f) => f.requesterId !== 'usr_atif_default' && f.recipientId !== 'usr_atif_default'
+      );
+      const preservedSquads = (this.db.socialSquads || []).filter(
+        (s) => s.ownerId !== 'usr_atif_default'
+      );
+      const preservedSquadIds = new Set(preservedSquads.map((s) => s.id));
+      const preservedSquadMembers = (this.db.squadMembers || []).filter(
+        (m) => preservedSquadIds.has(m.squadId) && m.userId !== 'usr_atif_default'
+      );
+      const preservedSquadInvitations = (this.db.squadInvitations || []).filter(
+        (inv) =>
+          preservedSquadIds.has(inv.squadId) &&
+          inv.senderId !== 'usr_atif_default' &&
+          inv.recipientId !== 'usr_atif_default'
+      );
+      const preservedRoomInvitations = (this.db.roomInvitations || []).filter(
+        (inv) => inv.senderId !== 'usr_atif_default' && inv.recipientId !== 'usr_atif_default'
+      );
+      const preservedGroupSessions = (this.db.groupSessions || []).filter(
+        (s) => s.hostId !== 'usr_atif_default'
+      );
+      const preservedStudyChatMessages = (this.db.studyChatMessages || []).filter(
+        (m) => m.senderId !== 'usr_atif_default'
+      );
+      const preservedSocialActivities = (this.db.socialActivities || []).filter(
+        (a) => a.actorId !== 'usr_atif_default'
+      );
+      const preservedSocialNotifications = (this.db.socialNotifications || []).filter(
+        (n) => n.userId !== 'usr_atif_default'
+      );
+      const preservedPrivacySettings = (this.db.userPrivacySettings || []).filter(
+        (p) => p.userId !== 'usr_atif_default'
+      );
+      const preservedUserReports = (this.db.userReports || []).filter(
+        (r) => r.reporterId !== 'usr_atif_default' && r.targetUserId !== 'usr_atif_default'
+      );
 
       this.db = {
         users: preservedUsers,
@@ -1044,9 +1139,40 @@ export class DatabaseService {
         auditLogs: preservedAuditLogs,
         syncQueue: preservedSyncQueue,
         studyTiers: preservedStudyTiers,
-        gamificationProfiles: [],
-        xpTransactions: [],
-      };
+        studySubjects: preservedStudySubjects,
+        studyTopics: preservedStudyTopics,
+        studyRevisions: preservedStudyRevisions,
+        studyMistakes: preservedStudyMistakes,
+        jointVaults: preservedJointVaults,
+        vaultMembers: preservedVaultMembers,
+        vaultInvitations: preservedVaultInvitations,
+        vaultContributions: preservedVaultContributions,
+        vaultExpenses: preservedVaultExpenses,
+        vaultSettlements: preservedVaultSettlements,
+        vaultActivities: preservedVaultActivities,
+        skillNodes: preservedSkillNodes,
+        whiteboardDrawings: preservedWhiteboardDrawings,
+        examSimulations: preservedExamSimulations,
+        decisionEntries: preservedDecisionEntries,
+        doomscrollLogs: preservedDoomscrollLogs,
+        lifeMilestones: preservedLifeMilestones,
+        timeCapsules: preservedTimeCapsules,
+        emergencyAssetProfiles: preservedEmergencyProfiles,
+        gamificationProfiles: preservedGamification,
+        xpTransactions: preservedXpTransactions,
+        friendships: preservedFriendships,
+        socialSquads: preservedSquads,
+        squadMembers: preservedSquadMembers,
+        squadInvitations: preservedSquadInvitations,
+        roomInvitations: preservedRoomInvitations,
+        groupSessions: preservedGroupSessions,
+        studyChatMessages: preservedStudyChatMessages,
+        socialActivities: preservedSocialActivities,
+        socialNotifications: preservedSocialNotifications,
+        userPrivacySettings: preservedPrivacySettings,
+        userReports: preservedUserReports,
+        ...(preservedHabits.length > 0 ? { habits: preservedHabits } : {}),
+      } as DatabaseSchema;
       this.ensureSeedDataForUser('usr_atif_default', true);
       this.checkRecurringBills('usr_atif_default');
       this.save();
@@ -1702,7 +1828,7 @@ export class DatabaseService {
     notes?: string,
     idempotencyKey?: string
   ): { success: boolean; bill?: Bill; error?: string } {
-    const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId);
+    const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId && !b.deletedAt);
     if (!bill) {
       return { success: false, error: 'Bill not found' };
     }
@@ -1807,7 +1933,7 @@ export class DatabaseService {
 
   // Safe undo payment: preserve historical payment record with 'reversed' status
   public undoBillPayment(userId: string, billId: string): { success: boolean; bill?: Bill; error?: string } {
-    const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId);
+    const bill = this.db.bills.find((b) => b.id === billId && b.userId === userId && !b.deletedAt);
     if (!bill) {
       return { success: false, error: 'Bill not found' };
     }
@@ -1973,7 +2099,20 @@ export class DatabaseService {
     const toEnv = this.db.envelopes.find((e) => e.id === toId && e.userId === userId && !e.deletedAt);
     if (!fromEnv || !toEnv) return { success: false, error: 'Envelope not found' };
     if (amountPaise <= 0) return { success: false, error: 'Transfer amount must be positive' };
-    if (fromEnv.allocatedPaise < amountPaise) {
+    let spentPaise = 0;
+    if (fromEnv.categoryId) {
+      spentPaise = this.db.expenseTransactions
+        .filter(
+          (e) =>
+            e.userId === userId &&
+            !e.deletedAt &&
+            e.categoryId === fromEnv.categoryId &&
+            e.date.startsWith(fromEnv.monthKey)
+        )
+        .reduce((sum, e) => sum + (e.amountPaise || 0), 0);
+    }
+    const availablePaise = Math.max(0, fromEnv.allocatedPaise - spentPaise);
+    if (availablePaise < amountPaise) {
       return { success: false, error: 'Source envelope has insufficient funds' };
     }
 
@@ -2019,6 +2158,10 @@ export class DatabaseService {
     const id = input.id || `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const idx = this.db.subscriptions.findIndex((s) => s.id === id && s.userId === userId);
 
+    const parsedReminderDays =
+      input.reminderDays !== undefined && input.reminderDays !== null
+        ? Number(input.reminderDays)
+        : 3;
     const sub: SubscriptionPlan = {
       id,
       userId,
@@ -2027,7 +2170,9 @@ export class DatabaseService {
       categoryId: input.categoryId || 'cat_subscriptions',
       billingCycle: input.billingCycle || 'monthly',
       nextRenewalDate: input.nextRenewalDate || getTodayDateString(DEFAULT_TIMEZONE),
-      reminderDays: Math.max(0, Number(input.reminderDays) || 3),
+      reminderDays: Number.isFinite(parsedReminderDays)
+        ? Math.max(0, Math.floor(parsedReminderDays))
+        : 3,
       autoRenew: input.autoRenew !== false,
       status: input.status || 'active',
       websiteUrl: input.websiteUrl || '',
@@ -2403,7 +2548,11 @@ export class DatabaseService {
     this.db.studyTiers = this.db.studyTiers || [];
     const nowIso = new Date().toISOString();
     const id = input.id || `tier_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const existingIdx = this.db.studyTiers.findIndex((t) => t.id === id);
+    const existingAny = this.db.studyTiers.find((t) => t.id === id);
+    if (existingAny && existingAny.userId !== userId) {
+      throw new Error('Forbidden: Cannot overwrite a study tier owned by another user');
+    }
+    const existingIdx = this.db.studyTiers.findIndex((t) => t.id === id && t.userId === userId);
     const tier: AcademicTier = {
       id: existingIdx >= 0 ? this.db.studyTiers[existingIdx].id : id,
       userId,
@@ -2866,7 +3015,12 @@ export class DatabaseService {
     this.ensureJointVaultsArrays();
     if (data.id) {
       const existing = (this.db.jointVaults || []).find((v) => v.id === data.id);
-      if (existing) return existing;
+      if (existing) {
+        if (!existing.memberUids.includes(creatorUser.id)) {
+          throw new Error('Forbidden: Joint vault ID already exists');
+        }
+        return existing;
+      }
     }
     const nowIso = new Date().toISOString();
     const vaultId = data.id || `vlt_${crypto.randomUUID ? crypto.randomUUID() : Date.now() + '_' + Math.random().toString(36).slice(2, 8)}`;
@@ -2888,6 +3042,7 @@ export class DatabaseService {
     };
 
     const creatorMember: VaultMember = {
+      vaultId,
       uid: creatorUser.id,
       email: creatorUser.email || `${creatorUser.id}@focusflow.app`,
       name: creatorUser.name || 'Vault Creator',
@@ -2931,9 +3086,20 @@ export class DatabaseService {
     // Strict membership check: user MUST be an active member!
     if (!vault.memberUids.includes(userId)) return null;
 
-    const members = (this.db.vaultMembers || []).filter(
-      (m) => m.status === 'active' && vault.memberUids.includes(m.uid)
+    const rawMembers = (this.db.vaultMembers || []).filter(
+      (m) =>
+        m.status === 'active' &&
+        vault.memberUids.includes(m.uid) &&
+        (!m.vaultId || m.vaultId === vaultId)
     );
+    const memberByUid = new Map<string, VaultMember>();
+    for (const m of rawMembers) {
+      const existing = memberByUid.get(m.uid);
+      if (!existing || (m.vaultId === vaultId && existing.vaultId !== vaultId)) {
+        memberByUid.set(m.uid, m);
+      }
+    }
+    const members = Array.from(memberByUid.values());
     const contributions = (this.db.vaultContributions || []).filter((c) => c.vaultId === vaultId);
     const expenses = (this.db.vaultExpenses || []).filter((e) => e.vaultId === vaultId);
     const settlements = (this.db.vaultSettlements || []).filter((s) => s.vaultId === vaultId);
@@ -3049,6 +3215,7 @@ export class DatabaseService {
     vault.updatedAt = nowIso;
 
     const newMember: VaultMember = {
+      vaultId: vault.id,
       uid: user.id,
       email: user.email || `${user.id}@focusflow.app`,
       name: user.name || 'Partner',
@@ -3327,6 +3494,9 @@ export class DatabaseService {
     if (!vault) throw new Error('Vault not found');
     if (!vault.memberUids.includes(fromUser.id)) throw new Error('Unauthorized');
     if (!vault.memberUids.includes(data.toUid)) throw new Error('Recipient must be a vault member');
+    if (fromUser.id === data.toUid) {
+      throw new Error('Cannot record a settlement payment to yourself');
+    }
 
     if (!data.amountPaise || !Number.isInteger(data.amountPaise) || data.amountPaise <= 0) {
       throw new Error('Settlement amount must be a positive integer in paise');
@@ -3404,9 +3574,12 @@ export class DatabaseService {
       throw new Error('Single remaining member cannot leave vault. Please archive the vault instead.');
     }
 
-    const member = (this.db.vaultMembers || []).find((m) => m.uid === userId);
+    const member =
+      (this.db.vaultMembers || []).find((m) => m.uid === userId && m.vaultId === vaultId) ||
+      (this.db.vaultMembers || []).find((m) => m.uid === userId && !m.vaultId);
     if (member) {
       member.status = 'left';
+      member.leftAt = new Date().toISOString();
     }
 
     vault.memberUids = vault.memberUids.filter((id) => id !== userId);

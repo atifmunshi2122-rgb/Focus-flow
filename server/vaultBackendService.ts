@@ -1040,8 +1040,13 @@ export class VaultBackendService {
       body: JSON.stringify(queryBody),
     });
 
+    if (!queryRes.ok) {
+      const errText = await queryRes.text();
+      throw new VaultServiceError(`Firestore query failed (${queryRes.status}): ${errText}`, 500);
+    }
+
     const queryResults = (await queryRes.json()) as any[];
-    const firstResult = queryResults.find((r) => r.document);
+    const firstResult = Array.isArray(queryResults) ? queryResults.find((r) => r.document) : undefined;
     if (!firstResult || !firstResult.document) {
       throw new VaultServiceError('Invalid invitation code', 400, 'INVALID_CODE');
     }
@@ -1134,11 +1139,38 @@ export class VaultBackendService {
       throw new VaultServiceError('Unauthorized to revoke invitations for this vault', 403, 'UNAUTHORIZED');
     }
 
+    // 2. Verify invitation exists and is still pending before revoking
+    const inviteDocPath = `${baseUrl}/sharedVaults/${encodeURIComponent(vaultId)}/invitations/${encodeURIComponent(inviteId)}`;
+    const inviteRes = await fetch(inviteDocPath, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (inviteRes.status === 404) {
+      throw new VaultServiceError('Invitation not found', 404, 'INVITATION_NOT_FOUND');
+    }
+    if (!inviteRes.ok) {
+      const errText = await inviteRes.text();
+      throw new VaultServiceError(
+        `Failed to fetch vault invitation (${inviteRes.status}): ${errText}`,
+        500,
+        'FIRESTORE_READ_FAILED'
+      );
+    }
+
+    const inviteDoc = await inviteRes.json();
+    const inviteData = fromFirestoreDoc(inviteDoc) as VaultInvitation;
+    if (inviteData.status !== 'pending') {
+      throw new VaultServiceError(
+        `Invitation cannot be revoked because it is already ${inviteData.status}`,
+        400,
+        'INVITATION_NOT_PENDING'
+      );
+    }
+
     const nowIso = new Date().toISOString();
     const writes = [
       {
         update: {
-          name: `${baseUrl}/sharedVaults/${vaultId}/invitations/${inviteId}`,
+          name: inviteDoc.name || `${baseUrl}/sharedVaults/${vaultId}/invitations/${inviteId}`,
           fields: {
             status: { stringValue: 'revoked' },
             revokedAt: { stringValue: nowIso },
@@ -1146,6 +1178,7 @@ export class VaultBackendService {
           },
         },
         updateMask: { fieldPaths: ['status', 'revokedAt', 'updatedAt'] },
+        currentDocument: inviteDoc.updateTime ? { updateTime: inviteDoc.updateTime } : { exists: true },
       },
     ];
 
@@ -1158,7 +1191,19 @@ export class VaultBackendService {
       body: JSON.stringify({ writes }),
     });
 
-    return { success: commitRes.ok };
+    if (!commitRes.ok) {
+      const errText = await commitRes.text();
+      if (commitRes.status === 409 || commitRes.status === 412 || errText.includes('FAILED_PRECONDITION')) {
+        throw new VaultServiceError(
+          'Invitation state changed before revoke could commit. Please retry.',
+          409,
+          'CONCURRENT_MODIFICATION'
+        );
+      }
+      return { success: false };
+    }
+
+    return { success: true };
   }
 
   /**
@@ -1280,14 +1325,32 @@ export class VaultBackendService {
       const vault = fromFirestoreDoc(vDoc) as JointVault;
       if (!vault.memberUids || !vault.memberUids.includes(userId)) return null;
 
-      // Fetch subcollections in parallel
+      // Fetch subcollections in parallel, following nextPageToken so vaults with >100 docs are never truncated
       const fetchList = async (col: string): Promise<any[]> => {
-        const res = await fetch(`${baseUrl}/sharedVaults/${vaultId}/${col}?pageSize=100`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return (data.documents || []).map(fromFirestoreDoc);
+        const allDocs: any[] = [];
+        let pageToken = '';
+        let pages = 0;
+        do {
+          const qs = pageToken
+            ? `?pageSize=100&pageToken=${encodeURIComponent(pageToken)}`
+            : '?pageSize=100';
+          const res = await fetch(`${baseUrl}/sharedVaults/${vaultId}/${col}${qs}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            if (res.status === 404 && pages === 0) break;
+            throw new Error(`Failed to fetch ${col} (HTTP ${res.status})`);
+          }
+          const data = await res.json();
+          if (Array.isArray(data.documents)) {
+            for (const doc of data.documents) {
+              allDocs.push(fromFirestoreDoc(doc));
+            }
+          }
+          pageToken = typeof data.nextPageToken === 'string' ? data.nextPageToken : '';
+          pages++;
+        } while (pageToken && pages < 50);
+        return allDocs;
       };
 
       const [members, contributions, expenses, settlements, activities] = await Promise.all([

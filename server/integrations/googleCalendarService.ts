@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { getAdminFirestore, hasServiceAccountCredentials } from '../firebaseAdmin.js';
 import { encryptToken, decryptToken } from '../crypto.js';
 import { GHOST_OAUTH_CLIENT_ID } from '../../src/lib/googleAuthGis.js';
+import { DEFAULT_TIMEZONE, addDays, getZonedDateParts, parseDateString } from '../../src/lib/dateTime.js';
 import { dbService } from '../db.js';
 
 export interface GoogleCalendarConnectionStatus {
@@ -88,6 +89,88 @@ export class GoogleCalendarService {
    * Starts the OAuth authorization code flow.
    * Generates a single-use expiring state nonce securely bound to the user's UID.
    */
+  /**
+   * Validates an optional OAuth redirectUri override against the configured callback path
+   * and allowlisted origins to prevent open redirects and authorization code theft.
+   */
+  private resolveValidatedRedirectUri(
+    redirectUriOverride: string | undefined,
+    defaultRedirectUri: string
+  ): string {
+    const trimmed = typeof redirectUriOverride === 'string' ? redirectUriOverride.trim() : '';
+    if (!trimmed) {
+      return defaultRedirectUri;
+    }
+
+    const createInvalidError = (reason: string): Error => {
+      const err: any = new Error(`Invalid OAuth redirectUri: ${reason}`);
+      err.code = 'INVALID_REDIRECT_URI';
+      err.status = 400;
+      return err;
+    };
+
+    let parsed: URL;
+    let defaultUrl: URL;
+    try {
+      parsed = new URL(trimmed);
+      defaultUrl = new URL(defaultRedirectUri);
+    } catch {
+      throw createInvalidError('malformed URL');
+    }
+
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw createInvalidError('unsupported protocol');
+    }
+
+    if (parsed.username || parsed.password || parsed.hash || parsed.search) {
+      throw createInvalidError('credentials, query parameters, and hash fragments are not permitted');
+    }
+
+    // Fast path: exact match with server-configured default redirect URI
+    if (trimmed === defaultRedirectUri || parsed.href === defaultUrl.href) {
+      return defaultRedirectUri;
+    }
+
+    if (parsed.pathname !== defaultUrl.pathname) {
+      throw createInvalidError('pathname must match configured OAuth callback path');
+    }
+
+    const allowedOrigins = new Set<string>([defaultUrl.origin]);
+
+    const addOriginCandidate = (raw?: string) => {
+      if (!raw || !raw.trim() || raw.trim() === '*') return;
+      const val = raw.trim();
+      const normalized = val.startsWith('http://') || val.startsWith('https://') ? val : `https://${val}`;
+      try {
+        allowedOrigins.add(new URL(normalized).origin);
+      } catch {
+        // Ignore invalid origin entries in env config
+      }
+    };
+
+    addOriginCandidate(process.env.GOOGLE_CALENDAR_REDIRECT_URI);
+    addOriginCandidate(process.env.APP_URL);
+    if (process.env.ALLOWED_ORIGINS) {
+      process.env.ALLOWED_ORIGINS.split(',').forEach(addOriginCandidate);
+    }
+
+    const isLocalhostHost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    const isLocalDevOrigin = process.env.NODE_ENV !== 'production' && isLocalhostHost;
+
+    if (!allowedOrigins.has(parsed.origin) && !isLocalDevOrigin) {
+      throw createInvalidError('origin is not in allowlist');
+    }
+
+    if (parsed.protocol === 'http:' && !isLocalhostHost && defaultUrl.origin !== parsed.origin) {
+      throw createInvalidError('non-localhost redirectUri must use HTTPS');
+    }
+
+    return parsed.origin + parsed.pathname;
+  }
+
+  /**
+   * Generates a secure OAuth authorization URL with a single-use state nonce stored in Firestore.
+   */
   public async startOAuthFlow(
     userId: string,
     redirectUriOverride?: string
@@ -97,7 +180,7 @@ export class GoogleCalendarService {
     }
 
     const { clientId, redirectUri: defaultRedirectUri } = this.getOAuthCredentials();
-    const redirectUri = redirectUriOverride || defaultRedirectUri;
+    const redirectUri = this.resolveValidatedRedirectUri(redirectUriOverride, defaultRedirectUri);
 
     const stateId = crypto.randomBytes(32).toString('hex');
     const now = Date.now();
@@ -423,16 +506,21 @@ export class GoogleCalendarService {
     // Delete integration record
     await integrationRef.delete();
 
-    // Clean up all event links
+    // Clean up all event links in chunks <= 450 to stay safely below Firestore's 500-write batch limit
     const linksSnap = await this.firestore
       .collection('users')
       .doc(userId)
       .collection('calendar_event_links')
       .get();
 
-    const batch = this.firestore.batch();
-    linksSnap.docs.forEach((d: any) => batch.delete(d.ref));
-    await batch.commit();
+    const docs = linksSnap?.docs || [];
+    const BATCH_LIMIT = 450;
+    for (let i = 0; i < docs.length; i += BATCH_LIMIT) {
+      const batch = this.firestore.batch();
+      const chunk = docs.slice(i, i + BATCH_LIMIT);
+      chunk.forEach((d: any) => batch.delete(d.ref));
+      await batch.commit();
+    }
   }
 
   /**
@@ -587,24 +675,50 @@ export class GoogleCalendarService {
     eventData: {
       summary?: string;
       description?: string;
+      location?: string;
+      status?: string;
       start?: { dateTime?: string; date?: string; timeZone?: string };
       end?: { dateTime?: string; date?: string; timeZone?: string };
       calendarId?: string;
     }
   ): Promise<GoogleCalendarEvent> {
+    // Enforce External Event Protection Policy: only FocusFlow-linked events may be modified
+    const linkQuery = await this.firestore
+      .collection('users')
+      .doc(userId)
+      .collection('calendar_event_links')
+      .where('googleEventId', '==', eventId)
+      .limit(1)
+      .get();
+
+    if (linkQuery.empty) {
+      const err: any = new Error('Cannot update external Google Calendar events that were not synced by FocusFlow');
+      err.code = 'EXTERNAL_EVENT_PROTECTION';
+      throw err;
+    }
+
+    const linkData = linkQuery.docs[0]?.data?.() as Partial<CalendarEventLink> | undefined;
+    if ((linkData as any)?.managePolicy === 'external_readonly') {
+      const err: any = new Error('Cannot update read-only external Google Calendar events');
+      err.code = 'EXTERNAL_EVENT_PROTECTION';
+      throw err;
+    }
+
     const accessToken = await this.getValidAccessToken(userId);
     if (!accessToken) {
       throw new Error('Google Calendar is not connected or authorization expired');
     }
 
-    const calendarId = encodeURIComponent(eventData.calendarId || 'primary');
+    const { calendarId: requestedCalendarId, ...patchBody } = eventData || {};
+    const targetCalendarId = requestedCalendarId || linkData?.calendarId || 'primary';
+    const calendarId = encodeURIComponent(targetCalendarId);
     const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodeURIComponent(eventId)}`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(eventData),
+      body: JSON.stringify(patchBody),
     });
 
     if (!res.ok) {
@@ -717,12 +831,18 @@ export class GoogleCalendarService {
     // 1. Sync Active Tasks with Due Dates
     for (const task of tasks) {
       if (!task.dueDate) continue;
+      const dueDateYmd = String(task.dueDate).slice(0, 10);
+      if (!parseDateString(dueDateYmd)) continue;
+      // Google Calendar API v3 requires exclusive end.date for all-day events (next calendar day)
+      const endDateYmd = addDays(dueDateYmd, 1);
 
       const title = `[Task] ${task.title}`;
-      const description = `Priority: ${task.priority.toUpperCase()}\nStatus: ${task.status}\nFocusFlow Task ID: ${task.id}`;
+      const priority = typeof task.priority === 'string' && task.priority ? task.priority.toUpperCase() : 'MEDIUM';
+      const status = typeof task.status === 'string' && task.status ? task.status : 'todo';
+      const description = `Priority: ${priority}\nStatus: ${status}\nFocusFlow Task ID: ${task.id}`;
       const checksum = crypto
         .createHash('sha256')
-        .update(`${title}|${task.dueDate}|${task.status}|${task.priority}`)
+        .update(`${title}|${dueDateYmd}|${endDateYmd}|${status}|${priority}`)
         .digest('hex');
 
       const existingLink = linkMap.get(task.id);
@@ -733,8 +853,8 @@ export class GoogleCalendarService {
           const created = await this.createEvent(userId, {
             summary: title,
             description,
-            start: { date: task.dueDate },
-            end: { date: task.dueDate },
+            start: { date: dueDateYmd },
+            end: { date: endDateYmd },
             calendarId,
           });
 
@@ -757,8 +877,8 @@ export class GoogleCalendarService {
           await this.updateEvent(userId, existingLink.googleEventId, {
             summary: title,
             description,
-            start: { date: task.dueDate },
-            end: { date: task.dueDate },
+            start: { date: dueDateYmd },
+            end: { date: endDateYmd },
             calendarId,
           });
 
@@ -773,12 +893,66 @@ export class GoogleCalendarService {
       }
     }
 
-    // 2. Sync Active Daily Time Blocks
-    const formatMinutesToIso = (dateStr: string, totalMinutes: number): string => {
+    // 2. Resolve user timezone & sync Active Daily Time Blocks
+    const resolveUserTimezone = async (): Promise<string> => {
+      let candidate: string | undefined;
+      try {
+        const settingsDoc = await this.firestore
+          .collection('users')
+          .doc(userId)
+          .collection('settings')
+          .doc('default')
+          .get();
+        if (settingsDoc?.exists && typeof settingsDoc.data?.()?.timezone === 'string') {
+          candidate = settingsDoc.data().timezone;
+        }
+      } catch {
+        // Fall through to local db lookup
+      }
+
+      if (!candidate) {
+        candidate = dbService.getRaw().userSettings?.find((s: any) => s.userId === userId)?.timezone;
+      }
+
+      if (candidate && candidate.trim()) {
+        try {
+          new Intl.DateTimeFormat('en-US', { timeZone: candidate.trim() });
+          return candidate.trim();
+        } catch {
+          // Invalid IANA timezone string
+        }
+      }
+      return DEFAULT_TIMEZONE;
+    };
+
+    const userTimezone = await resolveUserTimezone();
+
+    const formatMinutesToIso = (dateStr: string, totalMinutes: number, timezone: string): string => {
       const clamped = Math.max(0, Math.min(24 * 60 - 1, Math.floor(totalMinutes)));
-      const hh = String(Math.floor(clamped / 60)).padStart(2, '0');
-      const mm = String(clamped % 60).padStart(2, '0');
-      return `${dateStr}T${hh}:${mm}:00+05:30`;
+      const hh = Math.floor(clamped / 60);
+      const mm = clamped % 60;
+      const hhStr = String(hh).padStart(2, '0');
+      const mmStr = String(mm).padStart(2, '0');
+
+      const parsedDate = parseDateString(dateStr);
+      if (!parsedDate) {
+        return `${dateStr}T${hhStr}:${mmStr}:00Z`;
+      }
+
+      const approxUtc = Date.UTC(parsedDate.year, parsedDate.month - 1, parsedDate.day, hh, mm, 0);
+      const p1 = getZonedDateParts(new Date(approxUtc), timezone);
+      const zonedMs1 = Date.UTC(p1.year, p1.month - 1, p1.day, p1.hour, p1.minute, 0);
+      const offset1 = Math.round((zonedMs1 - approxUtc) / 60000);
+      const targetUtc = approxUtc - offset1 * 60000;
+      const p2 = getZonedDateParts(new Date(targetUtc), timezone);
+      const zonedMs2 = Date.UTC(p2.year, p2.month - 1, p2.day, p2.hour, p2.minute, 0);
+      const finalOffset = Math.round((zonedMs2 - targetUtc) / 60000);
+
+      const sign = finalOffset >= 0 ? '+' : '-';
+      const absOffset = Math.abs(finalOffset);
+      const offHh = String(Math.floor(absOffset / 60)).padStart(2, '0');
+      const offMm = String(absOffset % 60).padStart(2, '0');
+      return `${dateStr}T${hhStr}:${mmStr}:00${sign}${offHh}:${offMm}`;
     };
 
     for (const block of timeBlocks) {
@@ -795,11 +969,11 @@ export class GoogleCalendarService {
 
       const title = `[Focus Block] ${block.title || 'Scheduled Block'}`;
       const description = `Category: ${block.category || 'General'}\nStatus: ${block.completed ? 'Completed' : 'Planned'}\nFocusFlow TimeBlock ID: ${block.id}`;
-      const startIso = formatMinutesToIso(block.date, block.startMinute);
-      const endIso = formatMinutesToIso(block.date, block.endMinute);
+      const startIso = formatMinutesToIso(block.date, block.startMinute, userTimezone);
+      const endIso = formatMinutesToIso(block.date, block.endMinute, userTimezone);
       const checksum = crypto
         .createHash('sha256')
-        .update(`${title}|${startIso}|${endIso}|${block.completed ? '1' : '0'}|${block.category || ''}`)
+        .update(`${title}|${startIso}|${endIso}|${userTimezone}|${block.completed ? '1' : '0'}|${block.category || ''}`)
         .digest('hex');
 
       const linkKey = `tb_${block.id}`;
@@ -810,8 +984,8 @@ export class GoogleCalendarService {
           const created = await this.createEvent(userId, {
             summary: title,
             description,
-            start: { dateTime: startIso, timeZone: 'Asia/Kolkata' },
-            end: { dateTime: endIso, timeZone: 'Asia/Kolkata' },
+            start: { dateTime: startIso, timeZone: userTimezone },
+            end: { dateTime: endIso, timeZone: userTimezone },
             calendarId,
           });
 
@@ -833,8 +1007,8 @@ export class GoogleCalendarService {
           await this.updateEvent(userId, existingLink.googleEventId, {
             summary: title,
             description,
-            start: { dateTime: startIso, timeZone: 'Asia/Kolkata' },
-            end: { dateTime: endIso, timeZone: 'Asia/Kolkata' },
+            start: { dateTime: startIso, timeZone: userTimezone },
+            end: { dateTime: endIso, timeZone: userTimezone },
             calendarId,
           });
 

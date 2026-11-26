@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { formatCurrency, toPaise } from '../../lib/currency.ts';
+import { formatCurrency, formatPaiseForInput, toPaise } from '../../lib/currency.ts';
 import {
   ExpenseCategory,
   FinanceSummaryData,
@@ -46,21 +46,9 @@ export const BudgetSavingsManager: React.FC<{ showBudgets?: boolean; showSavings
   const [contribAmounts, setContribAmounts] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (settings?.monthlyBudgetPaise !== undefined && settings.monthlyBudgetPaise > 0) {
-      setMonthlyBudgetInput(String(Math.round(settings.monthlyBudgetPaise / 100)));
-    } else {
-      setMonthlyBudgetInput('');
-    }
-    if (settings?.dailySpendingLimitPaise !== undefined && settings.dailySpendingLimitPaise > 0) {
-      setDailyLimitInput(String(Math.round(settings.dailySpendingLimitPaise / 100)));
-    } else {
-      setDailyLimitInput('');
-    }
-    if (settings?.weeklySpendingLimitPaise !== undefined && settings.weeklySpendingLimitPaise > 0) {
-      setWeeklyLimitInput(String(Math.round(settings.weeklySpendingLimitPaise / 100)));
-    } else {
-      setWeeklyLimitInput('');
-    }
+    setMonthlyBudgetInput(formatPaiseForInput(settings?.monthlyBudgetPaise));
+    setDailyLimitInput(formatPaiseForInput(settings?.dailySpendingLimitPaise));
+    setWeeklyLimitInput(formatPaiseForInput(settings?.weeklySpendingLimitPaise));
   }, [settings?.monthlyBudgetPaise, settings?.dailySpendingLimitPaise, settings?.weeklySpendingLimitPaise]);
 
   useEffect(() => {

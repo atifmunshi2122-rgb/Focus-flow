@@ -9,7 +9,7 @@
  * 100% deterministic, zero-AI, zero finance exposure, powered by real-time Firestore squad presence.
  */
 
-import React, { Suspense, lazy, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Flame,
@@ -213,14 +213,16 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   copiedCode,
   onStartFocus,
 }) => {
-  const { settings, updateSettings, setCurrentTab, isRunning, timerMode, activeSessionId } = useApp();
+  const { user, firebaseUser, settings, updateSettings, setCurrentTab, isRunning, timerMode, activeSessionId } = useApp();
+  const activeUid = firebaseUser?.uid || user?.id || 'usr_guest';
+  const roomStorageKey = `ff_study_room_customization_${activeUid}`;
   const [roomStyle, setRoomStyle] = useState<StudyRoomStyle>(() => initialRoomStyle || 'isometric');
-  const [localCustomization, setLocalCustomization] = useState<RoomCustomization>(() => {
+  const readLocalCustomization = (storageKey: string): RoomCustomization => {
     if (settings?.studyRoomCustomization) {
       return sanitizeRoomCustomization(settings.studyRoomCustomization);
     }
     try {
-      const saved = localStorage.getItem('ff_study_room_customization');
+      const saved = localStorage.getItem(storageKey);
       if (saved) return sanitizeRoomCustomization(JSON.parse(saved));
     } catch {
       // ignore storage read errors
@@ -230,13 +232,21 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
       ...defaultRoomCustomization,
       lighting: hr >= 6 && hr < 18 ? 'afternoon' : 'night',
     };
-  });
+  };
+  const [localCustomization, setLocalCustomization] = useState<RoomCustomization>(() =>
+    readLocalCustomization(roomStorageKey)
+  );
+
+  useEffect(() => {
+    setLocalCustomization(readLocalCustomization(roomStorageKey));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomStorageKey, settings?.studyRoomCustomization]);
 
   const handleUpdateCustomization = (next: RoomCustomization) => {
     const clean = sanitizeRoomCustomization(next);
     setLocalCustomization(clean);
     try {
-      localStorage.setItem('ff_study_room_customization', JSON.stringify(clean));
+      localStorage.setItem(roomStorageKey, JSON.stringify(clean));
     } catch {
       // ignore storage write errors
     }

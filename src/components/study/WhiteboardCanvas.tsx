@@ -281,7 +281,25 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     }
   };
 
+  const syncBufferAndLocalDraft = (canvas: HTMLCanvasElement) => {
+    const buffer = bufferCanvasRef.current;
+    if (buffer && canvas.width > 0 && canvas.height > 0) {
+      buffer.width = canvas.width;
+      buffer.height = canvas.height;
+      const bCtx = buffer.getContext('2d');
+      if (bCtx) {
+        bCtx.drawImage(canvas, 0, 0);
+      }
+    }
+
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      localStorage.setItem(storageKey, dataUrl);
+    } catch {}
+  };
+
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) return;
     isDrawingRef.current = false;
     try {
       e.currentTarget.releasePointerCapture?.(e.pointerId);
@@ -294,22 +312,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       ctx.globalAlpha = 1.0;
     }
 
-    // Sync buffer canvas with latest drawing
-    const buffer = bufferCanvasRef.current;
-    if (buffer && canvas.width > 0 && canvas.height > 0) {
-      buffer.width = canvas.width;
-      buffer.height = canvas.height;
-      const bCtx = buffer.getContext('2d');
-      if (bCtx) {
-        bCtx.drawImage(canvas, 0, 0);
-      }
-    }
-
-    // Auto-save local draft
-    try {
-      const dataUrl = canvas.toDataURL('image/png');
-      localStorage.setItem(storageKey, dataUrl);
-    } catch {}
+    syncBufferAndLocalDraft(canvas);
   };
 
   // Undo / Redo operations
@@ -326,16 +329,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     const prev = undoStackRef.current.pop()!;
     ctx.putImageData(prev, 0, 0);
 
-    // Sync buffer with restored image
-    const buffer = bufferCanvasRef.current;
-    if (buffer) {
-      buffer.width = canvas.width;
-      buffer.height = canvas.height;
-      const bCtx = buffer.getContext('2d');
-      if (bCtx) {
-        bCtx.drawImage(canvas, 0, 0);
-      }
-    }
+    syncBufferAndLocalDraft(canvas);
 
     setCanUndo(undoStackRef.current.length > 0);
     setCanRedo(true);
@@ -353,16 +347,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     const next = redoStackRef.current.pop()!;
     ctx.putImageData(next, 0, 0);
 
-    // Sync buffer with redone image
-    const buffer = bufferCanvasRef.current;
-    if (buffer) {
-      buffer.width = canvas.width;
-      buffer.height = canvas.height;
-      const bCtx = buffer.getContext('2d');
-      if (bCtx) {
-        bCtx.drawImage(canvas, 0, 0);
-      }
-    }
+    syncBufferAndLocalDraft(canvas);
 
     setCanUndo(true);
     setCanRedo(redoStackRef.current.length > 0);
@@ -426,10 +411,15 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dataUrl = canvas.toDataURL('image/png');
+    const sizeBytes = new TextEncoder().encode(dataUrl).length;
     const topic = topics.find((t) => t.id === selectedTopicId);
-    const title = topic
+    const rawTitle = topic
       ? `${topic.subtopic || topic.topic || 'Topic'} Whiteboard Note`
       : 'Whiteboard Note';
+    const title = rawTitle.trim().slice(0, 128) || 'Whiteboard Note';
+    const topicTitle = topic
+      ? (topic.subtopic || topic.topic || '').trim().slice(0, 128) || undefined
+      : undefined;
 
     // Preserve local drawing first
     try {
@@ -447,10 +437,11 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       await api.saveWhiteboardDrawing({
         title,
         dataUrl,
+        sizeBytes,
         topicId: selectedTopicId || undefined,
-        topicTitle: topic ? (topic.subtopic || topic.topic) : undefined,
-        width: canvas.width,
-        height: canvas.height,
+        topicTitle,
+        width: Math.min(4096, Math.max(1, Math.round(canvas.width))),
+        height: Math.min(4096, Math.max(1, Math.round(canvas.height))),
       });
 
       setSaveStatus('saved');

@@ -121,6 +121,11 @@ export const SubscriptionManager: React.FC = () => {
       return;
     }
 
+    const parsedReminderRaw = formReminderDays.trim() === '' ? NaN : Number(formReminderDays);
+    const parsedReminderDays = Number.isFinite(parsedReminderRaw)
+      ? Math.max(0, Math.floor(parsedReminderRaw))
+      : 3;
+
     try {
       if (editingSub) {
         await api.updateSubscription(editingSub.id, {
@@ -129,7 +134,7 @@ export const SubscriptionManager: React.FC = () => {
           categoryId: formCategoryId,
           billingCycle: formCycle,
           nextRenewalDate: formNextRenewal,
-          reminderDays: Number(formReminderDays) || 3,
+          reminderDays: parsedReminderDays,
           autoRenew: formAutoRenew,
           status: formStatus,
           websiteUrl: formUrl.trim(),
@@ -143,7 +148,7 @@ export const SubscriptionManager: React.FC = () => {
           categoryId: formCategoryId,
           billingCycle: formCycle,
           nextRenewalDate: formNextRenewal,
-          reminderDays: Number(formReminderDays) || 3,
+          reminderDays: parsedReminderDays,
           autoRenew: formAutoRenew,
           status: formStatus,
           websiteUrl: formUrl.trim(),

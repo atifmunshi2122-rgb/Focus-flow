@@ -1,4 +1,5 @@
 import type { DurableSyncOperation } from '../src/types/index.js';
+import { escapeSheetFormulaCell } from './validation.js';
 import {
   WORKSHEET_NAMES,
   getSheetId,
@@ -345,6 +346,20 @@ interface SheetRecordLocations {
  * Properly escapes sheet titles for A1 notation:
  * If the sheet title contains spaces or special characters, wraps in single quotes and doubles internal single quotes.
  */
+/**
+ * Normalizes an outgoing row payload before writing with USER_ENTERED semantics.
+ * Escapes leading formula trigger characters on strings while preserving numbers/booleans.
+ */
+function sanitizeSheetRowValues(payload: unknown, fallbackId: string): (string | number | boolean)[] {
+  const row = Array.isArray(payload) ? payload : [fallbackId];
+  return row.map((cell) => {
+    if (typeof cell === 'string') return escapeSheetFormulaCell(cell);
+    if (typeof cell === 'number') return Number.isFinite(cell) ? cell : '';
+    if (typeof cell === 'boolean') return cell;
+    return cell === null || cell === undefined ? '' : escapeSheetFormulaCell(String(cell));
+  });
+}
+
 function escapeSheetTitleForA1(title: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(title)) {
     return `'${title.replace(/'/g, "''")}'`;
@@ -538,7 +553,7 @@ export async function flushQueueOperations(
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                values: [Array.isArray(op.payload) ? (op.payload as (string | number)[]) : [recordId]],
+                values: [sanitizeSheetRowValues(op.payload, recordId)],
               }),
             }
           );
@@ -551,8 +566,8 @@ export async function flushQueueOperations(
           // If record does not yet exist, append it (upsert)
           const appendRes = await fetchImpl(
             `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
-              `${escapeSheetTitleForA1(op.sheetName)}!A2:append`
-            )}?valueInputOption=USER_ENTERED`,
+              `${escapeSheetTitleForA1(op.sheetName)}!A2`
+            )}:append?valueInputOption=USER_ENTERED`,
             {
               method: 'POST',
               headers: {
@@ -560,7 +575,7 @@ export async function flushQueueOperations(
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                values: [Array.isArray(op.payload) ? (op.payload as (string | number)[]) : [recordId]],
+                values: [sanitizeSheetRowValues(op.payload, recordId)],
               }),
             }
           );
@@ -635,8 +650,8 @@ export async function flushQueueOperations(
 
         const appendRes = await fetchImpl(
           `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(
-            `${escapeSheetTitleForA1(op.sheetName)}!A2:append`
-          )}?valueInputOption=USER_ENTERED`,
+            `${escapeSheetTitleForA1(op.sheetName)}!A2`
+          )}:append?valueInputOption=USER_ENTERED`,
           {
             method: 'POST',
             headers: {
@@ -644,7 +659,7 @@ export async function flushQueueOperations(
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              values: [Array.isArray(op.payload) ? (op.payload as (string | number)[]) : [recordId]],
+              values: [sanitizeSheetRowValues(op.payload, recordId)],
             }),
           }
         );

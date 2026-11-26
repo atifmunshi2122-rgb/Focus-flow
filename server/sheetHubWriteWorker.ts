@@ -9,6 +9,7 @@
 import type { SheetCellScalar, SheetHubCellUpdateRequest, SheetHubPushCellsResponse } from '../src/types/sheetHub.ts';
 import { isValidGoogleSpreadsheetId } from '../src/lib/sheetHub/urlParser.ts';
 import { SheetHubWorkerError, type FetchLike } from './universalSheetsWorker.ts';
+import { escapeSheetFormulaCell } from './validation.ts';
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 const MAX_CELL_UPDATES_PER_BATCH = 500;
@@ -31,7 +32,7 @@ function normalizeCellWriteValue(value: SheetCellScalar): string | number | bool
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : '';
   }
-  return String(value);
+  return escapeSheetFormulaCell(String(value));
 }
 
 function parseGoogleErrorMessage(rawText: string, status: number): string {

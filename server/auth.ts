@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { NextFunction, Request, Response } from 'express';
+import { resolveClientIp } from './security.js';
 
 export interface AuthContext {
   userId: string;
@@ -389,11 +390,8 @@ export async function requireUserContext(
     // Shared demo mode strictly forbidden in production deployments
     demoSessionId = 'usr_atif_default';
   } else {
-    // Generate an isolated guest ID keyed to client characteristics
-    const clientIp =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
-      req.socket.remoteAddress ||
-      'localhost';
+    // Generate an isolated guest ID keyed to validated proxy-aware client IP + User-Agent
+    const clientIp = resolveClientIp(req) || 'localhost';
     const clientUa = req.headers['user-agent'] || 'generic';
     const hash = crypto.createHash('sha256').update(`${clientIp}:${clientUa}`).digest('hex').slice(0, 16);
     demoSessionId = `gst_${hash}`;

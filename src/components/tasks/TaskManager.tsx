@@ -468,12 +468,19 @@ export const TaskManager: React.FC = () => {
     const copy = [...tasks];
     const [moved] = copy.splice(fromIdx, 1);
     copy.splice(toIdx, 0, moved);
-    setTasks(copy);
+
+    const startIdx = Math.min(fromIdx, toIdx);
+    const endIdx = Math.max(fromIdx, toIdx);
+    const updatedTasks = copy.map((t, idx) =>
+      idx >= startIdx && idx <= endIdx ? { ...t, order: idx } : t
+    );
+    const shifted = updatedTasks.slice(startIdx, endIdx + 1);
+
+    setTasks(updatedTasks);
     setDraggedTaskId(null);
 
     try {
-      await api.updateTask(moved.id, { order: toIdx });
-      await api.updateTask(copy[fromIdx].id, { order: fromIdx });
+      await Promise.all(shifted.map((t) => api.updateTask(t.id, { order: t.order })));
     } catch {
       loadTasks();
     }

@@ -259,7 +259,31 @@ export function corsHandler(req: Request, res: Response, next: NextFunction): vo
   let sameHostOrigin = false;
   if (origin && requestHost) {
     try {
-      sameHostOrigin = new URL(origin).host === requestHost;
+      const parsedOrigin = new URL(origin);
+      const trustProxySetting = req.app?.get ? req.app.get('trust proxy') : false;
+      const isProxyTrusted = Boolean(trustProxySetting);
+      const forwardedProtoRaw =
+        typeof req.headers['x-forwarded-proto'] === 'string'
+          ? req.headers['x-forwarded-proto'].split(',')[0].trim().toLowerCase()
+          : undefined;
+
+      let expectedScheme: string | undefined;
+      if (typeof req.protocol === 'string' && req.protocol) {
+        expectedScheme = req.protocol.toLowerCase();
+      } else if (isProxyTrusted && (forwardedProtoRaw === 'http' || forwardedProtoRaw === 'https')) {
+        expectedScheme = forwardedProtoRaw;
+      } else if (req.socket && typeof (req.socket as { encrypted?: boolean }).encrypted === 'boolean') {
+        expectedScheme = (req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http';
+      } else if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(requestHost)) {
+        // Synthetic test/edge requests without socket or req.protocol require HTTPS for non-localhost hosts
+        expectedScheme = 'https';
+      }
+
+      const protocolMatches = expectedScheme
+        ? parsedOrigin.protocol === `${expectedScheme}:`
+        : parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:';
+
+      sameHostOrigin = parsedOrigin.host === requestHost && protocolMatches;
     } catch {
       sameHostOrigin = false;
     }

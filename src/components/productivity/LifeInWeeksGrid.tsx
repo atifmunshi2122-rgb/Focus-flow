@@ -45,27 +45,40 @@ export const LifeInWeeksGrid: React.FC = () => {
     return DEFAULT_MILESTONES;
   });
 
-  // Switch data cleanly when user changes
+  // Switch data cleanly when user changes (with cancellation guard against stale async responses)
   useEffect(() => {
+    let isMounted = true;
     const savedBirth = localStorage.getItem(birthKey);
-    setBirthDate(savedBirth || '2003-01-01');
+    setBirthDate(savedBirth !== null ? savedBirth : '2003-01-01');
 
     const savedMilestones = localStorage.getItem(milestonesKey);
     if (savedMilestones) {
       try {
         const parsed = JSON.parse(savedMilestones);
-        if (Array.isArray(parsed)) setMilestones(parsed);
-      } catch {}
+        setMilestones(Array.isArray(parsed) ? parsed : DEFAULT_MILESTONES);
+      } catch {
+        setMilestones(DEFAULT_MILESTONES);
+      }
     } else {
       setMilestones(DEFAULT_MILESTONES);
     }
 
-    api.getLifeMilestones().then((remote) => {
-      if (Array.isArray(remote) && remote.length > 0) {
-        setMilestones(remote);
-        localStorage.setItem(milestonesKey, JSON.stringify(remote));
-      }
-    }).catch(() => {});
+    api
+      .getLifeMilestones()
+      .then((remote) => {
+        if (!isMounted) return;
+        if (Array.isArray(remote) && remote.length > 0) {
+          setMilestones(remote);
+          try {
+            localStorage.setItem(milestonesKey, JSON.stringify(remote));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
   }, [birthKey, milestonesKey]);
 
   const [hoveredWeek, setHoveredWeek] = useState<{ age: number; week: number } | null>(null);
@@ -88,13 +101,21 @@ export const LifeInWeeksGrid: React.FC = () => {
   };
 
   const stats = useMemo(() => {
-    const birth = new Date(birthDate);
-    const now = new Date();
-    const diffMs = Math.max(0, now.getTime() - birth.getTime());
+    const total90YearWeeks = 90 * 52; // 4680 weeks
+    const birthMs = birthDate ? Date.parse(birthDate) : NaN;
+    if (!Number.isFinite(birthMs)) {
+      return {
+        totalWeeksLived: 0,
+        currentAge: 0,
+        currentWeekInYear: 0,
+        remainingWeeks: total90YearWeeks,
+        percentElapsed: 0,
+      };
+    }
+    const diffMs = Math.max(0, Date.now() - birthMs);
     const totalWeeksLived = Math.floor(diffMs / (7 * 86400000));
     const currentAge = Math.floor(totalWeeksLived / 52);
     const currentWeekInYear = totalWeeksLived % 52;
-    const total90YearWeeks = 90 * 52; // 4680 weeks
     const remainingWeeks = Math.max(0, total90YearWeeks - totalWeeksLived);
     const percentElapsed = Math.min(100, Math.round((totalWeeksLived / total90YearWeeks) * 100));
 
@@ -108,9 +129,12 @@ export const LifeInWeeksGrid: React.FC = () => {
   }, [birthDate]);
 
   const milestoneMap = useMemo(() => {
-    const map = new Map<number, LifeMilestone>();
+    const map = new Map<number, LifeMilestone[]>();
     for (const m of milestones) {
-      map.set(m.age * 52 + (m.weekIndex % 52), m);
+      const cellIndex = m.age * 52 + (((m.weekIndex % 52) + 52) % 52);
+      const list = map.get(cellIndex) || [];
+      list.push(m);
+      map.set(cellIndex, list);
     }
     return map;
   }, [milestones]);
@@ -119,12 +143,23 @@ export const LifeInWeeksGrid: React.FC = () => {
     e.preventDefault();
     if (!newMilestoneTitle.trim()) return;
 
+    const clampedAge = Math.min(89, Math.max(0, Number.isFinite(newMilestoneAge) ? newMilestoneAge : 0));
+    const usedWeeksInAge = new Set(
+      milestones
+        .filter((m) => m.age === clampedAge)
+        .map((m) => ((m.weekIndex % 52) + 52) % 52)
+    );
+    let weekOffset = 0;
+    while (weekOffset < 51 && usedWeeksInAge.has(weekOffset)) {
+      weekOffset++;
+    }
+
     const newM: LifeMilestone = {
       id: `m-${Date.now()}`,
       label: newMilestoneTitle.trim(),
       title: newMilestoneTitle.trim(),
-      age: newMilestoneAge,
-      weekIndex: newMilestoneAge * 52,
+      age: clampedAge,
+      weekIndex: clampedAge * 52 + weekOffset,
       category: 'personal',
       color: '#f59e0b',
     };
@@ -235,7 +270,8 @@ export const LifeInWeeksGrid: React.FC = () => {
                     const totalWeekIndex = age * 52 + week;
                     const isLived = totalWeekIndex < stats.totalWeeksLived;
                     const isCurrent = totalWeekIndex === stats.totalWeeksLived;
-                    const milestone = milestoneMap.get(totalWeekIndex);
+                    const cellMilestones = milestoneMap.get(totalWeekIndex);
+                    const primaryMilestone = cellMilestones?.[0];
 
                     let bg = 'bg-[var(--ff-surface-muted)]/40 hover:bg-[var(--ff-surface-muted)]';
                     let border = 'border-transparent';
@@ -246,8 +282,8 @@ export const LifeInWeeksGrid: React.FC = () => {
                     if (isCurrent) {
                       bg = 'bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse';
                     }
-                    if (milestone) {
-                      bg = milestone.color || '#f59e0b';
+                    if (primaryMilestone) {
+                      bg = primaryMilestone.color || '#f59e0b';
                       border = 'border-white/50';
                     }
 
@@ -257,15 +293,15 @@ export const LifeInWeeksGrid: React.FC = () => {
                         onMouseEnter={() => setHoveredWeek({ age, week })}
                         onMouseLeave={() => setHoveredWeek(null)}
                         title={
-                          milestone
-                            ? `⭐ Milestone: ${milestone.title} (Age ${age})`
+                          cellMilestones && cellMilestones.length > 0
+                            ? `⭐ Milestone: ${cellMilestones.map((cm) => cm.title).join(', ')} (Age ${age})`
                             : isCurrent
                             ? `📍 You are here! (Age ${age}, Week ${week + 1})`
                             : isLived
                             ? `Lived: Age ${age}, Week ${week + 1}`
                             : `Future: Age ${age}, Week ${week + 1}`
                         }
-                        style={{ backgroundColor: milestone ? milestone.color : undefined }}
+                        style={{ backgroundColor: primaryMilestone ? primaryMilestone.color : undefined }}
                         className={`w-2.5 h-2.5 rounded-sm transition-transform hover:scale-150 cursor-pointer border ${bg} ${border}`}
                       />
                     );

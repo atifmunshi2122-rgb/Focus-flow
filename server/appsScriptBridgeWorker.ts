@@ -10,6 +10,7 @@
 
 import crypto from 'node:crypto';
 import { isValidGoogleSpreadsheetId } from '../src/lib/sheetHub/urlParser.ts';
+import { escapeSheetFormulaCell } from './validation.ts';
 
 export interface AppsScriptCellUpdate {
   spreadsheetId: string;
@@ -46,20 +47,41 @@ export class AppsScriptBridgeError extends Error {
 }
 
 /**
- * Produces a deterministic canonical JSON string:
- * - Omits any existing 'signature' key.
- * - Sorts all keys in lexicographical order.
- * - Stringifies without arbitrary formatting.
+ * Recursively canonicalizes JSON values so nested objects (e.g. expectedIdentity)
+ * have lexicographically sorted keys and deterministic serialization.
  */
-export function toCanonicalJson(data: Record<string, unknown>): string {
-  const keys = Object.keys(data)
-    .filter((k) => k !== 'signature')
+function canonicalizeJsonValue(val: unknown, isRoot = false): unknown {
+  if (val === null || typeof val !== 'object') {
+    return val;
+  }
+
+  if (Array.isArray(val)) {
+    return val.map((item) => canonicalizeJsonValue(item, false));
+  }
+
+  const obj = val as Record<string, unknown>;
+  if (typeof (obj as { toJSON?: () => unknown }).toJSON === 'function') {
+    return canonicalizeJsonValue((obj as { toJSON: () => unknown }).toJSON(), false);
+  }
+
+  const keys = Object.keys(obj)
+    .filter((k) => (!isRoot || k !== 'signature') && obj[k] !== undefined)
     .sort();
   const sorted: Record<string, unknown> = {};
   for (const k of keys) {
-    sorted[k] = data[k];
+    sorted[k] = canonicalizeJsonValue(obj[k], false);
   }
-  return JSON.stringify(sorted);
+  return sorted;
+}
+
+/**
+ * Produces a deterministic canonical JSON string:
+ * - Omits any existing top-level 'signature' key.
+ * - Recursively sorts all object keys in lexicographical order.
+ * - Stringifies without arbitrary formatting.
+ */
+export function toCanonicalJson(data: Record<string, unknown>): string {
+  return JSON.stringify(canonicalizeJsonValue(data, true));
 }
 
 /**
@@ -115,7 +137,8 @@ export async function dispatchAppsScriptWriteback(
   const sheetTitle = (update.sheetTitle || '').trim();
   const rowNumber = Number(update.rowNumber);
   const colLetter = (update.colLetter || '').trim().toUpperCase();
-  const value = update.value;
+  const value =
+    typeof update.value === 'string' ? escapeSheetFormulaCell(update.value) : update.value;
 
   // 1. Validation
   if (!spreadsheetId) {

@@ -156,8 +156,11 @@ export const EnvelopeBudgetManager: React.FC = () => {
     }
 
     const source = envelopes.find((e) => e.id === transferFromId);
-    if (!source || source.allocatedPaise < amountPaise) {
-      showToast('Source envelope has insufficient allocated funds', 'error');
+    const availablePaise = source
+      ? Math.max(0, source.allocatedPaise - Math.max(0, source.spentPaise || 0))
+      : 0;
+    if (!source || availablePaise < amountPaise) {
+      showToast('Source envelope has insufficient available funds', 'error');
       return;
     }
 

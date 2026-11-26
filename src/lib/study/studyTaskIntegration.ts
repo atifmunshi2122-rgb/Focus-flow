@@ -89,10 +89,16 @@ export async function syncStudyProgressFromTask(
   subjectSaver?: SubjectSaverFn
 ): Promise<ProgressUpdateResult> {
   const updatedTopicIds: string[] = [];
+  const processedTopicIds = new Set<string>();
   const subjectDeltaMap = new Map<string, number>();
 
-  // Helper to mark a single topic complete
+  // Helper to mark a single topic complete (strictly idempotent within a sync run)
   const markTopicComplete = async (topic: StudyTopic) => {
+    if (processedTopicIds.has(topic.id)) {
+      return;
+    }
+    processedTopicIds.add(topic.id);
+
     // If already fully completed, do nothing (idempotent, no double counting)
     if (topic.theory && topic.practice) {
       return;

@@ -96,7 +96,9 @@ export const BillsTracker: React.FC = () => {
     }
     Promise.all([api.getBills(statusFilter), api.getPaymentHistory(), api.getCategories()])
       .then(([billsData, historyData, catData]) => {
-        clientDataCache.setBills(billsData);
+        if (statusFilter === 'ALL') {
+          clientDataCache.setBills(billsData);
+        }
         setBills(billsData);
         setPaymentHistory(historyData);
         setCategories(catData);
@@ -131,6 +133,8 @@ export const BillsTracker: React.FC = () => {
       });
       const resolvedCategoryName =
         categories.find((c) => c.id === created.categoryId)?.name || 'Bill';
+      const initialStatus =
+        created.status || (created.dueDate < getTodayDateString() ? 'OVERDUE' : 'UNPAID');
       await syncCoordinator.syncMutation(
         'Bills_Payments',
         [
@@ -139,7 +143,7 @@ export const BillsTracker: React.FC = () => {
           created.name,
           resolvedCategoryName,
           created.amountPaise / 100,
-          'UNPAID',
+          initialStatus,
           '',
           '—',
           created.notes || '',
@@ -224,9 +228,15 @@ export const BillsTracker: React.FC = () => {
     if (!confirmed) return;
 
     try {
-      await api.undoBillPayment(billId);
-      const targetBill = bills.find((b) => b.id === billId);
+      const undoRes = await api.undoBillPayment(billId);
+      const targetBill = undoRes?.bill || bills.find((b) => b.id === billId);
       if (targetBill) {
+        const revertedStatus =
+          targetBill.status === 'PAID'
+            ? targetBill.dueDate < getTodayDateString()
+              ? 'OVERDUE'
+              : 'UNPAID'
+            : targetBill.status || (targetBill.dueDate < getTodayDateString() ? 'OVERDUE' : 'UNPAID');
         await syncCoordinator.syncMutation(
           'Bills_Payments',
           [
@@ -235,7 +245,7 @@ export const BillsTracker: React.FC = () => {
             targetBill.name,
             targetBill.categoryName || 'Bill',
             targetBill.amountPaise / 100,
-            'UNPAID',
+            revertedStatus,
             '',
             '—',
             targetBill.notes || '',

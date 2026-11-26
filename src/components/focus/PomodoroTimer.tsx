@@ -688,7 +688,9 @@ export const PomodoroTimer: React.FC = () => {
       showPresetModal ||
       showGoalModal ||
       showInterruptionsModal ||
-      showStudyModal;
+      showStudyModal ||
+      showManualLogModal ||
+      isTypingWarmupOpen;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && fullScreenFocus && !anyModalOpen) {
@@ -753,6 +755,8 @@ export const PomodoroTimer: React.FC = () => {
     showGoalModal,
     showInterruptionsModal,
     showStudyModal,
+    showManualLogModal,
+    isTypingWarmupOpen,
   ]);
 
   const handleModeSwitch = (mode: TimerMode) => {
@@ -1648,7 +1652,7 @@ export const PomodoroTimer: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {goals.map((g) => {
-              const prog = computePomodoroGoalProgress(sessions, g);
+              const prog = computePomodoroGoalProgress(sessions, g, new Date(), userTimezone);
               return (
                 <div
                   key={g.id}

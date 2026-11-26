@@ -285,24 +285,36 @@ export function awardAuthoritativeXP(
   const timezone = settings?.timezone || DEFAULT_TIMEZONE;
   const profile = getOrCreateProfile(db, userId, timezone);
   const previousLevel = profile.level;
+  const periodKeys = getPeriodKeys(timezone);
 
   const eventId = (req.eventId || '').trim();
   const sourceId = (req.sourceId || '').trim();
   const source = req.source;
 
+  const emptyFailure = (alreadyAwarded = false): AwardXPResponse => ({
+    awarded: false,
+    alreadyAwarded,
+    xpAdded: 0,
+    previousLevel,
+    newLevel: profile.level,
+    leveledUp: false,
+    profile,
+    progress: calculateXPProgress(profile.totalXP),
+    unlockedAchievements: [],
+    transactions: [],
+  });
+
   if (!eventId || !sourceId || !source) {
-    return {
-      awarded: false,
-      alreadyAwarded: false,
-      xpAdded: 0,
-      previousLevel,
-      newLevel: previousLevel,
-      leveledUp: false,
-      profile,
-      progress: calculateXPProgress(profile.totalXP),
-      unlockedAchievements: [],
-      transactions: [],
-    };
+    return emptyFailure(false);
+  }
+
+  // Enforce strict canonical sourceId rules before idempotency checks so clients
+  // cannot farm repeatable rewards using arbitrary aliases (e.g. daily_goal "day_1", "day_2").
+  if (source === 'daily_goal' && sourceId !== periodKeys.dailyKey) {
+    return emptyFailure(false);
+  }
+  if (source === 'streak' && (!/^\d+$/.test(sourceId) || sourceId !== String(Number(sourceId)))) {
+    return emptyFailure(false);
   }
 
   // Idempotency check: never award twice for same eventId or (source, sourceId)
@@ -312,18 +324,7 @@ export function awardAuthoritativeXP(
       (tx.id === eventId || (tx.source === source && tx.sourceId === sourceId))
   );
   if (duplicate) {
-    return {
-      awarded: false,
-      alreadyAwarded: true,
-      xpAdded: 0,
-      previousLevel,
-      newLevel: profile.level,
-      leveledUp: false,
-      profile,
-      progress: calculateXPProgress(profile.totalXP),
-      unlockedAchievements: [],
-      transactions: [],
-    };
+    return emptyFailure(true);
   }
 
   // Verify source event & calculate server-side reward
@@ -518,14 +519,29 @@ export function getPaginatedGamificationLeaderboard(
   const limit = Math.min(50, Math.max(1, Math.floor(options.limit || 10)));
 
   const profiles = db.gamificationProfiles || [];
+  const periodKeysByTz = new Map<string, ReturnType<typeof getPeriodKeys>>();
+  const getKeysForTimezone = (tz: string) => {
+    let cached = periodKeysByTz.get(tz);
+    if (!cached) {
+      cached = getPeriodKeys(tz);
+      periodKeysByTz.set(tz, cached);
+    }
+    return cached;
+  };
+
   const rows = profiles
     .map((p) => {
-      const user = db.users.find((u) => u.id === p.userId);
+      const user = (db.users || []).find((u) => u.id === p.userId);
+      const userTz = (db.userSettings || []).find((s) => s.userId === p.userId)?.timezone || DEFAULT_TIMEZONE;
+      const currentKeys = getKeysForTimezone(userTz);
+      const effectiveWeeklyXP = p.weekKey === currentKeys.weekKey ? p.weeklyXP || 0 : 0;
+      const effectiveMonthlyXP = p.monthKey === currentKeys.monthKey ? p.monthlyXP || 0 : 0;
+
       const sortXP =
         category === 'weekly'
-          ? p.weeklyXP || 0
+          ? effectiveWeeklyXP
           : category === 'monthly'
-          ? p.monthlyXP || 0
+          ? effectiveMonthlyXP
           : p.totalXP || 0;
       return {
         userId: p.userId,

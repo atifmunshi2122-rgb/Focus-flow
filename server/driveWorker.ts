@@ -16,10 +16,13 @@
 
 import { SheetHubWorkerError, type FetchLike } from './universalSheetsWorker.ts';
 import { isValidGoogleSpreadsheetId } from '../src/lib/sheetHub/urlParser.ts';
+import { escapeSheetFormulaCell } from './validation.ts';
 import {
   type IdempotencyLedgerRepository,
   defaultIdempotencyLedger,
 } from './durableIdempotencyLedger.ts';
+
+export { escapeSheetFormulaCell };
 
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -661,9 +664,9 @@ export async function ensureDriveProgressTrackerTab(
   // Populate header row and any initial topic rows
   const headerRow = ['Module / Unit', 'Topic', 'Subtopic', 'Completed', 'Last Synced'];
   const topicRows = (topics || []).map((t) => [
-    t.unit || '',
-    t.topic || '',
-    t.subtopic || '',
+    escapeSheetFormulaCell(t.unit || ''),
+    escapeSheetFormulaCell(t.topic || ''),
+    escapeSheetFormulaCell(t.subtopic || ''),
     Boolean(t.isCompleted),
     new Date().toISOString(),
   ]);
@@ -671,7 +674,7 @@ export async function ensureDriveProgressTrackerTab(
   const allRows = [headerRow, ...topicRows];
 
   const updateUrl = `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}/values/'Progress Tracker'!A1:E${allRows.length}?valueInputOption=USER_ENTERED`;
-  await fetchImpl(updateUrl, {
+  const updateRes = await fetchImpl(updateUrl, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -683,6 +686,10 @@ export async function ensureDriveProgressTrackerTab(
       values: allRows,
     }),
   });
+
+  if (!updateRes.ok) {
+    return false;
+  }
 
   return true;
 }

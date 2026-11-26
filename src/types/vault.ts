@@ -29,6 +29,7 @@ export interface JointVault {
 }
 
 export interface VaultMember {
+  vaultId?: string;
   uid: string;
   email: string;
   name: string;

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { formatCurrency, toPaise } from '../../lib/currency.ts';
+import { formatCurrency, formatPaiseForInput, toPaise } from '../../lib/currency.ts';
 import { DEFAULT_TIMEZONE, addDays, getTodayDateString } from '../../lib/dateTime.ts';
 import { computeSpendingInsights } from '../../lib/financeIntelligence.ts';
 import type { ExpenseTransaction, IncomeTransaction } from '../../types/index.ts';
@@ -39,9 +39,13 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
 
   // Daily limit editor state
   const [isEditingLimit, setIsEditingLimit] = useState(false);
-  const [dailyLimitInput, setDailyLimitInput] = useState(
-    settings?.dailySpendingLimitPaise ? String(Math.round(settings.dailySpendingLimitPaise / 100)) : ''
+  const [dailyLimitInput, setDailyLimitInput] = useState(() =>
+    formatPaiseForInput(settings?.dailySpendingLimitPaise)
   );
+
+  useEffect(() => {
+    setDailyLimitInput(formatPaiseForInput(settings?.dailySpendingLimitPaise));
+  }, [settings?.dailySpendingLimitPaise]);
 
   useEffect(() => {
     setLoading(true);

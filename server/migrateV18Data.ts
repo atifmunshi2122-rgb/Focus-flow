@@ -142,10 +142,12 @@ export async function migrateV18JsonToFirestore(
           continue;
         }
 
-        // 3. Write non-existing record preserving exact timestamps and identifiers
+        // 3. Write non-existing record preserving exact timestamps and canonical identifiers
+        const recordIdPayload =
+          firestoreSubcollection === 'emergency_profile' ? `ep_${userId}` : docId;
         await docRef.set({
           ...record,
-          id: docId,
+          id: recordIdPayload,
           userId,
         });
         summary.migratedCount++;

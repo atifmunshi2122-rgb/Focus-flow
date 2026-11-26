@@ -3724,9 +3724,22 @@ export const api = {
   saveWhiteboardDrawing: (drawing: Partial<WhiteboardDrawing>): Promise<WhiteboardDrawing> => {
     const id = drawing.id || `wb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const dataUrl = drawing.dataUrl || '';
+    const sizeBytes =
+      typeof drawing.sizeBytes === 'number' && Number.isFinite(drawing.sizeBytes)
+        ? Math.max(0, Math.round(drawing.sizeBytes))
+        : new TextEncoder().encode(dataUrl).length;
+    const title = (drawing.title || 'Whiteboard Note').trim().slice(0, 128) || 'Whiteboard Note';
+    const topicTitle =
+      typeof drawing.topicTitle === 'string' && drawing.topicTitle.trim().length > 0
+        ? drawing.topicTitle.trim().slice(0, 128)
+        : undefined;
     const withId = {
       ...drawing,
       id,
+      title,
+      ...(topicTitle !== undefined ? { topicTitle } : {}),
+      sizeBytes,
       createdAt: drawing.createdAt || nowIso,
       updatedAt: nowIso,
     } as WhiteboardDrawing;

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { DecisionEntry } from '../../types/features15.ts';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import { formatDateInTimezone, getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, formatDateInTimezone, getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Scale,
@@ -54,9 +54,11 @@ const SEED_DECISIONS: DecisionEntry[] = [
 ];
 
 export const DecisionJournal: React.FC = () => {
-  const { user } = useApp();
+  const { user, settings } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_decision_journal_v1`;
+  const tz = settings?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = getTodayDateString(tz);
 
   const [decisions, setDecisions] = useState<DecisionEntry[]>(() => {
     const saved = localStorage.getItem(storageKey);
@@ -85,7 +87,7 @@ export const DecisionJournal: React.FC = () => {
     }
 
     api.getDecisionEntries().then((remote) => {
-      if (isMounted && Array.isArray(remote) && remote.length > 0) {
+      if (isMounted && Array.isArray(remote)) {
         setDecisions(remote);
         try {
           localStorage.setItem(storageKey, JSON.stringify(remote));
@@ -127,7 +129,7 @@ export const DecisionJournal: React.FC = () => {
     e.preventDefault();
     if (!title.trim() || !rationale.trim()) return;
 
-    const reviewDate = formatDateInTimezone(new Date(Date.now() + reviewDays * 86400000));
+    const reviewDate = formatDateInTimezone(new Date(Date.now() + reviewDays * 86400000), tz);
 
     const newEntry: DecisionEntry = {
       id: `dec-${Date.now()}`,
@@ -241,7 +243,10 @@ export const DecisionJournal: React.FC = () => {
           </div>
         ) : (
           filteredDecisions.map((entry) => {
-            const isDue = new Date(entry.expectedReviewDate) <= new Date() && entry.status === 'pending_review';
+            const isDue =
+              Boolean(entry.expectedReviewDate) &&
+              entry.expectedReviewDate <= todayStr &&
+              entry.status === 'pending_review';
 
             return (
               <div

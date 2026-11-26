@@ -518,8 +518,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const mapped: SyncStatus = state.status === 'failed' ? 'error' : state.status;
       setSyncStatus(mapped);
       setSyncQueueCount(state.pendingCount);
-      if (state.lastSyncedAt) setLastSyncedAt(state.lastSyncedAt);
-      if (state.lastError) setSyncLastError(state.lastError);
+      if (state.lastSyncedAt) {
+        setLastSyncedAt(state.lastSyncedAt);
+      } else if (state.status === 'idle') {
+        setLastSyncedAt(null);
+      }
+      setSyncLastError(state.lastError);
     });
     return unsub;
   }, []);

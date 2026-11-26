@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   ExamSimulationConfig,
   ExamSimulationState,
@@ -50,14 +50,111 @@ const PRESET_EXAMS: ExamSimulationConfig[] = [
   },
 ];
 
+export function sanitizeExamSimulationState(
+  raw: ExamSimulationState & Record<string, unknown>
+): ExamSimulationState {
+  const clean: ExamSimulationState = {
+    id: raw.id,
+    title: raw.title,
+    totalDurationMinutes: raw.totalDurationMinutes,
+    sections: Array.isArray(raw.sections) ? raw.sections : [],
+    currentSectionIndex: Number.isFinite(raw.currentSectionIndex) ? raw.currentSectionIndex : 0,
+    status: raw.status,
+    sectionElapsedSeconds:
+      raw.sectionElapsedSeconds && typeof raw.sectionElapsedSeconds === 'object'
+        ? raw.sectionElapsedSeconds
+        : {},
+    totalElapsedSeconds: Number.isFinite(raw.totalElapsedSeconds) ? raw.totalElapsedSeconds : 0,
+  };
+  if (raw.userId) clean.userId = raw.userId;
+  if (raw.flaggedQuestions) clean.flaggedQuestions = raw.flaggedQuestions;
+  if (raw.attemptedQuestions) clean.attemptedQuestions = raw.attemptedQuestions;
+  if (raw.startedAt) clean.startedAt = raw.startedAt;
+  if (raw.completedAt) clean.completedAt = raw.completedAt;
+  return clean;
+}
+
+export function restorePersistedExamSimulation(rawJson: string | null): {
+  examState: ExamSimulationState;
+  config: ExamSimulationConfig;
+  sectionTimeRemaining: number;
+  totalTimeRemaining: number;
+  sectionSpentSeconds: Record<string, number>;
+} | null {
+  if (!rawJson) return null;
+  try {
+    const parsed = JSON.parse(rawJson);
+    if (!parsed || !parsed.status) return null;
+    const examState = sanitizeExamSimulationState(parsed);
+    const sections =
+      Array.isArray(examState.sections) && examState.sections.length > 0
+        ? examState.sections
+        : PRESET_EXAMS[0].sections;
+    const config: ExamSimulationConfig = {
+      examName: examState.title || PRESET_EXAMS[0].examName,
+      totalMinutes: examState.totalDurationMinutes || PRESET_EXAMS[0].totalMinutes,
+      sections,
+    };
+    return {
+      examState,
+      config,
+      sectionTimeRemaining: Number(parsed.sectionTimeRemaining) || 0,
+      totalTimeRemaining: Number(parsed.totalTimeRemaining) || 0,
+      sectionSpentSeconds:
+        parsed.sectionSpentSeconds && typeof parsed.sectionSpentSeconds === 'object'
+          ? parsed.sectionSpentSeconds
+          : {},
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function buildCompletedExamPayload(
+  examState: ExamSimulationState,
+  sectionSpentSeconds: Record<string, number>,
+  completedAtIso: string = new Date().toISOString()
+): ExamSimulationState {
+  const cleanSectionElapsed: Record<string, number> = {};
+  for (const sec of examState.sections || []) {
+    cleanSectionElapsed[sec.id] = Math.max(0, Math.round(sectionSpentSeconds[sec.id] || 0));
+  }
+  for (const [secId, secs] of Object.entries(sectionSpentSeconds || {})) {
+    if (!(secId in cleanSectionElapsed)) {
+      cleanSectionElapsed[secId] = Math.max(0, Math.round(secs || 0));
+    }
+  }
+  const totalElapsedSeconds = Math.min(
+    86400,
+    Math.max(0, Object.values(cleanSectionElapsed).reduce((sum, v) => sum + v, 0))
+  );
+
+  return sanitizeExamSimulationState({
+    ...examState,
+    status: 'completed',
+    completedAt: completedAtIso,
+    sectionElapsedSeconds: cleanSectionElapsed,
+    totalElapsedSeconds,
+  });
+}
+
 export const ExamHallSimulator: React.FC = () => {
   const { user, firebaseUser, settings, triggerRefresh } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_exam_sim_state_v1`;
 
+  const initialRestored = useMemo(
+    () => restorePersistedExamSimulation(localStorage.getItem(storageKey)),
+    // Only evaluate initial snapshot for the initial storageKey; account switches sync in useEffect below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   const [studyExamPresets, setStudyExamPresets] = useState<ExamSimulationConfig[]>([]);
   const [selectedPresetIndex, setSelectedPresetIndex] = useState(0);
-  const [customConfig, setCustomConfig] = useState<ExamSimulationConfig>(PRESET_EXAMS[0]);
+  const [customConfig, setCustomConfig] = useState<ExamSimulationConfig>(
+    () => initialRestored?.config || PRESET_EXAMS[0]
+  );
 
   useEffect(() => {
     api.getStudyExams()
@@ -83,46 +180,50 @@ export const ExamHallSimulator: React.FC = () => {
     [studyExamPresets]
   );
 
-  // Active state
-  const [examState, setExamState] = useState<ExamSimulationState | null>(() => {
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.status) return parsed;
-      } catch {
-        // fallback
-      }
-    }
-    return null;
-  });
+  // Active state (strictly sanitized without localStorage-only timer keys)
+  const [examState, setExamState] = useState<ExamSimulationState | null>(
+    () => initialRestored?.examState || null
+  );
 
-  const [sectionTimeRemaining, setSectionTimeRemaining] = useState<number>(0);
-  const [totalTimeRemaining, setTotalTimeRemaining] = useState<number>(0);
-  const [sectionSpentSeconds, setSectionSpentSeconds] = useState<{ [secId: string]: number }>({});
+  const [sectionTimeRemaining, setSectionTimeRemaining] = useState<number>(
+    () => initialRestored?.sectionTimeRemaining || 0
+  );
+  const [totalTimeRemaining, setTotalTimeRemaining] = useState<number>(
+    () => initialRestored?.totalTimeRemaining || 0
+  );
+  const [sectionSpentSeconds, setSectionSpentSeconds] = useState<{ [secId: string]: number }>(
+    () => initialRestored?.sectionSpentSeconds || {}
+  );
   const [isFinished, setIsFinished] = useState(false);
+  const [hydratedStorageKey, setHydratedStorageKey] = useState<string>(storageKey);
 
-  // Sync user state on account switch
+  const finishedExamIdRef = useRef<string | null>(null);
+  const advancingKeyRef = useRef<string | null>(null);
+
+  // Sync user state on account switch before persistence runs for the new key
   useEffect(() => {
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.status) {
-          setExamState(parsed);
-          setSectionTimeRemaining(parsed.sectionTimeRemaining || 0);
-          setTotalTimeRemaining(parsed.totalTimeRemaining || 0);
-          setSectionSpentSeconds(parsed.sectionSpentSeconds || {});
-          return;
-        }
-      } catch {}
+    const restored = restorePersistedExamSimulation(localStorage.getItem(storageKey));
+    if (restored) {
+      setExamState(restored.examState);
+      setCustomConfig(restored.config);
+      setSectionTimeRemaining(restored.sectionTimeRemaining);
+      setTotalTimeRemaining(restored.totalTimeRemaining);
+      setSectionSpentSeconds(restored.sectionSpentSeconds);
+      setIsFinished(false);
+    } else {
+      setExamState(null);
+      setSectionTimeRemaining(0);
+      setTotalTimeRemaining(0);
+      setSectionSpentSeconds({});
+      setIsFinished(false);
     }
-    setExamState(null);
+    setHydratedStorageKey(storageKey);
   }, [storageKey]);
 
-  // Sync to localStorage
+  // Sync to localStorage only after state has hydrated for the active storageKey
   useEffect(() => {
-    if (examState) {
+    if (hydratedStorageKey !== storageKey) return;
+    if (examState && examState.status !== 'completed') {
       localStorage.setItem(
         storageKey,
         JSON.stringify({
@@ -135,32 +236,28 @@ export const ExamHallSimulator: React.FC = () => {
     } else {
       localStorage.removeItem(storageKey);
     }
-  }, [storageKey, examState, sectionTimeRemaining, totalTimeRemaining, sectionSpentSeconds]);
+  }, [hydratedStorageKey, storageKey, examState, sectionTimeRemaining, totalTimeRemaining, sectionSpentSeconds]);
 
-  // Handle Advance Section
-  const handleAdvanceSection = () => {
-    if (!examState) return;
-    const nextIdx = examState.currentSectionIndex + 1;
-    if (nextIdx < customConfig.sections.length) {
-      const nextSec = customConfig.sections[nextIdx];
-      setExamState((prev) => (prev ? { ...prev, currentSectionIndex: nextIdx } : null));
-      setSectionTimeRemaining(nextSec.durationMinutes * 60);
-    } else {
-      handleFinishExam();
-    }
-  };
+  const activeSections = useMemo(
+    () => (examState?.sections?.length ? examState.sections : customConfig.sections),
+    [examState?.sections, customConfig.sections]
+  );
+  const activeTotalMinutes = examState?.totalDurationMinutes || customConfig.totalMinutes;
 
-  const handleFinishExam = () => {
+  const handleFinishExam = useCallback(() => {
     if (!examState) return;
-    const completedState: ExamSimulationState = { ...examState, status: 'completed' };
+    if (finishedExamIdRef.current === examState.id) return;
+    finishedExamIdRef.current = examState.id;
+
+    const completedState = buildCompletedExamPayload(examState, sectionSpentSeconds);
     setExamState(completedState);
     setIsFinished(true);
     localStorage.removeItem(storageKey);
     api.saveExamSimulation(completedState).catch(() => {});
 
-    const spentSecs = Object.values(sectionSpentSeconds).reduce((s, v) => s + (v || 0), 0);
-    const durationMinutes = Math.max(1, Math.round(spentSecs / 60) || customConfig.totalMinutes);
-    const endedAt = new Date().toISOString();
+    const spentSecs = completedState.totalElapsedSeconds;
+    const durationMinutes = Math.max(1, Math.round(spentSecs / 60) || activeTotalMinutes);
+    const endedAt = completedState.completedAt || new Date().toISOString();
     const startedAt = new Date(Date.now() - durationMinutes * 60_000).toISOString();
 
     void api
@@ -183,29 +280,36 @@ export const ExamHallSimulator: React.FC = () => {
             displayName: firebaseUser.displayName || undefined,
             sessions: Array.isArray(allSessions) ? allSessions : [created],
             timezone: settings?.timezone,
+            onlyIfExists: true,
           }).catch(() => {});
         }
         triggerRefresh();
       })
       .catch(() => {});
-  };
+  }, [examState, sectionSpentSeconds, storageKey, activeTotalMinutes, firebaseUser, settings?.timezone, triggerRefresh]);
 
-  // Countdown timer loop
+  // Handle Advance Section
+  const handleAdvanceSection = useCallback(() => {
+    if (!examState) return;
+    const nextIdx = examState.currentSectionIndex + 1;
+    if (nextIdx < activeSections.length) {
+      const nextSec = activeSections[nextIdx];
+      setExamState((prev) => (prev ? { ...prev, currentSectionIndex: nextIdx } : null));
+      setSectionTimeRemaining(nextSec.durationMinutes * 60);
+    } else {
+      handleFinishExam();
+    }
+  }, [examState, activeSections, handleFinishExam]);
+
+  // Countdown timer loop (pure state updates only; side-effects run in the effect below)
   useEffect(() => {
     if (!examState || (examState.status !== 'in_progress' && examState.status !== 'running')) return;
 
+    const currentSec = activeSections[examState.currentSectionIndex];
     const timer = setInterval(() => {
-      setSectionTimeRemaining((prev) => {
-        if (prev <= 1) {
-          handleAdvanceSection();
-          return 0;
-        }
-        return prev - 1;
-      });
-
+      setSectionTimeRemaining((prev) => Math.max(0, prev - 1));
       setTotalTimeRemaining((prev) => Math.max(0, prev - 1));
 
-      const currentSec = customConfig.sections[examState.currentSectionIndex];
       if (currentSec) {
         setSectionSpentSeconds((map) => ({
           ...map,
@@ -215,7 +319,20 @@ export const ExamHallSimulator: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [examState, customConfig]);
+  }, [examState, activeSections]);
+
+  // Advance or finish outside state updaters when section countdown hits 0
+  useEffect(() => {
+    if (!examState || (examState.status !== 'in_progress' && examState.status !== 'running')) return;
+    if (sectionTimeRemaining > 0) {
+      advancingKeyRef.current = null;
+      return;
+    }
+    const key = `${examState.id}:${examState.currentSectionIndex}`;
+    if (advancingKeyRef.current === key) return;
+    advancingKeyRef.current = key;
+    handleAdvanceSection();
+  }, [sectionTimeRemaining, examState, handleAdvanceSection]);
 
   const handleStartExam = () => {
     const totalSecs = customConfig.totalMinutes * 60;
@@ -233,6 +350,8 @@ export const ExamHallSimulator: React.FC = () => {
       totalElapsedSeconds: 0,
     };
 
+    finishedExamIdRef.current = null;
+    advancingKeyRef.current = null;
     setExamState(initial);
     setTotalTimeRemaining(totalSecs);
     setSectionTimeRemaining(firstSecSecs);
@@ -255,6 +374,8 @@ export const ExamHallSimulator: React.FC = () => {
 
   const handleResetExam = () => {
     if (!window.confirm('Abandon active exam and reset simulation?')) return;
+    finishedExamIdRef.current = null;
+    advancingKeyRef.current = null;
     setExamState(null);
     setIsFinished(false);
     localStorage.removeItem(storageKey);
@@ -271,7 +392,7 @@ export const ExamHallSimulator: React.FC = () => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const currentSection = examState ? customConfig.sections[examState.currentSectionIndex] : null;
+  const currentSection = examState ? activeSections[examState.currentSectionIndex] : null;
 
   // Pace Assessment
   const paceStatus = useMemo(() => {
@@ -366,7 +487,7 @@ export const ExamHallSimulator: React.FC = () => {
               </div>
               <div className="text-xs text-[var(--ff-text-muted)]">
                 Allocated: {currentSection.durationMinutes} mins • Section {examState.currentSectionIndex + 1} of{' '}
-                {customConfig.sections.length}
+                {activeSections.length}
               </div>
             </div>
 
@@ -378,7 +499,7 @@ export const ExamHallSimulator: React.FC = () => {
                 {formatTime(totalTimeRemaining)}
               </div>
               <div className="text-xs text-[var(--ff-text-muted)]">
-                Overall Exam Duration: {customConfig.totalMinutes} mins
+                Overall Exam Duration: {activeTotalMinutes} mins
               </div>
             </div>
           </div>
@@ -429,7 +550,7 @@ export const ExamHallSimulator: React.FC = () => {
           {/* Section Step Breadcrumbs & Nav */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-3 border-t border-[var(--ff-border)]">
             <div className="flex items-center gap-2 flex-wrap">
-              {customConfig.sections.map((sec, idx) => (
+              {activeSections.map((sec, idx) => (
                 <div
                   key={sec.id}
                   className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border ${
@@ -456,7 +577,7 @@ export const ExamHallSimulator: React.FC = () => {
                 size="sm"
                 onClick={handleAdvanceSection}
               >
-                {examState.currentSectionIndex < customConfig.sections.length - 1 ? (
+                {examState.currentSectionIndex < activeSections.length - 1 ? (
                   <>
                     Next Section
                     <ChevronRight className="w-3.5 h-3.5 ml-1" />
@@ -504,7 +625,7 @@ export const ExamHallSimulator: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--ff-border)]">
-                {customConfig.sections.map((sec) => {
+                {activeSections.map((sec) => {
                   const spentSecs = sectionSpentSeconds[sec.id] || 0;
                   const allocatedSecs = sec.durationMinutes * 60;
                   const isUnder = spentSecs <= allocatedSecs;

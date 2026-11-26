@@ -63,6 +63,15 @@ export function parseOptionalString(value: unknown, maxLen = 2000): string | nul
   return trimmed;
 }
 
+/**
+ * Neutralizes spreadsheet formula injection (OWASP CSV/Sheets CWE-1236)
+ * when writing strings under USER_ENTERED mode.
+ */
+export function escapeSheetFormulaCell(value: string): string {
+  const str = String(value ?? '');
+  return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+}
+
 export function parseIsoDate(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
