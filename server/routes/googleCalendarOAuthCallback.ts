@@ -71,7 +71,7 @@ googleCalendarOAuthCallbackRouter.get(
                 window.opener.postMessage({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true }, window.location.origin);
                 setTimeout(() => window.close(), 1000);
               } else {
-                window.location.href = '/?tab=settings&calendar=connected';
+                window.location.href = '/?tab=settings&calendar=connected#settings';
               }
             </script>
           </body>

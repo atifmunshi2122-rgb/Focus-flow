@@ -148,6 +148,7 @@ export const GamificationHubView: React.FC = () => {
             category: cat,
             currentUid: firebaseUser.uid,
             currentUserXP: progress.totalXP,
+            timezone: settings?.timezone,
           });
           setLbEntries(ranked.slice(0, pageNum * 10));
           setLbHasMore(ranked.length > pageNum * 10);
@@ -167,6 +168,7 @@ export const GamificationHubView: React.FC = () => {
                 category: cat,
                 currentUid: firebaseUser.uid,
                 currentUserXP: progress.totalXP,
+                timezone: settings?.timezone,
               });
               setLbEntries(ranked.slice(0, pageNum * 10));
               setLbHasMore(ranked.length > pageNum * 10);

@@ -13,20 +13,24 @@ import {
 
 /**
  * Validate that a target ratio map is mathematically sound:
- * - Exactly two member entries
- * - Both percentages are non-negative integers >= 0
+ * - Supports 1-member solo vaults ({ [uid]: 100 }) or 2-member joint vaults
+ * - Exact key match for active memberUids with non-negative integers 0..100
  * - Combined sum equals exactly 100
  */
 export function isValidRatio(ratio: Record<string, number>, memberUids: string[]): boolean {
-  if (!ratio || typeof ratio !== 'object') return false;
+  if (!ratio || typeof ratio !== 'object' || Array.isArray(ratio)) return false;
+  const uniqueMembers = Array.from(new Set((memberUids || []).filter(Boolean)));
+  if (uniqueMembers.length !== 1 && uniqueMembers.length !== 2) return false;
   const keys = Object.keys(ratio);
-  if (keys.length !== 2) return false;
-  for (const uid of memberUids) {
-    if (typeof ratio[uid] !== 'number' || !Number.isInteger(ratio[uid]) || ratio[uid] < 0 || ratio[uid] > 100) {
+  if (keys.length !== uniqueMembers.length) return false;
+  for (const uid of uniqueMembers) {
+    if (!Object.prototype.hasOwnProperty.call(ratio, uid)) return false;
+    const val = ratio[uid];
+    if (typeof val !== 'number' || !Number.isInteger(val) || val < 0 || val > 100) {
       return false;
     }
   }
-  const sum = keys.reduce((acc, k) => acc + (ratio[k] || 0), 0);
+  const sum = uniqueMembers.reduce((acc, uid) => acc + ratio[uid], 0);
   return sum === 100;
 }
 
@@ -105,10 +109,11 @@ export function computeVaultSettlement(
   expenses: VaultExpense[],
   settlements: VaultSettlement[]
 ): VaultSettlementCalculation | null {
-  if (members.length < 2) return null;
+  const activeMembers = (members || []).filter((m) => m.status === 'active');
+  if (activeMembers.length < 2) return null;
 
-  const memberA = members[0];
-  const memberB = members[1];
+  const memberA = activeMembers[0];
+  const memberB = activeMembers[1];
   const activeExpenses = expenses.filter((e) => e.status === 'active');
 
   let paidByA = 0;

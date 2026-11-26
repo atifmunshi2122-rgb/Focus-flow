@@ -446,7 +446,12 @@ service cloud.firestore {
               && isNonEmptyString(request.resource.data.title, 256)
               && request.resource.data.frequency in ['daily', 'weekly', 'custom']
               && isBoundedInt(request.resource.data.targetDaysPerWeek, 1, 7)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'category', 'color', 'frequency', 'targetDaysPerWeek', 'customDays', 'completedDates', 'bestStreakDays', 'reminderTime', 'archived', 'updatedAt', 'deletedAt'])
+              && (!('sourceSpreadsheetId' in request.resource.data) || request.resource.data.sourceSpreadsheetId == null || isOptionalString(request.resource.data.sourceSpreadsheetId, 128))
+              && (!('sourceSheetId' in request.resource.data) || request.resource.data.sourceSheetId == null || request.resource.data.sourceSheetId is int || isNonEmptyString(request.resource.data.sourceSheetId, 128))
+              && (!('sourceRowId' in request.resource.data) || isOptionalString(request.resource.data.sourceRowId, 128))
+              && (!('sourceMappingKey' in request.resource.data) || isOptionalString(request.resource.data.sourceMappingKey, 256))
+              && (!('sourceLayout' in request.resource.data) || request.resource.data.sourceLayout == null || request.resource.data.sourceLayout in ['matrix', 'log'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'category', 'color', 'frequency', 'targetDaysPerWeek', 'customDays', 'completedDates', 'bestStreakDays', 'reminderTime', 'archived', 'updatedAt', 'deletedAt', 'sourceSpreadsheetId', 'sourceSheetId', 'sourceRowId', 'sourceMappingKey', 'sourceLayout'])
             )
           );
         allow delete: if isOwner(userId);

@@ -266,25 +266,47 @@ export function corsHandler(req: Request, res: Response, next: NextFunction): vo
   }
 
   let isAllowed = false;
+  let isWildcardCors = false;
   if (!origin || sameHostOrigin) {
     isAllowed = true;
-  } else if (allowedOriginsEnv) {
-    const list = allowedOriginsEnv.split(',').map((o) => o.trim());
-    isAllowed = list.includes(origin) || list.includes('*');
-  } else if (appUrl && (origin === appUrl || origin === new URL(appUrl).origin)) {
-    isAllowed = true;
+  } else if (allowedOriginsEnv && allowedOriginsEnv.trim() !== '') {
+    const list = allowedOriginsEnv.split(',').map((o) => o.trim()).filter(Boolean);
+    if (list.includes(origin)) {
+      isAllowed = true;
+    } else if (list.includes('*')) {
+      isAllowed = true;
+      isWildcardCors = true;
+    }
+  } else if (appUrl && appUrl.trim() !== '') {
+    try {
+      const trimmedAppUrl = appUrl.trim();
+      const normalizedAppUrl =
+        trimmedAppUrl.startsWith('http://') || trimmedAppUrl.startsWith('https://')
+          ? trimmedAppUrl
+          : `https://${trimmedAppUrl}`;
+      const appOrigin = new URL(normalizedAppUrl).origin;
+      isAllowed = origin === trimmedAppUrl || origin === appOrigin;
+    } catch {
+      isAllowed = false;
+    }
   } else if (process.env.NODE_ENV !== 'production') {
     isAllowed = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
   }
 
   if (origin && isAllowed) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+    if (isWildcardCors) {
+      // Security: never combine wildcard (*) with Access-Control-Allow-Credentials: true
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Vary', 'Origin');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
       'Content-Type, Authorization, x-demo-session, x-user-id, x-google-access-token, X-CSRF-Token, X-Requested-With, Accept, Accept-Version'
     );
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 

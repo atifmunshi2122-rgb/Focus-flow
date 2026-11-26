@@ -85,8 +85,26 @@ function writeCachedQueue(ops: DurableSyncOperation[]): void {
 // ============================================================================
 class GoogleSheetsService {
   private lastError: string | null = null;
+  private cachedQueueOwnerKey: string = getQueueCacheStorageKey();
   private cachedQueueOps: DurableSyncOperation[] = readCachedQueue();
   private listeners = new Set<QueueListener>();
+
+  private syncCacheOwner(): string {
+    const currentKey = getQueueCacheStorageKey();
+    if (this.cachedQueueOwnerKey !== currentKey) {
+      this.cachedQueueOwnerKey = currentKey;
+      this.cachedQueueOps = readCachedQueue();
+      this.lastError = null;
+    }
+    return currentKey;
+  }
+
+  public resetForUserSwitch(): void {
+    this.cachedQueueOwnerKey = getQueueCacheStorageKey();
+    this.cachedQueueOps = readCachedQueue();
+    this.lastError = null;
+    this.notifyListeners();
+  }
 
   private notifyListeners(): void {
     const count = this.getQueueLength();
@@ -100,6 +118,7 @@ class GoogleSheetsService {
   }
 
   public subscribeQueue(listener: QueueListener): () => void {
+    this.syncCacheOwner();
     this.listeners.add(listener);
     listener(this.getQueueLength());
     return () => {
@@ -107,7 +126,15 @@ class GoogleSheetsService {
     };
   }
 
-  private setQueueSnapshot(ops: DurableSyncOperation[]): void {
+  private setQueueSnapshot(
+    ops: DurableSyncOperation[],
+    expectedOwnerKey: string = this.syncCacheOwner()
+  ): void {
+    // Discard stale async results if the active user switched mid-request
+    if (getQueueCacheStorageKey() !== expectedOwnerKey) {
+      this.resetForUserSwitch();
+      return;
+    }
     const active = (ops || []).filter((op) => op && op.status !== 'completed');
     this.cachedQueueOps = active;
     writeCachedQueue(active);
@@ -115,11 +142,17 @@ class GoogleSheetsService {
   }
 
   public async refreshQueueCount(): Promise<number> {
+    const scopeKey = this.syncCacheOwner();
     try {
       const ops = await api.getSyncQueue();
-      this.setQueueSnapshot(ops);
+      if (getQueueCacheStorageKey() !== scopeKey) {
+        this.resetForUserSwitch();
+        return this.getQueueLength();
+      }
+      this.setQueueSnapshot(ops, scopeKey);
       return this.getQueueLength();
     } catch {
+      this.syncCacheOwner();
       this.cachedQueueOps = readCachedQueue();
       this.notifyListeners();
       return this.getQueueLength();
@@ -127,6 +160,7 @@ class GoogleSheetsService {
   }
 
   public getQueueLength(): number {
+    this.syncCacheOwner();
     return this.cachedQueueOps.filter((op) => op.status !== 'completed').length;
   }
 
@@ -278,6 +312,9 @@ class GoogleSheetsService {
       dedupeKey,
     };
 
+    // Sync cache scope to the active user before mutating optimistic queue state
+    const scopeKey = this.syncCacheOwner();
+
     // Optimistic local queue cache update so getQueueLength() reflects pending count immediately
     const existingIdx = this.cachedQueueOps.findIndex(
       (q) => q.dedupeKey === dedupeKey && q.status !== 'completed'
@@ -300,11 +337,15 @@ class GoogleSheetsService {
 
     try {
       const saved = await api.enqueueSync(opPayload);
+      if (getQueueCacheStorageKey() !== scopeKey) {
+        this.resetForUserSwitch();
+        return;
+      }
       const updated = this.cachedQueueOps.filter(
         (q) => q.id !== optimisticOp.id && !(dedupeKey && q.dedupeKey === dedupeKey)
       );
       updated.push(saved);
-      this.setQueueSnapshot(updated);
+      this.setQueueSnapshot(updated, scopeKey);
     } catch (err) {
       console.warn('[Sync] Server queue enqueue failed, retained in local pending cache:', err);
     }
@@ -316,15 +357,22 @@ class GoogleSheetsService {
    * to protect batch operations from cascading authentication or permission failures.
    */
   public async flushQueue(spreadsheetId: string, accessToken: string): Promise<number> {
+    const scopeKey = this.syncCacheOwner();
     let pendingOps: DurableSyncOperation[] = [];
     try {
       pendingOps = await api.getSyncQueue();
     } catch {
+      this.syncCacheOwner();
       pendingOps = this.cachedQueueOps;
     }
 
+    if (getQueueCacheStorageKey() !== scopeKey) {
+      this.resetForUserSwitch();
+      return 0;
+    }
+
     const activeOps = (pendingOps || []).filter((op) => op.status !== 'completed');
-    this.setQueueSnapshot(activeOps);
+    this.setQueueSnapshot(activeOps, scopeKey);
     if (activeOps.length === 0) return 0;
 
     try {
@@ -421,7 +469,7 @@ class GoogleSheetsService {
         });
       });
 
-      this.setQueueSnapshot(refreshed);
+      this.setQueueSnapshot(refreshed, scopeKey);
 
       if (totalFailed > 0) {
         const firstErr = allResults.find((r) => r.errorMessage)?.errorMessage || 'Sync queue error';

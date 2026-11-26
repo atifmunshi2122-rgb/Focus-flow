@@ -15,8 +15,26 @@ import {
   DEFAULT_TIMEZONE,
   formatDateInTimezone,
   getTodayDateString,
+  getZonedDateParts,
   parseDateString,
 } from './dateTime.ts';
+
+function toZonedDateStr(value: string | undefined | null, timezone: string): string | null {
+  if (!value || typeof value !== 'string') return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  try {
+    const formatted = formatDateInTimezone(value, timezone);
+    return /^\d{4}-\d{2}-\d{2}$/.test(formatted) ? formatted : value.slice(0, 10);
+  } catch {
+    return value.slice(0, 10);
+  }
+}
+
+function getCalendarWeekday(dateStr: string): number | null {
+  const parsed = parseDateString(dateStr);
+  if (!parsed) return null;
+  return new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day)).getUTCDay();
+}
 import { getSessionFocusSeconds } from './pomodoroAnalytics.ts';
 
 export interface HabitStreakResult {
@@ -127,10 +145,8 @@ export function isHabitScheduledOnDate(habit: Habit, dateStr: string): boolean {
   if (habit.archived || habit.deletedAt) return false;
   if (habit.frequency === 'daily') return true;
 
-  const parsed = parseDateString(dateStr);
-  if (!parsed) return true;
-  const d = new Date(parsed.year, parsed.month - 1, parsed.day);
-  const dayOfWeek = d.getDay(); // 0 = Sunday, 6 = Saturday
+  const dayOfWeek = getCalendarWeekday(dateStr);
+  if (dayOfWeek === null) return true;
 
   if (habit.frequency === 'custom') {
     const allowed = habit.customDays && habit.customDays.length > 0
@@ -157,18 +173,18 @@ export function computeHabitStreak(
   let currentStreak = 0;
   let checkDate = isCompletedToday ? todayStr : addDays(todayStr, -1);
 
-  // If today is scheduled and not completed, streak is not broken yet until yesterday is checked
-  while (true) {
-    if (isHabitScheduledOnDate(habit, checkDate)) {
-      if (completedSet.has(checkDate)) {
-        currentStreak++;
-      } else {
-        break;
+  // Archived/deleted habits never schedule; bound loop iterations so malformed rules cannot freeze UI
+  if (!habit.archived && !habit.deletedAt) {
+    for (let daysChecked = 0; daysChecked < 730 && currentStreak <= 730; daysChecked++) {
+      if (isHabitScheduledOnDate(habit, checkDate)) {
+        if (completedSet.has(checkDate)) {
+          currentStreak++;
+        } else {
+          break;
+        }
       }
+      checkDate = addDays(checkDate, -1);
     }
-    checkDate = addDays(checkDate, -1);
-    // Boundary check: avoid runaway loop (max 730 days / 2 years)
-    if (currentStreak > 730) break;
   }
 
   // Longest streak calculation across all completed dates
@@ -366,10 +382,9 @@ export function computeProductivityScore(input: ProductivityScoreInput): Product
   const scheduledHabits = activeHabits.filter((h) => {
     if (h.frequency === 'daily') return true;
     if (h.frequency === 'custom' && Array.isArray(h.customDays) && h.customDays.length > 0) {
-      const parsed = parseDateString(targetDateStr);
-      if (!parsed) return false;
-      const d = new Date(parsed.year, parsed.month - 1, parsed.day);
-      return h.customDays.includes(d.getDay());
+      const weekday = getCalendarWeekday(targetDateStr);
+      if (weekday === null) return false;
+      return h.customDays.includes(weekday);
     }
     return false;
   });
@@ -572,8 +587,10 @@ export function computeProductivityAnalytics(input: {
   timeBlocks: TimeBlock[];
   settings: UserSettings | null;
   referenceDateStr?: string;
+  timezone?: string;
 }): ProductivityAnalyticsResult {
-  const todayStr = input.referenceDateStr || getTodayDateString(DEFAULT_TIMEZONE);
+  const tz = input.timezone || input.settings?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = input.referenceDateStr || getTodayDateString(tz);
   const activeTasks = input.tasks.filter((t) => !t.deletedAt);
   const completedTasks = activeTasks.filter((t) => t.status === 'completed');
   const validSessions = input.sessions.filter((s) => s.completed && (s.mode === 'work' || !s.mode));
@@ -587,7 +604,8 @@ export function computeProductivityAnalytics(input: {
   // 2. Daily & Weekly Averages (Last 30 days active days)
   const sessionDaysSet = new Set<string>();
   validSessions.forEach((s) => {
-    if (s.startedAt) sessionDaysSet.add(s.startedAt.slice(0, 10));
+    const zonedDay = toZonedDateStr(s.startedAt, tz);
+    if (zonedDay) sessionDaysSet.add(zonedDay);
   });
   const distinctDaysCount = Math.max(1, sessionDaysSet.size);
   const dailyFocusAverageMinutes = Math.round(totalFocusMinutes / distinctDaysCount);
@@ -613,11 +631,10 @@ export function computeProductivityAnalytics(input: {
   };
 
   validSessions.forEach((s) => {
-    if (s.startedAt) {
-      const parsed = parseDateString(s.startedAt.slice(0, 10));
-      if (parsed) {
-        const d = new Date(parsed.year, parsed.month - 1, parsed.day);
-        const dayIdx = d.getDay();
+    const zonedDay = toZonedDateStr(s.startedAt, tz);
+    if (zonedDay) {
+      const dayIdx = getCalendarWeekday(zonedDay);
+      if (dayIdx !== null) {
         const mins = s.durationMinutes || Math.round((s.durationSeconds || 0) / 60);
         weekdayScores[dayIdx].focusMinutes += mins;
       }
@@ -625,12 +642,10 @@ export function computeProductivityAnalytics(input: {
   });
 
   completedTasks.forEach((t) => {
-    const dateStr = t.completedAt ? t.completedAt.slice(0, 10) : t.dueDate;
+    const dateStr = t.completedAt ? toZonedDateStr(t.completedAt, tz) : t.dueDate;
     if (dateStr) {
-      const parsed = parseDateString(dateStr);
-      if (parsed) {
-        const d = new Date(parsed.year, parsed.month - 1, parsed.day);
-        const dayIdx = d.getDay();
+      const dayIdx = getCalendarWeekday(dateStr);
+      if (dayIdx !== null) {
         weekdayScores[dayIdx].tasksCompleted += 1;
       }
     }
@@ -693,8 +708,8 @@ export function computeProductivityAnalytics(input: {
   let prevWeekTasks = 0;
 
   validSessions.forEach((s) => {
-    if (!s.startedAt) return;
-    const dStr = s.startedAt.slice(0, 10);
+    const dStr = toZonedDateStr(s.startedAt, tz);
+    if (!dStr) return;
     const mins = s.durationMinutes || Math.round((s.durationSeconds || 0) / 60);
     if (dStr >= thisWeekStart && dStr <= todayStr) {
       thisWeekFocus += mins;
@@ -704,7 +719,7 @@ export function computeProductivityAnalytics(input: {
   });
 
   completedTasks.forEach((t) => {
-    const dStr = t.completedAt ? t.completedAt.slice(0, 10) : t.dueDate;
+    const dStr = t.completedAt ? toZonedDateStr(t.completedAt, tz) : t.dueDate;
     if (!dStr) return;
     if (dStr >= thisWeekStart && dStr <= todayStr) {
       thisWeekTasks++;
@@ -755,38 +770,45 @@ export function buildDailyProductivityTimeline(input: {
   sessions: FocusSession[];
   habits: Habit[];
   timeBlocks: TimeBlock[];
+  timezone?: string;
 }): DailyTimelineResult {
   const { dateStr } = input;
+  const tz = input.timezone || DEFAULT_TIMEZONE;
   const items: TimelineActivityItem[] = [];
   const categoryBreakdown: Record<string, number> = {};
 
-  // 1. Focus Sessions on this date
+  // 1. Focus Sessions on this date (timezone-aware; only work sessions count toward totalFocusMinutes)
   const dateSessions = input.sessions.filter(
-    (s) => s.completed && s.startedAt && s.startedAt.slice(0, 10) === dateStr
+    (s) => s.completed && s.startedAt && toZonedDateStr(s.startedAt, tz) === dateStr
   );
   let totalFocusMinutes = 0;
 
   dateSessions.forEach((s) => {
     const dateObj = new Date(s.startedAt);
-    const startMinute = isNaN(dateObj.getTime())
-      ? 540 // fallback 9:00 AM
-      : dateObj.getHours() * 60 + dateObj.getMinutes();
-    const duration = s.durationMinutes || Math.round((s.durationSeconds || 0) / 60) || 25;
-    totalFocusMinutes += duration;
+    let startMinute = 540; // fallback 9:00 AM
+    if (!isNaN(dateObj.getTime())) {
+      const parts = getZonedDateParts(dateObj, tz);
+      startMinute = parts.hour * 60 + parts.minute;
+    }
+    const isWorkSession = s.mode === 'work' || !s.mode;
+    const duration = s.durationMinutes || Math.round((s.durationSeconds || 0) / 60) || (isWorkSession ? 25 : 5);
+    const cat = isWorkSession ? (s.taskTitle ? 'Task Focus' : 'Deep Work') : 'Break';
 
-    const cat = s.taskTitle ? 'Task Focus' : 'Deep Work';
-    categoryBreakdown[cat] = (categoryBreakdown[cat] || 0) + duration;
+    if (isWorkSession) {
+      totalFocusMinutes += duration;
+      categoryBreakdown[cat] = (categoryBreakdown[cat] || 0) + duration;
+    }
 
     items.push({
       id: `session_${s.id}`,
       type: 'focus_session',
-      title: s.taskTitle || 'Focus Session',
-      subtitle: `${duration} min • ${s.mode === 'work' || !s.mode ? 'Pomodoro Work' : 'Break'}`,
+      title: isWorkSession ? (s.taskTitle || 'Focus Session') : (s.mode === 'long_break' ? 'Long Break' : 'Short Break'),
+      subtitle: `${duration} min • ${isWorkSession ? 'Pomodoro Work' : 'Break'}`,
       timeStr: minutesToTimeString(startMinute),
       startMinute,
       durationMinutes: duration,
       category: cat,
-      color: '#6366f1',
+      color: isWorkSession ? '#6366f1' : '#14b8a6',
       status: 'completed',
     });
   });
@@ -820,7 +842,7 @@ export function buildDailyProductivityTimeline(input: {
     (t) =>
       !t.deletedAt &&
       t.status === 'completed' &&
-      ((t.completedAt && t.completedAt.slice(0, 10) === dateStr) ||
+      ((t.completedAt && toZonedDateStr(t.completedAt, tz) === dateStr) ||
         (!t.completedAt && t.dueDate === dateStr))
   );
 
@@ -829,7 +851,8 @@ export function buildDailyProductivityTimeline(input: {
     if (t.completedAt) {
       const d = new Date(t.completedAt);
       if (!isNaN(d.getTime())) {
-        startMinute = d.getHours() * 60 + d.getMinutes();
+        const parts = getZonedDateParts(d, tz);
+        startMinute = parts.hour * 60 + parts.minute;
       }
     }
     const cat = t.category || 'Tasks';

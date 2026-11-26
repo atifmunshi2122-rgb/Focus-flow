@@ -213,6 +213,34 @@ test('3. Habits Subcollection (/users/{userId}/habits/{habitId}) Rules & Immutab
   });
   assert.equal(updateValid.status, 200, 'Updating whitelisted habit fields must succeed');
 
+  // C2. Update Sheet Hub linkage metadata fields -> 200
+  const updateSheetLinks = await firestoreRequest(`users/${uid}/habits/${habitId}`, 'PATCH', {
+    uid,
+    data: {
+      userId: uid,
+      title: 'Evening Gym Workout',
+      frequency: 'daily',
+      targetDaysPerWeek: 6,
+      sourceSpreadsheetId: 'sheet_habit_123',
+      sourceSheetId: 42,
+      sourceRowId: 'row_1',
+      sourceMappingKey: 'sheet_habit_123::42::evening_gym',
+      sourceLayout: 'matrix',
+      updatedAt: '2026-11-14T09:02:00Z',
+    },
+    updateMask: [
+      'title',
+      'targetDaysPerWeek',
+      'sourceSpreadsheetId',
+      'sourceSheetId',
+      'sourceRowId',
+      'sourceMappingKey',
+      'sourceLayout',
+      'updatedAt',
+    ],
+  });
+  assert.equal(updateSheetLinks.status, 200, 'Updating Sheet Hub source* linkage fields on habit must succeed');
+
   // D. Prohibited field update: injecting unwhitelisted property -> 403
   const updateProhibited = await firestoreRequest(`users/${uid}/habits/${habitId}`, 'PATCH', {
     uid,

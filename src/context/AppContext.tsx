@@ -129,12 +129,23 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'sheet_hub',
 ] as const;
 
+export function resolveNavTabFromLocation(search: string, hash: string): NavTab | null {
+  const rawHash = (hash || '').replace(/^#\/?/, '').trim();
+  if (VALID_NAV_TABS.includes(rawHash as NavTab)) {
+    return rawHash as NavTab;
+  }
+  if (search) {
+    const tabParam = new URLSearchParams(search).get('tab')?.trim();
+    if (tabParam && VALID_NAV_TABS.includes(tabParam as NavTab)) {
+      return tabParam as NavTab;
+    }
+  }
+  return null;
+}
+
 function readInitialTabFromHash(): NavTab {
   if (typeof window !== 'undefined') {
-    const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
-    if (VALID_NAV_TABS.includes(rawHash as NavTab)) {
-      return rawHash as NavTab;
-    }
+    return resolveNavTabFromLocation(window.location.search, window.location.hash) || 'dashboard';
   }
   return 'dashboard';
 }
@@ -402,25 +413,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     if (typeof window !== 'undefined') {
       const nextHash = `#${tab}`;
-      if (window.location.hash !== nextHash) {
-        window.history.pushState(null, '', nextHash);
+      const url = new URL(window.location.href);
+      const hadTabQuery = url.searchParams.has('tab');
+      if (hadTabQuery) {
+        url.searchParams.delete('tab');
+      }
+      if (url.hash !== nextHash || hadTabQuery) {
+        url.hash = nextHash;
+        window.history.pushState(null, '', `${url.pathname}${url.search}${url.hash}`);
       }
     }
   }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const onHashChange = () => {
-      const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
-      if (VALID_NAV_TABS.includes(rawHash as NavTab)) {
-        setCurrentTabState(rawHash as NavTab);
+    const onLocationChange = () => {
+      const resolved = resolveNavTabFromLocation(window.location.search, window.location.hash);
+      if (resolved) {
+        setCurrentTabState(resolved);
       }
     };
-    window.addEventListener('hashchange', onHashChange);
-    window.addEventListener('popstate', onHashChange);
+    window.addEventListener('hashchange', onLocationChange);
+    window.addEventListener('popstate', onLocationChange);
     return () => {
-      window.removeEventListener('hashchange', onHashChange);
-      window.removeEventListener('popstate', onHashChange);
+      window.removeEventListener('hashchange', onLocationChange);
+      window.removeEventListener('popstate', onLocationChange);
     };
   }, []);
   const [user, setUser] = useState<User | null>(null);
@@ -656,6 +673,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveStudyActivityType(null);
     clientDataCache.setActiveUser(null);
     clientDataCache.clear();
+    googleSheetsService.resetForUserSwitch();
     restoredFirebaseUidRef.current = null;
     setThemeSyncState('local');
     setAuthError(null);

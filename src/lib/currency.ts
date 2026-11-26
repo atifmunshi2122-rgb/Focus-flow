@@ -36,14 +36,24 @@ export function formatCurrency(
 
   if (options?.compact && units >= 1000) {
     let compactFormatted: string;
-    if (units >= 10000000) {
-      // 1 Crore = 10,000,000
-      compactFormatted = `${(units / 10000000).toFixed(2)}Cr`;
-    } else if (units >= 100000) {
-      // 1 Lakh = 100,000
-      compactFormatted = `${(units / 100000).toFixed(1)}L`;
+    if (currency === 'INR') {
+      if (units >= 10_000_000) {
+        // 1 Crore = 10,000,000
+        compactFormatted = `${(units / 10_000_000).toFixed(2)}Cr`;
+      } else if (units >= 100_000) {
+        // 1 Lakh = 100,000
+        compactFormatted = `${(units / 100_000).toFixed(1)}L`;
+      } else {
+        compactFormatted = `${(units / 1000).toFixed(1)}K`;
+      }
     } else {
-      compactFormatted = `${(units / 1000).toFixed(1)}K`;
+      if (units >= 1_000_000_000) {
+        compactFormatted = `${(units / 1_000_000_000).toFixed(2)}B`;
+      } else if (units >= 1_000_000) {
+        compactFormatted = `${(units / 1_000_000).toFixed(2)}M`;
+      } else {
+        compactFormatted = `${(units / 1000).toFixed(1)}K`;
+      }
     }
     return `${isNegative ? '-' : ''}${symbol}${compactFormatted}`;
   }

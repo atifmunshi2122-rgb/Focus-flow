@@ -167,13 +167,19 @@ export class PushNotificationService {
       return { delivered: 0, failed: 0, skipped: true };
     }
 
-    // 1. Check user notification preferences
+    // 1. Check user notification preferences (authoritative doc is settings/default; legacy fallback: settings/preferences)
     let settings = dbService.getUserSettings(userId);
-    if (!settings && (hasServiceAccountCredentials() || this.customFirestore)) {
+    if (hasServiceAccountCredentials() || this.customFirestore) {
       try {
-        const settingsDoc = await this.firestore.collection('users').doc(userId).collection('settings').doc('preferences').get();
-        if (settingsDoc.exists) {
-          settings = settingsDoc.data() as any;
+        const settingsCol = this.firestore.collection('users').doc(userId).collection('settings');
+        const defaultDoc = await settingsCol.doc('default').get();
+        if (defaultDoc.exists) {
+          settings = defaultDoc.data() as any;
+        } else if (!settings) {
+          const legacyDoc = await settingsCol.doc('preferences').get().catch(() => null);
+          if (legacyDoc?.exists) {
+            settings = legacyDoc.data() as any;
+          }
         }
       } catch {
         // Fallback to local
@@ -344,15 +350,22 @@ export class PushNotificationService {
 
       if (hasServiceAccountCredentials() || this.customFirestore) {
         try {
-          const [tSnap, bSnap, sSnap] = await Promise.all([
-            this.firestore.collection('users').doc(userId).collection('tasks').get(),
-            this.firestore.collection('users').doc(userId).collection('bills').get(),
-            this.firestore.collection('users').doc(userId).collection('settings').doc('preferences').get(),
+          const userRef = this.firestore.collection('users').doc(userId);
+          const settingsCol = userRef.collection('settings');
+          const [tSnap, bSnap, defaultSnap] = await Promise.all([
+            userRef.collection('tasks').get(),
+            userRef.collection('bills').get(),
+            settingsCol.doc('default').get(),
           ]);
           tasks = tSnap.docs.map((d: any) => d.data()).filter((t: any) => !t.deletedAt);
           bills = bSnap.docs.map((d: any) => d.data()).filter((b: any) => !b.deletedAt);
-          if (sSnap.exists) {
-            settings = sSnap.data() as any;
+          if (defaultSnap.exists) {
+            settings = defaultSnap.data() as any;
+          } else {
+            const legacySnap = await settingsCol.doc('preferences').get().catch(() => null);
+            if (legacySnap?.exists) {
+              settings = legacySnap.data() as any;
+            }
           }
         } catch (err) {
           console.warn(`[FCM] Error loading Firestore records for ${userId}:`, err);
@@ -361,6 +374,7 @@ export class PushNotificationService {
 
       const dashboard = null;
       const financeSummary = null;
+      const userTodayStr = getTodayDateString((settings as any)?.timezone || DEFAULT_TIMEZONE);
 
       const items = evaluateDeterministicNotifications({
         settings: (settings as any) || null,
@@ -371,7 +385,7 @@ export class PushNotificationService {
       });
 
       for (const item of items) {
-        const entryId = `${item.category}_${item.id}_${todayStr}`;
+        const entryId = `${item.category}_${item.id}_${userTodayStr}`;
         const ledgerRef = this.firestore
           .collection('users')
           .doc(userId)

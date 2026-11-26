@@ -2387,6 +2387,20 @@ export const firestoreService = {
       reminderTime: input.reminderTime !== undefined ? input.reminderTime : (existing.reminderTime ?? ''),
       archived: input.archived !== undefined ? Boolean(input.archived) : Boolean(existing.archived),
       deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing.deletedAt ?? null),
+      sourceSpreadsheetId:
+        input.sourceSpreadsheetId !== undefined
+          ? input.sourceSpreadsheetId
+          : (existing.sourceSpreadsheetId ?? null),
+      sourceSheetId:
+        input.sourceSheetId !== undefined ? input.sourceSheetId : (existing.sourceSheetId ?? null),
+      sourceRowId:
+        input.sourceRowId !== undefined ? input.sourceRowId : (existing.sourceRowId ?? null),
+      sourceMappingKey:
+        input.sourceMappingKey !== undefined
+          ? input.sourceMappingKey
+          : (existing.sourceMappingKey ?? null),
+      sourceLayout:
+        input.sourceLayout !== undefined ? input.sourceLayout : (existing.sourceLayout ?? null),
       createdAt: input.createdAt ?? existing.createdAt ?? nowIso,
       updatedAt: nowIso,
     };

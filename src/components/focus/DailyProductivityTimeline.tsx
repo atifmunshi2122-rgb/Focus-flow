@@ -29,10 +29,11 @@ import {
 } from 'lucide-react';
 
 export const DailyProductivityTimeline: React.FC = () => {
-  const { refreshKey, triggerRefresh, setCurrentTab } = useApp();
+  const { settings, refreshKey, triggerRefresh, setCurrentTab } = useApp();
   const { isDisabled } = useMotionPreferences();
 
-  const todayStr = useMemo(() => getTodayDateString(DEFAULT_TIMEZONE), []);
+  const timezone = settings?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = useMemo(() => getTodayDateString(timezone), [timezone]);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -66,8 +67,9 @@ export const DailyProductivityTimeline: React.FC = () => {
       sessions,
       habits,
       timeBlocks,
+      timezone,
     });
-  }, [selectedDate, tasks, sessions, habits, timeBlocks]);
+  }, [selectedDate, tasks, sessions, habits, timeBlocks, timezone]);
 
   const handlePrevDay = () => setSelectedDate((prev) => addDays(prev, -1));
   const handleNextDay = () => setSelectedDate((prev) => addDays(prev, 1));

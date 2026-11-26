@@ -224,10 +224,8 @@ export function computePeriodicFocusStats(
   const dailyTrend: { date: string; dayLabel: string; minutes: number }[] = [];
 
   for (let i = 6; i >= 0; i--) {
-    const day = new Date(refDate);
-    day.setDate(refDate.getDate() - i);
-    const dStr = formatDateInTimezone(day, timezone);
-    const dayIndex = new Date(dStr + 'T12:00:00Z').getDay();
+    const dStr = addDays(todayStr, -i);
+    const dayIndex = new Date(dStr + 'T12:00:00Z').getUTCDay();
     const label = dayLabels[dayIndex];
 
     const dayMins = workSessions

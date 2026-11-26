@@ -267,15 +267,19 @@ var init_dateTime2 = __esm({
 
 // src/lib/vaultIntelligence.ts
 function isValidRatio(ratio, memberUids) {
-  if (!ratio || typeof ratio !== "object") return false;
+  if (!ratio || typeof ratio !== "object" || Array.isArray(ratio)) return false;
+  const uniqueMembers = Array.from(new Set((memberUids || []).filter(Boolean)));
+  if (uniqueMembers.length !== 1 && uniqueMembers.length !== 2) return false;
   const keys = Object.keys(ratio);
-  if (keys.length !== 2) return false;
-  for (const uid of memberUids) {
-    if (typeof ratio[uid] !== "number" || !Number.isInteger(ratio[uid]) || ratio[uid] < 0 || ratio[uid] > 100) {
+  if (keys.length !== uniqueMembers.length) return false;
+  for (const uid of uniqueMembers) {
+    if (!Object.prototype.hasOwnProperty.call(ratio, uid)) return false;
+    const val = ratio[uid];
+    if (typeof val !== "number" || !Number.isInteger(val) || val < 0 || val > 100) {
       return false;
     }
   }
-  const sum = keys.reduce((acc, k) => acc + (ratio[k] || 0), 0);
+  const sum = uniqueMembers.reduce((acc, uid) => acc + ratio[uid], 0);
   return sum === 100;
 }
 function allocateTargetPaise(totalTargetPaise, ratioA, uidA, uidB) {
@@ -312,9 +316,10 @@ function computeMemberContributionStats(vault, members, contributions) {
   return stats;
 }
 function computeVaultSettlement(members, expenses, settlements) {
-  if (members.length < 2) return null;
-  const memberA = members[0];
-  const memberB = members[1];
+  const activeMembers = (members || []).filter((m) => m.status === "active");
+  if (activeMembers.length < 2) return null;
+  const memberA = activeMembers[0];
+  const memberB = activeMembers[1];
   const activeExpenses = expenses.filter((e) => e.status === "active");
   let paidByA = 0;
   let paidByB = 0;
@@ -444,12 +449,22 @@ function formatCurrency(amountPaise, currency = "INR", options) {
   const units = absPaise / 100;
   if (options?.compact && units >= 1e3) {
     let compactFormatted;
-    if (units >= 1e7) {
-      compactFormatted = `${(units / 1e7).toFixed(2)}Cr`;
-    } else if (units >= 1e5) {
-      compactFormatted = `${(units / 1e5).toFixed(1)}L`;
+    if (currency === "INR") {
+      if (units >= 1e7) {
+        compactFormatted = `${(units / 1e7).toFixed(2)}Cr`;
+      } else if (units >= 1e5) {
+        compactFormatted = `${(units / 1e5).toFixed(1)}L`;
+      } else {
+        compactFormatted = `${(units / 1e3).toFixed(1)}K`;
+      }
     } else {
-      compactFormatted = `${(units / 1e3).toFixed(1)}K`;
+      if (units >= 1e9) {
+        compactFormatted = `${(units / 1e9).toFixed(2)}B`;
+      } else if (units >= 1e6) {
+        compactFormatted = `${(units / 1e6).toFixed(2)}M`;
+      } else {
+        compactFormatted = `${(units / 1e3).toFixed(1)}K`;
+      }
     }
     return `${isNegative ? "-" : ""}${symbol}${compactFormatted}`;
   }
@@ -7554,24 +7569,42 @@ function corsHandler(req, res, next) {
     }
   }
   let isAllowed = false;
+  let isWildcardCors = false;
   if (!origin || sameHostOrigin) {
     isAllowed = true;
-  } else if (allowedOriginsEnv) {
-    const list = allowedOriginsEnv.split(",").map((o) => o.trim());
-    isAllowed = list.includes(origin) || list.includes("*");
-  } else if (appUrl && (origin === appUrl || origin === new URL(appUrl).origin)) {
-    isAllowed = true;
+  } else if (allowedOriginsEnv && allowedOriginsEnv.trim() !== "") {
+    const list = allowedOriginsEnv.split(",").map((o) => o.trim()).filter(Boolean);
+    if (list.includes(origin)) {
+      isAllowed = true;
+    } else if (list.includes("*")) {
+      isAllowed = true;
+      isWildcardCors = true;
+    }
+  } else if (appUrl && appUrl.trim() !== "") {
+    try {
+      const trimmedAppUrl = appUrl.trim();
+      const normalizedAppUrl = trimmedAppUrl.startsWith("http://") || trimmedAppUrl.startsWith("https://") ? trimmedAppUrl : `https://${trimmedAppUrl}`;
+      const appOrigin = new URL(normalizedAppUrl).origin;
+      isAllowed = origin === trimmedAppUrl || origin === appOrigin;
+    } catch {
+      isAllowed = false;
+    }
   } else if (process.env.NODE_ENV !== "production") {
     isAllowed = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
   }
   if (origin && isAllowed) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+    if (isWildcardCors) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+    } else {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Vary", "Origin");
+    }
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     res.setHeader(
       "Access-Control-Allow-Headers",
       "Content-Type, Authorization, x-demo-session, x-user-id, x-google-access-token, X-CSRF-Token, X-Requested-With, Accept, Accept-Version"
     );
-    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Max-Age", "86400");
   }
   if (req.method === "OPTIONS") {
@@ -13790,7 +13823,7 @@ googleCalendarOAuthCallbackRouter.get(
                 window.opener.postMessage({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true }, window.location.origin);
                 setTimeout(() => window.close(), 1000);
               } else {
-                window.location.href = '/?tab=settings&calendar=connected';
+                window.location.href = '/?tab=settings&calendar=connected#settings';
               }
             </script>
           </body>
@@ -14015,13 +14048,16 @@ init_dateTime();
 init_dateTime();
 
 // src/lib/productivityIntelligence.ts
+function getCalendarWeekday(dateStr) {
+  const parsed = parseDateString(dateStr);
+  if (!parsed) return null;
+  return new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day)).getUTCDay();
+}
 function isHabitScheduledOnDate(habit, dateStr) {
   if (habit.archived || habit.deletedAt) return false;
   if (habit.frequency === "daily") return true;
-  const parsed = parseDateString(dateStr);
-  if (!parsed) return true;
-  const d = new Date(parsed.year, parsed.month - 1, parsed.day);
-  const dayOfWeek = d.getDay();
+  const dayOfWeek = getCalendarWeekday(dateStr);
+  if (dayOfWeek === null) return true;
   if (habit.frequency === "custom") {
     const allowed = habit.customDays && habit.customDays.length > 0 ? habit.customDays : [0, 1, 2, 3, 4, 5, 6];
     return allowed.includes(dayOfWeek);
@@ -14381,11 +14417,17 @@ var PushNotificationService = class {
       return { delivered: 0, failed: 0, skipped: true };
     }
     let settings = dbService.getUserSettings(userId);
-    if (!settings && (hasServiceAccountCredentials() || this.customFirestore)) {
+    if (hasServiceAccountCredentials() || this.customFirestore) {
       try {
-        const settingsDoc = await this.firestore.collection("users").doc(userId).collection("settings").doc("preferences").get();
-        if (settingsDoc.exists) {
-          settings = settingsDoc.data();
+        const settingsCol = this.firestore.collection("users").doc(userId).collection("settings");
+        const defaultDoc = await settingsCol.doc("default").get();
+        if (defaultDoc.exists) {
+          settings = defaultDoc.data();
+        } else if (!settings) {
+          const legacyDoc = await settingsCol.doc("preferences").get().catch(() => null);
+          if (legacyDoc?.exists) {
+            settings = legacyDoc.data();
+          }
         }
       } catch {
       }
@@ -14517,15 +14559,22 @@ var PushNotificationService = class {
       let bills = rawDb.bills.filter((b) => b.userId === userId && !b.deletedAt);
       if (hasServiceAccountCredentials() || this.customFirestore) {
         try {
-          const [tSnap, bSnap, sSnap] = await Promise.all([
-            this.firestore.collection("users").doc(userId).collection("tasks").get(),
-            this.firestore.collection("users").doc(userId).collection("bills").get(),
-            this.firestore.collection("users").doc(userId).collection("settings").doc("preferences").get()
+          const userRef = this.firestore.collection("users").doc(userId);
+          const settingsCol = userRef.collection("settings");
+          const [tSnap, bSnap, defaultSnap] = await Promise.all([
+            userRef.collection("tasks").get(),
+            userRef.collection("bills").get(),
+            settingsCol.doc("default").get()
           ]);
           tasks = tSnap.docs.map((d) => d.data()).filter((t) => !t.deletedAt);
           bills = bSnap.docs.map((d) => d.data()).filter((b) => !b.deletedAt);
-          if (sSnap.exists) {
-            settings = sSnap.data();
+          if (defaultSnap.exists) {
+            settings = defaultSnap.data();
+          } else {
+            const legacySnap = await settingsCol.doc("preferences").get().catch(() => null);
+            if (legacySnap?.exists) {
+              settings = legacySnap.data();
+            }
           }
         } catch (err) {
           console.warn(`[FCM] Error loading Firestore records for ${userId}:`, err);
@@ -14533,6 +14582,7 @@ var PushNotificationService = class {
       }
       const dashboard = null;
       const financeSummary = null;
+      const userTodayStr = getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE);
       const items = evaluateDeterministicNotifications({
         settings: settings || null,
         tasks,
@@ -14541,7 +14591,7 @@ var PushNotificationService = class {
         financeSummary
       });
       for (const item of items) {
-        const entryId = `${item.category}_${item.id}_${todayStr}`;
+        const entryId = `${item.category}_${item.id}_${userTodayStr}`;
         const ledgerRef = this.firestore.collection("users").doc(userId).collection("notification_delivery_ledger").doc(entryId);
         const existing = await ledgerRef.get();
         if (existing.exists) {
