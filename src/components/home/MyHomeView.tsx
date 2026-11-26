@@ -10,6 +10,7 @@ import {
   Eye,
   GraduationCap,
   Hand,
+  Heart,
   Home,
   LampDesk,
   Laptop,
@@ -17,9 +18,11 @@ import {
   Moon,
   RefreshCw,
   RotateCcw,
+  ShoppingBag,
   ShowerHead,
   Smile,
   Sparkles,
+  Star,
   Sun,
   Sunrise,
   Target,
@@ -28,6 +31,7 @@ import {
   Utensils,
   Volume2,
   VolumeX,
+  Wind,
   Zap,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
@@ -60,15 +64,40 @@ import type {
   TimeBlock,
 } from '../../types/index.ts';
 import type { StudyExam, StudySubject, StudyTopic } from '../../types/study.ts';
-import type { DoomscrollTaxEntry, TimeCapsuleLetter } from '../../types/features15.ts';
+import type { DoomscrollTaxEntry, SkillNode, TimeCapsuleLetter } from '../../types/features15.ts';
 import {
   HOME_ZONES,
+  clampWalkableFloorPosition,
   computeHomeWaypointPath,
   deriveDefaultLightingForHour,
   deriveHomeRoutineState,
   getZonedHourMinute,
   type HomeZoneId,
 } from '../../features/home/homeRoutineEngine.ts';
+import {
+  DEFAULT_CUSTOM_FRAMES,
+  DEFAULT_HOME_SHOP_STATE,
+  computeConstellationStars,
+  computeFocusAquariumState,
+  computeFocusCoinsBalance,
+  computeMonthlyBudgetSummary,
+  computeStreakHeatmapDays,
+  computeSunMoonSkyPosition,
+  placeOrMoveShopItem,
+  purchaseShopItem,
+  removePlacedShopItem,
+  rotatePlacedShopItem,
+  type ConstellationStar,
+  type CustomWallFrameConfig,
+  type FocusAquariumState,
+  type HeatmapCell,
+  type HomeShopState,
+  type MonthlyBudgetSummary,
+  type PlacedShopItem,
+  type ShopItemId,
+  type SunMoonSkyState,
+} from '../../features/home/homeShopAndLayout.ts';
+import type { AvatarEmote, AvatarEmoteEvent } from '../../features/study-room/types.ts';
 import {
   MORNING_SEQUENCE_TOTAL_SECONDS,
   buildVisitorHomeFromLeaderboardProfile,
@@ -120,18 +149,35 @@ import RoomWeatherEffects from '../study-room/RoomWeatherEffects.tsx';
 import { MyHomeApartment } from './MyHomeApartment.tsx';
 import { MyHomePet } from './MyHomePet.tsx';
 import {
+  CustomWallFramesModal,
   DoomscrollJarModal,
   DoorstepParcelMailModal,
   EndDaySleepModal,
   ExamAndSeasonModal,
+  FurnitureShopModal,
   KitchenDiningPopup,
   TimeCapsuleQuickModal,
   UpgradesAndPetModal,
   VisitHomeModal,
   WallSchedulePopup,
 } from './MyHomeModals.tsx';
+import {
+  ArcadeMiniGameModal,
+  DreamGlobeModal,
+  PaperAirplaneInboxModal,
+} from './MyHomeArcadeModal.tsx';
+import {
+  DREAM_GLOBE_CITIES,
+  computeDreamGlobeProgress,
+  computeMomentumWeatherOrbState,
+  computeVinylRecordRack,
+  type DreamGlobeDestination,
+  type MomentumWeatherOrbState,
+  type PaperAirplaneMessage,
+  type VinylRecordSleeve,
+} from '../../features/home/homeDreamAndArcade.ts';
 
-type HomeCameraPreset = 'isometric' | 'free' | 'follow' | 'desk_pov';
+type HomeCameraPreset = 'isometric' | 'free' | 'follow' | 'desk_pov' | 'observatory';
 
 const HOME_CAMERA_PRESETS: Record<RoomCameraMode, { position: [number, number, number]; target: [number, number, number] }> = {
   isometric: {
@@ -149,6 +195,10 @@ const HOME_CAMERA_PRESETS: Record<RoomCameraMode, { position: [number, number, n
   desk_pov: {
     position: [-3.35, 1.34, 1.07],
     target: [-4.55, 1.04, 0.92],
+  },
+  observatory: {
+    position: [-5.4, 1.85, 2.2],
+    target: [-3.8, 4.7, -5.8],
   },
 };
 
@@ -244,9 +294,43 @@ interface HomeSceneContentProps {
   hydrationState: HydrationHabitState;
   apartmentExpansion: ApartmentExpansionState;
   hideAvatarForPov: boolean;
+  walkTarget: { pos: [number, number, number]; seq: number } | null;
+  shopPlacedItems: PlacedShopItem[];
+  layoutEditMode: boolean;
+  selectedShopItemId: ShopItemId | null;
+  skyState: SunMoonSkyState;
+  showFireworks: boolean;
+  breathingOrb: { active: boolean; secondsLeft: number };
+  smartTvData: {
+    todayFocusMinutes: number;
+    dailyGoalMinutes: number;
+    budgetSummary: MonthlyBudgetSummary;
+    heatmap: HeatmapCell[];
+    streakDays: number;
+  };
+  focusAquarium: FocusAquariumState;
+  constellationStars: ConstellationStar[];
+  isObservatoryMode: boolean;
+  totalSavedPaise: number;
+  coinDropSeq: number;
+  customFrames: CustomWallFrameConfig[];
+  isStandingDesk: boolean;
+  dailyTargetPct: number;
+  paperAirplaneState: { unreadCount: number; latestMessage: PaperAirplaneMessage | null };
+  dreamGlobe: { destination: DreamGlobeDestination; progress: number };
+  vinylSleeves: VinylRecordSleeve[];
+  activeAmbientPreset: string;
+  weatherOrbState: MomentumWeatherOrbState;
+  onSelectVinylSleeve: (sleeve: VinylRecordSleeve) => void;
+  onDropBonusCoin: () => void;
+  petReactionCue: { type: 'pet' | 'feed'; seq: number } | null;
+  coStudyGuests: VisitorHomeTarget[];
+  guestEmoteEvent: AvatarEmoteEvent | null;
   onRegisterCapture?: (fn: (() => string) | null) => void;
   onWalkingChange: (walking: boolean) => void;
   onSelectZone: (zone: HomeZoneId) => void;
+  onClickFloor: (x: number, z: number) => void;
+  onSelectShopItem: (id: ShopItemId) => void;
   onClickFurniture: (shortcut: FurnitureShortcutId) => void;
   onCompleteCorkboardTask: (taskId: string) => void;
   onClickPet: () => void;
@@ -289,9 +373,37 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
   hydrationState,
   apartmentExpansion,
   hideAvatarForPov,
+  walkTarget,
+  shopPlacedItems,
+  layoutEditMode,
+  selectedShopItemId,
+  skyState,
+  showFireworks,
+  breathingOrb,
+  smartTvData,
+  focusAquarium,
+  constellationStars,
+  isObservatoryMode,
+  totalSavedPaise,
+  coinDropSeq,
+  customFrames,
+  isStandingDesk,
+  dailyTargetPct,
+  paperAirplaneState,
+  dreamGlobe,
+  vinylSleeves,
+  activeAmbientPreset,
+  weatherOrbState,
+  onSelectVinylSleeve,
+  onDropBonusCoin,
+  petReactionCue,
+  coStudyGuests,
+  guestEmoteEvent,
   onRegisterCapture,
   onWalkingChange,
   onSelectZone,
+  onClickFloor,
+  onSelectShopItem,
   onClickFurniture,
   onCompleteCorkboardTask,
   onClickPet,
@@ -317,6 +429,39 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
   const [rigCaps, setRigCaps] = useState<RigCapabilities | null>(null);
 
   const mountedZoneRef = useRef<HomeZoneId>(routineState.zone);
+  const wasdKeysRef = useRef<Record<string, boolean>>({});
+  const isWasdMovingRef = useRef(false);
+
+  // Keyboard WASD / Arrow movement listener (disabled while typing in inputs)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const k = e.key.toLowerCase();
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+        wasdKeysRef.current[k] = true;
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      wasdKeysRef.current[e.key.toLowerCase()] = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  // Trigger direct floor walk whenever user clicks a walkable floor coordinate
+  useEffect(() => {
+    if (!walkTarget || isVisiting) return;
+    queueRef.current = [[walkTarget.pos[0], 0, walkTarget.pos[2]]];
+    if (!walkingFlagRef.current) {
+      walkingFlagRef.current = true;
+      onWalkingChange(true);
+    }
+  }, [walkTarget?.seq, isVisiting, onWalkingChange]);
 
   // Trigger smooth waypoint path whenever destination zone or rig type changes
   useEffect(() => {
@@ -353,6 +498,43 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
     const zoneCfg = HOME_ZONES[routineState.zone];
     const queue = queueRef.current;
 
+    // Free WASD / Arrow walking in own home (outside Desk POV)
+    if (!isVisiting && !hideAvatarForPov) {
+      const keys = wasdKeysRef.current;
+      let moveX = 0;
+      let moveZ = 0;
+      if (keys['w'] || keys['arrowup']) moveZ -= 1;
+      if (keys['s'] || keys['arrowdown']) moveZ += 1;
+      if (keys['a'] || keys['arrowleft']) moveX -= 1;
+      if (keys['d'] || keys['arrowright']) moveX += 1;
+
+      if (moveX !== 0 || moveZ !== 0) {
+        const len = Math.hypot(moveX, moveZ);
+        const speed = 2.35 * clampedDelta;
+        const nextClamped = clampWalkableFloorPosition(
+          currentPosRef.current[0] + (moveX / len) * speed,
+          currentPosRef.current[2] + (moveZ / len) * speed
+        );
+        currentPosRef.current = nextClamped;
+        queueRef.current = [];
+        const moveYaw = Math.atan2(moveX, moveZ);
+        currentRotYRef.current = shortestAngleLerp(currentRotYRef.current, moveYaw, Math.min(1, clampedDelta * 12));
+        if (!isWasdMovingRef.current) {
+          isWasdMovingRef.current = true;
+          walkingFlagRef.current = true;
+          onWalkingChange(true);
+        }
+        walker.position.set(currentPosRef.current[0], currentPosRef.current[1], currentPosRef.current[2]);
+        walker.rotation.y = currentRotYRef.current;
+        followPointRef.current = currentPosRef.current;
+        return;
+      } else if (isWasdMovingRef.current) {
+        isWasdMovingRef.current = false;
+        walkingFlagRef.current = false;
+        onWalkingChange(false);
+      }
+    }
+
     if (queue.length > 0) {
       const target = queue[0];
       const [cx, cy, cz] = currentPosRef.current;
@@ -385,6 +567,15 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
       }
     } else {
       // Arrived cleanly: face the zone's natural orientation
+      if (routineState.zone === 'study' && !isVisiting && !isStaticUnrigged) {
+        const targetStandX = isStandingDesk ? -3.68 : zoneCfg.anchorPosition[0];
+        const targetStandZ = isStandingDesk ? 1.05 : zoneCfg.anchorPosition[2];
+        currentPosRef.current = [
+          THREE.MathUtils.lerp(currentPosRef.current[0], targetStandX, Math.min(1, clampedDelta * 6)),
+          currentPosRef.current[1],
+          THREE.MathUtils.lerp(currentPosRef.current[2], targetStandZ, Math.min(1, clampedDelta * 6)),
+        ];
+      }
       currentRotYRef.current = shortestAngleLerp(
         currentRotYRef.current,
         zoneCfg.targetRotationY,
@@ -404,6 +595,8 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
   const effectivePoseMode = isWalking
     ? 'standing'
     : isStaticUnrigged
+    ? 'standing'
+    : isStandingDesk && routineState.zone === 'study' && !isVisiting
     ? 'standing'
     : routineState.poseMode;
 
@@ -487,7 +680,32 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
         isVinylPlaying={isVinylPlaying}
         hydrationState={hydrationState}
         apartmentExpansion={apartmentExpansion}
+        walkTargetPos={walkTarget?.pos || null}
+        shopPlacedItems={shopPlacedItems}
+        layoutEditMode={layoutEditMode}
+        selectedShopItemId={selectedShopItemId}
+        skyState={skyState}
+        showFireworks={showFireworks}
+        breathingOrb={breathingOrb}
+        smartTvData={smartTvData}
+        focusAquarium={focusAquarium}
+        constellationStars={constellationStars}
+        isObservatoryMode={isObservatoryMode}
+        totalSavedPaise={totalSavedPaise}
+        coinDropSeq={coinDropSeq}
+        customFrames={customFrames}
+        isStandingDesk={isStandingDesk}
+        dailyTargetPct={dailyTargetPct}
+        paperAirplaneState={paperAirplaneState}
+        dreamGlobe={dreamGlobe}
+        vinylSleeves={vinylSleeves}
+        activeAmbientPreset={activeAmbientPreset}
+        weatherOrbState={weatherOrbState}
+        onSelectVinylSleeve={onSelectVinylSleeve}
+        onDropBonusCoin={onDropBonusCoin}
         onSelectZone={onSelectZone}
+        onClickFloor={onClickFloor}
+        onSelectShopItem={onSelectShopItem}
         onClickFurniture={onClickFurniture}
         onCompleteCorkboardTask={onCompleteCorkboardTask}
       />
@@ -501,8 +719,42 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
         avatarGroupRef={walkerRef}
         streakDays={petStreakDays}
         isVisiting={isVisiting}
+        reactionCue={petReactionCue}
         onClickPet={onClickPet}
       />
+
+      {/* Co-Study Squad Guests (up to 3 live members) */}
+      {!isVisiting &&
+        coStudyGuests.slice(0, 3).map((guest, idx) => {
+          const spots: Array<{ pos: [number, number, number]; rotY: number }> = [
+            { pos: [-0.97, 0, 1.01], rotY: Math.PI / 2 },
+            { pos: [0.67, 0, 1.01], rotY: -Math.PI / 2 },
+            { pos: [-2.55, 0, 1.75], rotY: -Math.PI / 2 },
+          ];
+          const spot = spots[idx] || spots[0];
+          const gIdentity = resolveStudyAvatarIdentity({
+            uid: guest.uid,
+            displayName: guest.displayName,
+            avatarColor: '#38bdf8',
+            avatarConfig: guest.avatarConfig ?? null,
+          });
+          return (
+            <group key={guest.uid} position={spot.pos} rotation={[0, spot.rotY, 0]}>
+              <Suspense fallback={null}>
+                <StudyAvatar
+                  modelUrl={gIdentity.modelUrl}
+                  name={guest.displayName}
+                  activity={guest.isStudyingLive ? 'typing' : 'idle'}
+                  poseMode="seated"
+                  customization={gIdentity.customization}
+                  isLive={guest.isStudyingLive}
+                  subtitle={guest.activeSubject || (guest.isStudyingLive ? 'Co-Studying' : 'On Break')}
+                  emoteEvent={guestEmoteEvent}
+                />
+              </Suspense>
+            </group>
+          );
+        })}
 
       <group
         ref={walkerRef}
@@ -720,6 +972,7 @@ export const MyHomeView: React.FC = () => {
   const [examsData, setExamsData] = useState<StudyExam[]>([]);
   const [subjectsData, setSubjectsData] = useState<StudySubject[]>([]);
   const [topicsData, setTopicsData] = useState<StudyTopic[]>([]);
+  const [skillNodesData, setSkillNodesData] = useState<SkillNode[]>([]);
   const [latestWhiteboard, setLatestWhiteboard] = useState<{ dataUrl: string | null; title?: string }>({
     dataUrl: null,
   });
@@ -826,6 +1079,7 @@ export const MyHomeView: React.FC = () => {
           wbRes,
           doomRes,
           capsRes,
+          skillsRes,
         ] = await Promise.all([
           api.getTasks().catch(() => [] as Task[]),
           api.getBills().catch(() => [] as Bill[]),
@@ -841,6 +1095,7 @@ export const MyHomeView: React.FC = () => {
           api.getWhiteboardDrawings().catch(() => []),
           api.getDoomscrollLogs().catch(() => [] as DoomscrollTaxEntry[]),
           api.getTimeCapsules().catch(() => [] as TimeCapsuleLetter[]),
+          api.getSkillNodes().catch(() => [] as SkillNode[]),
         ]);
         if (cancelled) return;
         setTasksData(Array.isArray(tasksRes) ? tasksRes : []);
@@ -853,6 +1108,7 @@ export const MyHomeView: React.FC = () => {
         setExamsData(Array.isArray(examsRes) ? examsRes : []);
         setSubjectsData(Array.isArray(subjectsRes) ? subjectsRes : []);
         setTopicsData(Array.isArray(topicsRes) ? topicsRes : []);
+        setSkillNodesData(Array.isArray(skillsRes) ? skillsRes : []);
 
         // Latest Whiteboard drawing (cloud or local fallback)
         if (Array.isArray(wbRes) && wbRes.length > 0) {
@@ -956,7 +1212,101 @@ export const MyHomeView: React.FC = () => {
     | 'parcel_mail'
     | 'doomscroll_jar'
     | 'time_capsule'
+    | 'shop'
+    | 'custom_frames'
+    | 'arcade'
+    | 'paper_plane'
+    | 'dream_globe'
   >(null);
+
+  const [isStandingDesk, setIsStandingDesk] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(`focusflow_home_stand_desk_${activeUid}`) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [arcadeHighScore, setArcadeHighScore] = useState<number>(() => {
+    try {
+      return Number(localStorage.getItem(`focusflow_home_arcade_hs_${activeUid}`) || '0') || 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [dreamCity, setDreamCity] = useState<DreamGlobeDestination>(() => {
+    try {
+      const savedId = localStorage.getItem(`focusflow_home_dream_city_${activeUid}`);
+      const match = DREAM_GLOBE_CITIES.find((c) => c.id === savedId);
+      if (match) return match;
+    } catch {
+      // ignore
+    }
+    return DREAM_GLOBE_CITIES[0];
+  });
+  const [paperMessages, setPaperMessages] = useState<PaperAirplaneMessage[]>(() => {
+    try {
+      const raw = localStorage.getItem(`focusflow_home_paper_notes_${activeUid}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed as PaperAirplaneMessage[];
+      }
+    } catch {
+      // ignore
+    }
+    return [
+      {
+        id: 'welcome-plane-1',
+        senderName: 'Study Squad',
+        sourceLabel: 'Squad Note',
+        message: 'Keep up the streak! One focused Pomodoro at a time.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      },
+    ];
+  });
+
+  const [coinDropSeq, setCoinDropSeq] = useState(0);
+  const [customFrames, setCustomFrames] = useState<CustomWallFrameConfig[]>(() => {
+    try {
+      const raw = localStorage.getItem(`focusflow_home_frames_${activeUid}`);
+      if (raw) return JSON.parse(raw) as CustomWallFrameConfig[];
+    } catch {
+      // ignore
+    }
+    return DEFAULT_CUSTOM_FRAMES;
+  });
+
+  // Click-to-Walk floor destination
+  const [walkTarget, setWalkTarget] = useState<{ pos: [number, number, number]; seq: number } | null>(null);
+
+  // 3D Furniture Shop & 0.5m Grid Layout Editor
+  const [shopState, setShopState] = useState<HomeShopState>(() => {
+    try {
+      const raw = localStorage.getItem(`focusflow_home_shop_${activeUid}`);
+      if (raw) return JSON.parse(raw) as HomeShopState;
+    } catch {
+      // ignore
+    }
+    return DEFAULT_HOME_SHOP_STATE;
+  });
+  const [layoutEditMode, setLayoutEditMode] = useState(false);
+  const [selectedShopItemId, setSelectedShopItemId] = useState<ShopItemId | null>(null);
+
+  // Break Micro-Actions: Pet/Feed reaction & 1-min Breathing Orb
+  const [petReactionCue, setPetReactionCue] = useState<{ type: 'pet' | 'feed'; seq: number } | null>(null);
+  const [breathingSecondsLeft, setBreathingSecondsLeft] = useState(0);
+  useEffect(() => {
+    if (breathingSecondsLeft <= 0) return;
+    const id = window.setInterval(() => {
+      setBreathingSecondsLeft((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [breathingSecondsLeft > 0]);
+
+  // Co-Study Squad Guests (up to 3 live members)
+  const [showCoStudyGuests, setShowCoStudyGuests] = useState(false);
+  const [coStudyGuests, setCoStudyGuests] = useState<VisitorHomeTarget[]>([]);
+  const [guestEmoteEvent, setGuestEmoteEvent] = useState<AvatarEmoteEvent | null>(null);
 
   const isVisiting = Boolean(visitingTarget);
 
@@ -1350,6 +1700,115 @@ export const MyHomeView: React.FC = () => {
     [effectiveUnlocksSummary.level, isVisiting, apartmentTierOverride]
   );
 
+  const availableCoins = useMemo(
+    () =>
+      computeFocusCoinsBalance({
+        totalXP: gamificationXP,
+        completedWorkCyclesToday: flowStateSummary.completedWorkCyclesToday,
+        spentCoins: shopState.spentCoins,
+      }),
+    [gamificationXP, flowStateSummary.completedWorkCyclesToday, shopState.spentCoins]
+  );
+
+  const skyState = useMemo(
+    () => computeSunMoonSkyPosition(clockTick.hour, clockTick.minute, lighting === 'night'),
+    [clockTick.hour, clockTick.minute, lighting]
+  );
+
+  const smartTvData = useMemo(
+    () => ({
+      todayFocusMinutes: isVisiting ? 0 : dailyWrapUpStats.focusMinutesToday,
+      dailyGoalMinutes: settings?.dailyFocusGoalMinutes || 120,
+      budgetSummary: computeMonthlyBudgetSummary({
+        expenses: isVisiting ? [] : expensesData,
+        monthlyBudgetPaise: settings?.monthlyBudgetPaise,
+        todayStr,
+      }),
+      heatmap: computeStreakHeatmapDays({
+        sessions: isVisiting ? [] : sessionsData,
+        habits: isVisiting ? [] : habits,
+        todayStr,
+        timezone: userTimezone,
+      }),
+      streakDays: effectiveStreakDays,
+    }),
+    [
+      isVisiting,
+      dailyWrapUpStats.focusMinutesToday,
+      settings?.dailyFocusGoalMinutes,
+      settings?.monthlyBudgetPaise,
+      expensesData,
+      todayStr,
+      sessionsData,
+      habits,
+      userTimezone,
+      effectiveStreakDays,
+    ]
+  );
+
+  const showFireworks =
+    effectiveStreakDays >= 7 ||
+    effectiveUnlocksSummary.bestSavingsPct >= 100 ||
+    flowStateSummary.hasFourCycleLantern;
+
+  const focusAquarium = useMemo(
+    () =>
+      computeFocusAquariumState({
+        sessions: isVisiting ? [] : sessionsData,
+        streakDays: effectiveStreakDays,
+        todayStr,
+        timezone: userTimezone,
+      }),
+    [isVisiting, sessionsData, effectiveStreakDays, todayStr, userTimezone]
+  );
+
+  const constellationStars = useMemo(
+    () =>
+      computeConstellationStars({
+        subjects: isVisiting ? [] : subjectsData,
+        topics: isVisiting ? [] : topicsData,
+        skillNodes: isVisiting ? [] : skillNodesData,
+      }),
+    [isVisiting, subjectsData, topicsData, skillNodesData]
+  );
+
+  const totalSavedPaise = useMemo(
+    () =>
+      isVisiting
+        ? 0
+        : savingsGoalsData.reduce((acc, g) => acc + Math.max(0, Number(g.savedPaise || 0)), 0),
+    [isVisiting, savingsGoalsData]
+  );
+
+  const vinylSleeves = useMemo(
+    () => computeVinylRecordRack(isVisiting ? 0 : sessionsData.filter((s) => s.completed !== false).length),
+    [isVisiting, sessionsData]
+  );
+
+  const weatherOrbState = useMemo(
+    () =>
+      computeMomentumWeatherOrbState({
+        todayFocusMinutes: examSummary.todayFocusMinutes,
+        isFlowStateActive: flowStateSummary.isFlowStateActive,
+        isRunning: isVisiting ? Boolean(visitingTarget?.isStudyingLive) : isRunning,
+      }),
+    [examSummary.todayFocusMinutes, flowStateSummary.isFlowStateActive, isVisiting, visitingTarget?.isStudyingLive, isRunning]
+  );
+
+  const dreamGlobeProgress = useMemo(
+    () => computeDreamGlobeProgress(effectiveUnlocksSummary.bestSavingsPct),
+    [effectiveUnlocksSummary.bestSavingsPct]
+  );
+
+  const paperAirplaneState = useMemo(() => {
+    if (isVisiting) return { unreadCount: 0, latestMessage: null };
+    const unread = paperMessages.filter((m) => !m.read);
+    return {
+      unreadCount: unread.length,
+      latestMessage: unread[0] || paperMessages[0] || null,
+    };
+  }, [isVisiting, paperMessages]);
+
   const formatTimerClock = (totalSec: number) => {
     const mins = Math.floor(Math.max(0, totalSec) / 60);
     const secs = Math.max(0, totalSec) % 60;
@@ -1579,6 +2038,64 @@ export const MyHomeView: React.FC = () => {
         setAutoRoutine(false);
         setManualZone('dining');
         showToast?.('🌃 Taking a balcony skyline breather!', 'info');
+        return;
+      }
+
+      if (shortcut === 'smart_tv') {
+        showToast?.('📺 Opening Analytics & Reports...', 'info');
+        setCurrentTab('analytics');
+        return;
+      }
+
+      if (shortcut === 'custom_frame_1' || shortcut === 'custom_frame_2') {
+        setActiveShortcutModal('custom_frames');
+        return;
+      }
+
+      if (shortcut === 'observatory') {
+        setCameraPreset('observatory');
+        showToast?.('🔭 Zooming into Skill & Study Constellation Observatory!', 'info');
+        return;
+      }
+
+      if (shortcut === 'standing_desk_switch') {
+        setIsStandingDesk((prev) => {
+          const next = !prev;
+          try {
+            localStorage.setItem(`focusflow_home_stand_desk_${activeUid}`, next ? '1' : '0');
+          } catch {
+            // ignore
+          }
+          showToast?.(
+            next
+              ? '🧍 Motorized Desk raised to Standing Mode!'
+              : '🪑 Motorized Desk lowered to Sitting Mode',
+            'success'
+          );
+          return next;
+        });
+        return;
+      }
+
+      if (shortcut === 'arcade_cabinet') {
+        if (examSummary.dailyTargetPct < 100) {
+          showToast?.(
+            `🕹️ Retro Arcade unlocks at 100% daily focus goal (${Math.round(examSummary.dailyTargetPct)}% done)!`,
+            'info'
+          );
+          return;
+        }
+        setActiveShortcutModal('arcade');
+        return;
+      }
+
+      if (shortcut === 'paper_airplane') {
+        setActiveShortcutModal('paper_plane');
+        return;
+      }
+
+      if (shortcut === 'dream_globe') {
+        setActiveShortcutModal('dream_globe');
       }
     },
     [
@@ -1593,8 +2110,27 @@ export const MyHomeView: React.FC = () => {
       ambientVolume,
       setAmbientSound,
       vaultSafe.label,
+      activeUid,
+      examSummary.dailyTargetPct,
       showToast,
     ]
+  );
+
+  const handleSelectVinylSleeve = useCallback(
+    (sleeve: VinylRecordSleeve) => {
+      if (visitingTarget) return;
+      if (!sleeve.unlocked) {
+        showToast?.(`💿 Unlocks after ${sleeve.requiredSessions} completed focus sessions!`, 'info');
+        return;
+      }
+      void setAmbientSound(sleeve.ambientPreset, ambientVolume);
+      if (sleeve.useBinaural || !binauralBeatsEngine.getStatus().isPlaying) {
+        binauralBeatsEngine.start(BINAURAL_PRESETS[0], 0.25);
+        setIsBinauralPlaying(true);
+      }
+      showToast?.(`💿 Now spinning: ${sleeve.title}`, 'success');
+    },
+    [visitingTarget, setAmbientSound, ambientVolume, showToast]
   );
 
   const handleCompleteCorkboardTask = useCallback(
@@ -1713,6 +2249,164 @@ export const MyHomeView: React.FC = () => {
     },
     [timeCapsules, triggerRefresh, showToast]
   );
+
+  const persistShop = useCallback(
+    (next: HomeShopState) => {
+      setShopState(next);
+      try {
+        localStorage.setItem(`focusflow_home_shop_${activeUid}`, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+    },
+    [activeUid]
+  );
+
+  const handleClickFloor = useCallback(
+    (x: number, z: number) => {
+      if (isVisiting) return;
+      if (layoutEditMode) {
+        const targetId = selectedShopItemId || shopState.placedItems[0]?.itemId;
+        if (!targetId) {
+          showToast?.('Buy or place an item in Furniture Shop first!', 'info');
+          return;
+        }
+        persistShop(placeOrMoveShopItem(shopState, targetId, x, z));
+        setSelectedShopItemId(targetId);
+        return;
+      }
+      const clamped = clampWalkableFloorPosition(x, z);
+      setAutoRoutine(false);
+      setWalkTarget({ pos: clamped, seq: Date.now() });
+    },
+    [isVisiting, layoutEditMode, selectedShopItemId, shopState, persistShop, showToast]
+  );
+
+  const handleBuyShopItem = useCallback(
+    (id: ShopItemId) => {
+      const res = purchaseShopItem(shopState, id, availableCoins);
+      if (!res.success) {
+        showToast?.(res.reason || 'Cannot buy item', 'error');
+        return;
+      }
+      persistShop(res.nextState);
+      setSelectedShopItemId(id);
+      showToast?.('🛍️ Purchased & placed in your room!', 'success');
+    },
+    [shopState, availableCoins, persistShop, showToast]
+  );
+
+  const handleTogglePlaceShopItem = useCallback(
+    (id: ShopItemId) => {
+      persistShop(placeOrMoveShopItem(shopState, id, 0, 1.5));
+      setSelectedShopItemId(id);
+    },
+    [shopState, persistShop]
+  );
+
+  const handleRotateShopItem = useCallback(
+    (id: ShopItemId) => {
+      persistShop(rotatePlacedShopItem(shopState, id));
+    },
+    [shopState, persistShop]
+  );
+
+  const handleRemoveShopItem = useCallback(
+    (id: ShopItemId) => {
+      persistShop(removePlacedShopItem(shopState, id));
+      if (selectedShopItemId === id) setSelectedShopItemId(null);
+    },
+    [shopState, selectedShopItemId, persistShop]
+  );
+
+  const handlePetCompanion = useCallback(() => {
+    setPetReactionCue({ type: 'pet', seq: Date.now() });
+    setNeeds((prev) => ({ ...prev, mood: Math.min(100, Math.round((prev.mood + 10) * 10) / 10) }));
+    showToast?.('🐾 Petted your companion! +10 Mood', 'success');
+  }, [showToast]);
+
+  const handleFeedCompanion = useCallback(() => {
+    setPetReactionCue({ type: 'feed', seq: Date.now() });
+    setNeeds((prev) => ({
+      ...prev,
+      energy: Math.min(100, Math.round((prev.energy + 8) * 10) / 10),
+      mood: Math.min(100, Math.round((prev.mood + 6) * 10) / 10),
+    }));
+    showToast?.('🍖 Fed your companion! +Energy & +Mood', 'success');
+  }, [showToast]);
+
+  const handleStartBreathing = useCallback(() => {
+    if (breathingSecondsLeft > 0) {
+      setBreathingSecondsLeft(0);
+      return;
+    }
+    setBreathingSecondsLeft(60);
+    setNeeds((prev) => ({ ...prev, mood: Math.min(100, prev.mood + 8), focus: Math.min(100, prev.focus + 6) }));
+    showToast?.('🫧 1-Min Breathing Orb started — Inhale, Hold, Exhale', 'info');
+  }, [breathingSecondsLeft, showToast]);
+
+  const handleToggleCoStudyGuests = useCallback(async () => {
+    if (showCoStudyGuests) {
+      setShowCoStudyGuests(false);
+      return;
+    }
+    setShowCoStudyGuests(true);
+    try {
+      const guests: VisitorHomeTarget[] = [];
+      if (firebaseUser?.uid) {
+        const squads = await listUserSquads(firebaseUser.uid);
+        const uids = Array.from(
+          new Set(squads.flatMap((s) => s.memberUids || []).filter((id) => id && id !== activeUid))
+        ).slice(0, 3);
+        if (uids.length > 0) {
+          const profiles = await fetchSquadMemberProfiles(uids);
+          profiles.slice(0, 3).forEach((prof) => {
+            guests.push(
+              buildVisitorHomeFromLeaderboardProfile(prof, {
+                source: 'squad',
+                sourceLabel: 'Co-Study Squad',
+                isStudyingLive: isProfileStudyingLive(prof),
+              })
+            );
+          });
+        }
+      }
+      if (guests.length === 0) {
+        const social = await api.getSocialOverview();
+        const friends = social?.friends?.friends || [];
+        friends.slice(0, 3).forEach((f: any) => {
+          guests.push({
+            uid: f.userId,
+            displayName: f.displayName || 'Squadmate',
+            source: 'friend',
+            sourceLabel: 'Co-Study',
+            streakDays: Number(f.currentStreak || 0),
+            estimatedXP: Number(f.totalXP || 0),
+            isStudyingLive: Boolean(f.isOnline),
+            studyActivity: f.isOnline ? 'studying' : 'coffee',
+            petSpecies: 'cat',
+          });
+        });
+      }
+      setCoStudyGuests(guests);
+      if (guests.length === 0) {
+        showToast?.('No Squadmates online yet — join a Study Squad in Social Hub!', 'info');
+      } else {
+        showToast?.(`🧑‍🤝‍🧑 ${guests.length} Squadmate(s) joined your room for Co-Study!`, 'success');
+      }
+    } catch {
+      showToast?.('Could not load co-study squad guests right now.', 'error');
+    }
+  }, [showCoStudyGuests, firebaseUser?.uid, activeUid, showToast]);
+
+  const handleTriggerGuestEmote = useCallback((type: AvatarEmote) => {
+    setGuestEmoteEvent({
+      id: `emote_${Date.now()}`,
+      memberId: activeUid,
+      type,
+      createdAt: Date.now(),
+    });
+  }, [activeUid]);
 
   const handleTakeRoomPostcard = useCallback(() => {
     const snapFn = captureSceneRef.current;
@@ -1952,11 +2646,42 @@ export const MyHomeView: React.FC = () => {
               hydrationState={hydrationState}
               apartmentExpansion={apartmentExpansion}
               hideAvatarForPov={cameraPreset === 'desk_pov' && !isVisiting}
+              walkTarget={walkTarget}
+              shopPlacedItems={isVisiting ? [] : shopState.placedItems}
+              layoutEditMode={!isVisiting && layoutEditMode}
+              selectedShopItemId={selectedShopItemId}
+              skyState={skyState}
+              showFireworks={showFireworks}
+              breathingOrb={{ active: breathingSecondsLeft > 0, secondsLeft: breathingSecondsLeft }}
+              smartTvData={smartTvData}
+              focusAquarium={focusAquarium}
+              constellationStars={constellationStars}
+              isObservatoryMode={cameraPreset === 'observatory'}
+              totalSavedPaise={totalSavedPaise}
+              coinDropSeq={coinDropSeq}
+              customFrames={isVisiting ? DEFAULT_CUSTOM_FRAMES : customFrames}
+              isStandingDesk={isVisiting ? false : isStandingDesk}
+              dailyTargetPct={isVisiting ? 0 : examSummary.dailyTargetPct}
+              paperAirplaneState={paperAirplaneState}
+              dreamGlobe={{ destination: dreamCity, progress: dreamGlobeProgress }}
+              vinylSleeves={vinylSleeves}
+              activeAmbientPreset={ambientPreset}
+              weatherOrbState={weatherOrbState}
+              onSelectVinylSleeve={handleSelectVinylSleeve}
+              onDropBonusCoin={() => {
+                setCoinDropSeq((c) => c + 1);
+                showToast?.('🪙 Clink! Dropped a savings coin into your jar!', 'success');
+              }}
+              petReactionCue={petReactionCue}
+              coStudyGuests={showCoStudyGuests ? coStudyGuests : []}
+              guestEmoteEvent={guestEmoteEvent}
               onRegisterCapture={(fn) => {
                 captureSceneRef.current = fn;
               }}
               onWalkingChange={setIsWalking}
               onSelectZone={handleSelectZone}
+              onClickFloor={handleClickFloor}
+              onSelectShopItem={setSelectedShopItemId}
               onClickFurniture={handleClickFurniture}
               onCompleteCorkboardTask={handleCompleteCorkboardTask}
               onClickPet={handleTogglePetSpecies}
@@ -2257,6 +2982,81 @@ export const MyHomeView: React.FC = () => {
             </button>
           )}
 
+          {/* Pet / Feed / 1m Breathe / Shop / Co-Study Controls */}
+          {!isVisiting && (
+            <>
+              <button
+                type="button"
+                onClick={handlePetCompanion}
+                className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-pink-500/25 text-pink-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+                title="Pet your companion (+Mood)"
+              >
+                <Heart className="w-3.5 h-3.5 text-pink-300" />
+                <span className="hidden xl:inline">Pet</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleFeedCompanion}
+                className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-amber-500/25 text-amber-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+                title="Feed your companion (+Energy)"
+              >
+                <span className="text-xs">🍖</span>
+                <span className="hidden xl:inline">Feed</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleStartBreathing}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+                  breathingSecondsLeft > 0
+                    ? 'bg-sky-500/30 text-sky-100 border-sky-400/50'
+                    : 'bg-[#0e1733]/85 hover:bg-sky-500/25 text-sky-200 border-white/12'
+                }`}
+                title="Start 1-minute 3D Breathing Orb session"
+              >
+                <Wind className="w-3.5 h-3.5 text-sky-300" />
+                <span className="hidden lg:inline">
+                  {breathingSecondsLeft > 0 ? `${breathingSecondsLeft}s` : 'Breathe'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveShortcutModal('shop')}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+                  layoutEditMode
+                    ? 'bg-emerald-500/30 text-emerald-100 border-emerald-400/50'
+                    : 'bg-[#0e1733]/85 hover:bg-amber-500/25 text-amber-200 border-white/12'
+                }`}
+                title="3D Furniture Shop & Grid Layout Editor"
+              >
+                <ShoppingBag className="w-3.5 h-3.5 text-amber-300" />
+                <span className="hidden lg:inline">🪙 {availableCoins}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleToggleCoStudyGuests()}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+                  showCoStudyGuests
+                    ? 'bg-emerald-500/25 text-emerald-100 border-emerald-400/50'
+                    : 'bg-[#0e1733]/85 hover:bg-emerald-500/20 text-slate-200 border-white/12'
+                }`}
+                title="Seat up to 3 live Squadmates in your room"
+              >
+                <Users className="w-3.5 h-3.5 text-emerald-300" />
+                <span className="hidden lg:inline">Co-Study</span>
+              </button>
+              {showCoStudyGuests && coStudyGuests.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleTriggerGuestEmote('wave')}
+                  className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-100 border border-emerald-400/40 transition shadow-lg"
+                  title="Wave / Clap to Co-Study Guests"
+                >
+                  👋
+                </button>
+              )}
+            </>
+          )}
+
           {/* 1-Click Room Postcard PNG Snapshot */}
           <button
             type="button"
@@ -2347,6 +3147,7 @@ export const MyHomeView: React.FC = () => {
                 { id: 'isometric', label: 'Isometric', icon: Camera },
                 { id: 'free', label: 'Free 360°', icon: Eye },
                 { id: 'desk_pov', label: 'Desk POV', icon: Laptop },
+                { id: 'observatory', label: 'Star Sky', icon: Star },
                 { id: 'follow', label: 'Follow Character', icon: GraduationCap },
               ] as const
             ).map((cam) => {
@@ -2406,6 +3207,7 @@ export const MyHomeView: React.FC = () => {
         />
       )}
 
+
       {activeShortcutModal === 'upgrades' && (
         <UpgradesAndPetModal
           unlocksSummary={effectiveUnlocksSummary}
@@ -2418,6 +3220,7 @@ export const MyHomeView: React.FC = () => {
         />
       )}
 
+
       {activeShortcutModal === 'end_day' && (
         <EndDaySleepModal
           stats={dailyWrapUpStats}
@@ -2426,6 +3229,7 @@ export const MyHomeView: React.FC = () => {
           onClose={() => setActiveShortcutModal(null)}
         />
       )}
+
 
       {activeShortcutModal === 'exam_season' && (
         <ExamAndSeasonModal
@@ -2451,6 +3255,7 @@ export const MyHomeView: React.FC = () => {
         />
       )}
 
+
       {activeShortcutModal === 'parcel_mail' && (
         <DoorstepParcelMailModal
           state={deliveries}
@@ -2459,6 +3264,7 @@ export const MyHomeView: React.FC = () => {
           onClose={() => setActiveShortcutModal(null)}
         />
       )}
+
 
       {activeShortcutModal === 'doomscroll_jar' && (
         <DoomscrollJarModal
@@ -2477,6 +3283,7 @@ export const MyHomeView: React.FC = () => {
         />
       )}
 
+
       {activeShortcutModal === 'time_capsule' && (
         <TimeCapsuleQuickModal
           state={timeCapsuleChestState}
@@ -2488,6 +3295,104 @@ export const MyHomeView: React.FC = () => {
               // ignore
             }
             setCurrentTab('dashboard');
+          }}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+
+      {activeShortcutModal === 'shop' && (
+        <FurnitureShopModal
+          shopState={shopState}
+          availableCoins={availableCoins}
+          layoutEditMode={layoutEditMode}
+          onBuyItem={handleBuyShopItem}
+          onTogglePlaceItem={handleTogglePlaceShopItem}
+          onRotateItem={handleRotateShopItem}
+          onRemoveItem={handleRemoveShopItem}
+          onToggleLayoutEditMode={() => setLayoutEditMode((v) => !v)}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'custom_frames' && (
+        <CustomWallFramesModal
+          frames={customFrames}
+          onSaveFrame={(updated) => {
+            const next = customFrames.map((f) => (f.id === updated.id ? updated : f));
+            setCustomFrames(next);
+            try {
+              localStorage.setItem(`focusflow_home_frames_${activeUid}`, JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+          }}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'arcade' && (
+        <ArcadeMiniGameModal
+          highScore={arcadeHighScore}
+          onUpdateHighScore={(score) => {
+            setArcadeHighScore(score);
+            try {
+              localStorage.setItem(`focusflow_home_arcade_hs_${activeUid}`, String(score));
+            } catch {
+              // ignore
+            }
+          }}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'paper_plane' && (
+        <PaperAirplaneInboxModal
+          messages={paperMessages}
+          onMarkAllRead={() => {
+            const next = paperMessages.map((m) => ({ ...m, read: true }));
+            setPaperMessages(next);
+            try {
+              localStorage.setItem(`focusflow_home_paper_notes_${activeUid}`, JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+          }}
+          onSendSelfNote={(text) => {
+            const next: PaperAirplaneMessage[] = [
+              {
+                id: `plane-${Date.now()}`,
+                senderName: userDisplayName || 'You',
+                sourceLabel: 'Personal Note',
+                message: text,
+                createdAt: new Date().toISOString(),
+                read: false,
+              },
+              ...paperMessages,
+            ].slice(0, 12);
+            setPaperMessages(next);
+            try {
+              localStorage.setItem(`focusflow_home_paper_notes_${activeUid}`, JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+          }}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'dream_globe' && (
+        <DreamGlobeModal
+          current={dreamCity}
+          bestSavingsPct={effectiveUnlocksSummary.bestSavingsPct}
+          onSelectDestination={(city) => {
+            setDreamCity(city);
+            try {
+              localStorage.setItem(`focusflow_home_dream_city_${activeUid}`, city.id);
+            } catch {
+              // ignore
+            }
+            showToast?.(`🌍 Dream Globe set to ${city.city}, ${city.country}!`, 'success');
           }}
           onClose={() => setActiveShortcutModal(null)}
         />

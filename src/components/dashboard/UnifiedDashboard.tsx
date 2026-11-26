@@ -23,7 +23,7 @@ import {
   TimeBlock,
 } from '../../types/index.ts';
 import { formatCurrency } from '../../lib/currency.ts';
-import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, formatDateInTimezone, getTodayDateString } from '../../lib/dateTime.ts';
 import {
   computeHabitStreak,
   computeProductivityScore,
@@ -197,35 +197,6 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   });
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const studyFetchedForRefreshRef = useRef<number>(-1);
-
-  const focusReceiptData: FocusReceiptData = useMemo(() => {
-    const completedTasksToday = tasks.filter(
-      (t) => t.status === 'completed' || Boolean(t.completedAt)
-    );
-    const focusMins = data?.todayFocusMinutes ?? 0;
-    const streak = data?.focusStreakDays ?? 1;
-
-    return {
-      date: getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE),
-      userName: user?.name || 'Student',
-      totalStudyMinutes:
-        studyTopics.filter((t) => t.theory && t.practice).length * 30 + focusMins,
-      completedTasksCount: completedTasksToday.length,
-      completedTaskTitles: completedTasksToday.map((t) => t.title),
-      pomodoroSessionsCount: data?.completedPomodoroSessions || 0,
-      totalPomodoroMinutes: focusMins,
-      completedHabitsCount: habits.length,
-      currentStreak: streak,
-      productivityScore: Math.min(
-        100,
-        Math.max(50, Math.round(focusMins * 0.5 + completedTasksToday.length * 10 + 40))
-      ),
-      currency: settings?.currency || '₹',
-      hideFinancials: settings?.hideFinancialInReceipt ?? false,
-      dailyExpensePaise: data?.todayExpensesPaise || 0,
-      moneySavedPaise: data?.remainingBalancePaise || 0,
-    };
-  }, [tasks, studyTopics, data, habits, settings, user]);
 
   const layoutConfig = useMemo<DashboardLayoutConfig>(
     () => normalizeDashboardLayout(settings?.dashboardLayout),
@@ -410,6 +381,40 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
       timezone: settings?.timezone || DEFAULT_TIMEZONE,
     });
   }, [tasks, sessions, habits, settings, studySubjects, studyRevisions, studyPlanTasks, todayStr]);
+
+  const focusReceiptData: FocusReceiptData = useMemo(() => {
+    const tz = settings?.timezone || DEFAULT_TIMEZONE;
+    const completedTasksToday = tasks.filter(
+      (t) =>
+        !t.deletedAt &&
+        t.status === 'completed' &&
+        Boolean(t.completedAt) &&
+        formatDateInTimezone(t.completedAt!, tz) === todayStr
+    );
+    const completedHabitsToday = habits.filter(
+      (h) => !h.deletedAt && !h.archived && (h.completedDates || []).includes(todayStr)
+    );
+    const focusMins = data?.todayFocusMinutes ?? 0;
+    const streak = data?.focusStreakDays ?? 0;
+
+    return {
+      date: todayStr,
+      userName: user?.name || 'Student',
+      totalStudyMinutes:
+        studyTopics.filter((t) => t.theory && t.practice).length * 30 + focusMins,
+      completedTasksCount: completedTasksToday.length,
+      completedTaskTitles: completedTasksToday.map((t) => t.title),
+      pomodoroSessionsCount: data?.completedPomodoroSessions || 0,
+      totalPomodoroMinutes: focusMins,
+      completedHabitsCount: completedHabitsToday.length,
+      currentStreak: streak,
+      productivityScore: productivityScore.totalScore,
+      currency: settings?.currency || '₹',
+      hideFinancials: settings?.hideFinancialInReceipt ?? false,
+      dailyExpensePaise: data?.todayExpensesPaise || 0,
+      moneySavedPaise: data?.remainingBalancePaise || 0,
+    };
+  }, [tasks, studyTopics, data, habits, settings, user, todayStr, productivityScore.totalScore]);
 
   const prioritiesSnapshot = useMemo(
     () =>

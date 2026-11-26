@@ -19,6 +19,48 @@ import type {
   TimeCapsuleChestState,
   VaultSafeState,
 } from '../../features/home/homeFeaturesEngine.ts';
+import type {
+  ConstellationStar,
+  CustomWallFrameConfig,
+  FocusAquariumState,
+  HeatmapCell,
+  MonthlyBudgetSummary,
+  PlacedShopItem,
+  ShopItemId,
+  SunMoonSkyState,
+} from '../../features/home/homeShopAndLayout.ts';
+import {
+  DEFAULT_CUSTOM_FRAMES,
+} from '../../features/home/homeShopAndLayout.ts';
+import {
+  AudioReactiveSpeakersAndEqProp,
+  BreakTimeInteractiveDeskToysProp,
+  ConstellationSkyDomeProp,
+  CustomWallPhotoFrameProp,
+  FocusDeskAquariumProp,
+  SavingsCoinDropPhysicsJarProp,
+} from './MyHomeStudioToysAndFrames.tsx';
+import {
+  DreamGlobeProp,
+  MomentumWeatherOrbProp,
+  PaperAirplaneDeliveryProp,
+  RetroArcadeCabinetProp,
+  VinylRecordRackProp,
+} from './MyHomeArcadeAndGlobe.tsx';
+import {
+  DREAM_GLOBE_CITIES,
+  type DreamGlobeDestination,
+  type MomentumWeatherOrbState,
+  type PaperAirplaneMessage,
+  type VinylRecordSleeve,
+} from '../../features/home/homeDreamAndArcade.ts';
+import {
+  BreathingOrbProp,
+  MilestoneFireworksProp,
+  PlacedShopFurnitureGroup,
+  SmartWallTvDashboard,
+  SunMoonSkyOrb,
+} from './MyHomeInteractiveProps.tsx';
 import {
   MyHomeUnlockedDecor,
   MyHomeWindowRain,
@@ -95,7 +137,38 @@ interface MyHomeApartmentProps {
   isVinylPlaying?: boolean;
   hydrationState?: HydrationHabitState;
   apartmentExpansion?: ApartmentExpansionState;
+  walkTargetPos?: [number, number, number] | null;
+  shopPlacedItems?: PlacedShopItem[];
+  layoutEditMode?: boolean;
+  selectedShopItemId?: ShopItemId | null;
+  skyState?: SunMoonSkyState;
+  showFireworks?: boolean;
+  breathingOrb?: { active: boolean; secondsLeft: number };
+  smartTvData?: {
+    todayFocusMinutes: number;
+    dailyGoalMinutes: number;
+    budgetSummary: MonthlyBudgetSummary;
+    heatmap: HeatmapCell[];
+    streakDays: number;
+  };
+  focusAquarium?: FocusAquariumState;
+  constellationStars?: ConstellationStar[];
+  isObservatoryMode?: boolean;
+  totalSavedPaise?: number;
+  coinDropSeq?: number;
+  customFrames?: CustomWallFrameConfig[];
+  isStandingDesk?: boolean;
+  dailyTargetPct?: number;
+  paperAirplaneState?: { unreadCount: number; latestMessage: PaperAirplaneMessage | null };
+  dreamGlobe?: { destination: DreamGlobeDestination; progress: number };
+  vinylSleeves?: VinylRecordSleeve[];
+  activeAmbientPreset?: string;
+  weatherOrbState?: MomentumWeatherOrbState;
+  onSelectVinylSleeve?: (sleeve: VinylRecordSleeve) => void;
+  onDropBonusCoin?: () => void;
   onSelectZone: (zone: HomeZoneId) => void;
+  onClickFloor?: (x: number, z: number) => void;
+  onSelectShopItem?: (id: ShopItemId) => void;
   onClickFurniture?: (shortcut: FurnitureShortcutId) => void;
   onCompleteCorkboardTask?: (taskId: string) => void;
 }
@@ -315,7 +388,44 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
   isVinylPlaying = false,
   hydrationState = DEFAULT_HYDRATION,
   apartmentExpansion = DEFAULT_EXPANSION,
+  walkTargetPos = null,
+  shopPlacedItems = [],
+  layoutEditMode = false,
+  selectedShopItemId = null,
+  skyState = { isNight: false, orbY: 2.1, orbZ: -0.35, orbColor: '#fde047' },
+  showFireworks = false,
+  breathingOrb = { active: false, secondsLeft: 60 },
+  smartTvData,
+  focusAquarium = {
+    totalCompletedPomodoros: 0,
+    sessionsToday: 0,
+    hasCoral: false,
+    fishCount: 0,
+    hasJellyfish: false,
+    isMisty: true,
+  },
+  constellationStars = [],
+  isObservatoryMode = false,
+  totalSavedPaise = 0,
+  coinDropSeq = 0,
+  customFrames = DEFAULT_CUSTOM_FRAMES,
+  isStandingDesk = false,
+  dailyTargetPct = 0,
+  paperAirplaneState = { unreadCount: 0, latestMessage: null },
+  dreamGlobe = { destination: DREAM_GLOBE_CITIES[0], progress: 0 },
+  vinylSleeves = [],
+  activeAmbientPreset = 'rain',
+  weatherOrbState = {
+    mood: 'calm_clouds',
+    label: 'Calm Mist · Start focus to ignite orb',
+    primaryColor: '#cbd5e1',
+    coreIntensity: 0.65,
+  },
+  onSelectVinylSleeve,
+  onDropBonusCoin,
   onSelectZone,
+  onClickFloor,
+  onSelectShopItem,
   onClickFurniture,
   onCompleteCorkboardTask,
 }) => {
@@ -329,6 +439,8 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
   const clockMinRef = useRef<THREE.Group>(null);
   const clockSecRef = useRef<THREE.Group>(null);
   const steamGroupRef = useRef<THREE.Group>(null);
+  const deskLiftRef = useRef<THREE.Group>(null);
+  const deskTopOverlayRef = useRef<THREE.Group>(null);
 
   const textures = useMemo(() => {
     const windowMode: 'night' | 'sunset' | 'day' =
@@ -370,6 +482,22 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
         child.position.x = Math.sin(t * 2 + i) * 0.025;
         child.scale.setScalar(0.7 + phase * 0.6);
       });
+    }
+
+    const targetDeskY = isStandingDesk ? 0.34 : 0;
+    if (deskLiftRef.current) {
+      deskLiftRef.current.position.y = THREE.MathUtils.lerp(
+        deskLiftRef.current.position.y,
+        targetDeskY,
+        0.14
+      );
+    }
+    if (deskTopOverlayRef.current) {
+      deskTopOverlayRef.current.position.y = THREE.MathUtils.lerp(
+        deskTopOverlayRef.current.position.y,
+        targetDeskY,
+        0.14
+      );
     }
   });
 
@@ -432,10 +560,24 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
       </mesh>
 
       {/* Main Honey-Oak Wooden Flooring (x=-5.0..+2.85, z=-3.45..+3.35) */}
-      <mesh position={[-1.08, 0, -0.05]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <mesh
+        position={[-1.08, 0, -0.05]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        receiveShadow
+        onClick={(e) => {
+          e.stopPropagation();
+          onClickFloor?.(e.point.x, e.point.z);
+        }}
+      >
         <planeGeometry args={[7.88, 6.84]} />
         <meshStandardMaterial map={textures.oakFloor} roughness={0.34} metalness={0.06} />
       </mesh>
+      {walkTargetPos && (
+        <mesh position={[walkTargetPos[0], 0.018, walkTargetPos[2]]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.16, 0.24, 24]} />
+          <meshBasicMaterial color="#38bdf8" transparent opacity={0.75} />
+        </mesh>
+      )}
 
       {/* Subtle Front Architectural Curb Frame matching the isometric box aesthetic */}
       <mesh position={[-1.0, 0.08, 3.4]} receiveShadow>
@@ -541,24 +683,18 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
           </mesh>
         )}
 
-        {/* Wooden Study Desk with Left & Right Drawer Pedestals */}
+        {/* Wooden Study Desk with Left & Right Drawer Pedestals + Motorized Sit-Stand Lift */}
         <group position={[-4.42, 0, 1.05]}>
-          {/* Tabletop */}
-          <mesh position={[0, 0.75, 0]} castShadow receiveShadow>
-            <boxGeometry args={[0.98, 0.06, 2.52]} />
-            <meshStandardMaterial color={OAK_WOOD} roughness={0.48} />
-          </mesh>
-          {/* Back modesty panel */}
-          <mesh position={[-0.42, 0.42, 0]} castShadow>
-            <boxGeometry args={[0.05, 0.62, 2.4]} />
-            <meshStandardMaterial color={OAK_DARK} roughness={0.6} />
-          </mesh>
-          {/* Front & Back Drawer Pedestals */}
+          {/* Fixed Lower Telescopic Steel Inner Columns + Front & Back Drawer Pedestals */}
           {[-0.92, 0.92].map((pz, idx) => (
             <group key={idx} position={[0, 0.36, pz]}>
               <mesh castShadow receiveShadow>
                 <boxGeometry args={[0.88, 0.72, 0.54]} />
                 <meshStandardMaterial color={OAK_DARK} roughness={0.55} />
+              </mesh>
+              <mesh position={[0, 0.44, 0]}>
+                <boxGeometry args={[0.1, 0.52, 0.1]} />
+                <meshStandardMaterial color="#334155" metalness={0.75} roughness={0.28} />
               </mesh>
               {[0.2, 0, -0.2].map((dy, dIdx) => (
                 <group key={dIdx}>
@@ -575,81 +711,126 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
             </group>
           ))}
 
-          {/* Glowing Open Laptop on Desk */}
-          <group
-            position={[0.08, 0.78, 0.02]}
-            {...makeFurnitureHandlers('laptop', 'Laptop · Start / Pause Focus Timer', [-4.25, 1.32, 1.07])}
-          >
-            <mesh position={[0, 0.012, 0]} castShadow>
-              <boxGeometry args={[0.32, 0.022, 0.42]} />
-              <meshStandardMaterial color="#e2e8f0" roughness={0.35} metalness={0.4} />
-            </mesh>
-            <group position={[-0.14, 0.16, 0]} rotation={[0, 0, 0.22]}>
-              <mesh castShadow>
-                <boxGeometry args={[0.018, 0.28, 0.42]} />
-                <meshStandardMaterial color="#cbd5e1" roughness={0.3} metalness={0.5} />
-              </mesh>
-              <LiveLaptopDisplay
-                timerLabel={laptopScreen.timerLabel}
-                modeLabel={laptopScreen.modeLabel}
-                isRunning={laptopScreen.isRunning}
-                isSleeping={isSleeping}
-                progressRatio={laptopScreen.progressRatio}
-                subtitle={laptopScreen.subtitle}
-              />
-            </group>
-          </group>
-
-          {/* Desk Lamp with Warm Amber Light */}
-          <group position={[-0.22, 0.78, 0.85]}>
-            <mesh position={[0, 0.02, 0]} castShadow>
-              <cylinderGeometry args={[0.1, 0.12, 0.04, 16]} />
-              <meshStandardMaterial color="#1f2937" metalness={0.6} roughness={0.3} />
-            </mesh>
-            <mesh position={[-0.04, 0.24, 0]} rotation={[0, 0, -0.22]}>
-              <cylinderGeometry args={[0.014, 0.014, 0.44, 8]} />
-              <meshStandardMaterial color="#374151" metalness={0.6} roughness={0.35} />
-            </mesh>
-            <mesh position={[0.06, 0.43, 0]} rotation={[0, 0, -0.5]}>
-              <coneGeometry args={[0.12, 0.16, 16]} />
-              <meshStandardMaterial color="#292524" roughness={0.4} emissive="#ffbe69" emissiveIntensity={0.2} />
-            </mesh>
-            <pointLight
-              position={[0.14, 0.36, 0]}
-              color="#ffb454"
-              intensity={deskLampPower}
-              distance={4.8}
-              decay={1.8}
-            />
-          </group>
-
-          {/* Open Notebook + Pen Cup + Stacked Hardcover Books */}
-          <mesh position={[0.14, 0.79, 0.46]} castShadow>
-            <boxGeometry args={[0.2, 0.018, 0.26]} />
-            <meshStandardMaterial color="#f8fafc" roughness={0.85} />
-          </mesh>
-          <mesh position={[-0.18, 0.84, 0.42]} castShadow>
-            <cylinderGeometry args={[0.045, 0.04, 0.12, 12]} />
-            <meshStandardMaterial color="#d97706" roughness={0.5} />
-          </mesh>
-          {/* Stacked Books on Right Back Side of Desk */}
-          <group position={[0.08, 0.78, -0.82]}>
-            {[
-              { y: 0.025, c: '#7f1d1d', w: 0.26, d: 0.2 },
-              { y: 0.068, c: '#1e3a8a', w: 0.24, d: 0.19 },
-              { y: 0.11, c: '#0f766e', w: 0.22, d: 0.18 },
-            ].map((bk, idx) => (
-              <mesh key={idx} position={[0, bk.y, 0]} rotation={[0, idx * 0.12, 0]} castShadow>
-                <boxGeometry args={[bk.w, 0.04, bk.d]} />
-                <meshStandardMaterial color={bk.c} roughness={0.65} />
-              </mesh>
-            ))}
-          </group>
           {/* Trash Bin under right corner */}
           <mesh position={[0.2, 0.18, -1.42]} castShadow>
             <cylinderGeometry args={[0.14, 0.11, 0.36, 14]} />
             <meshStandardMaterial color="#334155" roughness={0.65} />
           </mesh>
+
+          <group ref={deskLiftRef}>
+            {/* Tabletop */}
+            <mesh position={[0, 0.75, 0]} castShadow receiveShadow>
+              <boxGeometry args={[0.98, 0.06, 2.52]} />
+              <meshStandardMaterial color={OAK_WOOD} roughness={0.48} />
+            </mesh>
+            {/* Back modesty panel */}
+            <mesh position={[-0.42, 0.42, 0]} castShadow>
+              <boxGeometry args={[0.05, 0.62, 2.4]} />
+              <meshStandardMaterial color={OAK_DARK} roughness={0.6} />
+            </mesh>
+
+            {/* Motorized Sit-to-Stand Height Switch on front-right edge */}
+            <group
+              position={[0.49, 0.73, 1.08]}
+              {...makeFurnitureHandlers(
+                'standing_desk_switch',
+                isStandingDesk ? 'Standing Desk · Click to Sit' : 'Sit-Stand Switch · Click to Stand',
+                [-3.9, 1.08, 2.13]
+              )}
+            >
+              <mesh castShadow>
+                <boxGeometry args={[0.04, 0.045, 0.14]} />
+                <meshStandardMaterial color="#0f172a" roughness={0.35} metalness={0.45} />
+              </mesh>
+              <mesh position={[0.021, 0.004, -0.028]}>
+                <boxGeometry args={[0.008, 0.016, 0.032]} />
+                <meshStandardMaterial
+                  color={isStandingDesk ? '#22c55e' : '#38bdf8'}
+                  emissive={isStandingDesk ? '#22c55e' : '#38bdf8'}
+                  emissiveIntensity={1.1}
+                />
+              </mesh>
+              <mesh position={[0.021, -0.006, 0.028]}>
+                <boxGeometry args={[0.008, 0.016, 0.032]} />
+                <meshStandardMaterial
+                  color={!isStandingDesk ? '#22c55e' : '#64748b'}
+                  emissive={!isStandingDesk ? '#22c55e' : '#000000'}
+                  emissiveIntensity={!isStandingDesk ? 0.8 : 0}
+                />
+              </mesh>
+            </group>
+
+            {/* Glowing Open Laptop on Desk */}
+            <group
+              position={[0.08, 0.78, 0.02]}
+              {...makeFurnitureHandlers('laptop', 'Laptop · Start / Pause Focus Timer', [-4.25, 1.32, 1.07])}
+            >
+              <mesh position={[0, 0.012, 0]} castShadow>
+                <boxGeometry args={[0.32, 0.022, 0.42]} />
+                <meshStandardMaterial color="#e2e8f0" roughness={0.35} metalness={0.4} />
+              </mesh>
+              <group position={[-0.14, 0.16, 0]} rotation={[0, 0, 0.22]}>
+                <mesh castShadow>
+                  <boxGeometry args={[0.018, 0.28, 0.42]} />
+                  <meshStandardMaterial color="#cbd5e1" roughness={0.3} metalness={0.5} />
+                </mesh>
+                <LiveLaptopDisplay
+                  timerLabel={laptopScreen.timerLabel}
+                  modeLabel={laptopScreen.modeLabel}
+                  isRunning={laptopScreen.isRunning}
+                  isSleeping={isSleeping}
+                  progressRatio={laptopScreen.progressRatio}
+                  subtitle={laptopScreen.subtitle}
+                />
+              </group>
+            </group>
+
+            {/* Desk Lamp with Warm Amber Light */}
+            <group position={[-0.22, 0.78, 0.85]}>
+              <mesh position={[0, 0.02, 0]} castShadow>
+                <cylinderGeometry args={[0.1, 0.12, 0.04, 16]} />
+                <meshStandardMaterial color="#1f2937" metalness={0.6} roughness={0.3} />
+              </mesh>
+              <mesh position={[-0.04, 0.24, 0]} rotation={[0, 0, -0.22]}>
+                <cylinderGeometry args={[0.014, 0.014, 0.44, 8]} />
+                <meshStandardMaterial color="#374151" metalness={0.6} roughness={0.35} />
+              </mesh>
+              <mesh position={[0.06, 0.43, 0]} rotation={[0, 0, -0.5]}>
+                <coneGeometry args={[0.12, 0.16, 16]} />
+                <meshStandardMaterial color="#292524" roughness={0.4} emissive="#ffbe69" emissiveIntensity={0.2} />
+              </mesh>
+              <pointLight
+                position={[0.14, 0.36, 0]}
+                color="#ffb454"
+                intensity={deskLampPower}
+                distance={4.8}
+                decay={1.8}
+              />
+            </group>
+
+            {/* Open Notebook + Pen Cup + Stacked Hardcover Books */}
+            <mesh position={[0.14, 0.79, 0.46]} castShadow>
+              <boxGeometry args={[0.2, 0.018, 0.26]} />
+              <meshStandardMaterial color="#f8fafc" roughness={0.85} />
+            </mesh>
+            <mesh position={[-0.18, 0.84, 0.42]} castShadow>
+              <cylinderGeometry args={[0.045, 0.04, 0.12, 12]} />
+              <meshStandardMaterial color="#d97706" roughness={0.5} />
+            </mesh>
+            {/* Stacked Books on Right Back Side of Desk */}
+            <group position={[0.08, 0.78, -0.82]}>
+              {[
+                { y: 0.025, c: '#7f1d1d', w: 0.26, d: 0.2 },
+                { y: 0.068, c: '#1e3a8a', w: 0.24, d: 0.19 },
+                { y: 0.11, c: '#0f766e', w: 0.22, d: 0.18 },
+              ].map((bk, idx) => (
+                <mesh key={idx} position={[0, bk.y, 0]} rotation={[0, idx * 0.12, 0]} castShadow>
+                  <boxGeometry args={[bk.w, 0.04, bk.d]} />
+                  <meshStandardMaterial color={bk.c} roughness={0.65} />
+                </mesh>
+              ))}
+            </group>
+          </group>
         </group>
 
         {/* Left Wall Corkboard + Headphones + 2 Floating Wooden Shelves */}
@@ -1332,7 +1513,15 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
       </group>
 
       {/* ===================== 6. DYNAMIC CLUTTER, UPGRADES, LIVING SURFACES & SEASONS ===================== */}
-      <StudyDeskClutter clutterLevel={clutterLevel} />
+      <group ref={deskTopOverlayRef}>
+        <StudyDeskClutter clutterLevel={clutterLevel} />
+        <HydrationBottleProp
+          state={hydrationState}
+          onClick={() => onClickFurniture?.('hydration_bottle')}
+        />
+        <BreakTimeInteractiveDeskToysProp />
+        <MomentumWeatherOrbProp state={weatherOrbState} />
+      </group>
       <MyHomeUnlockedDecor
         unlocks={
           seasonState.forceFairyLights ? { ...unlocks, fairyLights: true } : unlocks
@@ -1340,6 +1529,7 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
         kitchenGroupPosition={[1.52, 0, -3.02]}
         chairGroupPosition={[-3.32, 0, 1.05]}
         chairRotationY={-Math.PI / 2}
+        deskOffsetY={isStandingDesk ? 0.34 : 0}
       />
       <MyHomeWindowRain enabled={isRaining || seasonState.showRainWindow} />
       <LiveExamCountdownFrame
@@ -1384,14 +1574,87 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
         isPlaying={isVinylPlaying}
         onClick={() => onClickFurniture?.('vinyl_player')}
       />
-      <HydrationBottleProp
-        state={hydrationState}
-        onClick={() => onClickFurniture?.('hydration_bottle')}
-      />
       <ApartmentExpansionStructure
         expansion={apartmentExpansion}
         onClickBalcony={() => onClickFurniture?.('balcony_chair')}
       />
+
+      {/* ===================== 8. SHOP LAYOUT, SKY, FIREWORKS, BREATHING & SMART TV ===================== */}
+      <PlacedShopFurnitureGroup
+        placedItems={shopPlacedItems}
+        layoutEditMode={layoutEditMode}
+        selectedItemId={selectedShopItemId}
+        onSelectPlacedItem={(id) => onSelectShopItem?.(id)}
+        onClickGridFloor={onClickFloor}
+      />
+      <SunMoonSkyOrb sky={skyState} />
+      <MilestoneFireworksProp active={showFireworks} />
+      <BreathingOrbProp
+        active={breathingOrb.active}
+        secondsLeft={breathingOrb.secondsLeft}
+        hasBalcony={apartmentExpansion.hasBalcony}
+      />
+      {smartTvData && (
+        <SmartWallTvDashboard
+          todayFocusMinutes={smartTvData.todayFocusMinutes}
+          dailyGoalMinutes={smartTvData.dailyGoalMinutes}
+          budgetSummary={smartTvData.budgetSummary}
+          heatmap={smartTvData.heatmap}
+          streakDays={smartTvData.streakDays}
+          isVisiting={isVisiting}
+          onClickTV={() => onClickFurniture?.('smart_tv')}
+        />
+      )}
+
+      {/* ===================== 9. AQUARIUM, CONSTELLATION, COIN JAR, SPEAKERS, TOYS & FRAMES ===================== */}
+      <FocusDeskAquariumProp state={focusAquarium} />
+      <ConstellationSkyDomeProp stars={constellationStars} isObservatoryMode={isObservatoryMode} />
+      <SavingsCoinDropPhysicsJarProp
+        totalSavedPaise={totalSavedPaise}
+        dropSeq={coinDropSeq}
+        onDropBonusCoin={onDropBonusCoin}
+      />
+      <AudioReactiveSpeakersAndEqProp active={isVinylPlaying} />
+      <RetroArcadeCabinetProp
+        isUnlocked={dailyTargetPct >= 100}
+        dailyTargetPct={dailyTargetPct}
+        onClickArcade={() => onClickFurniture?.('arcade_cabinet')}
+      />
+      <PaperAirplaneDeliveryProp
+        unreadCount={paperAirplaneState.unreadCount}
+        latestMessage={paperAirplaneState.latestMessage}
+        deskOffsetY={isStandingDesk ? 0.34 : 0}
+        onClickPlane={() => onClickFurniture?.('paper_airplane')}
+      />
+      <DreamGlobeProp
+        destination={dreamGlobe.destination}
+        progress={dreamGlobe.progress}
+        onClickGlobe={() => onClickFurniture?.('dream_globe')}
+      />
+      <VinylRecordRackProp
+        sleeves={vinylSleeves}
+        activePreset={activeAmbientPreset}
+        isVisiting={isVisiting}
+        onSelectSleeve={(sleeve) => onSelectVinylSleeve?.(sleeve)}
+      />
+      {customFrames[0] && (
+        <CustomWallPhotoFrameProp
+          config={customFrames[0]}
+          position={[-2.88, 2.02, -3.41]}
+          rotationY={0}
+          isVisiting={isVisiting}
+          onClickFrame={() => onClickFurniture?.('custom_frame_1')}
+        />
+      )}
+      {customFrames[1] && (
+        <CustomWallPhotoFrameProp
+          config={customFrames[1]}
+          position={[2.72, 1.06, -0.25]}
+          rotationY={-Math.PI / 2}
+          isVisiting={isVisiting}
+          onClickFrame={() => onClickFurniture?.('custom_frame_2')}
+        />
+      )}
 
       {hoveredFurniture && (
         <Html position={hoveredFurniture.pos} center distanceFactor={9} style={{ pointerEvents: 'none' }}>

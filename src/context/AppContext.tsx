@@ -10,7 +10,11 @@ import {
   SavedCustomTheme,
 } from '../types/index.ts';
 import { api } from '../lib/api.ts';
-import { syncUserLeaderboardStats } from '../lib/leaderboardService.ts';
+import {
+  syncUserLeaderboardStats,
+  updateLiveStudyPresence,
+  updateStudyRoomActivity,
+} from '../lib/leaderboardService.ts';
 import {
   playFocusCompleteSound,
   playBreakEndSound,
@@ -1270,6 +1274,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [refreshKey, settings, syncLastError]);
 
   const activeTask = tasks.find((t) => t.id === activeTaskId) || null;
+  const liveSessionStartRef = useRef<string | null>(null);
+
+  // Global Live "Studying Now" presence heartbeat (runs across all tabs so Leaderboard / 3D Study Room stay in sync)
+  useEffect(() => {
+    const uid = firebaseUser?.uid;
+    if (!uid) return;
+
+    const isActivelyStudying =
+      isRunning && (timerEngine === 'stopwatch' || timerMode === 'work');
+    const isShortPauseOrBreak =
+      (!isRunning && Boolean(activeSessionId)) ||
+      timerMode === 'short_break' ||
+      timerMode === 'long_break';
+
+    if (!isActivelyStudying) {
+      if (liveSessionStartRef.current || isShortPauseOrBreak) {
+        liveSessionStartRef.current = null;
+        void updateLiveStudyPresence({ uid, isStudyingNow: false });
+      }
+      if (isShortPauseOrBreak) {
+        void updateStudyRoomActivity({ uid, activity: 'break' });
+      }
+      return;
+    }
+
+    if (!liveSessionStartRef.current) {
+      liveSessionStartRef.current = new Date().toISOString();
+    }
+    const activeSubject =
+      activeStudySubjectCode || activeTask?.title || 'Deep Focus';
+    const sessionStartedAt = liveSessionStartRef.current;
+
+    void updateStudyRoomActivity({ uid, activity: 'studying' });
+    void updateLiveStudyPresence({
+      uid,
+      isStudyingNow: true,
+      activeSubject,
+      sessionStartedAt,
+    });
+
+    const heartbeatId = window.setInterval(() => {
+      void updateLiveStudyPresence({
+        uid,
+        isStudyingNow: true,
+        activeSubject,
+        sessionStartedAt,
+      });
+    }, 120_000);
+
+    return () => {
+      window.clearInterval(heartbeatId);
+    };
+  }, [firebaseUser?.uid, isRunning, timerEngine, timerMode, activeSessionId, activeStudySubjectCode, activeTask?.title]);
 
   const updateSettings = async (
     newSettings: Partial<UserSettings>,
@@ -2060,17 +2117,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : timeLeftRef.current;
         const plannedSecs = Math.max(1, Math.floor(totalDurationRef.current) || 60);
         const elapsedActiveSecs = Math.max(0, Math.min(plannedSecs, Math.round(plannedSecs - liveRemaining)));
+        const qualifiesPartialCredit =
+          (reason === 'skipped' || reason === 'reset') && elapsedActiveSecs >= 300;
         const updatePayload = {
           mode: 'work' as const,
-          durationMinutes: Math.max(1, Math.round(plannedSecs / 60)),
+          durationMinutes: qualifiesPartialCredit
+            ? Math.max(1, Math.round(elapsedActiveSecs / 60))
+            : Math.max(1, Math.round(plannedSecs / 60)),
           durationSeconds: plannedSecs,
           startedAt,
-          status: 'interrupted' as const,
-          completed: false,
+          status: (qualifiesPartialCredit ? 'completed' : 'interrupted') as 'completed' | 'interrupted',
+          completed: qualifiesPartialCredit,
           actualDurationSeconds: elapsedActiveSecs,
           endedAt: new Date().toISOString(),
           endReason: reason,
-          interrupted: true,
+          interrupted: !qualifiesPartialCredit,
           pauseCount: pauseCountRef.current,
           totalPauseSeconds: totalPauseSecsRef.current,
         };

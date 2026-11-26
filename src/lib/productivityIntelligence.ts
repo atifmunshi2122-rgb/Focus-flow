@@ -78,6 +78,10 @@ export interface ProductivityScoreBreakdown {
     studyRevisionsCompletedToday?: number;
     studyRevisionsDueToday?: number;
     studyActivityPoints?: number;
+    focusMaxPoints?: number;
+    taskMaxPoints?: number;
+    habitMaxPoints?: number;
+    studyMaxPoints?: number;
   };
 }
 
@@ -314,7 +318,8 @@ export function computeProductivityScore(input: ProductivityScoreInput): Product
   const validSessions = (input.sessions || []).filter((s) => {
     if (s.mode !== 'work') return false;
     if (!s.completed) return false;
-    if (s.status === 'interrupted' || s.interrupted === true) return false;
+    // Allow sessions that were paused/resumed and finished (completed: true, status !== 'interrupted')
+    if (s.status === 'interrupted') return false;
     if (!s.startedAt) return false;
     return formatDateInTimezone(s.startedAt, tz) === targetDateStr;
   });
@@ -378,9 +383,12 @@ export function computeProductivityScore(input: ProductivityScoreInput): Product
   // -----------------------------------------------------------
   const activeHabits = (input.habits || []).filter((h) => !h.deletedAt && !h.archived);
 
-  // Daily and custom scheduled habits (weekly habits excluded from daily denominator)
+  // Daily and custom scheduled habits; weekly habits count on days they are completed so they reward without daily penalty
   const scheduledHabits = activeHabits.filter((h) => {
     if (h.frequency === 'daily') return true;
+    if (h.frequency === 'weekly') {
+      return (h.completedDates || []).includes(targetDateStr);
+    }
     if (h.frequency === 'custom' && Array.isArray(h.customDays) && h.customDays.length > 0) {
       const weekday = getCalendarWeekday(targetDateStr);
       if (weekday === null) return false;
@@ -538,14 +546,19 @@ export function computeProductivityScore(input: ProductivityScoreInput): Product
     tierColor = '#3b82f6'; // Blue
   }
 
+  const focusMaxPoints = W_active > 0 ? Math.round((w_focus / W_active) * 100) : 0;
+  const taskMaxPoints = W_active > 0 && w_task > 0 ? Math.round((w_task / W_active) * 100) : 0;
+  const habitMaxPoints = W_active > 0 && w_habit > 0 ? Math.round((w_habit / W_active) * 100) : 0;
+  const studyMaxPoints = W_active > 0 && w_study > 0 ? Math.round((w_study / W_active) * 100) : 0;
+
   const studySummary = isStudyActive
-    ? `, Study OS (${studyActivityPoints}/${Math.round((w_study / W_active) * 100)} pts: ${Math.round(R_study * 100)}% execution)`
+    ? `, Study OS (${studyActivityPoints}/${studyMaxPoints} pts: ${Math.round(R_study * 100)}% execution)`
     : '';
 
   const explanation =
-    `Score is calculated deterministically: Focus Goal (${focusTimePoints}/${Math.round((w_focus / W_active) * 100)} pts: ${focusMinutesLogged}/${focusGoal} min), ` +
-    `Task Execution (${taskCompletionPoints}/${Math.round((w_task / W_active) * 100)} pts: ${C_completed_today}/${N_due || 'ad-hoc'} done), ` +
-    `Habits (${habitConsistencyPoints}/${Math.round((w_habit / W_active) * 100)} pts: ${C_habit}/${N_habit || 'none'} done)` +
+    `Score is calculated deterministically: Focus Goal (${focusTimePoints}/${focusMaxPoints} pts: ${focusMinutesLogged}/${focusGoal} min), ` +
+    `Task Execution (${taskCompletionPoints}/${taskMaxPoints} pts: ${C_completed_today}/${N_due || 'ad-hoc'} done), ` +
+    `Habits (${habitConsistencyPoints}/${habitMaxPoints} pts: ${C_habit}/${N_habit || 'none'} done)` +
     `${studySummary}.`;
 
   return {
@@ -563,6 +576,10 @@ export function computeProductivityScore(input: ProductivityScoreInput): Product
       tasksDueToday: N_due,
       focusMinutesLogged,
       focusTargetMinutes: focusGoal,
+      focusMaxPoints,
+      taskMaxPoints,
+      habitMaxPoints,
+      studyMaxPoints,
       habitsCompletedToday: C_habit,
       habitsScheduledToday: N_habit,
       studyTasksCompletedToday: C_plan_due + C_plan_adhoc,

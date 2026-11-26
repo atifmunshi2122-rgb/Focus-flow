@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { CameraControls } from '@react-three/drei';
 import * as THREE from 'three';
 
-export type RoomCameraMode = 'isometric' | 'free' | 'cinematic' | 'desk_pov';
+export type RoomCameraMode = 'isometric' | 'free' | 'cinematic' | 'desk_pov' | 'observatory';
 
 type Vector3Tuple = [number, number, number];
 
@@ -35,6 +35,10 @@ const defaultPresets: Record<RoomCameraMode, { position: Vector3Tuple; target: V
   desk_pov: {
     position: [-3.35, 1.34, 1.07],
     target: [-4.55, 1.04, 0.92],
+  },
+  observatory: {
+    position: [-5.4, 1.85, 2.2],
+    target: [-3.8, 4.7, -5.8],
   },
 };
 

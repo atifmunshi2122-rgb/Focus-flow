@@ -109,6 +109,16 @@ export type FurnitureShortcutId =
   | 'vinyl_player'
   | 'hydration_bottle'
   | 'balcony_chair'
+  | 'smart_tv'
+  | 'observatory'
+  | 'savings_coin_jar'
+  | 'custom_frame_1'
+  | 'custom_frame_2'
+  | 'arcade_cabinet'
+  | 'paper_airplane'
+  | 'standing_desk_switch'
+  | 'dream_globe'
+  | 'vinyl_rack'
   | 'pet';
 
 export type LivingPlantStage = 'sprout' | 'leafy' | 'blooming' | 'wilted';

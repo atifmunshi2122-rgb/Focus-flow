@@ -18,8 +18,6 @@ import {
 } from '../../lib/pomodoroAnalytics.ts';
 import {
   syncUserLeaderboardStats,
-  updateLiveStudyPresence,
-  updateStudyRoomActivity,
 } from '../../lib/leaderboardService.ts';
 import type { FocusSession } from '../../types/index.ts';
 import type {
@@ -600,60 +598,6 @@ export const PomodoroTimer: React.FC = () => {
       void updateSettings({ soundEnabled: !settings.soundEnabled });
     }
   };
-
-  const liveSessionStartRef = useRef<string | null>(null);
-
-  // Phase 2: Live "Studying Now" presence heartbeat (refreshes every 2m while actively studying)
-  useEffect(() => {
-    const uid = firebaseUser?.uid;
-    if (!uid) return;
-
-    const isActivelyStudying =
-      isRunning && (timerEngine === 'stopwatch' || timerMode === 'work');
-    const isShortPauseOrBreak =
-      (!isRunning && Boolean(activeSessionId)) ||
-      timerMode === 'short_break' ||
-      timerMode === 'long_break';
-
-    if (!isActivelyStudying) {
-      if (liveSessionStartRef.current || isShortPauseOrBreak) {
-        liveSessionStartRef.current = null;
-        void updateLiveStudyPresence({ uid, isStudyingNow: false });
-      }
-      if (isShortPauseOrBreak) {
-        void updateStudyRoomActivity({ uid, activity: 'break' });
-      }
-      return;
-    }
-
-    if (!liveSessionStartRef.current) {
-      liveSessionStartRef.current = new Date().toISOString();
-    }
-    const activeSubject =
-      activeStudySubjectCode || activeTask?.title || 'Deep Focus';
-    const sessionStartedAt = liveSessionStartRef.current;
-
-    void updateStudyRoomActivity({ uid, activity: 'studying' });
-    void updateLiveStudyPresence({
-      uid,
-      isStudyingNow: true,
-      activeSubject,
-      sessionStartedAt,
-    });
-
-    const heartbeatId = window.setInterval(() => {
-      void updateLiveStudyPresence({
-        uid,
-        isStudyingNow: true,
-        activeSubject,
-        sessionStartedAt,
-      });
-    }, 120_000);
-
-    return () => {
-      window.clearInterval(heartbeatId);
-    };
-  }, [firebaseUser?.uid, isRunning, timerEngine, timerMode, activeSessionId, activeStudySubjectCode, activeTask?.title]);
 
   useEffect(() => {
     if (completedCycleCount > prevCycleCountRef.current) {

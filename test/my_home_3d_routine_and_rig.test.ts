@@ -5,17 +5,39 @@ import path from 'node:path';
 import * as THREE from 'three';
 
 import {
+  DREAM_GLOBE_CITIES,
+  computeDreamGlobeProgress,
+  computeMomentumWeatherOrbState,
+  computeVinylRecordRack,
+} from '../src/features/home/homeDreamAndArcade.ts';
+import {
   REQUIRED_HUMANOID_BONES,
   applyHumanoidProceduralPose,
   inspectRigCapabilities,
 } from '../src/features/study-room/humanoidRigController.ts';
 import {
   HOME_ZONES,
+  clampWalkableFloorPosition,
   computeHomeWaypointPath,
   deriveDefaultLightingForHour,
   deriveHomeRoutineState,
   type HomeZoneId,
 } from '../src/features/home/homeRoutineEngine.ts';
+import {
+  DEFAULT_CUSTOM_FRAMES,
+  DEFAULT_HOME_SHOP_STATE,
+  computeConstellationStars,
+  computeFocusAquariumState,
+  computeFocusCoinsBalance,
+  computeMonthlyBudgetSummary,
+  computeStreakHeatmapDays,
+  computeSunMoonSkyPosition,
+  placeOrMoveShopItem,
+  purchaseShopItem,
+  removePlacedShopItem,
+  rotatePlacedShopItem,
+  snapToHomeGrid,
+} from '../src/features/home/homeShopAndLayout.ts';
 import {
   MORNING_SEQUENCE_TOTAL_SECONDS,
   buildVisitorHomeFromLeaderboardProfile,
@@ -824,5 +846,174 @@ test('Batch 3 & Batch 4: Living plants, Vault safe, Parcels/Mail, Whiteboard, Fl
   assert.match(viewSrc, /DoorstepParcelMailModal/);
   assert.match(viewSrc, /DoomscrollJarModal/);
   assert.match(viewSrc, /TimeCapsuleQuickModal/);
+});
+
+test('Click-to-walk bounds, 3D Furniture Shop + 0.5m Grid Layout, Sky Arc & Smart Wall TV metrics', () => {
+  // 1. Walkable floor clamping avoids bed & dining table
+  const clampedBed = clampWalkableFloorPosition(-2.1, -2.2);
+  assert.ok(clampedBed[2] >= -1.12, 'Should clamp avatar outside bed footprint');
+  const clampedTable = clampWalkableFloorPosition(-0.15, 0.95);
+  assert.ok(
+    clampedTable[0] <= -0.78 || clampedTable[0] >= 0.48 || clampedTable[2] <= 0.32 || clampedTable[2] >= 1.58,
+    'Should clamp avatar outside dining table footprint'
+  );
+
+  // 2. Focus Coins + Furniture Shop purchase, 0.5m grid snap, rotate & remove
+  const coins = computeFocusCoinsBalance({ totalXP: 500, completedWorkCyclesToday: 2, spentCoins: 0 });
+  assert.equal(coins, 230);
+
+  const buy1 = purchaseShopItem(DEFAULT_HOME_SHOP_STATE, 'fish_aquarium', coins);
+  assert.equal(buy1.success, true);
+  assert.equal(buy1.nextState.ownedIds.includes('fish_aquarium'), true);
+  assert.equal(buy1.nextState.spentCoins, 80);
+
+  const snapped = snapToHomeGrid(1.23, 0.74, 0.5);
+  assert.equal(snapped.x, 1);
+  assert.equal(snapped.z, 0.5);
+
+  const moved = placeOrMoveShopItem(buy1.nextState, 'fish_aquarium', 1.23, 0.74);
+  assert.equal(moved.placedItems[0].x, 1);
+  assert.equal(moved.placedItems[0].z, 0.5);
+
+  const rotated = rotatePlacedShopItem(moved, 'fish_aquarium');
+  assert.ok(Math.abs(rotated.placedItems[0].rotationY - Math.PI / 2) < 0.001);
+
+  const removed = removePlacedShopItem(rotated, 'fish_aquarium');
+  assert.equal(removed.placedItems.length, 0);
+
+  // 3. Monthly Budget & 14-day Streak Heatmap for Smart Wall TV
+  const budget = computeMonthlyBudgetSummary({
+    expenses: [
+      { amountPaise: 350000, date: '2026-11-10', deletedAt: null },
+      { amountPaise: 150000, date: '2026-10-20', deletedAt: null },
+    ],
+    monthlyBudgetPaise: 1000000,
+    todayStr: '2026-11-27',
+  });
+  assert.equal(budget.spentPaiseThisMonth, 350000);
+  assert.equal(budget.budgetPct, 35);
+
+  const heatmap = computeStreakHeatmapDays({
+    sessions: [{ mode: 'work', startedAt: '2026-11-27T09:00:00+05:30', completed: true }],
+    habits: [{ archived: false, deletedAt: null, completedDates: ['2026-11-27', '2026-11-26'] }],
+    todayStr: '2026-11-27',
+    timezone: 'Asia/Kolkata',
+    daysCount: 14,
+  });
+  assert.equal(heatmap.length, 14);
+  assert.ok(heatmap[13].level >= 1);
+
+  // 4. Sun/Moon sky arc
+  const noonSky = computeSunMoonSkyPosition(12, 30, false);
+  assert.equal(noonSky.isNight, false);
+  const nightSky = computeSunMoonSkyPosition(22, 0, true);
+  assert.equal(nightSky.isNight, true);
+
+  // 5. Wiring check in MyHomeView
+  const viewSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/home/MyHomeView.tsx'), 'utf8');
+  assert.match(viewSrc, /FurnitureShopModal/);
+  assert.match(viewSrc, /coStudyGuests/);
+  assert.match(viewSrc, /smartTvData/);
+  assert.match(viewSrc, /breathingSecondsLeft/);
+});
+
+test('Focus Desk Aquarium, Constellation Observatory, Coin Physics Jar, Audio Speakers, Desk Toys & Custom Wall Frames', () => {
+  const today = '2026-11-27';
+
+  // 1. Focus Desk Aquarium: misty when 0 streak & 0 today sessions, crystal clear + jellyfish at 6+
+  const mistyTank = computeFocusAquariumState({
+    sessions: [],
+    streakDays: 0,
+    todayStr: today,
+    timezone: 'Asia/Kolkata',
+  });
+  assert.equal(mistyTank.isMisty, true);
+  assert.equal(mistyTank.fishCount, 0);
+  assert.equal(mistyTank.hasJellyfish, false);
+
+  const richTank = computeFocusAquariumState({
+    sessions: Array.from({ length: 7 }, (_, i) => ({
+      mode: 'work',
+      startedAt: i === 0 ? `${today}T09:00:00+05:30` : '2026-11-26T10:00:00+05:30',
+      completed: true,
+    })),
+    streakDays: 4,
+    todayStr: today,
+    timezone: 'Asia/Kolkata',
+  });
+  assert.equal(richTank.isMisty, false);
+  assert.equal(richTank.hasCoral, true);
+  assert.equal(richTank.fishCount, 4);
+  assert.equal(richTank.hasJellyfish, true);
+
+  // 2. Constellation Observatory stars
+  const stars = computeConstellationStars({
+    subjects: [{ code: 'DBMS', color: '#38bdf8', deletedAt: null }],
+    topics: [{ id: 't1', topic: 'B+ Trees', subjectCode: 'DBMS', theory: true, practice: true, pyq: false, deletedAt: null }],
+    skillNodes: [{ id: 'sk1', title: 'Dynamic Programming', status: 'completed' }],
+  });
+  assert.ok(stars.some((s) => s.kind === 'study' && s.label === 'B+ Trees'));
+  assert.ok(stars.some((s) => s.kind === 'skill' && s.label === 'Dynamic Programming'));
+
+  // 3. Default custom frames & component wiring
+  assert.equal(DEFAULT_CUSTOM_FRAMES.length, 2);
+
+  const aptSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/home/MyHomeApartment.tsx'), 'utf8');
+  const viewSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/home/MyHomeView.tsx'), 'utf8');
+  const rigSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/study-room/RoomCameraRig.tsx'), 'utf8');
+  assert.match(aptSrc, /FocusDeskAquariumProp/);
+  assert.match(aptSrc, /ConstellationSkyDomeProp/);
+  assert.match(aptSrc, /SavingsCoinDropPhysicsJarProp/);
+  assert.match(aptSrc, /AudioReactiveSpeakersAndEqProp/);
+  assert.match(aptSrc, /BreakTimeInteractiveDeskToysProp/);
+  assert.match(aptSrc, /CustomWallPhotoFrameProp/);
+  assert.match(rigSrc, /observatory/);
+  assert.match(viewSrc, /CustomWallFramesModal/);
+});
+
+test('Retro Arcade, Paper Airplane, Sit-Stand Desk, Dream Globe, Vinyl Rack & Weather Orb', () => {
+  // 1. Vinyl Record Rack progressive unlocks
+  const starterRack = computeVinylRecordRack(0);
+  assert.equal(starterRack.length, 4);
+  assert.equal(starterRack[0].unlocked, true);
+  assert.equal(starterRack[1].unlocked, false);
+
+  const fullRack = computeVinylRecordRack(10);
+  assert.ok(fullRack.every((s) => s.unlocked));
+
+  // 2. Momentum Weather Orb states
+  assert.equal(
+    computeMomentumWeatherOrbState({ todayFocusMinutes: 0, isFlowStateActive: false, isRunning: false }).mood,
+    'calm_clouds'
+  );
+  assert.equal(
+    computeMomentumWeatherOrbState({ todayFocusMinutes: 25, isFlowStateActive: false, isRunning: true }).mood,
+    'golden_sun'
+  );
+  assert.equal(
+    computeMomentumWeatherOrbState({ todayFocusMinutes: 65, isFlowStateActive: true, isRunning: true }).mood,
+    'electric_storm'
+  );
+
+  // 3. Dream Globe destinations & progress clamping
+  assert.ok(DREAM_GLOBE_CITIES.length >= 4);
+  assert.equal(computeDreamGlobeProgress(-10), 0.05);
+  assert.equal(computeDreamGlobeProgress(48), 0.48);
+  assert.equal(computeDreamGlobeProgress(150), 1);
+
+  // 4. Component & Modal wiring in MyHomeApartment and MyHomeView
+  const aptSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/home/MyHomeApartment.tsx'), 'utf8');
+  const viewSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/home/MyHomeView.tsx'), 'utf8');
+  assert.match(aptSrc, /RetroArcadeCabinetProp/);
+  assert.match(aptSrc, /PaperAirplaneDeliveryProp/);
+  assert.match(aptSrc, /DreamGlobeProp/);
+  assert.match(aptSrc, /VinylRecordRackProp/);
+  assert.match(aptSrc, /MomentumWeatherOrbProp/);
+  assert.match(aptSrc, /standing_desk_switch/);
+  assert.match(aptSrc, /isStandingDesk/);
+  assert.match(viewSrc, /ArcadeMiniGameModal/);
+  assert.match(viewSrc, /PaperAirplaneInboxModal/);
+  assert.match(viewSrc, /DreamGlobeModal/);
+  assert.match(viewSrc, /isStandingDesk/);
 });
 

@@ -307,8 +307,11 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
     });
   }, [entries, optimisticActivity, optimisticEmote, isRunning, timerMode, activeSessionId]);
 
-  const liveEntries = useMemo(
-    () => effectiveEntries.filter((e) => e.isStudyingLive),
+  const roomSeatedEntries = useMemo(
+    () =>
+      [...effectiveEntries].sort(
+        (a, b) => Number(Boolean(b.isStudyingLive)) - Number(Boolean(a.isStudyingLive))
+      ),
     [effectiveEntries]
   );
 
@@ -576,9 +579,9 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
               </g>
             ))}
 
-            {/* Render up to 8 Isometric Desks (only active Focus Mode users appear seated) */}
+            {/* Render up to 8 Isometric Desks (Online/Live at front desks, Offline/Idle at remaining desks) */}
             {ISO_SEAT_POSITIONS.map((pos, idx) => {
-              const entry = liveEntries[idx] || null;
+              const entry = roomSeatedEntries[idx] || null;
               const isLive = Boolean(entry?.isStudyingLive);
               const isSelected = Boolean(entry && selectedEntry?.uid === entry.uid);
 
@@ -589,8 +592,12 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
                   onClick={() => entry && setSelectedUid(entry.uid)}
                   className={entry ? 'cursor-pointer' : 'opacity-45'}
                 >
-                  {/* Warm Lamp Pool on Desk */}
-                  {isLive && <ellipse cx="0" cy="-12" rx="68" ry="38" fill="url(#lamp-glow)" />}
+                  {/* Warm Lamp Pool on Desk (bright for Live, subtle dim pool for Offline/Idle) */}
+                  {isLive ? (
+                    <ellipse cx="0" cy="-12" rx="68" ry="38" fill="url(#lamp-glow)" />
+                  ) : entry ? (
+                    <ellipse cx="0" cy="-12" rx="44" ry="24" fill="url(#lamp-glow)" opacity="0.22" />
+                  ) : null}
 
                   {/* Selection Highlight Ring */}
                   {isSelected && (
@@ -661,22 +668,37 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
                     </text>
                   )}
 
-                  {/* Floating Name + Status Pill */}
+                  {/* Floating Name + Status Pill (Green pulsing Live vs Grey Offline/Idle) */}
                   {entry && (
                     <g transform="translate(0, -48)">
                       <rect
-                        x="-58"
+                        x="-62"
                         y="-14"
-                        width="116"
-                        height={isLive ? 28 : 20}
+                        width="124"
+                        height={28}
                         rx="8"
                         fill="#0f172a"
-                        fillOpacity="0.9"
-                        stroke={isLive ? '#f87171' : '#334155'}
-                        strokeWidth={isLive ? '1.3' : '1'}
+                        fillOpacity="0.92"
+                        stroke={isLive ? '#34d399' : '#475569'}
+                        strokeWidth={isLive ? '1.35' : '1'}
                       />
+                      <circle
+                        cx="-50"
+                        cy="-5"
+                        r="3.2"
+                        fill={isLive ? '#22c55e' : '#64748b'}
+                      >
+                        {isLive && (
+                          <animate
+                            attributeName="opacity"
+                            values="1;0.35;1"
+                            dur="1.4s"
+                            repeatCount="indefinite"
+                          />
+                        )}
+                      </circle>
                       <text
-                        x="0"
+                        x="3"
                         y="-2"
                         textAnchor="middle"
                         fontSize="10"
@@ -684,22 +706,34 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
                         fill="#f8fafc"
                         fontFamily="ui-sans-serif, system-ui, sans-serif"
                       >
-                        {entry.displayName.length > 13
-                          ? `${entry.displayName.slice(0, 12)}…`
+                        {entry.displayName.length > 12
+                          ? `${entry.displayName.slice(0, 11)}…`
                           : entry.displayName}
                       </text>
-                      {isLive && (
+                      {isLive ? (
                         <text
                           x="0"
                           y="10"
                           textAnchor="middle"
                           fontSize="8.5"
                           fontWeight="600"
-                          fill="#fca5a5"
+                          fill="#6ee7b7"
                           fontFamily="ui-monospace, monospace"
                         >
-                          {(entry.activeSubject || 'Deep Focus').slice(0, 12)} ·{' '}
+                          Live · {(entry.activeSubject || 'Focus').slice(0, 9)} ·{' '}
                           {entry.liveElapsedMinutes > 0 ? `${entry.liveElapsedMinutes}m` : '<1m'}
+                        </text>
+                      ) : (
+                        <text
+                          x="0"
+                          y="10"
+                          textAnchor="middle"
+                          fontSize="8.5"
+                          fontWeight="500"
+                          fill="#94a3b8"
+                          fontFamily="ui-monospace, monospace"
+                        >
+                          Offline · #{entry.rank}
                         </text>
                       )}
                     </g>
@@ -714,11 +748,9 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
       {/* MODE 2: INTERACTIVE 3D STUDY PODS */}
       {roomStyle === 'pods' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-          {liveEntries.length === 0 ? (
+          {roomSeatedEntries.length === 0 ? (
             <div className="col-span-full p-8 rounded-2xl border border-dashed border-[var(--ff-border-color)] text-center text-xs text-[var(--ff-text-muted)] space-y-3">
-              <p>
-                Room is empty right now — only members with <strong>Focus Mode ON</strong> appear online here.
-              </p>
+              <p>No squad members in this study room yet.</p>
               <button
                 type="button"
                 onClick={onStartFocus}
@@ -729,7 +761,7 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
               </button>
             </div>
           ) : (
-            liveEntries.map((entry) => (
+            roomSeatedEntries.map((entry) => (
               <SpatialStudyPodCard
                 key={entry.uid}
                 entry={entry}
@@ -752,7 +784,7 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
           }
         >
           <LazySquadWebGLRoom
-            entries={liveEntries}
+            entries={roomSeatedEntries}
             selectedUid={selectedEntry?.uid || null}
             onSelectMember={(uid) => setSelectedUid(uid)}
             ambiance={ambiance}

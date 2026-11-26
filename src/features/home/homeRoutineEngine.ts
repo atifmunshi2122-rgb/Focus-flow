@@ -586,3 +586,32 @@ export function getZonedHourMinute(timezone?: string, date: Date = new Date()): 
     return { hour: date.getHours(), minute: date.getMinutes() };
   }
 }
+
+/**
+ * Clamps free WASD / click-to-walk coordinates cleanly onto unobstructed main Oak floor,
+ * preventing walking through walls, study desk, bed, or dining table.
+ */
+export function clampWalkableFloorPosition(x: number, z: number): [number, number, number] {
+  let cx = Math.max(-3.65, Math.min(2.45, x));
+  let cz = Math.max(-2.75, Math.min(2.45, z));
+
+  // Keep out of Bed bounding box (x: -2.9..-1.35, z: -3.35..-1.15)
+  if (cx > -2.95 && cx < -1.32 && cz < -1.12) {
+    cz = -1.12;
+  }
+
+  // Keep out of Dining Table bounding box (x: -0.78..+0.48, z: 0.32..1.58)
+  if (cx > -0.78 && cx < 0.48 && cz > 0.32 && cz < 1.58) {
+    const dLeft = Math.abs(cx - -0.78);
+    const dRight = Math.abs(0.48 - cx);
+    const dTop = Math.abs(cz - 0.32);
+    const dBot = Math.abs(1.58 - cz);
+    const minD = Math.min(dLeft, dRight, dTop, dBot);
+    if (minD === dLeft) cx = -0.78;
+    else if (minD === dRight) cx = 0.48;
+    else if (minD === dTop) cz = 0.32;
+    else cz = 1.58;
+  }
+
+  return [cx, 0, cz];
+}

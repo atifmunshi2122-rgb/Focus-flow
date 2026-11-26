@@ -907,4 +907,69 @@ test('Overall — All categories active reaches exact 100 with Mastery tier', ()
   assert.equal(score.totalScore, 100);
   assert.equal(score.tier, 'Mastery');
   assert.equal(score.tierColor, '#10b981');
+  assert.equal(score.details.focusMaxPoints, 35);
+  assert.equal(score.details.taskMaxPoints, 30);
+  assert.equal(score.details.habitMaxPoints, 20);
+  assert.equal(score.details.studyMaxPoints, 15);
+});
+
+test('Focus — Paused and resumed Pomodoro that finishes (completed: true, interrupted: true) still earns points', () => {
+  const sessions: FocusSession[] = [
+    {
+      id: 'sess_paused_then_completed',
+      userId: 'test_u1',
+      taskId: null,
+      mode: 'work',
+      durationMinutes: 25,
+      durationSeconds: 1500,
+      actualDurationSeconds: 1500,
+      completed: true,
+      status: 'completed',
+      interrupted: true,
+      startedAt: '2026-11-15T09:00:00+05:30',
+      endedAt: '2026-11-15T09:27:00+05:30',
+    },
+  ];
+  const score = computeProductivityScore({
+    tasks: [],
+    sessions,
+    habits: [],
+    settings: mockSettings,
+    referenceDateStr: '2026-11-15',
+    timezone: 'Asia/Kolkata',
+  });
+  assert.equal(score.details.focusMinutesLogged, 25);
+  assert.equal(score.details.focusMaxPoints, 100);
+  assert.equal(score.focusTimePoints, 25);
+  assert.equal(score.totalScore, 25);
+});
+
+test('Habits — Weekly habit completed today counts toward Habit Consistency', () => {
+  const habits: Habit[] = [
+    {
+      id: 'h_weekly_done',
+      userId: 'test_u1',
+      title: 'Weekly Review',
+      category: 'Organize',
+      color: '#f59e0b',
+      frequency: 'weekly',
+      targetDaysPerWeek: 1,
+      completedDates: ['2026-11-15'],
+      bestStreakDays: 1,
+      createdAt: '2026-11-01T00:00:00Z',
+      updatedAt: '2026-11-15T00:00:00Z',
+    },
+  ];
+  const score = computeProductivityScore({
+    tasks: [],
+    sessions: [],
+    habits,
+    settings: mockSettings,
+    referenceDateStr: '2026-11-15',
+    timezone: 'Asia/Kolkata',
+  });
+  assert.equal(score.details.habitsScheduledToday, 1);
+  assert.equal(score.details.habitsCompletedToday, 1);
+  assert.ok(score.habitConsistencyPoints > 0);
+  assert.equal(score.habitConsistencyPoints, score.details.habitMaxPoints);
 });

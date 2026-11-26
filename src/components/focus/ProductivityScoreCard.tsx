@@ -168,79 +168,97 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
             </span>
           </div>
 
-          {/* Four Weighted Pillar Progress Bars */}
+          {/* Dynamic Normalized Weighted Pillar Progress Bars */}
           <div className="space-y-2.5 text-xs">
-            {/* 1. Task Completion (35%) */}
-            <div className="min-w-0">
-              <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
-                <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                  <span>Task Completion (35 pts max)</span>
-                </span>
-                <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
-                  {scoreData.taskCompletionPoints} / 35
-                </span>
-              </div>
-              <AnimatedProgressBar
-                value={scoreData.taskCompletionPoints}
-                max={35}
-                customColor="#10b981"
-              />
-            </div>
+            {/* 1. Focus Time Attainment (always active) */}
+            {(() => {
+              const focusMax = scoreData.details.focusMaxPoints ?? 35;
+              const taskMax = scoreData.details.taskMaxPoints ?? 0;
+              const habitMax = scoreData.details.habitMaxPoints ?? 0;
+              const studyMax = scoreData.details.studyMaxPoints ?? 0;
+              const studyPts = scoreData.studyActivityPoints ?? scoreData.details.studyActivityPoints ?? 0;
+              return (
+                <>
+                  {/* 1. Focus Time Goal */}
+                  <div className="min-w-0">
+                    <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
+                      <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                        <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
+                        <span>Focus Time Goal ({focusMax} pts max)</span>
+                      </span>
+                      <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
+                        {scoreData.focusTimePoints} / {focusMax}
+                      </span>
+                    </div>
+                    <AnimatedProgressBar
+                      value={scoreData.focusTimePoints}
+                      max={Math.max(1, focusMax)}
+                      customColor="#6366f1"
+                    />
+                  </div>
 
-            {/* 2. Focus Time Attainment (35%) */}
-            <div className="min-w-0">
-              <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
-                <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
-                  <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
-                  <span>Focus Time Goal (35 pts max)</span>
-                </span>
-                <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
-                  {scoreData.focusTimePoints} / 35
-                </span>
-              </div>
-              <AnimatedProgressBar
-                value={scoreData.focusTimePoints}
-                max={35}
-                customColor="#6366f1"
-              />
-            </div>
+                  {/* 2. Task Completion (shown when active) */}
+                  {taskMax > 0 && (
+                    <div className="min-w-0">
+                      <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
+                        <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                          <span>Task Completion ({taskMax} pts max)</span>
+                        </span>
+                        <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
+                          {scoreData.taskCompletionPoints} / {taskMax}
+                        </span>
+                      </div>
+                      <AnimatedProgressBar
+                        value={scoreData.taskCompletionPoints}
+                        max={taskMax}
+                        customColor="#10b981"
+                      />
+                    </div>
+                  )}
 
-            {/* 3. Habit Consistency (20%) */}
-            <div className="min-w-0">
-              <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
-                <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
-                  <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                  <span>Habit Consistency (20 pts max)</span>
-                </span>
-                <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
-                  {scoreData.habitConsistencyPoints} / 20
-                </span>
-              </div>
-              <AnimatedProgressBar
-                value={scoreData.habitConsistencyPoints}
-                max={20}
-                customColor="#f59e0b"
-              />
-            </div>
+                  {/* 3. Habit Consistency (shown when active) */}
+                  {habitMax > 0 && (
+                    <div className="min-w-0">
+                      <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
+                        <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                          <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                          <span>Habit Consistency ({habitMax} pts max)</span>
+                        </span>
+                        <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
+                          {scoreData.habitConsistencyPoints} / {habitMax}
+                        </span>
+                      </div>
+                      <AnimatedProgressBar
+                        value={scoreData.habitConsistencyPoints}
+                        max={habitMax}
+                        customColor="#f59e0b"
+                      />
+                    </div>
+                  )}
 
-            {/* 4. Momentum Bonus (10%) */}
-            <div className="min-w-0">
-              <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
-                <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
-                  <TrendingUp className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-0.5" />
-                  <span>Daily Targets Bonus (10 pts max)</span>
-                </span>
-                <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
-                  {scoreData.targetBonusPoints} / 10
-                </span>
-              </div>
-              <AnimatedProgressBar
-                value={scoreData.targetBonusPoints}
-                max={10}
-                customColor="#8b5cf6"
-              />
-            </div>
+                  {/* 4. Study OS Activity (shown when active) */}
+                  {studyMax > 0 && (
+                    <div className="min-w-0">
+                      <div className="flex items-start justify-between gap-2 text-[var(--ff-text-secondary)] mb-1 min-w-0">
+                        <span className="flex items-start gap-1.5 min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                          <TrendingUp className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-0.5" />
+                          <span>Study OS Activity ({studyMax} pts max)</span>
+                        </span>
+                        <span className="font-mono font-semibold shrink-0 whitespace-nowrap tabular-nums">
+                          {studyPts} / {studyMax}
+                        </span>
+                      </div>
+                      <AnimatedProgressBar
+                        value={studyPts}
+                        max={studyMax}
+                        customColor="#8b5cf6"
+                      />
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -283,9 +301,10 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
                   </div>
                 </div>
                 <div className="bg-[var(--ff-surface-card)] p-2 rounded-lg border border-[var(--ff-border-color)]">
-                  <div className="text-[var(--ff-text-muted)] text-[10px]">Bonus Points</div>
+                  <div className="text-[var(--ff-text-muted)] text-[10px]">Study OS</div>
                   <div className="font-bold text-[var(--ff-text-primary)]">
-                    +{scoreData.targetBonusPoints} pts
+                    {scoreData.studyActivityPoints ?? scoreData.details.studyActivityPoints ?? 0} /{' '}
+                    {scoreData.details.studyMaxPoints ?? 0} pts
                   </div>
                 </div>
               </div>

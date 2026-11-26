@@ -14,6 +14,7 @@ export interface MyHomePetProps {
   avatarGroupRef: React.RefObject<THREE.Group | null>;
   streakDays: number;
   isVisiting?: boolean;
+  reactionCue?: { type: 'pet' | 'feed'; seq: number } | null;
   onClickPet?: () => void;
 }
 
@@ -28,6 +29,7 @@ export const MyHomePet: React.FC<MyHomePetProps> = ({
   avatarGroupRef,
   streakDays,
   isVisiting = false,
+  reactionCue = null,
   onClickPet,
 }) => {
   const petGroupRef = useRef<THREE.Group | null>(null);
@@ -40,6 +42,14 @@ export const MyHomePet: React.FC<MyHomePetProps> = ({
   const legBRRef = useRef<THREE.Mesh | null>(null);
 
   const [hovered, setHovered] = useState(false);
+  const [activeReaction, setActiveReaction] = useState<'pet' | 'feed' | null>(null);
+
+  React.useEffect(() => {
+    if (!reactionCue) return;
+    setActiveReaction(reactionCue.type);
+    const id = window.setTimeout(() => setActiveReaction(null), 2600);
+    return () => window.clearTimeout(id);
+  }, [reactionCue?.seq]);
 
   const currentPos = useRef(PET_REST_POS.clone());
   const targetPos = useRef(PET_REST_POS.clone());
@@ -309,15 +319,19 @@ export const MyHomePet: React.FC<MyHomePetProps> = ({
           </group>
         </group>
 
-        {/* Subtle resting badge or hover tag */}
-        {(hovered || (shouldCurlAndRest && !isWalking)) && (
+        {/* Subtle resting badge, reaction cue, or hover tag */}
+        {(activeReaction || hovered || (shouldCurlAndRest && !isWalking)) && (
           <Html position={[0, 0.56, 0]} center distanceFactor={9} style={{ pointerEvents: 'none' }}>
             <div className="px-2 py-0.5 rounded-full bg-slate-950/85 border border-amber-300/35 text-[10px] font-medium text-amber-100 whitespace-nowrap shadow-md backdrop-blur-sm">
-              {hovered
-                ? isVisiting
-                  ? `${species === 'cat' ? '🐈 Cat' : '🐕 Shiba'} · ${streakDays}d Streak`
-                  : `${species === 'cat' ? '🐈 Mochi (Click to switch)' : '🐕 Kibo (Click to switch)'}`
-                : '🐾 💤'}
+              {activeReaction === 'pet'
+                ? '❤️ Purr / Happy! +Mood'
+                : activeReaction === 'feed'
+                  ? '🍖 Yum! +Energy'
+                  : hovered
+                    ? isVisiting
+                      ? `${species === 'cat' ? '🐈 Cat' : '🐕 Shiba'} · ${streakDays}d Streak`
+                      : `${species === 'cat' ? '🐈 Mochi (Click to switch)' : '🐕 Kibo (Click to switch)'}`
+                    : '🐾 💤'}
             </div>
           </Html>
         )}

@@ -79,7 +79,10 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
 }) => {
   const palette = ROOM_THEME_PALETTES[customization.theme] || ROOM_THEME_PALETTES.cozy;
   const visibleEntries = useMemo(
-    () => entries.filter((e) => e.isStudyingLive).slice(0, DESK_SLOTS.length),
+    () =>
+      [...entries]
+        .sort((a, b) => Number(Boolean(b.isStudyingLive)) - Number(Boolean(a.isStudyingLive)))
+        .slice(0, DESK_SLOTS.length),
     [entries]
   );
 
@@ -111,7 +114,7 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
 
       {/* Premium Customizable Study Room Architecture & Furniture */}
       <StudyRoomEnvironment
-        entries={entries}
+        entries={visibleEntries}
         selectedUid={selectedUid}
         onSelectMember={onSelectMember}
         customization={customization}
@@ -135,7 +138,7 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
               }`
             : activity === 'break'
             ? `${activityBadge} • #${entry.rank}`
-            : `#${entry.rank} • ${entry.hoursFormatted} • ${entry.streakDays}d`;
+            : `Offline / Idle • #${entry.rank} • ${entry.hoursFormatted}`;
 
           // Rigged avatars sit on the chair at z=0.56; unrigged static models (e.g. avatar-02)
           // stand behind the chair backrest at z=1.12 to prevent chair clipping and nameplate face overlap.
@@ -204,21 +207,29 @@ export const SquadWebGLRoom: React.FC<SquadWebGLRoomProps> = ({
     }
   });
 
+  const orderedEntries = useMemo(
+    () =>
+      [...entries]
+        .sort((a, b) => Number(Boolean(b.isStudyingLive)) - Number(Boolean(a.isStudyingLive)))
+        .slice(0, DESK_SLOTS.length),
+    [entries]
+  );
+
   const liveCount = useMemo(() => entries.filter((e) => e.isStudyingLive).length, [entries]);
 
   const focusTarget = useMemo<[number, number, number] | null>(() => {
     if (!isFocusingSelected || !selectedUid) return null;
-    const idx = entries.slice(0, DESK_SLOTS.length).findIndex((e) => e.uid === selectedUid);
+    const idx = orderedEntries.findIndex((e) => e.uid === selectedUid);
     if (idx < 0) return null;
     const slot = DESK_SLOTS[idx];
     return [slot.x, 0, slot.z];
-  }, [isFocusingSelected, selectedUid, entries]);
+  }, [isFocusingSelected, selectedUid, orderedEntries]);
 
   // Lazy-preload only the GLBs needed by current room members
   useEffect(() => {
-    const urls = entries.slice(0, DESK_SLOTS.length).map((e) => resolveStudyAvatarIdentity(e).modelUrl);
+    const urls = orderedEntries.map((e) => resolveStudyAvatarIdentity(e).modelUrl);
     preloadStudyAvatarModels(urls);
-  }, [entries]);
+  }, [orderedEntries]);
 
   const handleSelectMemberFrom3D = (uid: string) => {
     onSelectMember(uid);

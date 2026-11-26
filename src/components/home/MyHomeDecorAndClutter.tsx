@@ -99,10 +99,12 @@ export const MyHomeUnlockedDecor: React.FC<{
   kitchenGroupPosition: [number, number, number];
   chairGroupPosition: [number, number, number];
   chairRotationY: number;
-}> = ({ unlocks, kitchenGroupPosition, chairGroupPosition, chairRotationY }) => {
+  deskOffsetY?: number;
+}> = ({ unlocks, kitchenGroupPosition, chairGroupPosition, chairRotationY, deskOffsetY = 0 }) => {
   return (
     <group>
       {/* 1. Mechanical RGB Keyboard & Mouse Mat (200 XP or Lv 2) */}
+      <group position={[0, deskOffsetY, 0]}>
       {unlocks.mechKeyboard && (
         <group position={[-4.12, 0.782, 1.07]}>
           {/* Matte obsidian desk pad */}
@@ -171,6 +173,7 @@ export const MyHomeUnlockedDecor: React.FC<{
           </mesh>
         </group>
       )}
+      </group>
 
       {/* 3. Fairy Lights String Along Walls (Lv 3, 50% Savings, or 7d Streak) */}
       {unlocks.fairyLights && (

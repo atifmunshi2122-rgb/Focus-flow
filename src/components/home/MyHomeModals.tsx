@@ -26,8 +26,19 @@ import {
   Coins,
   Archive,
   Sparkles as SparklesIcon,
+  ShoppingBag,
+  RotateCw,
+  Trash2,
+  ImagePlus,
 } from 'lucide-react';
 import type { ExpenseCategory, SavingsGoal } from '../../types/index.ts';
+import type {
+  CustomWallFrameConfig,
+  HomeShopState,
+  ShopItemId,
+  WallFramePreset,
+} from '../../features/home/homeShopAndLayout.ts';
+import { SHOP_CATALOG } from '../../features/home/homeShopAndLayout.ts';
 import type {
   ApartmentTierOverride,
   DailyWrapUpStats,
@@ -1286,4 +1297,264 @@ export const ApartmentTierControlCard: React.FC<{
     </div>
   </div>
 );
+
+/* ------------------------------------------------------------------ *
+ * 9. 3D Room Furniture Shop & Layout Editor Modal
+ * ------------------------------------------------------------------ */
+export const FurnitureShopModal: React.FC<{
+  shopState: HomeShopState;
+  availableCoins: number;
+  layoutEditMode: boolean;
+  onBuyItem: (id: ShopItemId) => void;
+  onTogglePlaceItem: (id: ShopItemId) => void;
+  onRotateItem: (id: ShopItemId) => void;
+  onRemoveItem: (id: ShopItemId) => void;
+  onToggleLayoutEditMode: () => void;
+  onClose: () => void;
+}> = ({
+  shopState,
+  availableCoins,
+  layoutEditMode,
+  onBuyItem,
+  onTogglePlaceItem,
+  onRotateItem,
+  onRemoveItem,
+  onToggleLayoutEditMode,
+  onClose,
+}) => {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-[#0b1530]/95 text-slate-100 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-xl bg-amber-500/20 border border-amber-400/35 flex items-center justify-center">
+              <ShoppingBag className="w-4.5 h-4.5 text-amber-300" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">3D Furniture Shop & Layout Studio</h3>
+              <p className="text-[11px] text-amber-200 font-semibold">
+                🪙 {availableCoins.toLocaleString()} Focus Coins Available
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-300/80 hover:text-white hover:bg-white/10"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3 max-h-[72vh] overflow-y-auto">
+          <div className="flex items-center justify-between rounded-xl border border-sky-400/25 bg-sky-500/10 px-3.5 py-2.5">
+            <div className="text-xs text-sky-100">
+              {layoutEditMode
+                ? 'Grid Layout Editor Active — click floor grid in room to move selected item!'
+                : 'Enable Grid Layout Mode to move & snap furniture on the 0.5m room grid.'}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onToggleLayoutEditMode();
+                onClose();
+              }}
+              className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-[11px] font-semibold shrink-0 ml-2"
+            >
+              {layoutEditMode ? 'Done Editing' : '🛠️ Edit Grid'}
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {SHOP_CATALOG.map((item) => {
+              const owned = shopState.ownedIds.includes(item.id);
+              const placed = shopState.placedItems.some((p) => p.itemId === item.id);
+              const canAfford = availableCoins >= item.priceCoins;
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <span>{item.icon}</span>
+                      <span>{item.name}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-300/75 truncate">{item.description}</div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!owned ? (
+                      <button
+                        type="button"
+                        disabled={!canAfford}
+                        onClick={() => onBuyItem(item.id)}
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                          canAfford
+                            ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                            : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        }`}
+                      >
+                        🪙 {item.priceCoins}
+                      </button>
+                    ) : placed ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onRotateItem(item.id)}
+                          className="p-1.5 rounded-lg bg-indigo-500/25 hover:bg-indigo-500/40 text-indigo-200 border border-indigo-400/35"
+                          title="Rotate 90°"
+                        >
+                          <RotateCw className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveItem(item.id)}
+                          className="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/35 text-rose-200 border border-rose-400/30"
+                          title="Store in inventory"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onTogglePlaceItem(item.id)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-semibold"
+                      >
+                        Place in Room
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ *
+ * 10. Custom Wall Photo & Poster Frames Modal
+ * ------------------------------------------------------------------ */
+export const CustomWallFramesModal: React.FC<{
+  frames: CustomWallFrameConfig[];
+  onSaveFrame: (updated: CustomWallFrameConfig) => void;
+  onClose: () => void;
+}> = ({ frames, onSaveFrame, onClose }) => {
+  const [selectedId, setSelectedId] = useState<'custom_frame_1' | 'custom_frame_2'>(
+    frames[0]?.id || 'custom_frame_1'
+  );
+  const current = frames.find((f) => f.id === selectedId) || frames[0];
+
+  const handleUploadImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !current) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = 320;
+        c.height = 240;
+        const ctx = c.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, 320, 240);
+        const compressed = c.toDataURL('image/jpeg', 0.8);
+        onSaveFrame({ ...current, preset: 'custom', imageDataUrl: compressed });
+      };
+      img.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-2xl border border-white/15 bg-[#0b1530]/95 text-slate-100 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-xl bg-indigo-500/20 border border-indigo-400/35 flex items-center justify-center">
+              <ImagePlus className="w-4.5 h-4.5 text-indigo-300" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Custom Wall Photo & Poster Frames</h3>
+              <p className="text-[11px] text-slate-300/75">Upload your own vision board or pick a poster theme</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-300/80 hover:text-white hover:bg-white/10"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {current && (
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              {frames.map((f, idx) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setSelectedId(f.id)}
+                  className={`py-2 px-3 rounded-xl text-xs font-semibold border transition ${
+                    selectedId === f.id
+                      ? 'bg-indigo-500/35 border-indigo-400 text-white'
+                      : 'bg-white/[0.04] border-white/10 text-slate-300'
+                  }`}
+                >
+                  Frame #{idx + 1}: {f.title}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium text-slate-300">Poster Caption</label>
+              <input
+                type="text"
+                value={current.title}
+                onChange={(e) => onSaveFrame({ ...current, title: e.target.value })}
+                className="w-full rounded-lg bg-slate-950/70 border border-white/15 px-3 py-2 text-xs text-white focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-medium text-slate-300">Built-In Poster Presets</div>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { id: 'cyber_dusk', label: 'Cyber Dusk' },
+                    { id: 'sakura_horizon', label: 'Sakura' },
+                    { id: 'focus_grid', label: 'Focus Zen' },
+                  ] as Array<{ id: WallFramePreset; label: string }>
+                ).map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => onSaveFrame({ ...current, preset: p.id, imageDataUrl: null })}
+                    className={`py-1.5 rounded-lg text-[11px] font-medium border ${
+                      current.preset === p.id && !current.imageDataUrl
+                        ? 'bg-sky-500/35 border-sky-400 text-white'
+                        : 'bg-white/[0.04] border-white/10 text-slate-300'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-semibold cursor-pointer transition">
+              <ImagePlus className="w-4 h-4" />
+              Upload Custom Photo / Poster
+              <input type="file" accept="image/*" onChange={handleUploadImage} className="hidden" />
+            </label>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
