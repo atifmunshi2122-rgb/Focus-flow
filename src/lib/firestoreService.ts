@@ -32,6 +32,7 @@ import {
   formatDateInTimezone,
   calculateFocusStreakDays,
   computeBestStreakDays,
+  computeNextRecurrenceDueDate,
 } from './dateTime.ts';
 import {
   User,
@@ -264,22 +265,6 @@ function parseSubtasks(raw: unknown): SubtaskItem[] {
   return items;
 }
 
-function computeNextRecurrenceDueDate(
-  currentDueDate: string | null | undefined,
-  recurrence: TaskRecurrence
-): string | null {
-  if (recurrence === 'none') return null;
-  const baseStr =
-    currentDueDate && isIsoDate(currentDueDate)
-      ? currentDueDate
-      : getTodayDateString();
-  const d = new Date(`${baseStr}T00:00:00.000Z`);
-  if (recurrence === 'daily') d.setUTCDate(d.getUTCDate() + 1);
-  else if (recurrence === 'weekly') d.setUTCDate(d.getUTCDate() + 7);
-  else if (recurrence === 'monthly') d.setUTCMonth(d.getUTCMonth() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
 function calculateBoundedStreakDays(
   sessions: FocusSession[],
   timezoneOrRefDate: string | Date = DEFAULT_TIMEZONE,
@@ -425,9 +410,20 @@ export const firestoreService = {
         return defaultSnap.data() as Partial<UserSettings>;
       }
       const snap = await getDocs(collection(db, `users/${userId}/settings`));
-      const nonCat = snap.docs.find((d) => d.id !== 'categories' && d.id !== 'savings_goals');
-      if (nonCat) {
-        return nonCat.data() as Partial<UserSettings>;
+      const nonUserSettingsIds = new Set([
+        'categories',
+        'savings_goals',
+        'study_meta',
+        'study_import_sources',
+        'study_import_history',
+        'study_topic_source_mappings',
+        'study_import_sessions',
+      ]);
+      const fallbackDoc = snap.docs.find(
+        (d) => !nonUserSettingsIds.has(d.id) && !d.id.startsWith('study_')
+      );
+      if (fallbackDoc) {
+        return fallbackDoc.data() as Partial<UserSettings>;
       }
       return null;
     } catch (err) {
@@ -474,6 +470,15 @@ export const firestoreService = {
     try {
       await setDoc(doc(db, path), { items: [...existing, created] }, { merge: true });
       return created;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  },
+
+  async saveCategories(userId: string, categories: ExpenseCategory[]): Promise<void> {
+    const path = `users/${userId}/settings/categories`;
+    try {
+      await setDoc(doc(db, path), { items: categories.map((c) => ({ ...c, userId })) }, { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, path);
     }
@@ -1792,7 +1797,9 @@ export const firestoreService = {
         ? s.durationSeconds
         : (s.durationMinutes || 0) * 60;
 
-    const todaySessions = sessions.filter((s) => formatDateInTimezone(s.startedAt, tz) === todayStr && s.completed);
+    const todaySessions = sessions.filter(
+      (s) => formatDateInTimezone(s.startedAt, tz) === todayStr && s.completed && s.mode === 'work'
+    );
     const todayFocusSeconds = todaySessions.reduce((acc, s) => acc + getSessionDurationSecs(s), 0);
     const weeklyFocusSeconds = sessions
       .filter((s) => s.mode === 'work' && s.completed && formatDateInTimezone(s.startedAt, tz) >= weekStartStr)
@@ -2403,7 +2410,22 @@ export const firestoreService = {
     }
     const updatedDates = Array.from(completedSet).sort();
     const nowIso = new Date().toISOString();
-    const bestStreak = Math.max(target.bestStreakDays || 0, updatedDates.length);
+    // Calculate longest consecutive-day streak across sorted YYYY-MM-DD dates
+    let maxConsecutive = 0;
+    let currentRun = 0;
+    let prevDayMs: number | null = null;
+    for (const dStr of updatedDates) {
+      const dayMs = Date.parse(`${dStr}T00:00:00Z`);
+      if (!Number.isFinite(dayMs)) continue;
+      if (prevDayMs !== null && Math.round((dayMs - prevDayMs) / 86400_000) === 1) {
+        currentRun += 1;
+      } else {
+        currentRun = 1;
+      }
+      if (currentRun > maxConsecutive) maxConsecutive = currentRun;
+      prevDayMs = dayMs;
+    }
+    const bestStreak = Math.max(target.bestStreakDays || 0, maxConsecutive);
     const updated: Habit = {
       ...target,
       completedDates: updatedDates,
@@ -2453,20 +2475,41 @@ export const firestoreService = {
   async saveEnvelope(userId: string, input: Partial<BudgetEnvelope>): Promise<BudgetEnvelope> {
     const id = input.id || `env_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const path = `users/${userId}/envelopes/${id}`;
+    const envRef = doc(db, path);
+    let existing: Partial<BudgetEnvelope> | null = null;
+    if (input.id) {
+      try {
+        const snap = await getDoc(envRef);
+        if (snap.exists()) existing = snap.data() as BudgetEnvelope;
+      } catch {}
+    }
+
+    const allocatedNum = Number(input.allocatedPaise ?? existing?.allocatedPaise ?? 0);
     const env: BudgetEnvelope = {
       id,
       userId,
-      name: (input.name || 'Envelope').trim(),
-      categoryId: input.categoryId || null,
-      allocatedPaise: Math.max(0, Math.floor(Number(input.allocatedPaise) || 0)),
-      monthKey: input.monthKey || getTodayDateString(DEFAULT_TIMEZONE).slice(0, 7),
-      color: input.color || '#6366f1',
-      notes: input.notes || '',
-      deletedAt: input.deletedAt || null,
-      createdAt: input.createdAt || nowIso,
+      name: String(input.name ?? existing?.name ?? 'Envelope').trim() || 'Envelope',
+      categoryId: input.categoryId !== undefined ? input.categoryId : (existing?.categoryId ?? null),
+      allocatedPaise: Math.max(0, Math.floor(Number.isFinite(allocatedNum) ? allocatedNum : 0)),
+      monthKey: input.monthKey ?? existing?.monthKey ?? getTodayDateString(DEFAULT_TIMEZONE).slice(0, 7),
+      color: input.color ?? existing?.color ?? '#6366f1',
+      notes: input.notes !== undefined ? input.notes : (existing?.notes ?? ''),
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing?.deletedAt ?? null),
+      createdAt: existing?.createdAt ?? input.createdAt ?? nowIso,
       updatedAt: nowIso,
     };
-    await setDoc(doc(db, `users/${userId}/envelopes/${id}`), stripUndefined({ ...env }), { merge: true });
+
+    try {
+      const payload: Record<string, unknown> = stripUndefined({ ...env });
+      // Never include createdAt in update payload (immutable in firestore.rules)
+      if (existing) {
+        delete payload.createdAt;
+      }
+      await setDoc(envRef, payload, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
     return env;
   },
 
@@ -2477,36 +2520,53 @@ export const firestoreService = {
     amountPaise: number
   ): Promise<{ success: boolean; error?: string }> {
     if (fromId === toId) return { success: false, error: 'Cannot transfer funds to the same envelope' };
-    if (amountPaise <= 0) return { success: false, error: 'Amount must be positive' };
-    const fromSnap = await getDoc(doc(db, `users/${userId}/envelopes/${fromId}`));
-    const toSnap = await getDoc(doc(db, `users/${userId}/envelopes/${toId}`));
-    if (!fromSnap.exists() || !toSnap.exists()) return { success: false, error: 'Envelope not found' };
+    const cleanAmount = Math.floor(Number(amountPaise) || 0);
+    if (cleanAmount <= 0) return { success: false, error: 'Amount must be positive' };
 
-    const fromEnv = fromSnap.data() as BudgetEnvelope;
-    const toEnv = toSnap.data() as BudgetEnvelope;
-    if (fromEnv.allocatedPaise < amountPaise) return { success: false, error: 'Insufficient funds in source envelope' };
-
+    const fromPath = `users/${userId}/envelopes/${fromId}`;
+    const fromRef = doc(db, fromPath);
+    const toRef = doc(db, `users/${userId}/envelopes/${toId}`);
     const nowIso = new Date().toISOString();
-    const batch = writeBatch(db);
-    batch.update(doc(db, `users/${userId}/envelopes/${fromId}`), {
-      allocatedPaise: fromEnv.allocatedPaise - amountPaise,
-      updatedAt: nowIso,
-    });
-    batch.update(doc(db, `users/${userId}/envelopes/${toId}`), {
-      allocatedPaise: toEnv.allocatedPaise + amountPaise,
-      updatedAt: nowIso,
-    });
-    await batch.commit();
 
-    await this.recordAuditLog(userId, {
-      action: 'envelope_transfer',
-      entityType: 'envelope',
-      entityId: fromId,
-      entityTitle: `${fromEnv.name} -> ${toEnv.name}`,
-      details: `Transferred ${amountPaise} paise from ${fromEnv.name} to ${toEnv.name}`,
-    });
+    let txMeta: { fromName: string; toName: string } | null = null;
+    try {
+      const result = await runTransaction(db, async (tx) => {
+        const [fromSnap, toSnap] = await Promise.all([tx.get(fromRef), tx.get(toRef)]);
+        if (!fromSnap.exists() || !toSnap.exists()) {
+          return { success: false as const, error: 'Envelope not found' };
+        }
+        const fromEnv = fromSnap.data() as BudgetEnvelope;
+        const toEnv = toSnap.data() as BudgetEnvelope;
+        if ((fromEnv.allocatedPaise || 0) < cleanAmount) {
+          return { success: false as const, error: 'Insufficient funds in source envelope' };
+        }
 
-    return { success: true };
+        tx.update(fromRef, {
+          allocatedPaise: (fromEnv.allocatedPaise || 0) - cleanAmount,
+          updatedAt: nowIso,
+        });
+        tx.update(toRef, {
+          allocatedPaise: (toEnv.allocatedPaise || 0) + cleanAmount,
+          updatedAt: nowIso,
+        });
+        txMeta = { fromName: fromEnv.name, toName: toEnv.name };
+        return { success: true as const };
+      });
+
+      if (!result.success) return result;
+      if (txMeta) {
+        await this.recordAuditLog(userId, {
+          action: 'envelope_transfer',
+          entityType: 'envelope',
+          entityId: fromId,
+          entityTitle: `${(txMeta as { fromName: string; toName: string }).fromName} -> ${(txMeta as { fromName: string; toName: string }).toName}`,
+          details: `Transferred ${cleanAmount} paise from ${(txMeta as { fromName: string; toName: string }).fromName} to ${(txMeta as { fromName: string; toName: string }).toName}`,
+        });
+      }
+      return { success: true };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, fromPath);
+    }
   },
 
   async deleteEnvelope(userId: string, id: string): Promise<void> {
@@ -2532,24 +2592,47 @@ export const firestoreService = {
   async saveSubscription(userId: string, input: Partial<SubscriptionPlan>): Promise<SubscriptionPlan> {
     const id = input.id || `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const nowIso = new Date().toISOString();
+    const path = `users/${userId}/subscriptions/${id}`;
+    const subRef = doc(db, path);
+    let existing: Partial<SubscriptionPlan> | null = null;
+    if (input.id) {
+      try {
+        const snap = await getDoc(subRef);
+        if (snap.exists()) existing = snap.data() as SubscriptionPlan;
+      } catch {}
+    }
+
+    const rawAmount = Number(input.amountPaise ?? existing?.amountPaise ?? 100);
+    const rawReminder = Number(input.reminderDays ?? existing?.reminderDays ?? 3);
     const sub: SubscriptionPlan = {
       id,
       userId,
-      name: (input.name || 'Subscription').trim(),
-      amountPaise: Math.max(0, Math.floor(Number(input.amountPaise) || 0)),
-      categoryId: input.categoryId || 'cat_subscriptions',
-      billingCycle: input.billingCycle || 'monthly',
-      nextRenewalDate: input.nextRenewalDate || getTodayDateString(DEFAULT_TIMEZONE),
-      reminderDays: Math.max(0, Number(input.reminderDays) || 3),
-      autoRenew: input.autoRenew !== false,
-      status: input.status || 'active',
-      websiteUrl: input.websiteUrl || '',
-      notes: input.notes || '',
-      deletedAt: input.deletedAt || null,
-      createdAt: input.createdAt || nowIso,
+      name: String(input.name ?? existing?.name ?? 'Subscription').trim() || 'Subscription',
+      amountPaise: Math.max(1, Math.floor(Number.isFinite(rawAmount) ? rawAmount : 100)),
+      categoryId: input.categoryId ?? existing?.categoryId ?? 'cat_subscriptions',
+      billingCycle: input.billingCycle ?? existing?.billingCycle ?? 'monthly',
+      nextRenewalDate:
+        input.nextRenewalDate ?? existing?.nextRenewalDate ?? getTodayDateString(DEFAULT_TIMEZONE),
+      reminderDays: Math.max(0, Math.round(Number.isFinite(rawReminder) ? rawReminder : 3)),
+      autoRenew:
+        input.autoRenew !== undefined ? Boolean(input.autoRenew) : (existing?.autoRenew ?? true),
+      status: input.status ?? existing?.status ?? 'active',
+      websiteUrl: input.websiteUrl !== undefined ? input.websiteUrl : (existing?.websiteUrl ?? ''),
+      notes: input.notes !== undefined ? input.notes : (existing?.notes ?? ''),
+      deletedAt: input.deletedAt !== undefined ? input.deletedAt : (existing?.deletedAt ?? null),
+      createdAt: existing?.createdAt ?? input.createdAt ?? nowIso,
       updatedAt: nowIso,
     };
-    await setDoc(doc(db, `users/${userId}/subscriptions/${id}`), stripUndefined({ ...sub }), { merge: true });
+
+    try {
+      const payload: Record<string, unknown> = stripUndefined({ ...sub });
+      if (existing) {
+        delete payload.createdAt;
+      }
+      await setDoc(subRef, payload, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
     return sub;
   },
 
@@ -2823,6 +2906,20 @@ export const firestoreService = {
       'study_topics',
       'study_revisions',
       'study_mistakes',
+      'habits',
+      'pomodoro_goals',
+      'pomodoro_presets',
+      'study_tiers',
+      'study_goals',
+      'study_plans',
+      'study_plan_tasks',
+      'study_exams',
+      'study_notes',
+      'study_flashcards',
+      'study_quizzes',
+      'study_resources',
+      'pomodoro_settings',
+      'pomodoro_ambient_presets',
     ];
     for (const sub of subcollections) {
       const snap = await getDocs(collection(db, `users/${userId}/${sub}`));
@@ -2834,7 +2931,21 @@ export const firestoreService = {
   },
 
   async clearStudyData(userId: string): Promise<void> {
-    const subcollections = ['study_subjects', 'study_topics', 'study_revisions', 'study_mistakes'];
+    const subcollections = [
+      'study_subjects',
+      'study_topics',
+      'study_revisions',
+      'study_mistakes',
+      'study_tiers',
+      'study_goals',
+      'study_plans',
+      'study_plan_tasks',
+      'study_resources',
+      'study_exams',
+      'study_notes',
+      'study_flashcards',
+      'study_quizzes',
+    ];
     for (const sub of subcollections) {
       try {
         const snap = await getDocs(collection(db, `users/${userId}/${sub}`));
@@ -3868,19 +3979,24 @@ export const firestoreService = {
         if (snap.exists()) existing = snap.data() as PomodoroPreset;
       } catch {}
     }
+    const toBoundedInt = (val: unknown, fallback: number, min: number, max: number) => {
+      const n = Number(val);
+      const safe = Number.isFinite(n) ? n : fallback;
+      return Math.round(Math.max(min, Math.min(max, safe)));
+    };
     const preset: PomodoroPreset = {
       id,
       userId,
       name: (input.name ?? existing.name ?? 'Custom Preset').trim().slice(0, 128),
       description: input.description ?? existing.description,
-      workDuration: Math.max(1, Math.min(180, Number(input.workDuration ?? existing.workDuration ?? 25))),
-      shortBreakDuration: Math.max(1, Math.min(60, Number(input.shortBreakDuration ?? existing.shortBreakDuration ?? 5))),
-      longBreakDuration: Math.max(1, Math.min(90, Number(input.longBreakDuration ?? existing.longBreakDuration ?? 15))),
-      longBreakInterval: Math.max(1, Math.min(12, Number(input.longBreakInterval ?? existing.longBreakInterval ?? 4))),
+      workDuration: toBoundedInt(input.workDuration ?? existing.workDuration, 25, 1, 180),
+      shortBreakDuration: toBoundedInt(input.shortBreakDuration ?? existing.shortBreakDuration, 5, 1, 60),
+      longBreakDuration: toBoundedInt(input.longBreakDuration ?? existing.longBreakDuration, 15, 1, 90),
+      longBreakInterval: toBoundedInt(input.longBreakInterval ?? existing.longBreakInterval, 4, 1, 12),
       autoStartBreaks: input.autoStartBreaks !== undefined ? Boolean(input.autoStartBreaks) : (existing.autoStartBreaks ?? false),
       autoStartFocus: input.autoStartFocus !== undefined ? Boolean(input.autoStartFocus) : (existing.autoStartFocus ?? false),
       soundEnabled: input.soundEnabled !== undefined ? Boolean(input.soundEnabled) : (existing.soundEnabled ?? true),
-      soundVolume: Math.max(0, Math.min(100, Number(input.soundVolume ?? existing.soundVolume ?? 70))),
+      soundVolume: toBoundedInt(input.soundVolume ?? existing.soundVolume, 70, 0, 100),
       isDefault: input.isDefault !== undefined ? Boolean(input.isDefault) : (existing.isDefault ?? false),
       isSystemPreset: existing.isSystemPreset ?? false,
       createdAt: existing.createdAt ?? nowIso,
@@ -3931,15 +4047,19 @@ export const firestoreService = {
     const metricType = (input.metricType ?? existing.metricType ?? 'focus_minutes') as PomodoroGoal['metricType'];
     const status = (input.status ?? existing.status ?? 'active') as PomodoroGoal['status'];
 
-    const targetValue = Math.max(
-      1,
-      Number(
-        input.targetValue ??
-          existing.targetValue ??
-          input.dailyTargetMinutes ??
-          existing.dailyTargetMinutes ??
-          120
-      )
+    const rawTarget = Number(
+      input.targetValue ??
+        existing.targetValue ??
+        input.dailyTargetMinutes ??
+        existing.dailyTargetMinutes ??
+        120
+    );
+    const targetValue = Math.round(
+      Math.max(1, Math.min(100000, Number.isFinite(rawTarget) ? rawTarget : 120))
+    );
+    const rawCurrent = Number(input.currentValue ?? existing.currentValue ?? 0);
+    const currentValue = Math.round(
+      Math.max(0, Math.min(1000000, Number.isFinite(rawCurrent) ? rawCurrent : 0))
     );
 
     const goal: PomodoroGoal = {
@@ -3950,7 +4070,7 @@ export const firestoreService = {
       goalType,
       metricType,
       targetValue,
-      currentValue: Number(input.currentValue ?? existing.currentValue ?? 0),
+      currentValue,
       subjectId: input.subjectId !== undefined ? input.subjectId : (existing.subjectId ?? null),
       subjectCode: input.subjectCode !== undefined ? input.subjectCode : (existing.subjectCode ?? null),
       topicId: input.topicId !== undefined ? input.topicId : (existing.topicId ?? null),

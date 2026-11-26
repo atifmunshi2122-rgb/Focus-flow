@@ -1,5 +1,11 @@
 import type { FocusSession } from './db.js';
-import { DEFAULT_TIMEZONE, getTodayDateString, calculateFocusStreakDays, computeBestStreakDays as computeBestStreakDaysTz } from './dateTime.js';
+import {
+  DEFAULT_TIMEZONE,
+  getTodayDateString,
+  calculateFocusStreakDays,
+  computeBestStreakDays as computeBestStreakDaysTz,
+  computeNextRecurrenceDueDate as computeSafeNextRecurrenceDueDate,
+} from './dateTime.js';
 
 export const ALLOWED_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP'] as const;
 export const ALLOWED_THEMES = ['light', 'dark', 'system'] as const;
@@ -108,18 +114,10 @@ export function computeNextRecurrenceDueDate(
   currentDueDate: string | null,
   recurrence: 'daily' | 'weekly' | 'monthly'
 ): string {
-  const baseStr = currentDueDate && parseIsoDate(currentDueDate)
-    ? currentDueDate
-    : getTodayDateString(DEFAULT_TIMEZONE);
-  const d = new Date(`${baseStr}T00:00:00.000Z`);
-  if (recurrence === 'daily') {
-    d.setUTCDate(d.getUTCDate() + 1);
-  } else if (recurrence === 'weekly') {
-    d.setUTCDate(d.getUTCDate() + 7);
-  } else {
-    d.setUTCMonth(d.getUTCMonth() + 1);
-  }
-  return d.toISOString().slice(0, 10);
+  return (
+    computeSafeNextRecurrenceDueDate(currentDueDate, recurrence) ||
+    getTodayDateString(DEFAULT_TIMEZONE)
+  );
 }
 
 const MAX_STREAK_DAYS = 365;

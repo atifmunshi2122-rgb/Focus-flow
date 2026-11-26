@@ -5912,6 +5912,98 @@ apiRouter.post('/social/notifications/:id/read', async (req: Request, res: Respo
 });
 
 // ----------------------------------------------------
+// Habits API (supports local dev & guest fallback)
+// ----------------------------------------------------
+apiRouter.get('/habits', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase() as any;
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  res.json(list.filter((h: any) => h.userId === userId && !h.deletedAt));
+});
+
+apiRouter.post('/habits', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase() as any;
+  if (!Array.isArray(db.habits)) db.habits = [];
+  const nowIso = new Date().toISOString();
+  const created = {
+    id: req.body?.id || `hab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    userId,
+    title: String(req.body?.title || 'Daily Habit').trim().slice(0, 128),
+    category: req.body?.category || 'Study',
+    targetPerWeek: Number(req.body?.targetPerWeek ?? 7),
+    completedDates: Array.isArray(req.body?.completedDates) ? req.body.completedDates : [],
+    bestStreakDays: Number(req.body?.bestStreakDays ?? 0),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    deletedAt: null,
+  };
+  db.habits.unshift(created);
+  await dbService.save();
+  res.status(201).json(created);
+});
+
+apiRouter.post('/habits/:id/toggle', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase() as any;
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  const habit = list.find((h: any) => h.id === req.params.id && h.userId === userId && !h.deletedAt);
+  if (!habit) {
+    res.status(404).json({ error: 'Habit not found' });
+    return;
+  }
+  const dateStr = String(req.body?.dateStr || req.body?.date || new Date().toISOString().slice(0, 10));
+  const set = new Set<string>(Array.isArray(habit.completedDates) ? habit.completedDates : []);
+  if (set.has(dateStr)) set.delete(dateStr);
+  else set.add(dateStr);
+  habit.completedDates = Array.from(set).sort();
+  habit.updatedAt = new Date().toISOString();
+  await dbService.save();
+  res.json(habit);
+});
+
+apiRouter.put('/habits/:id', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase() as any;
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  const habit = list.find((h: any) => h.id === req.params.id && h.userId === userId && !h.deletedAt);
+  if (!habit) {
+    res.status(404).json({ error: 'Habit not found' });
+    return;
+  }
+  Object.assign(habit, req.body || {}, { id: habit.id, userId, updatedAt: new Date().toISOString() });
+  await dbService.save();
+  res.json(habit);
+});
+
+apiRouter.patch('/habits/:id', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase() as any;
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  const habit = list.find((h: any) => h.id === req.params.id && h.userId === userId && !h.deletedAt);
+  if (!habit) {
+    res.status(404).json({ error: 'Habit not found' });
+    return;
+  }
+  Object.assign(habit, req.body || {}, { id: habit.id, userId, updatedAt: new Date().toISOString() });
+  await dbService.save();
+  res.json(habit);
+});
+
+apiRouter.delete('/habits/:id', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase() as any;
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  const habit = list.find((h: any) => h.id === req.params.id && h.userId === userId);
+  if (habit) {
+    habit.deletedAt = new Date().toISOString();
+    habit.updatedAt = new Date().toISOString();
+    await dbService.save();
+  }
+  res.json({ success: true });
+});
+
+// ----------------------------------------------------
 // Final 404 handler for unmatched /api routes
 // ----------------------------------------------------
 apiRouter.use((_req: Request, res: Response) => {

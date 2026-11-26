@@ -785,6 +785,7 @@ export function getChatMessages(
   const safeLimit = Math.min(50, Math.max(1, input.limit || 25));
   const msgs = db.studyChatMessages!
     .filter((m) => {
+      if (m.deletedAt) return false;
       if (input.squadId && m.squadId !== input.squadId) return false;
       if (input.roomId && m.roomId !== input.roomId) return false;
       if (input.before && m.createdAt >= input.before) return false;
@@ -891,17 +892,27 @@ export function getSquadWeeklyChallenges(
   const weekAgoMs = Date.now() - 7 * 86400_000;
 
   const focusMinutes = db.focusSessions
-    .filter((s) => memberIds.has(s.userId) && s.completed && Date.parse(s.startedAt) >= weekAgoMs)
+    .filter(
+      (s) =>
+        memberIds.has(s.userId) &&
+        s.completed &&
+        s.mode === 'work' &&
+        Date.parse(s.startedAt) >= weekAgoMs
+    )
     .reduce((acc, s) => acc + Math.max(0, s.durationMinutes || 0), 0);
   const focusHours = Math.round((focusMinutes / 60) * 10) / 10;
 
-  const completedTasks = db.tasks.filter(
-    (t) => memberIds.has(t.userId) && !t.deletedAt && t.status === 'completed'
-  ).length;
+  const completedTasks = db.tasks.filter((t) => {
+    if (!memberIds.has(t.userId) || t.deletedAt || t.status !== 'completed') return false;
+    const ts = Date.parse(t.completedAt || t.updatedAt || t.createdAt);
+    return Number.isFinite(ts) && ts >= weekAgoMs;
+  }).length;
 
-  const completedTopics = (db.studyTopics || []).filter(
-    (t) => memberIds.has(t.userId) && t.theory && t.practice
-  ).length;
+  const completedTopics = (db.studyTopics || []).filter((t) => {
+    if (!memberIds.has(t.userId) || !t.theory || !t.practice) return false;
+    const ts = Date.parse((t as any).updatedAt || (t as any).createdAt || '');
+    return Number.isFinite(ts) && ts >= weekAgoMs;
+  }).length;
 
   return [
     {

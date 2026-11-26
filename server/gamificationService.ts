@@ -69,7 +69,7 @@ export function computeUserStreaksFromSessions(
   const minutesByDay = new Map<string, number>();
 
   for (const s of sessions) {
-    if (!s.completed) continue;
+    if (!s.completed || s.mode !== 'work') continue;
     const mins = Math.max(0, Math.round(s.durationMinutes || 0));
     if (mins < 5) continue;
     const dayKey = formatDateInTimezone(s.startedAt, timezone);
@@ -172,7 +172,8 @@ function computeAchievementMetrics(db: DatabaseSchema, userId: string, profile: 
     (t: Task) => t.userId === userId && !t.deletedAt && t.status === 'completed'
   ).length;
   const completedSessions = db.focusSessions.filter(
-    (s: FocusSession) => s.userId === userId && s.completed && (s.durationMinutes || 0) >= 5
+    (s: FocusSession) =>
+      s.userId === userId && s.completed && s.mode === 'work' && (s.durationMinutes || 0) >= 5
   );
   const completedTopics = (db.studyTopics || []).filter(
     (t) => t.userId === userId && t.theory && t.practice
@@ -351,7 +352,7 @@ export function awardAuthoritativeXP(
     const session = db.focusSessions.find(
       (s) => s.id === sourceId && s.userId === userId
     );
-    if (!session || !session.completed || (session.durationMinutes || 0) < 5) {
+    if (!session || !session.completed || session.mode !== 'work' || (session.durationMinutes || 0) < 5) {
       return {
         awarded: false,
         alreadyAwarded: false,

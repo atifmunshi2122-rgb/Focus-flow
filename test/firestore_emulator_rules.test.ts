@@ -1029,3 +1029,172 @@ test('12. Server-Controlled Drive Idempotency (/driveIdempotency/{operationId}) 
   });
   assert.equal(ownerDelete.status, 403, 'Owner client cannot delete server-controlled idempotency record');
 });
+
+test('13. Study Squads, Squad Invites & Leaderboard Profiles Privacy + Ownership Transfer Rules', { skip: skipReason }, async () => {
+  const ts = Date.now();
+  const alice = `usr_sq_alice_${ts}`;
+  const bob = `usr_sq_bob_${ts}`;
+  const carol = `usr_sq_carol_${ts}`; // Carol belongs to a DIFFERENT squad
+  const squadAId = `sq_alpha_${ts}`;
+  const squadBId = `sq_beta_${ts}`;
+  const inviteA = `ALP${String(ts).slice(-3)}`.replace(/[^A-Z0-9]/g, 'A').slice(0, 6);
+  const inviteB = `BET${String(ts).slice(-3)}`.replace(/[^A-Z0-9]/g, 'B').slice(0, 6);
+  const nowIso = '2026-11-26T15:00:00Z';
+
+  const makeProfile = (uid: string, name: string) => ({
+    uid,
+    displayName: name,
+    avatarColor: '#6366f1',
+    isPublic: false,
+    squadIds: [],
+    todayKey: '2026-11-26',
+    todayMinutes: 60,
+    weekKey: '2026-W48',
+    weekMinutes: 120,
+    monthKey: '2026-11',
+    monthMinutes: 240,
+    streakDays: 3,
+    dailyGoalMinutes: 120,
+    totalSessionsCount: 4,
+    updatedAt: nowIso,
+  });
+
+  // 1. Alice, Bob, Carol create private leaderboard profiles (squadIds must start empty)
+  for (const [u, label] of [[alice, 'Alice'], [bob, 'Bob'], [carol, 'Carol']] as const) {
+    const res = await firestoreRequest(`leaderboard_profiles/${u}`, 'PATCH', {
+      uid: u,
+      data: makeProfile(u, label),
+    });
+    assert.equal(res.status, 200, `${label} creates private leaderboard profile`);
+  }
+
+  // 2. Alice creates Squad A + invite index; Carol creates Squad B
+  assert.equal(
+    (await firestoreRequest(`study_squads/${squadAId}`, 'PATCH', {
+      uid: alice,
+      data: {
+        id: squadAId,
+        name: 'Alpha Private Squad',
+        description: 'Private JEE group',
+        inviteCode: inviteA,
+        ownerUid: alice,
+        memberUids: [alice],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+    })).status,
+    200
+  );
+  assert.equal(
+    (await firestoreRequest(`squad_invites/${inviteA}`, 'PATCH', {
+      uid: alice,
+      data: {
+        inviteCode: inviteA,
+        squadId: squadAId,
+        squadName: 'Alpha Private Squad',
+        ownerUid: alice,
+        createdAt: nowIso,
+      },
+    })).status,
+    200
+  );
+  assert.equal(
+    (await firestoreRequest(`study_squads/${squadBId}`, 'PATCH', {
+      uid: carol,
+      data: {
+        id: squadBId,
+        name: 'Beta Private Squad',
+        description: '',
+        inviteCode: inviteB,
+        ownerUid: carol,
+        memberUids: [carol],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+    })).status,
+    200
+  );
+
+  // Carol updates her own squadIds -> [squadBId]
+  assert.equal(
+    (await firestoreRequest(`leaderboard_profiles/${carol}`, 'PATCH', {
+      uid: carol,
+      data: { squadIds: [squadBId], updatedAt: nowIso },
+      updateMask: ['squadIds', 'updatedAt'],
+    })).status,
+    200
+  );
+
+  // 3. Bob looks up squad_invites/{inviteA} (get allowed), but listing squad_invites or study_squads is DENIED
+  const bobGetInvite = await firestoreRequest(`squad_invites/${inviteA}`, 'GET', { uid: bob });
+  assert.equal(bobGetInvite.status, 200, 'Signed-in user holding invite code can look up squad_invites/{code}');
+  const listInvites = await firestoreRequest('squad_invites', 'GET', { uid: carol });
+  assert.equal(listInvites.status, 403, 'Listing squad_invites must be denied');
+  const listSquads = await firestoreRequest('study_squads', 'GET', { uid: carol });
+  assert.equal(listSquads.status, 403, 'Listing study_squads must be denied');
+  const carolReadSquadA = await firestoreRequest(`study_squads/${squadAId}`, 'GET', { uid: carol });
+  assert.equal(carolReadSquadA.status, 403, 'Non-member Carol cannot read private Squad A or its inviteCode');
+
+  // 4. Bob joins Squad A and updates his squadIds; Alice updates her squadIds
+  assert.equal(
+    (await firestoreRequest(`leaderboard_profiles/${alice}`, 'PATCH', {
+      uid: alice,
+      data: { squadIds: [squadAId], updatedAt: nowIso },
+      updateMask: ['squadIds', 'updatedAt'],
+    })).status,
+    200
+  );
+  assert.equal(
+    (await firestoreRequest(`study_squads/${squadAId}`, 'PATCH', {
+      uid: bob,
+      data: { memberUids: [alice, bob], updatedAt: nowIso },
+      updateMask: ['memberUids', 'updatedAt'],
+    })).status,
+    200
+  );
+  assert.equal(
+    (await firestoreRequest(`leaderboard_profiles/${bob}`, 'PATCH', {
+      uid: bob,
+      data: { squadIds: [squadAId], updatedAt: nowIso },
+      updateMask: ['squadIds', 'updatedAt'],
+    })).status,
+    200
+  );
+
+  // 5. Privacy check: Carol (in Squad B) CANNOT read Alice or Bob private profile; Alice CAN read Bob!
+  const carolReadsAlice = await firestoreRequest(`leaderboard_profiles/${alice}`, 'GET', { uid: carol });
+  assert.equal(carolReadsAlice.status, 403, 'Carol in different squad must NOT read Alice private profile');
+  const aliceReadsBob = await firestoreRequest(`leaderboard_profiles/${bob}`, 'GET', { uid: alice });
+  assert.equal(aliceReadsBob.status, 200, 'Squadmate Alice can read Bob private profile');
+
+  // Carol cannot spoof squadIds to sneak into Alice squad profile
+  const carolSpoof = await firestoreRequest(`leaderboard_profiles/${carol}`, 'PATCH', {
+    uid: carol,
+    data: { squadIds: [squadAId, squadBId], updatedAt: nowIso },
+    updateMask: ['squadIds', 'updatedAt'],
+  });
+  assert.equal(carolSpoof.status, 403, 'User cannot spoof unauthorized squadIds on own profile');
+
+  // 6. Owner Alice CANNOT leave non-empty squad without transferring ownership
+  const orphanLeave = await firestoreRequest(`study_squads/${squadAId}`, 'PATCH', {
+    uid: alice,
+    data: { memberUids: [bob], updatedAt: nowIso },
+    updateMask: ['memberUids', 'updatedAt'],
+  });
+  assert.equal(orphanLeave.status, 403, 'Owner leaving non-empty squad without transferring ownerUid must be rejected');
+
+  // Owner Alice leaves WITH ownership transfer to Bob -> 200, and Bob can now update Weekly Challenge
+  const transferLeave = await firestoreRequest(`study_squads/${squadAId}`, 'PATCH', {
+    uid: alice,
+    data: { memberUids: [bob], ownerUid: bob, updatedAt: nowIso },
+    updateMask: ['memberUids', 'ownerUid', 'updatedAt'],
+  });
+  assert.equal(transferLeave.status, 200, 'Owner leaving with ownership transfer to remaining member must succeed');
+
+  const bobUpdateChallenge = await firestoreRequest(`study_squads/${squadAId}`, 'PATCH', {
+    uid: bob,
+    data: { weeklyGoalHours: 40, challengeTitle: 'Finals Sprint', updatedAt: nowIso },
+    updateMask: ['weeklyGoalHours', 'challengeTitle', 'updatedAt'],
+  });
+  assert.equal(bobUpdateChallenge.status, 200, 'New squad owner Bob can update Weekly Squad Challenge');
+});

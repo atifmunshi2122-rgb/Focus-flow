@@ -153,6 +153,39 @@ function addDays(dateStr, days) {
   d.setUTCDate(d.getUTCDate() + days);
   return formatYmd(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
 }
+function computeNextRecurrenceDueDate(currentDueDate, recurrence, preferredDueDay, timezone = DEFAULT_TIMEZONE) {
+  if (recurrence === "none") return null;
+  const baseStr = currentDueDate && parseDateString(currentDueDate) ? currentDueDate : getTodayDateString(timezone);
+  const parsed = parseDateString(baseStr);
+  if (!parsed) return null;
+  if (recurrence === "daily") {
+    return addDays(baseStr, 1);
+  }
+  if (recurrence === "weekly") {
+    return addDays(baseStr, 7);
+  }
+  const targetDay = preferredDueDay && preferredDueDay >= 1 && preferredDueDay <= 31 ? preferredDueDay : parsed.day;
+  let targetYear = parsed.year;
+  let targetMonth = parsed.month;
+  if (recurrence === "monthly") {
+    targetMonth += 1;
+    if (targetMonth > 12) {
+      targetMonth = 1;
+      targetYear += 1;
+    }
+  } else if (recurrence === "quarterly") {
+    targetMonth += 3;
+    if (targetMonth > 12) {
+      targetMonth -= 12;
+      targetYear += 1;
+    }
+  } else if (recurrence === "yearly") {
+    targetYear += 1;
+  }
+  const maxDayInTargetMonth = getDaysInMonth(targetYear, targetMonth);
+  const clampedDay = Math.min(targetDay, maxDayInTargetMonth);
+  return formatYmd(targetYear, targetMonth, clampedDay);
+}
 function calculateFocusStreakDays(sessions, timezone = DEFAULT_TIMEZONE, referenceDate = /* @__PURE__ */ new Date()) {
   const completedDays = /* @__PURE__ */ new Set();
   for (const s of sessions) {
@@ -5721,7 +5754,7 @@ function computeUserStreaksFromSessions(sessions, timezone, now = /* @__PURE__ *
   const todayKey = formatDateInTimezone(now, timezone);
   const minutesByDay = /* @__PURE__ */ new Map();
   for (const s of sessions) {
-    if (!s.completed) continue;
+    if (!s.completed || s.mode !== "work") continue;
     const mins = Math.max(0, Math.round(s.durationMinutes || 0));
     if (mins < 5) continue;
     const dayKey = formatDateInTimezone(s.startedAt, timezone);
@@ -5807,7 +5840,7 @@ function computeAchievementMetrics(db, userId, profile, timezone) {
     (t) => t.userId === userId && !t.deletedAt && t.status === "completed"
   ).length;
   const completedSessions = db.focusSessions.filter(
-    (s) => s.userId === userId && s.completed && (s.durationMinutes || 0) >= 5
+    (s) => s.userId === userId && s.completed && s.mode === "work" && (s.durationMinutes || 0) >= 5
   );
   const completedTopics = (db.studyTopics || []).filter(
     (t) => t.userId === userId && t.theory && t.practice
@@ -5944,7 +5977,7 @@ function awardAuthoritativeXP(db, userId, req) {
     const session = db.focusSessions.find(
       (s) => s.id === sourceId && s.userId === userId
     );
-    if (!session || !session.completed || (session.durationMinutes || 0) < 5) {
+    if (!session || !session.completed || session.mode !== "work" || (session.durationMinutes || 0) < 5) {
       return {
         awarded: false,
         alreadyAwarded: false,
@@ -6716,6 +6749,7 @@ function getChatMessages(db, userId, input) {
   }
   const safeLimit = Math.min(50, Math.max(1, input.limit || 25));
   const msgs = db.studyChatMessages.filter((m) => {
+    if (m.deletedAt) return false;
     if (input.squadId && m.squadId !== input.squadId) return false;
     if (input.roomId && m.roomId !== input.roomId) return false;
     if (input.before && m.createdAt >= input.before) return false;
@@ -6796,14 +6830,20 @@ function getSquadWeeklyChallenges(db, userId, squadId) {
     db.squadMembers.filter((m) => m.squadId === squadId).map((m) => m.userId)
   );
   const weekAgoMs = Date.now() - 7 * 864e5;
-  const focusMinutes = db.focusSessions.filter((s) => memberIds.has(s.userId) && s.completed && Date.parse(s.startedAt) >= weekAgoMs).reduce((acc, s) => acc + Math.max(0, s.durationMinutes || 0), 0);
+  const focusMinutes = db.focusSessions.filter(
+    (s) => memberIds.has(s.userId) && s.completed && s.mode === "work" && Date.parse(s.startedAt) >= weekAgoMs
+  ).reduce((acc, s) => acc + Math.max(0, s.durationMinutes || 0), 0);
   const focusHours = Math.round(focusMinutes / 60 * 10) / 10;
-  const completedTasks = db.tasks.filter(
-    (t) => memberIds.has(t.userId) && !t.deletedAt && t.status === "completed"
-  ).length;
-  const completedTopics = (db.studyTopics || []).filter(
-    (t) => memberIds.has(t.userId) && t.theory && t.practice
-  ).length;
+  const completedTasks = db.tasks.filter((t) => {
+    if (!memberIds.has(t.userId) || t.deletedAt || t.status !== "completed") return false;
+    const ts = Date.parse(t.completedAt || t.updatedAt || t.createdAt);
+    return Number.isFinite(ts) && ts >= weekAgoMs;
+  }).length;
+  const completedTopics = (db.studyTopics || []).filter((t) => {
+    if (!memberIds.has(t.userId) || !t.theory || !t.practice) return false;
+    const ts = Date.parse(t.updatedAt || t.createdAt || "");
+    return Number.isFinite(ts) && ts >= weekAgoMs;
+  }).length;
   return [
     {
       id: "ch_focus_together",
@@ -7633,17 +7673,8 @@ function parseSubtasks(raw) {
   }
   return parsed;
 }
-function computeNextRecurrenceDueDate(currentDueDate, recurrence) {
-  const baseStr = currentDueDate && parseIsoDate(currentDueDate) ? currentDueDate : getTodayDateString(DEFAULT_TIMEZONE);
-  const d = /* @__PURE__ */ new Date(`${baseStr}T00:00:00.000Z`);
-  if (recurrence === "daily") {
-    d.setUTCDate(d.getUTCDate() + 1);
-  } else if (recurrence === "weekly") {
-    d.setUTCDate(d.getUTCDate() + 7);
-  } else {
-    d.setUTCMonth(d.getUTCMonth() + 1);
-  }
-  return d.toISOString().slice(0, 10);
+function computeNextRecurrenceDueDate2(currentDueDate, recurrence) {
+  return computeNextRecurrenceDueDate(currentDueDate, recurrence) || getTodayDateString(DEFAULT_TIMEZONE);
 }
 function calculateBoundedStreakDays(sessions, timezoneOrRefDate = DEFAULT_TIMEZONE, referenceDate = /* @__PURE__ */ new Date()) {
   const tz = typeof timezoneOrRefDate === "string" ? timezoneOrRefDate : DEFAULT_TIMEZONE;
@@ -14020,7 +14051,9 @@ function evaluateDeterministicNotifications(input) {
   const items = [];
   const tz = input.settings?.timezone || DEFAULT_TIMEZONE;
   const currency = input.settings?.currency;
-  const todayStr = getTodayDateString(tz);
+  const now = input.now || /* @__PURE__ */ new Date();
+  const todayStr = formatDateInTimezone(now, tz);
+  const weekKey = getStartOfWeek(now, tz);
   if (prefs.overdueBills) {
     const overdue = input.bills.filter((b) => !b.deletedAt && b.status === "OVERDUE");
     if (overdue.length > 0) {
@@ -14138,7 +14171,7 @@ function evaluateDeterministicNotifications(input) {
     const threshold = Math.max(50, Math.min(100, prefs.budgetWarningPercent || 80));
     if (pct >= 100) {
       items.push({
-        id: `weekly_limit_exceeded_${todayStr.slice(0, 7)}`,
+        id: `weekly_limit_exceeded_${weekKey}`,
         severity: "danger",
         category: "budget",
         title: "Weekly Budget Exceeded",
@@ -14148,7 +14181,7 @@ function evaluateDeterministicNotifications(input) {
       });
     } else if (pct >= threshold) {
       items.push({
-        id: `weekly_limit_warning_${todayStr.slice(0, 7)}`,
+        id: `weekly_limit_warning_${weekKey}`,
         severity: "warning",
         category: "budget",
         title: `Weekly Budget at ${pct}%`,
@@ -14176,7 +14209,7 @@ function evaluateDeterministicNotifications(input) {
       }
     }
   }
-  if (input.expenses && input.expenses.length > 0) {
+  if (prefs.budgetWarnings && input.expenses && input.expenses.length > 0) {
     const todayExpenses = input.expenses.filter((e) => !e.deletedAt && e.date === todayStr);
     for (const exp of todayExpenses) {
       if (exp.amountPaise >= 1e6) {
@@ -14222,20 +14255,22 @@ function evaluateDeterministicNotifications(input) {
       });
     }
   }
-  const activeUncompletedTasks = input.tasks.filter((t) => !t.deletedAt && t.status !== "completed");
-  const todayTasks = input.tasks.filter(
-    (t) => !t.deletedAt && (t.dueDate === todayStr || t.completedAt && t.completedAt.slice(0, 10) === todayStr)
-  );
-  if (todayTasks.length === 0 && activeUncompletedTasks.length > 0) {
-    items.push({
-      id: `daily_plan_needed_${todayStr}`,
-      severity: "info",
-      category: "task",
-      title: "Plan Your Day",
-      message: "No tasks scheduled for today yet. Review and set your daily priority list.",
-      targetTab: "tasks",
-      actionLabel: "Plan Today"
-    });
+  if (prefs.taskDeadlines) {
+    const activeUncompletedTasks = input.tasks.filter((t) => !t.deletedAt && t.status !== "completed");
+    const todayTasks = input.tasks.filter(
+      (t) => !t.deletedAt && (t.dueDate === todayStr || t.completedAt && t.completedAt.slice(0, 10) === todayStr)
+    );
+    if (todayTasks.length === 0 && activeUncompletedTasks.length > 0) {
+      items.push({
+        id: `daily_plan_needed_${todayStr}`,
+        severity: "info",
+        category: "task",
+        title: "Plan Your Day",
+        message: "No tasks scheduled for today yet. Review and set your daily priority list.",
+        targetTab: "tasks",
+        actionLabel: "Plan Today"
+      });
+    }
   }
   if (prefs.syncFailures && input.syncLastError) {
     items.push({
@@ -15568,7 +15603,7 @@ apiRouter.put("/tasks/:id", async (req, res, next) => {
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   task.updatedAt = nowIso;
   if (previousStatus !== "completed" && task.status === "completed" && task.recurrence && task.recurrence !== "none") {
-    const nextDue = computeNextRecurrenceDueDate(task.dueDate, task.recurrence);
+    const nextDue = computeNextRecurrenceDueDate2(task.dueDate, task.recurrence);
     const nextTask = {
       id: `tsk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       userId,
@@ -19625,6 +19660,89 @@ apiRouter.post("/social/notifications/:id/read", async (req, res) => {
   const n = (db.socialNotifications || []).find((x) => x.id === req.params.id && x.userId === userId);
   if (n) {
     n.read = true;
+    await dbService.save();
+  }
+  res.json({ success: true });
+});
+apiRouter.get("/habits", (req, res) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  res.json(list.filter((h) => h.userId === userId && !h.deletedAt));
+});
+apiRouter.post("/habits", async (req, res) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  if (!Array.isArray(db.habits)) db.habits = [];
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const created = {
+    id: req.body?.id || `hab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    userId,
+    title: String(req.body?.title || "Daily Habit").trim().slice(0, 128),
+    category: req.body?.category || "Study",
+    targetPerWeek: Number(req.body?.targetPerWeek ?? 7),
+    completedDates: Array.isArray(req.body?.completedDates) ? req.body.completedDates : [],
+    bestStreakDays: Number(req.body?.bestStreakDays ?? 0),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    deletedAt: null
+  };
+  db.habits.unshift(created);
+  await dbService.save();
+  res.status(201).json(created);
+});
+apiRouter.post("/habits/:id/toggle", async (req, res) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  const habit = list.find((h) => h.id === req.params.id && h.userId === userId && !h.deletedAt);
+  if (!habit) {
+    res.status(404).json({ error: "Habit not found" });
+    return;
+  }
+  const dateStr = String(req.body?.dateStr || req.body?.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
+  const set = new Set(Array.isArray(habit.completedDates) ? habit.completedDates : []);
+  if (set.has(dateStr)) set.delete(dateStr);
+  else set.add(dateStr);
+  habit.completedDates = Array.from(set).sort();
+  habit.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  await dbService.save();
+  res.json(habit);
+});
+apiRouter.put("/habits/:id", async (req, res) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  const habit = list.find((h) => h.id === req.params.id && h.userId === userId && !h.deletedAt);
+  if (!habit) {
+    res.status(404).json({ error: "Habit not found" });
+    return;
+  }
+  Object.assign(habit, req.body || {}, { id: habit.id, userId, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  await dbService.save();
+  res.json(habit);
+});
+apiRouter.patch("/habits/:id", async (req, res) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  const habit = list.find((h) => h.id === req.params.id && h.userId === userId && !h.deletedAt);
+  if (!habit) {
+    res.status(404).json({ error: "Habit not found" });
+    return;
+  }
+  Object.assign(habit, req.body || {}, { id: habit.id, userId, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  await dbService.save();
+  res.json(habit);
+});
+apiRouter.delete("/habits/:id", async (req, res) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const list = Array.isArray(db.habits) ? db.habits : [];
+  const habit = list.find((h) => h.id === req.params.id && h.userId === userId);
+  if (habit) {
+    habit.deletedAt = (/* @__PURE__ */ new Date()).toISOString();
+    habit.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
     await dbService.save();
   }
   res.json({ success: true });

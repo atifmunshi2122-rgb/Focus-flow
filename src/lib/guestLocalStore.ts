@@ -521,7 +521,7 @@ export function handleGuestLocalFallback(
     const list = readBucket<Habit[]>(sessionId, 'habits', []);
     if (rest.endsWith('/toggle') && method === 'POST') {
       const id = decodeURIComponent(rest.slice(0, -'/toggle'.length));
-      const dateStr = String(body.date || getTodayDateString(DEFAULT_TIMEZONE));
+      const dateStr = String(body.dateStr || body.date || getTodayDateString(DEFAULT_TIMEZONE));
       let toggled: Habit | null = null;
       const next = list.map((h) => {
         if (h.id !== id) return h;
@@ -740,8 +740,9 @@ export function handleGuestLocalFallback(
       );
       return { success: true, bill: updated };
     }
-    if (rest.endsWith('/undo-payment') && method === 'POST') {
-      const id = decodeURIComponent(rest.slice(0, -'/undo-payment'.length));
+    if ((rest.endsWith('/undo-payment') || rest.endsWith('/undo')) && method === 'POST') {
+      const suffix = rest.endsWith('/undo-payment') ? '/undo-payment' : '/undo';
+      const id = decodeURIComponent(rest.slice(0, -suffix.length));
       let updated: Bill | null = null;
       writeBucket(
         sessionId,

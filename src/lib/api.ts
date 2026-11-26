@@ -274,8 +274,13 @@ async function withPrimaryWrite<T>(
   invalidateDomain?: string
 ): Promise<T> {
   const triggerInvalidation = () => {
+    if (invalidateDomain === 'all') {
+      clientDataCache.clear();
+      return;
+    }
     if (invalidateDomain) {
       clientDataCache.invalidate(invalidateDomain);
+      clientDataCache.invalidate('dashboard');
     } else if (offlineHandler) {
       const op = offlineHandler.operationType;
       if (op.includes('task')) clientDataCache.invalidate('tasks');
@@ -284,9 +289,21 @@ async function withPrimaryWrite<T>(
         clientDataCache.invalidate('focus_stats');
         clientDataCache.invalidate('pomodoro_goals');
       }
-      if (op.includes('income')) { clientDataCache.invalidate('incomes'); clientDataCache.invalidate('transactions'); }
-      if (op.includes('expense')) { clientDataCache.invalidate('expenses'); clientDataCache.invalidate('transactions'); }
-      if (op.includes('bill')) clientDataCache.invalidate('bills');
+      if (op.includes('time_block')) clientDataCache.invalidate('time_blocks');
+      if (op.includes('income')) {
+        clientDataCache.invalidate('incomes');
+        clientDataCache.invalidate('transactions');
+        clientDataCache.invalidate('finance_summary');
+      }
+      if (op.includes('expense')) {
+        clientDataCache.invalidate('expenses');
+        clientDataCache.invalidate('transactions');
+        clientDataCache.invalidate('finance_summary');
+      }
+      if (op.includes('bill')) {
+        clientDataCache.invalidate('bills');
+        clientDataCache.invalidate('finance_summary');
+      }
       if (op.includes('habit')) clientDataCache.invalidate('habits');
       if (op.includes('study')) clientDataCache.invalidate('study');
       if (op.includes('envelope')) clientDataCache.invalidate('envelopes');
@@ -625,7 +642,9 @@ export const api = {
         await firestoreService.reseedWorkspace(uid);
         return { success: true, message: 'Cloud workspace reset cleanly' };
       },
-      () => request<{ success: boolean; message: string }>('/reseed', { method: 'POST' })
+      () => request<{ success: boolean; message: string }>('/reseed', { method: 'POST' }),
+      undefined,
+      'all'
     ),
 
   clearWorkspace: () =>
@@ -635,7 +654,9 @@ export const api = {
         await firestoreService.reseedWorkspace(uid);
         return { success: true, message: 'Workspace cleared cleanly' };
       },
-      () => request<{ success: boolean; message: string }>('/workspace/clear', { method: 'POST' })
+      () => request<{ success: boolean; message: string }>('/workspace/clear', { method: 'POST' }),
+      undefined,
+      'all'
     ),
 
   // Unified Dashboard
@@ -890,7 +911,9 @@ export const api = {
         request<ExpenseCategory>('/finance/categories', {
           method: 'POST',
           body: JSON.stringify(cat),
-        })
+        }),
+      undefined,
+      'categories'
     ),
 
   // Finance Summary
@@ -1397,7 +1420,9 @@ export const api = {
         request<{ success: boolean }>(
           `/trash/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}/restore`,
           { method: 'POST' }
-        )
+        ),
+      undefined,
+      'all'
     ),
 
   permanentlyDeleteTrashItem: (entityType: TrashRecord['entityType'], id: string) =>
@@ -1644,7 +1669,9 @@ export const api = {
         request<{ success: boolean }>('/envelopes/transfer', {
           method: 'POST',
           body: JSON.stringify({ fromId, toId, amountPaise }),
-        })
+        }),
+      undefined,
+      'envelopes'
     ),
 
   // Subscriptions
@@ -1919,6 +1946,32 @@ export const api = {
           envelopes,
           subscriptions,
           auditLogs,
+          habits,
+          pomodoroPresets,
+          pomodoroGoals,
+          pomodoroSettings,
+          pomodoroAmbientPresets,
+          studyTiers,
+          studySubjects,
+          studyTopics,
+          studyRevisions,
+          studyMistakes,
+          studyGoals,
+          studyPlans,
+          studyPlanTasks,
+          studyResources,
+          studyExams,
+          studyNotes,
+          studyFlashcards,
+          studyQuizzes,
+          skillNodes,
+          whiteboardDrawings,
+          examSimulations,
+          decisionEntries,
+          doomscrollLogs,
+          lifeMilestones,
+          timeCapsules,
+          emergencyProfile,
         ] = await Promise.all([
           firestoreService.getSettings(uid),
           firestoreService.getTasks(uid),
@@ -1934,10 +1987,36 @@ export const api = {
           firestoreService.getEnvelopes(uid),
           firestoreService.getSubscriptions(uid),
           firestoreService.getAuditLogs(uid),
+          firestoreService.getHabits(uid),
+          firestoreService.getPomodoroPresets(uid),
+          firestoreService.getPomodoroGoals(uid),
+          firestoreService.getPomodoroSettings(uid),
+          firestoreService.getPomodoroAmbientPresets(uid),
+          firestoreService.getStudyTiers(uid),
+          firestoreService.getStudySubjects(uid),
+          firestoreService.getStudyTopics(uid),
+          firestoreService.getStudyRevisions(uid),
+          firestoreService.getStudyMistakes(uid),
+          firestoreService.getStudyGoals(uid),
+          firestoreService.getStudyPlans(uid),
+          firestoreService.getStudyPlanTasks(uid),
+          firestoreService.getStudyResources(uid),
+          firestoreService.getStudyExams(uid),
+          firestoreService.getStudyNotes(uid),
+          firestoreService.getStudyFlashcards(uid),
+          firestoreService.getStudyQuizzes(uid),
+          firestoreService.getSkillNodes(uid),
+          firestoreService.getWhiteboardDrawings(uid),
+          firestoreService.getExamSimulations(uid),
+          firestoreService.getDecisionEntries(uid),
+          firestoreService.getDoomscrollLogs(uid),
+          firestoreService.getLifeMilestones(uid),
+          firestoreService.getTimeCapsules(uid),
+          firestoreService.getEmergencyProfile(uid),
         ]);
 
         return {
-          version: '2.0.0',
+          version: '2.1.0',
           exportedAt: new Date().toISOString(),
           userId: uid,
           userSettings: settings,
@@ -1954,6 +2033,32 @@ export const api = {
           envelopes,
           subscriptions,
           auditLogs,
+          habits,
+          pomodoroPresets,
+          pomodoroGoals,
+          pomodoroSettings,
+          pomodoroAmbientPresets,
+          studyTiers,
+          studySubjects,
+          studyTopics,
+          studyRevisions,
+          studyMistakes,
+          studyGoals,
+          studyPlans,
+          studyPlanTasks,
+          studyResources,
+          studyExams,
+          studyNotes,
+          studyFlashcards,
+          studyQuizzes,
+          skillNodes,
+          whiteboardDrawings,
+          examSimulations,
+          decisionEntries,
+          doomscrollLogs,
+          lifeMilestones,
+          timeCapsules,
+          emergencyProfile,
         };
       },
       () => request<Record<string, unknown>>('/backup/export')
@@ -1965,61 +2070,28 @@ export const api = {
         const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
         const counts: Record<string, number> = {};
 
-        if (Array.isArray(payload.tasks)) {
-          await Promise.all(
-            payload.tasks
-              .filter((t): t is Task => Boolean(t && typeof t === 'object' && 'id' in t))
-              .map((t) => firestoreService.saveTask(uid, { ...t, userId: uid }))
-          );
-          counts.tasks = payload.tasks.length;
+        const restoreArray = async <T extends { id?: string }>(
+          key: string,
+          saver: (item: T) => Promise<unknown>
+        ) => {
+          const arr = payload[key];
+          if (!Array.isArray(arr) || arr.length === 0) return;
+          const valid = arr.filter((x): x is T => Boolean(x && typeof x === 'object' && 'id' in x));
+          if (valid.length === 0) return;
+          await Promise.all(valid.map((item) => saver({ ...item, userId: uid })));
+          counts[key] = valid.length;
+        };
+
+        if (payload.userSettings && typeof payload.userSettings === 'object' && !Array.isArray(payload.userSettings)) {
+          await firestoreService.saveSettings(uid, payload.userSettings as Partial<UserSettings>);
+          counts.userSettings = 1;
         }
-        if (Array.isArray(payload.incomeTransactions)) {
-          await Promise.all(
-            payload.incomeTransactions
-              .filter((i): i is IncomeTransaction => Boolean(i && typeof i === 'object' && 'id' in i))
-              .map((i) => firestoreService.saveIncome(uid, { ...i, userId: uid }))
-          );
-          counts.incomeTransactions = payload.incomeTransactions.length;
-        }
-        if (Array.isArray(payload.expenseTransactions)) {
-          await Promise.all(
-            payload.expenseTransactions
-              .filter((e): e is ExpenseTransaction => Boolean(e && typeof e === 'object' && 'id' in e))
-              .map((e) => firestoreService.saveExpense(uid, { ...e, userId: uid }))
-          );
-          counts.expenseTransactions = payload.expenseTransactions.length;
-        }
-        if (Array.isArray(payload.bills)) {
-          await Promise.all(
-            payload.bills
-              .filter((b): b is Bill => Boolean(b && typeof b === 'object' && 'id' in b))
-              .map((b) => firestoreService.saveBill(uid, { ...b, userId: uid }))
-          );
-          counts.bills = payload.bills.length;
-        }
-        if (Array.isArray(payload.timeBlocks)) {
-          await Promise.all(
-            payload.timeBlocks
-              .filter((tb): tb is TimeBlock => Boolean(tb && typeof tb === 'object' && 'id' in tb))
-              .map((tb) => firestoreService.saveTimeBlock(uid, { ...tb, userId: uid }))
-          );
-          counts.timeBlocks = payload.timeBlocks.length;
-        }
-        if (Array.isArray(payload.envelopes)) {
-          await Promise.all(
-            payload.envelopes
-              .filter((env): env is BudgetEnvelope => Boolean(env && typeof env === 'object' && 'id' in env))
-              .map((env) => firestoreService.saveEnvelope(uid, { ...env, userId: uid }))
-          );
-          counts.envelopes = payload.envelopes.length;
-        }
-        if (Array.isArray(payload.subscriptions)) {
-          await Promise.all(
-            payload.subscriptions
-              .filter((s): s is SubscriptionPlan => Boolean(s && typeof s === 'object' && 'id' in s))
-              .map((s) => firestoreService.saveSubscription(uid, { ...s, userId: uid }))
-          );
-          counts.subscriptions = payload.subscriptions.length;
+        if (Array.isArray(payload.categories) && payload.categories.length > 0) {
+          const validCats = payload.categories.filter((c): c is ExpenseCategory => Boolean(c && typeof c === 'object' && 'id' in c));
+          if (validCats.length > 0) {
+            await firestoreService.saveCategories(uid, validCats);
+            counts.categories = validCats.length;
+          }
         }
         if (Array.isArray(payload.savingsGoals)) {
           await firestoreService.saveSavingsGoalsList(
@@ -2028,6 +2100,54 @@ export const api = {
           );
           counts.savingsGoals = payload.savingsGoals.length;
         }
+        if (payload.pomodoroSettings && typeof payload.pomodoroSettings === 'object' && !Array.isArray(payload.pomodoroSettings)) {
+          await firestoreService.savePomodoroSettings(uid, payload.pomodoroSettings as Partial<PomodoroSettings>);
+          counts.pomodoroSettings = 1;
+        }
+        if (payload.emergencyProfile && typeof payload.emergencyProfile === 'object' && !Array.isArray(payload.emergencyProfile)) {
+          await firestoreService.saveEmergencyProfile(uid, {
+            ...(payload.emergencyProfile as EmergencyAssetProfile),
+            userId: uid,
+          });
+          counts.emergencyProfile = 1;
+        }
+
+        await Promise.all([
+          restoreArray<Task>('tasks', (t) => firestoreService.saveTask(uid, t)),
+          restoreArray<FocusSession>('focusSessions', (s) => firestoreService.saveFocusSession(uid, s)),
+          restoreArray<RecurringExpense>('recurringExpenses', (r) => firestoreService.saveRecurringExpense(uid, r)),
+          restoreArray<PaymentHistory>('paymentHistory', (p) => firestoreService.savePaymentHistory(uid, p)),
+          restoreArray<IncomeTransaction>('incomeTransactions', (i) => firestoreService.saveIncome(uid, i)),
+          restoreArray<ExpenseTransaction>('expenseTransactions', (e) => firestoreService.saveExpense(uid, e)),
+          restoreArray<Bill>('bills', (b) => firestoreService.saveBill(uid, b)),
+          restoreArray<TimeBlock>('timeBlocks', (tb) => firestoreService.saveTimeBlock(uid, tb)),
+          restoreArray<BudgetEnvelope>('envelopes', (env) => firestoreService.saveEnvelope(uid, env)),
+          restoreArray<SubscriptionPlan>('subscriptions', (s) => firestoreService.saveSubscription(uid, s)),
+          restoreArray<Habit>('habits', (h) => firestoreService.saveHabit(uid, h)),
+          restoreArray<PomodoroPreset>('pomodoroPresets', (p) => firestoreService.savePomodoroPreset(uid, p)),
+          restoreArray<PomodoroGoal>('pomodoroGoals', (g) => firestoreService.savePomodoroGoal(uid, g)),
+          restoreArray<PomodoroAmbientPreset>('pomodoroAmbientPresets', (a) => firestoreService.savePomodoroAmbientPreset(uid, a)),
+          restoreArray<AcademicTier>('studyTiers', (t) => firestoreService.saveStudyTier(uid, t)),
+          restoreArray<StudySubject>('studySubjects', (s) => firestoreService.saveStudySubject(uid, s)),
+          restoreArray<StudyTopic>('studyTopics', (t) => firestoreService.saveStudyTopic(uid, t)),
+          restoreArray<StudyRevision>('studyRevisions', (r) => firestoreService.saveStudyRevision(uid, r)),
+          restoreArray<StudyMistake>('studyMistakes', (m) => firestoreService.saveStudyMistake(uid, m)),
+          restoreArray<StudyGoal>('studyGoals', (g) => firestoreService.saveStudyGoal(uid, g)),
+          restoreArray<StudyPlan>('studyPlans', (p) => firestoreService.saveStudyPlan(uid, p)),
+          restoreArray<StudyPlanTask>('studyPlanTasks', (pt) => firestoreService.saveStudyPlanTask(uid, pt)),
+          restoreArray<StudyResource>('studyResources', (r) => firestoreService.saveStudyResource(uid, r)),
+          restoreArray<StudyExam>('studyExams', (e) => firestoreService.saveStudyExam(uid, e)),
+          restoreArray<StudyNote>('studyNotes', (n) => firestoreService.saveStudyNote(uid, n)),
+          restoreArray<StudyFlashcard>('studyFlashcards', (f) => firestoreService.saveStudyFlashcard(uid, f)),
+          restoreArray<StudyQuiz>('studyQuizzes', (q) => firestoreService.saveStudyQuiz(uid, q)),
+          restoreArray<SkillNode>('skillNodes', (n) => firestoreService.saveSkillNode(uid, n)),
+          restoreArray<WhiteboardDrawing>('whiteboardDrawings', (w) => firestoreService.saveWhiteboardDrawing(uid, w)),
+          restoreArray<ExamSimulationState>('examSimulations', (es) => firestoreService.saveExamSimulation(uid, es)),
+          restoreArray<DecisionEntry>('decisionEntries', (de) => firestoreService.saveDecisionEntry(uid, de)),
+          restoreArray<DoomscrollTaxEntry>('doomscrollLogs', (dl) => firestoreService.saveDoomscrollLog(uid, dl)),
+          restoreArray<LifeMilestone>('lifeMilestones', (lm) => firestoreService.saveLifeMilestone(uid, lm)),
+          restoreArray<TimeCapsuleLetter>('timeCapsules', (tc) => firestoreService.saveTimeCapsule(uid, tc)),
+        ]);
 
         await firestoreService.recordAuditLog(uid, {
           action: 'backup_restore',
@@ -2043,7 +2163,9 @@ export const api = {
         request<{ success: boolean; counts: Record<string, number> }>('/backup/restore', {
           method: 'POST',
           body: JSON.stringify(data),
-        })
+        }),
+      undefined,
+      'all'
     ),
 
   // --- STUDY MANAGEMENT (NEXTSTUDY INTEGRATION) ---
@@ -2058,7 +2180,9 @@ export const api = {
           method: 'DELETE',
         });
         return Boolean(res?.success);
-      }
+      },
+      undefined,
+      'study'
     ),
 
   getStudyTiers: () =>
@@ -2797,7 +2921,9 @@ export const api = {
         request<StudyFlashcard>(`/study/flashcards/${encodeURIComponent(id)}/review`, {
           method: 'POST',
           body: JSON.stringify({ difficulty }),
-        }).catch(() => null)
+        }).catch(() => null),
+      undefined,
+      'study'
     ),
 
   deleteStudyFlashcard: (cardId: string) =>
@@ -2868,7 +2994,9 @@ export const api = {
         request<StudyQuiz>(`/study/quizzes/${encodeURIComponent(quizId)}/attempt`, {
           method: 'POST',
           body: JSON.stringify(attempt),
-        }).catch(() => null)
+        }).catch(() => null),
+      undefined,
+      'study'
     ),
 
   deleteStudyQuiz: (quizId: string) =>
@@ -3565,170 +3693,270 @@ export const api = {
   },
 
   // ==========================================
-  // FocusFlow v1.8 15 Unique Features Client API
+  // FocusFlow v1.8 15 Unique Features Client API (Firestore-First)
   // ==========================================
-  getSkillNodes: async (): Promise<SkillNode[]> => {
-    try {
-      return await request<SkillNode[]>('/skill-nodes');
-    } catch {
-      return [];
-    }
+  getSkillNodes: (): Promise<SkillNode[]> =>
+    withPrimaryRead(
+      (uid) => firestoreService.getSkillNodes(uid),
+      () => request<SkillNode[]>('/skill-nodes').catch(() => [])
+    ),
+
+  saveSkillNode: (node: SkillNode): Promise<SkillNode> =>
+    withPrimaryWrite(
+      async (uid) => {
+        const withUid = { ...node, userId: uid };
+        await firestoreService.saveSkillNode(uid, withUid);
+        return withUid;
+      },
+      () =>
+        request<SkillNode>('/skill-nodes', {
+          method: 'POST',
+          body: JSON.stringify(node),
+        })
+    ),
+
+  getWhiteboardDrawings: (): Promise<WhiteboardDrawing[]> =>
+    withPrimaryRead(
+      (uid) => firestoreService.getWhiteboardDrawings(uid),
+      () => request<WhiteboardDrawing[]>('/whiteboard').catch(() => [])
+    ),
+
+  saveWhiteboardDrawing: (drawing: Partial<WhiteboardDrawing>): Promise<WhiteboardDrawing> => {
+    const id = drawing.id || `wb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const withId = {
+      ...drawing,
+      id,
+      createdAt: drawing.createdAt || nowIso,
+      updatedAt: nowIso,
+    } as WhiteboardDrawing;
+    return withPrimaryWrite(
+      async (uid) => {
+        const full = { ...withId, userId: uid };
+        await firestoreService.saveWhiteboardDrawing(uid, full);
+        return full;
+      },
+      () =>
+        request<WhiteboardDrawing>('/whiteboard', {
+          method: 'POST',
+          body: JSON.stringify(withId),
+        })
+    );
   },
 
-  saveSkillNode: async (node: SkillNode): Promise<SkillNode> => {
-    return await request<SkillNode>('/skill-nodes', {
-      method: 'POST',
-      body: JSON.stringify(node),
-    });
-  },
+  deleteWhiteboardDrawing: (id: string): Promise<boolean> =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteWhiteboardDrawing(uid, id);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/whiteboard/${id}`, {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      }
+    ),
 
-  getWhiteboardDrawings: async (): Promise<WhiteboardDrawing[]> => {
-    try {
-      return await request<WhiteboardDrawing[]>('/whiteboard');
-    } catch {
-      return [];
-    }
-  },
+  getExamSimulations: (): Promise<ExamSimulationState[]> =>
+    withPrimaryRead(
+      (uid) => firestoreService.getExamSimulations(uid),
+      () => request<ExamSimulationState[]>('/exam-simulations').catch(() => [])
+    ),
 
-  saveWhiteboardDrawing: async (drawing: Partial<WhiteboardDrawing>): Promise<WhiteboardDrawing> => {
-    return await request<WhiteboardDrawing>('/whiteboard', {
-      method: 'POST',
-      body: JSON.stringify(drawing),
-    });
-  },
+  saveExamSimulation: (sim: ExamSimulationState): Promise<ExamSimulationState> =>
+    withPrimaryWrite(
+      async (uid) => {
+        const withUid = { ...sim, userId: uid };
+        await firestoreService.saveExamSimulation(uid, withUid);
+        return withUid;
+      },
+      () =>
+        request<ExamSimulationState>('/exam-simulations', {
+          method: 'POST',
+          body: JSON.stringify(sim),
+        })
+    ),
 
-  deleteWhiteboardDrawing: async (id: string): Promise<boolean> => {
-    try {
-      const res = await request<{ success: boolean }>(`/whiteboard/${id}`, {
-        method: 'DELETE',
-      });
-      return Boolean(res?.success);
-    } catch {
-      return false;
-    }
-  },
+  getDecisionEntries: (): Promise<DecisionEntry[]> =>
+    withPrimaryRead(
+      (uid) => firestoreService.getDecisionEntries(uid),
+      () => request<DecisionEntry[]>('/decisions').catch(() => [])
+    ),
 
-  getExamSimulations: async (): Promise<ExamSimulationState[]> => {
-    try {
-      return await request<ExamSimulationState[]>('/exam-simulations');
-    } catch {
-      return [];
-    }
-  },
+  saveDecisionEntry: (entry: DecisionEntry): Promise<DecisionEntry> =>
+    withPrimaryWrite(
+      async (uid) => {
+        const withUid = { ...entry, userId: uid };
+        await firestoreService.saveDecisionEntry(uid, withUid);
+        return withUid;
+      },
+      () =>
+        request<DecisionEntry>('/decisions', {
+          method: 'POST',
+          body: JSON.stringify(entry),
+        })
+    ),
 
-  saveExamSimulation: async (sim: ExamSimulationState): Promise<ExamSimulationState> => {
-    return await request<ExamSimulationState>('/exam-simulations', {
-      method: 'POST',
-      body: JSON.stringify(sim),
-    });
-  },
+  getDoomscrollLogs: (): Promise<DoomscrollTaxEntry[]> =>
+    withPrimaryRead(
+      (uid) => firestoreService.getDoomscrollLogs(uid),
+      () => request<DoomscrollTaxEntry[]>('/doomscroll-tax').catch(() => [])
+    ),
 
-  getDecisionEntries: async (): Promise<DecisionEntry[]> => {
-    try {
-      return await request<DecisionEntry[]>('/decisions');
-    } catch {
-      return [];
-    }
-  },
+  saveDoomscrollLog: (entry: DoomscrollTaxEntry): Promise<DoomscrollTaxEntry> =>
+    withPrimaryWrite(
+      async (uid) => {
+        const withUid = { ...entry, userId: uid };
+        await firestoreService.saveDoomscrollLog(uid, withUid);
+        return withUid;
+      },
+      () =>
+        request<DoomscrollTaxEntry>('/doomscroll-tax', {
+          method: 'POST',
+          body: JSON.stringify(entry),
+        })
+    ),
 
-  saveDecisionEntry: async (entry: DecisionEntry): Promise<DecisionEntry> => {
-    return await request<DecisionEntry>('/decisions', {
-      method: 'POST',
-      body: JSON.stringify(entry),
-    });
-  },
+  clearDoomscrollLogs: (): Promise<boolean> =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.clearDoomscrollLogs(uid);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>('/doomscroll-tax', {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      }
+    ),
 
-  getDoomscrollLogs: async (): Promise<DoomscrollTaxEntry[]> => {
-    try {
-      return await request<DoomscrollTaxEntry[]>('/doomscroll-tax');
-    } catch {
-      return [];
-    }
-  },
+  getTimeCapsules: (): Promise<TimeCapsuleLetter[]> =>
+    withPrimaryRead(
+      async (uid) => {
+        const list = await firestoreService.getTimeCapsules(uid);
+        const todayStr = new Date().toISOString().slice(0, 10);
+        return list.map((c) => {
+          const unlocked = !c.unlockDate || c.unlockDate.slice(0, 10) <= todayStr;
+          return unlocked
+            ? { ...c, isUnlocked: true, isSealed: false }
+            : { ...c, content: '', isUnlocked: false, isSealed: true };
+        });
+      },
+      () => request<TimeCapsuleLetter[]>('/time-capsules')
+    ),
 
-  saveDoomscrollLog: async (entry: DoomscrollTaxEntry): Promise<DoomscrollTaxEntry> => {
-    return await request<DoomscrollTaxEntry>('/doomscroll-tax', {
-      method: 'POST',
-      body: JSON.stringify(entry),
-    });
-  },
+  getTimeCapsule: (id: string): Promise<TimeCapsuleLetter> =>
+    withPrimaryRead(
+      async (uid) => {
+        const list = await firestoreService.getTimeCapsules(uid);
+        const found = list.find((c) => c.id === id);
+        if (!found) throw new Error('Time capsule not found');
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const unlocked = !found.unlockDate || found.unlockDate.slice(0, 10) <= todayStr;
+        return unlocked
+          ? { ...found, isUnlocked: true, isSealed: false }
+          : { ...found, content: '', isUnlocked: false, isSealed: true };
+      },
+      () => request<TimeCapsuleLetter>(`/time-capsules/${id}`)
+    ),
 
-  clearDoomscrollLogs: async (): Promise<boolean> => {
-    try {
-      const res = await request<{ success: boolean }>('/doomscroll-tax', {
-        method: 'DELETE',
-      });
-      return Boolean(res?.success);
-    } catch {
-      return false;
-    }
-  },
+  saveTimeCapsule: (letter: TimeCapsuleLetter): Promise<TimeCapsuleLetter> =>
+    withPrimaryWrite(
+      async (uid) => {
+        const withUid = { ...letter, userId: uid };
+        await firestoreService.saveTimeCapsule(uid, withUid);
+        return withUid;
+      },
+      () =>
+        request<TimeCapsuleLetter>('/time-capsules', {
+          method: 'POST',
+          body: JSON.stringify(letter),
+        })
+    ),
 
-  getTimeCapsules: async (): Promise<TimeCapsuleLetter[]> => {
-    return await request<TimeCapsuleLetter[]>('/time-capsules');
-  },
+  deleteTimeCapsule: (id: string): Promise<boolean> =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteTimeCapsule(uid, id);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/time-capsules/${id}`, {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      }
+    ),
 
-  getTimeCapsule: async (id: string): Promise<TimeCapsuleLetter> => {
-    return await request<TimeCapsuleLetter>(`/time-capsules/${id}`);
-  },
+  getLifeMilestones: (): Promise<LifeMilestone[]> =>
+    withPrimaryRead(
+      (uid) => firestoreService.getLifeMilestones(uid),
+      () => request<LifeMilestone[]>('/life-milestones').catch(() => [])
+    ),
 
-  saveTimeCapsule: async (letter: TimeCapsuleLetter): Promise<TimeCapsuleLetter> => {
-    return await request<TimeCapsuleLetter>('/time-capsules', {
-      method: 'POST',
-      body: JSON.stringify(letter),
-    });
-  },
+  saveLifeMilestone: (milestone: LifeMilestone): Promise<LifeMilestone> =>
+    withPrimaryWrite(
+      async (uid) => {
+        const withUid = { ...milestone, userId: uid };
+        await firestoreService.saveLifeMilestone(uid, withUid);
+        return withUid;
+      },
+      () =>
+        request<LifeMilestone>('/life-milestones', {
+          method: 'POST',
+          body: JSON.stringify(milestone),
+        })
+    ),
 
-  deleteTimeCapsule: async (id: string): Promise<boolean> => {
-    const res = await request<{ success: boolean }>(`/time-capsules/${id}`, {
-      method: 'DELETE',
-    });
-    return Boolean(res?.success);
-  },
+  deleteLifeMilestone: (id: string): Promise<boolean> =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteLifeMilestone(uid, id);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>(`/life-milestones/${id}`, {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      }
+    ),
 
-  getLifeMilestones: async (): Promise<LifeMilestone[]> => {
-    try {
-      return await request<LifeMilestone[]>('/life-milestones');
-    } catch {
-      return [];
-    }
-  },
+  getEmergencyProfile: (): Promise<EmergencyAssetProfile | null> =>
+    withPrimaryRead(
+      (uid) => firestoreService.getEmergencyProfile(uid),
+      () => request<EmergencyAssetProfile>('/emergency-profile')
+    ),
 
-  saveLifeMilestone: async (milestone: LifeMilestone): Promise<LifeMilestone> => {
-    return await request<LifeMilestone>('/life-milestones', {
-      method: 'POST',
-      body: JSON.stringify(milestone),
-    });
-  },
+  saveEmergencyProfile: (profile: EmergencyAssetProfile): Promise<EmergencyAssetProfile> =>
+    withPrimaryWrite(
+      async (uid) => {
+        const withUid = { ...profile, userId: uid };
+        await firestoreService.saveEmergencyProfile(uid, withUid);
+        return withUid;
+      },
+      () =>
+        request<EmergencyAssetProfile>('/emergency-profile', {
+          method: 'POST',
+          body: JSON.stringify(profile),
+        })
+    ),
 
-  deleteLifeMilestone: async (id: string): Promise<boolean> => {
-    try {
-      const res = await request<{ success: boolean }>(`/life-milestones/${id}`, {
-        method: 'DELETE',
-      });
-      return Boolean(res?.success);
-    } catch {
-      return false;
-    }
-  },
-
-  getEmergencyProfile: async (): Promise<EmergencyAssetProfile | null> => {
-    return await request<EmergencyAssetProfile>('/emergency-profile');
-  },
-
-  saveEmergencyProfile: async (profile: EmergencyAssetProfile): Promise<EmergencyAssetProfile> => {
-    return await request<EmergencyAssetProfile>('/emergency-profile', {
-      method: 'POST',
-      body: JSON.stringify(profile),
-    });
-  },
-
-  deleteEmergencyProfile: async (): Promise<boolean> => {
-    const res = await request<{ success: boolean }>('/emergency-profile', {
-      method: 'DELETE',
-    });
-    return Boolean(res?.success);
-  },
+  deleteEmergencyProfile: (): Promise<boolean> =>
+    withPrimaryWrite(
+      async (uid) => {
+        await firestoreService.deleteEmergencyProfile(uid);
+        return true;
+      },
+      async () => {
+        const res = await request<{ success: boolean }>('/emergency-profile', {
+          method: 'DELETE',
+        });
+        return Boolean(res?.success);
+      }
+    ),
 
   // Phase 5 — Authoritative Gamification, XP & Multiplayer Leaderboard
   getGamificationProfile: async (): Promise<{

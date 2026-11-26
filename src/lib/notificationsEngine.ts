@@ -10,7 +10,7 @@ import type {
   UserSettings,
 } from '../types/index.ts';
 import { formatCurrency } from './currency.ts';
-import { DEFAULT_TIMEZONE, addDays, getTodayDateString } from './dateTime.ts';
+import { DEFAULT_TIMEZONE, addDays, formatDateInTimezone, getStartOfWeek } from './dateTime.ts';
 import { isHabitScheduledOnDate } from './productivityIntelligence.ts';
 
 export type NotificationSeverity = 'info' | 'warning' | 'danger' | 'success';
@@ -48,6 +48,7 @@ export function evaluateDeterministicNotifications(input: {
   expenses?: ExpenseTransaction[];
   syncLastError?: string | null;
   habits?: Habit[];
+  now?: Date;
 }): AppNotificationItem[] {
   const prefs: NotificationPreferences = {
     ...DEFAULT_PREFS,
@@ -58,7 +59,9 @@ export function evaluateDeterministicNotifications(input: {
   const items: AppNotificationItem[] = [];
   const tz = input.settings?.timezone || DEFAULT_TIMEZONE;
   const currency = input.settings?.currency;
-  const todayStr = getTodayDateString(tz);
+  const now = input.now || new Date();
+  const todayStr = formatDateInTimezone(now, tz);
+  const weekKey = getStartOfWeek(now, tz);
 
   if (prefs.overdueBills) {
     const overdue = input.bills.filter((b) => !b.deletedAt && b.status === 'OVERDUE');
@@ -209,7 +212,7 @@ export function evaluateDeterministicNotifications(input: {
     const threshold = Math.max(50, Math.min(100, prefs.budgetWarningPercent || 80));
     if (pct >= 100) {
       items.push({
-        id: `weekly_limit_exceeded_${todayStr.slice(0, 7)}`,
+        id: `weekly_limit_exceeded_${weekKey}`,
         severity: 'danger',
         category: 'budget',
         title: 'Weekly Budget Exceeded',
@@ -219,7 +222,7 @@ export function evaluateDeterministicNotifications(input: {
       });
     } else if (pct >= threshold) {
       items.push({
-        id: `weekly_limit_warning_${todayStr.slice(0, 7)}`,
+        id: `weekly_limit_warning_${weekKey}`,
         severity: 'warning',
         category: 'budget',
         title: `Weekly Budget at ${pct}%`,
@@ -251,7 +254,7 @@ export function evaluateDeterministicNotifications(input: {
   }
 
   // Unusual Single Expense Detection
-  if (input.expenses && input.expenses.length > 0) {
+  if (prefs.budgetWarnings && input.expenses && input.expenses.length > 0) {
     const todayExpenses = input.expenses.filter((e) => !e.deletedAt && e.date === todayStr);
     for (const exp of todayExpenses) {
       if (exp.amountPaise >= 1000000) {
@@ -306,22 +309,24 @@ export function evaluateDeterministicNotifications(input: {
   }
 
   // Daily Planning Reminder: If active tasks exist but none are scheduled for today
-  const activeUncompletedTasks = input.tasks.filter((t) => !t.deletedAt && t.status !== 'completed');
-  const todayTasks = input.tasks.filter(
-    (t) =>
-      !t.deletedAt &&
-      (t.dueDate === todayStr || (t.completedAt && t.completedAt.slice(0, 10) === todayStr))
-  );
-  if (todayTasks.length === 0 && activeUncompletedTasks.length > 0) {
-    items.push({
-      id: `daily_plan_needed_${todayStr}`,
-      severity: 'info',
-      category: 'task',
-      title: 'Plan Your Day',
-      message: 'No tasks scheduled for today yet. Review and set your daily priority list.',
-      targetTab: 'tasks',
-      actionLabel: 'Plan Today',
-    });
+  if (prefs.taskDeadlines) {
+    const activeUncompletedTasks = input.tasks.filter((t) => !t.deletedAt && t.status !== 'completed');
+    const todayTasks = input.tasks.filter(
+      (t) =>
+        !t.deletedAt &&
+        (t.dueDate === todayStr || (t.completedAt && t.completedAt.slice(0, 10) === todayStr))
+    );
+    if (todayTasks.length === 0 && activeUncompletedTasks.length > 0) {
+      items.push({
+        id: `daily_plan_needed_${todayStr}`,
+        severity: 'info',
+        category: 'task',
+        title: 'Plan Your Day',
+        message: 'No tasks scheduled for today yet. Review and set your daily priority list.',
+        targetTab: 'tasks',
+        actionLabel: 'Plan Today',
+      });
+    }
   }
 
   if (prefs.syncFailures && input.syncLastError) {

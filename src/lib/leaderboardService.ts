@@ -17,8 +17,8 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  runTransaction,
   arrayUnion,
-  arrayRemove,
   query,
   where,
   limit,
@@ -446,6 +446,26 @@ export function generateSquadInviteCode(): string {
 
 const PROFILES_COL = 'leaderboard_profiles';
 const SQUADS_COL = 'study_squads';
+const SQUAD_INVITES_COL = 'squad_invites';
+
+async function ensureSquadInviteIndex(squad: StudySquad): Promise<void> {
+  if (!squad?.inviteCode || !squad?.id || !squad?.ownerUid) return;
+  try {
+    const invRef = doc(db, SQUAD_INVITES_COL, squad.inviteCode);
+    const invSnap = await getDoc(invRef);
+    if (!invSnap.exists()) {
+      await setDoc(invRef, {
+        inviteCode: squad.inviteCode,
+        squadId: squad.id,
+        squadName: (squad.name || 'Study Squad').slice(0, 64),
+        ownerUid: squad.ownerUid,
+        createdAt: squad.createdAt || new Date().toISOString(),
+      });
+    }
+  } catch {
+    // Non-blocking best-effort invite index backfill for legacy squads
+  }
+}
 
 export async function getLeaderboardProfile(uid: string): Promise<LeaderboardProfile | null> {
   if (!uid || uid.startsWith('usr_guest') || uid.startsWith('gst_')) return null;
@@ -562,6 +582,13 @@ export async function createStudySquad(input: {
   };
 
   await setDoc(doc(db, SQUADS_COL, squadId), squad);
+  await setDoc(doc(db, SQUAD_INVITES_COL, inviteCode), {
+    inviteCode,
+    squadId,
+    squadName: cleanName,
+    ownerUid: input.uid,
+    createdAt: nowIso,
+  }).catch(() => {});
   await updateDoc(doc(db, PROFILES_COL, input.uid), {
     squadIds: arrayUnion(squadId),
     updatedAt: nowIso,
@@ -582,21 +609,28 @@ export async function joinStudySquadByCode(input: {
     throw new Error('Please enter a valid 6-character invite code.');
   }
 
-  const q = query(collection(db, SQUADS_COL), where('inviteCode', '==', cleanCode), limit(1));
-  const snap = await getDocs(q);
-  if (snap.empty) {
+  const invSnap = await getDoc(doc(db, SQUAD_INVITES_COL, cleanCode));
+  if (!invSnap.exists()) {
     throw new Error(`No Study Squad found with invite code "${cleanCode}".`);
   }
 
-  const squadDoc = snap.docs[0];
-  const squad = squadDoc.data() as StudySquad;
+  const invite = invSnap.data() as {
+    squadId: string;
+    squadName?: string;
+    ownerUid?: string;
+    inviteCode: string;
+    createdAt?: string;
+  };
+  const squadId = invite.squadId;
 
-  if (squad.memberUids.includes(input.uid)) {
-    return squad;
-  }
-
-  if (squad.memberUids.length >= MAX_SQUAD_MEMBERS) {
-    throw new Error(`This squad is full (max ${MAX_SQUAD_MEMBERS} members).`);
+  // If the user is already a member, study_squads/{squadId} read succeeds directly.
+  try {
+    const existingSquadSnap = await getDoc(doc(db, SQUADS_COL, squadId));
+    if (existingSquadSnap.exists()) {
+      return existingSquadSnap.data() as StudySquad;
+    }
+  } catch {
+    // Non-members cannot read study_squads/{squadId} until they join.
   }
 
   await syncUserLeaderboardStats({
@@ -608,32 +642,96 @@ export async function joinStudySquadByCode(input: {
   });
 
   const nowIso = new Date().toISOString();
-  await updateDoc(doc(db, SQUADS_COL, squad.id), {
-    memberUids: arrayUnion(input.uid),
-    updatedAt: nowIso,
-  });
+  try {
+    await updateDoc(doc(db, SQUADS_COL, squadId), {
+      memberUids: arrayUnion(input.uid),
+      updatedAt: nowIso,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.toLowerCase().includes('permission')) {
+      throw new Error(`Unable to join squad "${cleanCode}" (it may have reached the ${MAX_SQUAD_MEMBERS}-member limit).`);
+    }
+    throw err;
+  }
+
   await updateDoc(doc(db, PROFILES_COL, input.uid), {
-    squadIds: arrayUnion(squad.id),
+    squadIds: arrayUnion(squadId),
     updatedAt: nowIso,
   }).catch(() => {});
 
+  const joinedSnap = await getDoc(doc(db, SQUADS_COL, squadId));
+  if (joinedSnap.exists()) {
+    return joinedSnap.data() as StudySquad;
+  }
+
   return {
-    ...squad,
-    memberUids: [...squad.memberUids, input.uid],
+    id: squadId,
+    name: invite.squadName || 'Study Squad',
+    description: '',
+    inviteCode: cleanCode,
+    ownerUid: invite.ownerUid || input.uid,
+    memberUids: [input.uid],
+    createdAt: invite.createdAt || nowIso,
     updatedAt: nowIso,
   };
 }
 
 export async function leaveStudySquad(uid: string, squadId: string): Promise<void> {
   const nowIso = new Date().toISOString();
-  await updateDoc(doc(db, SQUADS_COL, squadId), {
-    memberUids: arrayRemove(uid),
-    updatedAt: nowIso,
+  const squadRef = doc(db, SQUADS_COL, squadId);
+  const profileRef = doc(db, PROFILES_COL, uid);
+
+  await runTransaction(db, async (tx) => {
+    const [squadSnap, profileSnap] = await Promise.all([
+      tx.get(squadRef),
+      tx.get(profileRef),
+    ]);
+
+    let invSnap: Awaited<ReturnType<typeof tx.get>> | null = null;
+    if (squadSnap.exists()) {
+      const squad = squadSnap.data() as StudySquad;
+      if (squad.ownerUid === uid && squad.inviteCode) {
+        invSnap = await tx.get(doc(db, SQUAD_INVITES_COL, squad.inviteCode));
+      }
+
+      const remainingMembers = (squad.memberUids || []).filter((id) => id !== uid);
+      if (squad.ownerUid === uid) {
+        if (remainingMembers.length === 0) {
+          tx.delete(squadRef);
+          if (invSnap?.exists()) {
+            tx.delete(invSnap.ref);
+          }
+        } else {
+          const nextOwnerUid = remainingMembers[0];
+          tx.update(squadRef, {
+            memberUids: remainingMembers,
+            ownerUid: nextOwnerUid,
+            updatedAt: nowIso,
+          });
+          if (invSnap?.exists()) {
+            tx.update(invSnap.ref, {
+              ownerUid: nextOwnerUid,
+            });
+          }
+        }
+      } else if ((squad.memberUids || []).includes(uid)) {
+        tx.update(squadRef, {
+          memberUids: remainingMembers,
+          updatedAt: nowIso,
+        });
+      }
+    }
+
+    if (profileSnap.exists()) {
+      const profile = profileSnap.data() as LeaderboardProfile;
+      const nextSquadIds = (profile.squadIds || []).filter((id) => id !== squadId);
+      tx.update(profileRef, {
+        squadIds: nextSquadIds,
+        updatedAt: nowIso,
+      });
+    }
   });
-  await updateDoc(doc(db, PROFILES_COL, uid), {
-    squadIds: arrayRemove(squadId),
-    updatedAt: nowIso,
-  }).catch(() => {});
 }
 
 /**
@@ -661,7 +759,13 @@ export async function listUserSquads(uid: string): Promise<StudySquad[]> {
   if (!uid || uid.startsWith('usr_guest') || uid.startsWith('gst_')) return [];
   const q = query(collection(db, SQUADS_COL), where('memberUids', 'array-contains', uid));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => d.data() as StudySquad);
+  const squads = snap.docs.map((d) => d.data() as StudySquad);
+  for (const squad of squads) {
+    if (squad.ownerUid === uid && squad.inviteCode) {
+      void ensureSquadInviteIndex(squad);
+    }
+  }
+  return squads;
 }
 
 export async function fetchSquadMemberProfiles(memberUids: string[]): Promise<LeaderboardProfile[]> {

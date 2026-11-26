@@ -607,6 +607,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearUserScopedState = useCallback(() => {
     authGenerationRef.current += 1;
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (autoSwitchTimeoutRef.current !== null) {
+      clearTimeout(autoSwitchTimeoutRef.current);
+      autoSwitchTimeoutRef.current = null;
+    }
+    targetEndTimeMsRef.current = null;
+    stopwatchStartMsRef.current = null;
+    sessionStartTimeRef.current = null;
+    completionHandledRef.current = false;
+    setIsRunning(false);
+    setTimerMode('work');
+    setTimerEngine('pomodoro');
+    setTimeLeft(25 * 60);
+    timeLeftRef.current = 25 * 60;
+    setTotalDuration(25 * 60);
+    totalDurationRef.current = 25 * 60;
+    setCompletedCycleCount(0);
+    completedCycleCountRef.current = 0;
+
     setUser(null);
     setFirebaseUser(null);
     setGoogleAccessToken(null);
@@ -1315,6 +1337,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         typeof window !== 'undefined' ? window.localStorage : null,
         firebaseUser?.uid
       );
+      void api
+        .savePomodoroSettings({
+          focusDuration: focusMins,
+          shortBreakDuration: preset.shortBreakDuration,
+          longBreakDuration: preset.longBreakDuration,
+          longBreakInterval: preset.longBreakInterval,
+          autoStartBreaks: preset.autoStartBreaks ?? pomodoroSettingsRef.current.autoStartBreaks,
+          autoStartFocus: preset.autoStartFocus ?? pomodoroSettingsRef.current.autoStartFocus,
+        })
+        .catch(() => {});
       showToast(`Applied preset: ${preset.name}`, 'info');
     },
     [isRunning, timerEngine, timerMode, firebaseUser?.uid, showToast]
@@ -2822,8 +2854,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           autoSwitchTimeoutRef.current = setTimeout(() => {
             autoSwitchTimeoutRef.current = null;
             completionHandledRef.current = false;
-            targetEndTimeMsRef.current = Date.now() + breakMinutes * 60 * 1000;
-            sessionStartTimeRef.current = new Date().toISOString();
+            const breakSecs = breakMinutes * 60;
+            const targetEnd = Date.now() + breakSecs * 1000;
+            const startIso = new Date().toISOString();
+            targetEndTimeMsRef.current = targetEnd;
+            sessionStartTimeRef.current = startIso;
+            totalDurationRef.current = breakSecs;
+            timeLeftRef.current = breakSecs;
+
+            saveTimerState(
+              {
+                timerEngine,
+                timerMode: nextMode,
+                isRunning: true,
+                timeLeft: breakSecs,
+                totalDuration: breakSecs,
+                targetEndTimeMs: targetEnd,
+                stopwatchStartMs: null,
+                sessionStartTime: startIso,
+                activeSessionId: null,
+                activePresetId: activePresetIdRef.current,
+                activeTaskId: taskNow,
+                activeStudySubjectCode: studySubjectNow,
+                activeStudyTopicId: studyTopicNow,
+                activeStudyActivityType: studyActivityNow,
+              },
+              typeof window !== 'undefined' ? window.localStorage : null,
+              fbUserNow?.uid
+            );
+            broadcastTimerEvent({
+              type: 'TIMER_SYNC_START',
+              payload: {
+                targetEndTimeMs: targetEnd,
+                stopwatchStartMs: null,
+                totalDuration: breakSecs,
+                timerMode: nextMode,
+                timerEngine,
+                sessionStartTime: startIso,
+                activeSessionId: null,
+                activePresetId: activePresetIdRef.current,
+                activeTaskId: taskNow,
+                activeStudySubjectCode: studySubjectNow,
+                activeStudyTopicId: studyTopicNow,
+                activeStudyActivityType: studyActivityNow,
+              },
+            });
+            setTimerSyncVersion((v) => v + 1);
             setIsRunning(true);
           }, 1000);
         }
