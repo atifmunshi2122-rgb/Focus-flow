@@ -35,6 +35,8 @@ import {
   Download,
   FileSpreadsheet,
   X,
+  Users,
+  Sparkles,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -104,6 +106,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'habits', label: 'Habits & Streaks', icon: Flame, section: 'Focus & Productivity' },
     { id: 'study', label: 'Study OS', icon: GraduationCap, section: 'Focus & Productivity' },
     { id: 'leaderboard', label: 'Leaderboard', icon: Trophy, section: 'Focus & Productivity', tag: 'Live' },
+    { id: 'gamification', label: 'Study RPG', icon: Trophy, section: 'Focus & Productivity', tag: 'XP' },
+    { id: 'social', label: 'Social & Squads', icon: Users, section: 'Focus & Productivity', tag: 'New' },
+    { id: 'planner', label: 'Smart Planner', icon: Calendar, section: 'Focus & Productivity', tag: 'Auto' },
+  { id: 'avatar_studio', label: 'Avatar Studio', icon: Sparkles, section: 'Focus & Productivity', tag: '3D' },
     { id: 'finance', label: 'Finance Overview', icon: Wallet, section: 'Wealth & Finance' },
     { id: 'vaults', label: 'Couple Vaults', icon: Heart, section: 'Wealth & Finance', tag: 'New' },
     { id: 'transactions', label: 'Transactions', icon: ReceiptText, section: 'Wealth & Finance' },

@@ -1,4 +1,7 @@
 import type { ThemeConfig, SavedCustomTheme } from './theme.ts';
+import type { RoomCustomization } from '../features/study-room/customization-types.ts';
+import type { StudyPlannerSettings } from '../features/planner/types.ts';
+import type { UserAvatarConfig } from '../features/avatar/avatar-catalog.ts';
 export * from './theme.ts';
 
 export type CurrencyCode = 'INR' | 'USD' | 'EUR' | 'GBP';
@@ -72,6 +75,9 @@ export interface UserSettings {
   dailySpendingLimitPaise?: number;
   weeklySpendingLimitPaise?: number;
   categoryBudgets?: Record<string, number>;
+  studyRoomCustomization?: RoomCustomization;
+  studyPlannerSettings?: StudyPlannerSettings;
+  avatarConfig?: UserAvatarConfig;
   dashboardLayout?: DashboardLayoutConfig;
   notificationPrefs?: NotificationPreferences;
   favoriteStyleIds?: string[];

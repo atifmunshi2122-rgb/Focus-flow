@@ -20,6 +20,25 @@ import type {
   VaultSummary,
 } from '../src/types/vault.ts';
 import type {
+  UserGamificationProfile,
+  XPTransaction,
+} from '../src/features/gamification/types.ts';
+import type {
+  Friendship,
+  UserPrivacySettings,
+  UserReport,
+} from '../src/features/social/types.ts';
+import type {
+  GroupStudySession,
+  RoomInvitation,
+  SocialNotification,
+  SocialStudySquad,
+  SquadInvitation,
+  SquadMember,
+  StudyChatMessage,
+} from '../src/features/social/squad-types.ts';
+import type { SocialActivityEvent } from '../src/features/social/activity-types.ts';
+import type {
   SkillNode,
   WhiteboardDrawing,
   ExamSimulationState,
@@ -92,6 +111,9 @@ export interface UserSettings {
   favoriteStyleIds?: string[];
   favoriteThemeIds?: string[];
   keyboardShortcutsEnabled?: boolean;
+  studyRoomCustomization?: Record<string, unknown>;
+  studyPlannerSettings?: Record<string, unknown>;
+  avatarConfig?: Record<string, unknown>;
 }
 
 export interface SubtaskItem {
@@ -448,6 +470,19 @@ export interface DatabaseSchema {
   lifeMilestones?: LifeMilestone[];
   timeCapsules?: TimeCapsuleLetter[];
   emergencyAssetProfiles?: EmergencyAssetProfile[];
+  gamificationProfiles: UserGamificationProfile[];
+  xpTransactions: XPTransaction[];
+  friendships?: Friendship[];
+  socialSquads?: SocialStudySquad[];
+  squadMembers?: SquadMember[];
+  squadInvitations?: SquadInvitation[];
+  roomInvitations?: RoomInvitation[];
+  groupSessions?: GroupStudySession[];
+  studyChatMessages?: StudyChatMessage[];
+  socialActivities?: SocialActivityEvent[];
+  socialNotifications?: SocialNotification[];
+  userPrivacySettings?: UserPrivacySettings[];
+  userReports?: UserReport[];
 }
 
 const DEFAULT_CATEGORIES: Omit<ExpenseCategory, 'id' | 'userId'>[] = [
@@ -529,6 +564,8 @@ export class DatabaseService {
     lifeMilestones: [],
     timeCapsules: [],
     emergencyAssetProfiles: [],
+    gamificationProfiles: [],
+    xpTransactions: [],
   };
 
   private writeQueue: Promise<void> = Promise.resolve();
@@ -720,6 +757,8 @@ export class DatabaseService {
         lifeMilestones: this.sanitizeAndQuarantineRecords<LifeMilestone>(parsed.lifeMilestones, 'lifeMilestones'),
         timeCapsules: this.sanitizeAndQuarantineRecords<TimeCapsuleLetter>(parsed.timeCapsules, 'timeCapsules'),
         emergencyAssetProfiles: this.sanitizeAndQuarantineRecords<EmergencyAssetProfile>(parsed.emergencyAssetProfiles, 'emergencyAssetProfiles'),
+        gamificationProfiles: Array.isArray(parsed.gamificationProfiles) ? parsed.gamificationProfiles : [],
+        xpTransactions: Array.isArray(parsed.xpTransactions) ? parsed.xpTransactions : [],
       };
     } catch (err) {
       this.isCorrupted = true;
@@ -1005,6 +1044,8 @@ export class DatabaseService {
         auditLogs: preservedAuditLogs,
         syncQueue: preservedSyncQueue,
         studyTiers: preservedStudyTiers,
+        gamificationProfiles: [],
+        xpTransactions: [],
       };
       this.ensureSeedDataForUser('usr_atif_default', true);
       this.checkRecurringBills('usr_atif_default');
@@ -3705,6 +3746,11 @@ export class DatabaseService {
       return true;
     }
     return false;
+  }
+
+  // 9. Authoritative Gamification Store Access
+  public getRawDatabase(): DatabaseSchema {
+    return this.db;
   }
 }
 

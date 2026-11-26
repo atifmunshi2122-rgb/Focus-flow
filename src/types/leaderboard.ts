@@ -3,6 +3,9 @@
  * Zero-AI, privacy-first Study Squads & Global Opt-In Focus Hours Leaderboard.
  */
 
+import type { AvatarEmoteEvent, StudyActivity } from '../features/study-room/types.ts';
+import type { UserAvatarConfig } from '../features/avatar/avatar-catalog.ts';
+
 export type LeaderboardPeriod = 'today' | 'week' | 'month';
 
 export interface LeaderboardProfile {
@@ -30,6 +33,10 @@ export interface LeaderboardProfile {
   todaySubjectMinutes?: Record<string, number>;
   weekSubjectMinutes?: Record<string, number>;
   monthSubjectMinutes?: Record<string, number>;
+  // Study Room Multiplayer Activity & One-Time Emote Event
+  studyActivity?: StudyActivity;
+  lastEmote?: Omit<AvatarEmoteEvent, 'memberId'> | null;
+  avatarConfig?: UserAvatarConfig | null;
 }
 
 export interface StudySquad {
@@ -76,4 +83,8 @@ export interface RankedLeaderboardEntry {
   isStudyingLive: boolean;
   activeSubject?: string;
   liveElapsedMinutes: number;
+  // Study Room Multiplayer Activity & One-Time Emote
+  studyActivity?: StudyActivity;
+  lastEmote?: AvatarEmoteEvent | null;
+  avatarConfig?: UserAvatarConfig | null;
 }

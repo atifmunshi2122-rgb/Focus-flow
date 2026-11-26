@@ -21,6 +21,8 @@
     "build:prod": "npm run clean && tsc --noEmit && vite build && esbuild server/serverless.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=api/index.js"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.2.3",
@@ -32,6 +34,7 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "three": "^0.187.0",
+    "three-stdlib": "^2.36.1",
     "vite": "^8.3.0"
   },
   "devDependencies": {

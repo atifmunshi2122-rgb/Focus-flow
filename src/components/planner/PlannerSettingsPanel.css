@@ -1,0 +1,78 @@
+.planner-settings-panel {
+  display: grid;
+  gap: 12px;
+
+  width: 100%;
+  max-width: 480px;
+
+  padding: 22px;
+
+  color: #f4f5ff;
+
+  background: linear-gradient(145deg, #20243e, #12182c);
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  border-radius: 20px;
+}
+
+.planner-settings-panel h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.planner-settings-panel > label {
+  color: #bfc6e1;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.planner-settings-panel input[type='number'],
+.planner-settings-panel select {
+  width: 100%;
+
+  padding: 10px 12px;
+
+  color: #ffffff;
+  font-size: 13px;
+
+  background: #292f4a;
+
+  border: 1px solid rgba(255, 255, 255, 0.12);
+
+  border-radius: 11px;
+
+  outline: none;
+}
+
+.planner-settings-panel input:focus,
+.planner-settings-panel select:focus {
+  border-color: #9587ff;
+}
+
+.planner-settings-panel .planner-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 6px 0;
+
+  color: #e4e7f6;
+  font-size: 13px;
+
+  cursor: pointer;
+}
+
+.planner-toggle input {
+  width: 17px;
+  height: 17px;
+
+  accent-color: #9587ff;
+}
+
+@media (max-width: 600px) {
+  .planner-settings-panel {
+    padding: 16px;
+  }
+}
+

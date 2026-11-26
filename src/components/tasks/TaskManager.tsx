@@ -291,6 +291,22 @@ export const TaskManager: React.FC = () => {
         playTaskCompleteSound(settings?.soundEnabled ?? true, settings?.soundVolume);
         setCelebratingTaskId(task.id);
         setTimeout(() => setCelebratingTaskId((curr) => (curr === task.id ? null : curr)), 1400);
+        void api
+          .awardXP({
+            eventId: `task_${updated.id}`,
+            source: 'task_completion',
+            sourceId: updated.id,
+          })
+          .then((xpRes) => {
+            if (xpRes?.awarded && xpRes.xpAdded > 0) {
+              showToast(
+                xpRes.leveledUp
+                  ? `+${xpRes.xpAdded} XP · Level Up to Lv.${xpRes.newLevel}! 🎉`
+                  : `+${xpRes.xpAdded} XP earned!`,
+                'success'
+              );
+            }
+          });
       }
       // If task is linked to study syllabus, sync progress
       if (

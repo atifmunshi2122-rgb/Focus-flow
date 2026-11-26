@@ -1,0 +1,168 @@
+.avatar-nameplate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+
+  padding: 8px 14px;
+
+  color: #ffffff;
+
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.3px;
+
+  white-space: nowrap;
+
+  background: rgba(17, 23, 42, 0.86);
+
+  border: 1px solid rgba(255, 255, 255, 0.16);
+
+  border-radius: 30px;
+
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+
+  box-shadow:
+    0 5px 18px rgba(0, 0, 0, 0.34),
+    inset 0 1px rgba(255, 255, 255, 0.08);
+
+  pointer-events: none;
+  user-select: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.avatar-nameplate--live {
+  border-color: rgba(248, 113, 113, 0.55);
+  box-shadow:
+    0 6px 20px rgba(239, 68, 68, 0.22),
+    inset 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.avatar-nameplate--selected {
+  border-color: rgba(129, 140, 248, 0.85);
+  box-shadow:
+    0 6px 22px rgba(99, 102, 241, 0.35),
+    inset 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.avatar-nameplate-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.avatar-nameplate-sub {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #94a3b8;
+  letter-spacing: 0.2px;
+}
+
+.avatar-nameplate-sub--live {
+  color: #fca5a5;
+}
+
+.avatar-online-dot {
+  width: 8px;
+  height: 8px;
+
+  flex-shrink: 0;
+
+  border-radius: 50%;
+
+  background: #55e6a5;
+
+  box-shadow:
+    0 0 8px rgba(85, 230, 165, 0.8),
+    0 0 14px rgba(85, 230, 165, 0.4);
+}
+
+.avatar-online-dot--live {
+  background: #ef4444;
+  box-shadow:
+    0 0 8px rgba(239, 68, 68, 0.9),
+    0 0 14px rgba(239, 68, 68, 0.5);
+  animation: avatarLiveBlink 1.15s ease-in-out infinite;
+}
+
+.avatar-online-dot--idle {
+  background: #64748b;
+  box-shadow: none;
+}
+
+@keyframes avatarLiveBlink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.32;
+    transform: scale(0.84);
+  }
+}
+
+.avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 72px;
+  height: 72px;
+
+  border-radius: 50%;
+
+  background: linear-gradient(145deg, #8e85ff, #5549b8);
+
+  color: #ffffff;
+
+  font-size: 26px;
+  font-weight: 700;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.avatar-emote-burst {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  margin-bottom: 6px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.95), rgba(236, 72, 153, 0.92));
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(139, 92, 246, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  animation: avatarEmoteFloat 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes avatarEmoteFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 600px) {
+  .avatar-nameplate {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .avatar-nameplate-sub {
+    font-size: 9px;
+  }
+}
+

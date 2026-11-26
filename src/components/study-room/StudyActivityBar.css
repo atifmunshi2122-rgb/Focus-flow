@@ -1,0 +1,86 @@
+.study-activity-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+
+  padding: 12px;
+
+  background: rgba(24, 29, 49, 0.82);
+
+  border: 1px solid rgba(255, 255, 255, 0.09);
+
+  border-radius: 18px;
+
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+}
+
+.study-activity-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 10px 14px;
+
+  color: #dce2f7;
+
+  font-size: 12px;
+  font-weight: 600;
+
+  background: rgba(255, 255, 255, 0.045);
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  border-radius: 12px;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.study-activity-button:hover:not(:disabled) {
+  background: rgba(129, 112, 255, 0.17);
+  border-color: rgba(155, 137, 255, 0.5);
+  transform: translateY(-2px);
+}
+
+.study-activity-button.active {
+  color: #ffffff;
+
+  background: linear-gradient(
+    135deg,
+    rgba(124, 105, 255, 0.48),
+    rgba(88, 102, 199, 0.38)
+  );
+
+  border-color: rgba(159, 146, 255, 0.65);
+
+  box-shadow: 0 0 15px rgba(132, 116, 255, 0.15);
+}
+
+.study-activity-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.activity-icon {
+  font-size: 15px;
+}
+
+@media (max-width: 600px) {
+  .study-activity-bar {
+    gap: 7px;
+    padding: 9px;
+  }
+
+  .study-activity-button {
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+}
+

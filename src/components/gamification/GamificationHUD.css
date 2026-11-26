@@ -1,0 +1,176 @@
+.gamification-hud {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr auto;
+  align-items: center;
+  gap: 22px;
+
+  width: 100%;
+  padding: 20px;
+
+  color: #ffffff;
+
+  background:
+    radial-gradient(
+      ellipse at 10% 0%,
+      rgba(137, 111, 255, 0.22),
+      transparent 65%
+    ),
+    linear-gradient(135deg, #20243e, #11172b);
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  border-radius: 22px;
+
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.2);
+}
+
+.gamification-profile {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  min-width: 0;
+}
+
+.gamification-level {
+  display: grid;
+  place-items: center;
+
+  width: 62px;
+  height: 62px;
+  flex-shrink: 0;
+
+  border-radius: 18px;
+
+  color: #fff4cc;
+
+  font-size: 25px;
+  font-weight: 800;
+
+  background: linear-gradient(145deg, #9877ff, #5746b9);
+
+  border: 1px solid rgba(255, 255, 255, 0.25);
+
+  box-shadow: 0 0 25px rgba(137, 112, 255, 0.25);
+}
+
+.gamification-info {
+  width: 100%;
+  min-width: 0;
+}
+
+.gamification-info h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.gamification-info p {
+  margin: 5px 0;
+  color: #b5bad5;
+  font-size: 12px;
+}
+
+.xp-progress-track {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+
+  margin: 9px 0;
+
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+}
+
+.xp-progress-fill {
+  height: 100%;
+
+  border-radius: 20px;
+
+  background: linear-gradient(90deg, #8270ff, #d3a2ff);
+
+  box-shadow: 0 0 12px rgba(161, 133, 255, 0.45);
+
+  transition: width 0.6s ease;
+}
+
+.gamification-info small {
+  color: #aeb4d2;
+  font-size: 10px;
+}
+
+.gamification-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.gamification-stat {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+}
+
+.gamification-stat span {
+  font-size: 20px;
+}
+
+.gamification-stat strong {
+  font-size: 19px;
+}
+
+.gamification-stat small {
+  color: #aeb4d2;
+  font-size: 10px;
+}
+
+.gamification-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.gamification-actions button {
+  padding: 10px 15px;
+
+  color: #ffffff;
+
+  background: rgba(255, 255, 255, 0.07);
+
+  border: 1px solid rgba(255, 255, 255, 0.13);
+
+  border-radius: 11px;
+
+  font-size: 11px;
+  font-weight: 650;
+
+  cursor: pointer;
+
+  transition: 0.2s ease;
+}
+
+.gamification-actions button:hover {
+  background: rgba(130, 111, 255, 0.25);
+  border-color: #9b8aff;
+}
+
+@media (max-width: 760px) {
+  .gamification-hud {
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+  }
+
+  .gamification-profile {
+    grid-column: 1 / -1;
+  }
+
+  .gamification-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+
+  .gamification-actions button {
+    flex: 1;
+  }
+}
+

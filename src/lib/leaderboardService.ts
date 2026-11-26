@@ -36,6 +36,11 @@ import type {
   SquadChallengeProgress,
   StudySquad,
 } from '../types/leaderboard.ts';
+import {
+  isValidStudyActivity,
+  type AvatarEmote,
+  type StudyActivity,
+} from '../features/study-room/types.ts';
 
 export const DAILY_FOCUS_CAP_MINUTES = 960; // 16 hours/day anti-cheat sanity cap
 export const WEEKLY_FOCUS_CAP_MINUTES = 6720; // 16h * 7
@@ -387,6 +392,23 @@ export function rankLeaderboardProfiles(input: {
 
   return enriched.map((item, idx) => {
     const live = isProfileStudyingLive(item.profile, nowDate);
+    const validActivity = isValidStudyActivity(item.profile.studyActivity)
+      ? item.profile.studyActivity
+      : undefined;
+    const rawEmote = item.profile.lastEmote;
+    const lastEmote =
+      rawEmote &&
+      typeof rawEmote.id === 'string' &&
+      typeof rawEmote.createdAt === 'number' &&
+      nowDate.getTime() - rawEmote.createdAt <= 15_000
+        ? {
+            id: rawEmote.id,
+            memberId: item.profile.uid,
+            type: rawEmote.type,
+            createdAt: rawEmote.createdAt,
+          }
+        : null;
+
     return {
       rank: idx + 1,
       uid: item.profile.uid,
@@ -402,6 +424,9 @@ export function rankLeaderboardProfiles(input: {
       isStudyingLive: live,
       activeSubject: live ? (item.profile.activeSubject || 'Deep Focus') : undefined,
       liveElapsedMinutes: live ? getLiveElapsedMinutes(item.profile, nowDate) : 0,
+      studyActivity: validActivity,
+      lastEmote,
+      avatarConfig: item.profile.avatarConfig ?? null,
     };
   });
 }
@@ -688,6 +713,90 @@ export async function updateLiveStudyPresence(input: {
     });
   } catch {
     // Non-blocking best-effort presence update
+  }
+}
+
+/**
+ * Updates the current user's 3D Study Room activity (studying, typing, reading,
+ * writing, break, idle) on their leaderboard_profiles/{uid} document.
+ * Only persists when the activity actually changes to avoid unnecessary writes.
+ */
+export async function updateStudyRoomActivity(input: {
+  uid: string;
+  activity: StudyActivity;
+}): Promise<void> {
+  const { uid, activity } = input;
+  if (!uid || uid.startsWith('usr_guest') || uid.startsWith('gst_')) return;
+  if (!isValidStudyActivity(activity)) return;
+
+  try {
+    const ref = doc(db, PROFILES_COL, uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+
+    const existing = snap.data() as LeaderboardProfile;
+    if (existing.studyActivity === activity) return;
+
+    await updateDoc(ref, {
+      studyActivity: activity,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch {
+    // Non-blocking best-effort activity update
+  }
+}
+
+/**
+ * Triggers a one-time emote event (celebrate, wave, clap, success) on the user's
+ * leaderboard_profiles/{uid} document so squadmates see it in real time.
+ */
+export async function triggerStudyRoomEmote(input: {
+  uid: string;
+  type: AvatarEmote;
+}): Promise<void> {
+  const { uid, type } = input;
+  if (!uid || uid.startsWith('usr_guest') || uid.startsWith('gst_')) return;
+
+  try {
+    const ref = doc(db, PROFILES_COL, uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+
+    const nowMs = Date.now();
+    await updateDoc(ref, {
+      lastEmote: {
+        id: `em_${nowMs.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        type,
+        createdAt: nowMs,
+      },
+      updatedAt: new Date(nowMs).toISOString(),
+    });
+  } catch {
+    // Non-blocking best-effort emote broadcast
+  }
+}
+
+/**
+ * Syncs the authenticated user's validated 3D avatar configuration to their
+ * leaderboard_profiles/{uid} document so room members see it in real time.
+ */
+export async function updateUserAvatarConfig(
+  uid: string,
+  avatarConfig: import('../features/avatar/avatar-catalog.ts').UserAvatarConfig
+): Promise<void> {
+  if (!uid || uid.startsWith('usr_guest') || uid.startsWith('gst_')) return;
+
+  try {
+    const ref = doc(db, PROFILES_COL, uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+
+    await updateDoc(ref, {
+      avatarConfig,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch {
+    // Non-blocking best-effort avatar sync
   }
 }
 

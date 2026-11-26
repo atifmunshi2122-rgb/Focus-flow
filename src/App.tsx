@@ -53,6 +53,10 @@ const SubscriptionManager = lazyWithRetry(() => import('./components/finance/Sub
 const JointVaultsView = lazyWithRetry(() => import('./components/finance/JointVaultsView.tsx').then((m) => ({ default: m.JointVaultsView })));
 const StudyView = lazyWithRetry(() => import('./components/study/StudyView.tsx').then((m) => ({ default: m.StudyView })));
 const StudyLeaderboardView = lazyWithRetry(() => import('./components/study/StudyLeaderboardView.tsx').then((m) => ({ default: m.StudyLeaderboardView })));
+const GamificationHubView = lazyWithRetry(() => import('./components/gamification/GamificationHubView.tsx').then((m) => ({ default: m.GamificationHubView })));
+const SocialHubView = lazyWithRetry(() => import('./components/social/SocialHubView.tsx').then((m) => ({ default: m.SocialHubView })));
+const SmartPlannerHubView = lazyWithRetry(() => import('./components/planner/SmartPlannerHubView.tsx').then((m) => ({ default: m.SmartPlannerHubView })));
+const AvatarStudioView = lazyWithRetry(() => import('./components/avatar/AvatarStudioView.tsx').then((m) => ({ default: m.AvatarStudioView })));
 const AnalyticsReportsView = lazyWithRetry(() => import('./components/analytics/AnalyticsReportsView.tsx').then((m) => ({ default: m.AnalyticsReportsView })));
 const ExportCenterView = lazyWithRetry(() => import('./components/export/ExportCenterView.tsx').then((m) => ({ default: m.ExportCenterView })));
 const ProductivityCalendar = lazyWithRetry(() => import('./components/calendar/ProductivityCalendar.tsx').then((m) => ({ default: m.ProductivityCalendar })));
@@ -85,6 +89,7 @@ import {
   FileSpreadsheet,
   ShieldAlert,
   LogOut,
+  Users,
 } from 'lucide-react';
 
 const PRIMARY_MOBILE_TABS: NavTab[] = ['dashboard', 'focus', 'tasks', 'finance'];
@@ -131,6 +136,8 @@ const MOBILE_MORE_SECTIONS: Array<{ title: string; items: MobileMoreItem[] }> = 
 const MOBILE_ACTIVE_TAB_META: Record<string, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
   study: { label: 'Study', icon: GraduationCap },
   leaderboard: { label: 'Ranks', icon: Trophy },
+  gamification: { label: 'Study RPG', icon: Trophy },
+  social: { label: 'Social', icon: Users },
   habits: { label: 'Habits', icon: Flame },
   ...Object.fromEntries(
     MOBILE_MORE_SECTIONS.flatMap((sec) =>
@@ -484,6 +491,13 @@ const MainContent: React.FC = () => {
                   {currentTab === 'study' && <StudyView />}
 
                   {currentTab === 'leaderboard' && <StudyLeaderboardView />}
+
+                  {currentTab === 'gamification' && <GamificationHubView />}
+
+                  {currentTab === 'social' && <SocialHubView />}
+
+                  {currentTab === 'planner' && <SmartPlannerHubView />}
+            {currentTab === 'avatar_studio' && <AvatarStudioView />}
 
                   {currentTab === 'analytics' && <AnalyticsReportsView />}
 

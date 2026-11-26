@@ -1,0 +1,165 @@
+.study-room-shell {
+  position: relative;
+  width: 100%;
+  min-height: 520px;
+  height: 540px;
+  overflow: hidden;
+
+  border-radius: 24px;
+
+  background:
+    radial-gradient(
+      ellipse at 50% 30%,
+      rgba(130, 120, 255, 0.16),
+      transparent 65%
+    ),
+    linear-gradient(145deg, #20243b, #101525);
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.25);
+}
+
+.study-room-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+}
+
+.study-room-hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 9px 14px;
+
+  border-radius: 14px;
+
+  color: #ffffff;
+
+  background: rgba(20, 25, 44, 0.8);
+
+  border: 1px solid rgba(255, 255, 255, 0.12);
+
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+
+  pointer-events: none;
+  z-index: 5;
+}
+
+.study-room-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.study-room-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+
+  background: #55e6a5;
+  box-shadow: 0 0 10px #55e6a5;
+}
+
+.study-room-status-dot--live {
+  background: #ef4444;
+  box-shadow: 0 0 10px #ef4444;
+  animation: studyRoomLiveBlink 1.15s ease-in-out infinite;
+}
+
+@keyframes studyRoomLiveBlink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.84);
+  }
+}
+
+.study-room-controls {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  z-index: 5;
+}
+
+.study-room-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 13px;
+
+  border-radius: 12px;
+
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+
+  background: rgba(25, 31, 52, 0.9);
+
+  border: 1px solid rgba(255, 255, 255, 0.14);
+
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.study-room-control:hover {
+  background: rgba(110, 102, 210, 0.85);
+  border-color: rgba(165, 180, 252, 0.45);
+  transform: translateY(-2px);
+}
+
+.study-room-control--active {
+  background: rgba(99, 102, 241, 0.42);
+  border-color: rgba(129, 140, 248, 0.6);
+}
+
+@media (max-width: 600px) {
+  .study-room-shell,
+  .study-room-canvas {
+    min-height: 440px;
+    height: 440px;
+    border-radius: 17px;
+  }
+
+  .study-room-hud {
+    top: 10px;
+    left: 10px;
+    padding: 7px 11px;
+  }
+
+  .study-room-controls {
+    right: 10px;
+    bottom: 10px;
+  }
+
+  .study-room-control {
+    padding: 7px 10px;
+    font-size: 10px;
+  }
+}
+

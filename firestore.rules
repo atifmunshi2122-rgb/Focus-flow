@@ -2739,7 +2739,8 @@ service cloud.firestore {
             'monthKey', 'monthMinutes', 'streakDays', 'dailyGoalMinutes',
             'totalSessionsCount', 'updatedAt',
             'isStudyingNow', 'activeSubject', 'sessionStartedAt', 'lastHeartbeatAt',
-            'todaySubjectMinutes', 'weekSubjectMinutes', 'monthSubjectMinutes'
+            'todaySubjectMinutes', 'weekSubjectMinutes', 'monthSubjectMinutes',
+            'studyActivity', 'lastEmote', 'avatarConfig'
           ])
           && data.uid == profileUid
           && isNonEmptyString(data.displayName, 48)
@@ -2763,7 +2764,27 @@ service cloud.firestore {
           && (!('lastHeartbeatAt' in data) || data.lastHeartbeatAt == null || data.lastHeartbeatAt == '' || isIsoDate(data.lastHeartbeatAt))
           && (!('todaySubjectMinutes' in data) || (data.todaySubjectMinutes is map && data.todaySubjectMinutes.size() <= 20))
           && (!('weekSubjectMinutes' in data) || (data.weekSubjectMinutes is map && data.weekSubjectMinutes.size() <= 20))
-          && (!('monthSubjectMinutes' in data) || (data.monthSubjectMinutes is map && data.monthSubjectMinutes.size() <= 20));
+          && (!('monthSubjectMinutes' in data) || (data.monthSubjectMinutes is map && data.monthSubjectMinutes.size() <= 20))
+          && (!('studyActivity' in data) || data.studyActivity == null || (data.studyActivity is string && data.studyActivity in ['idle', 'studying', 'typing', 'reading', 'writing', 'break']))
+          && (!('lastEmote' in data) || data.lastEmote == null || (
+            data.lastEmote is map
+            && data.lastEmote.keys().hasOnly(['id', 'type', 'createdAt'])
+            && data.lastEmote.keys().hasAll(['id', 'type', 'createdAt'])
+            && isNonEmptyString(data.lastEmote.id, 64)
+            && data.lastEmote.type is string
+            && data.lastEmote.type in ['celebrate', 'wave', 'clap', 'success']
+            && data.lastEmote.createdAt is int
+            && data.lastEmote.createdAt >= 0
+          ))
+          && (!('avatarConfig' in data) || data.avatarConfig == null || (
+            data.avatarConfig is map
+            && data.avatarConfig.keys().hasOnly(['avatarId', 'modelUrl', 'customization', 'updatedAt'])
+            && 'avatarId' in data.avatarConfig
+            && isNonEmptyString(data.avatarConfig.avatarId, 48)
+            && (!('modelUrl' in data.avatarConfig) || isOptionalString(data.avatarConfig.modelUrl, 512))
+            && (!('customization' in data.avatarConfig) || data.avatarConfig.customization == null || (data.avatarConfig.customization is map && data.avatarConfig.customization.size() <= 20))
+            && (!('updatedAt' in data.avatarConfig) || data.avatarConfig.updatedAt == null || (data.avatarConfig.updatedAt is int && data.avatarConfig.updatedAt >= 0) || isIsoDate(data.avatarConfig.updatedAt))
+          ));
       }
 
       // Signed-in users can read own profile, public opt-in profiles, or squadmates' profiles

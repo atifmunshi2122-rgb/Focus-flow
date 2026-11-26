@@ -3725,6 +3725,174 @@ export const api = {
     });
     return Boolean(res?.success);
   },
+
+  // Phase 5 — Authoritative Gamification, XP & Multiplayer Leaderboard
+  getGamificationProfile: async (): Promise<{
+    profile: import('../features/gamification/types.ts').UserGamificationProfile;
+    progress: import('../features/gamification/types.ts').XPProgress;
+    achievements: import('../features/gamification/types.ts').Achievement[];
+    transactions: import('../features/gamification/types.ts').XPTransaction[];
+  } | null> => {
+    try {
+      return await request('/gamification/profile');
+    } catch {
+      return null;
+    }
+  },
+
+  awardXP: async (
+    payload: import('../features/gamification/types.ts').AwardXPRequest
+  ): Promise<import('../features/gamification/types.ts').AwardXPResponse | null> => {
+    try {
+      return await request('/gamification/award', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      return null;
+    }
+  },
+
+  getGamificationLeaderboard: async (params?: {
+    category?: import('../features/gamification/types.ts').GamificationLeaderboardCategory;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    category: import('../features/gamification/types.ts').GamificationLeaderboardCategory;
+    page: number;
+    limit: number;
+    total: number;
+    hasMore: boolean;
+    currentUserRank: number | null;
+    entries: Array<{
+      userId: string;
+      displayName: string;
+      avatarUrl?: string;
+      level: number;
+      totalXP: number;
+      streak: number;
+      rank: number;
+    }>;
+  } | null> => {
+    try {
+      const qs = new URLSearchParams();
+      if (params?.category) qs.set('category', params.category);
+      if (params?.page) qs.set('page', String(params.page));
+      if (params?.limit) qs.set('limit', String(params.limit));
+      return await request(`/gamification/leaderboard?${qs.toString()}`);
+    } catch {
+      return null;
+    }
+  },
+
+  // Phase 6 — Social, Friends, Squads, Shared Timer & Group Chat
+  getSocialOverview: async () => {
+    try {
+      return await request<any>('/social/overview');
+    } catch {
+      return null;
+    }
+  },
+
+  searchSocialUsers: async (q: string, page = 1, limit = 10) => {
+    const qs = new URLSearchParams({ q, page: String(page), limit: String(limit) });
+    return await request<any>(`/social/users/search?${qs.toString()}`);
+  },
+
+  sendFriendRequest: async (recipientId: string) =>
+    await request<any>('/social/friends/request', {
+      method: 'POST',
+      body: JSON.stringify({ recipientId }),
+    }),
+
+  respondFriendRequest: async (friendshipId: string, action: 'accept' | 'reject' | 'cancel' | 'remove') =>
+    await request<any>(`/social/friends/${encodeURIComponent(friendshipId)}/respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
+  updateSocialPrivacy: async (patch: Partial<import('../features/social/types.ts').UserPrivacySettings>) =>
+    await request<any>('/social/privacy', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+
+  createSocialSquad: async (payload: { name: string; description: string; privacy: 'public' | 'private' | 'unlisted' }) =>
+    await request<any>('/social/squads', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  inviteToSocialSquad: async (squadId: string, recipientId: string) =>
+    await request<any>(`/social/squads/${encodeURIComponent(squadId)}/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ recipientId }),
+    }),
+
+  respondSquadInvitation: async (invitationId: string, action: 'accept' | 'reject') =>
+    await request<any>(`/social/squad-invitations/${encodeURIComponent(invitationId)}/respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
+  sendRoomInvitation: async (payload: { roomId: string; squadId?: string; roomName: string; recipientId: string }) =>
+    await request<any>('/social/room-invitations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  respondRoomInvitation: async (invitationId: string, action: 'accept' | 'reject') =>
+    await request<any>(`/social/room-invitations/${encodeURIComponent(invitationId)}/respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
+  createGroupStudySession: async (payload: { squadId?: string; roomId: string; durationSeconds: number }) =>
+    await request<any>('/social/sessions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  transitionGroupStudySession: async (sessionId: string, action: 'start' | 'pause' | 'resume' | 'end' | 'join') =>
+    await request<any>(`/social/sessions/${encodeURIComponent(sessionId)}/transition`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
+  getSocialChat: async (params: { squadId?: string; roomId?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params.squadId) qs.set('squadId', params.squadId);
+    if (params.roomId) qs.set('roomId', params.roomId);
+    if (params.limit) qs.set('limit', String(params.limit));
+    return await request<{ messages: import('../features/social/squad-types.ts').StudyChatMessage[] }>(
+      `/social/chat?${qs.toString()}`
+    );
+  },
+
+  sendSocialChat: async (payload: { squadId?: string; roomId?: string; text: string; replyToId?: string }) =>
+    await request<import('../features/social/squad-types.ts').StudyChatMessage>('/social/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  reactSocialChat: async (messageId: string, emoji: string) =>
+    await request<import('../features/social/squad-types.ts').StudyChatMessage>(
+      `/social/chat/${encodeURIComponent(messageId)}/react`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ emoji }),
+      }
+    ),
+
+  getSquadWeeklyChallenges: async (squadId: string) =>
+    await request<{ challenges: import('../features/social/squad-types.ts').SquadChallengeSummary[] }>(
+      `/social/squads/${encodeURIComponent(squadId)}/challenges`
+    ),
+
+  markSocialNotificationRead: async (notificationId: string) =>
+    await request<{ success: boolean }>(`/social/notifications/${encodeURIComponent(notificationId)}/read`, {
+      method: 'POST',
+    }),
 };
 
 void auth;

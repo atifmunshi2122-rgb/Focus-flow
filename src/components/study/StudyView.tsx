@@ -8,6 +8,7 @@ import {
   pollAndSyncGoogleSheetsToStudyOS,
   getStudySheetSyncState,
 } from '../../lib/sheetHub/sheetStudySyncService.ts';
+import { triggerStudyRoomEmote } from '../../lib/leaderboardService.ts';
 import type { StudySheetSyncState } from '../../types/sheetHub.ts';
 import { StudyProgressDashboard } from './StudyProgressDashboard.tsx';
 import {
@@ -689,6 +690,27 @@ export const StudyView: React.FC = () => {
       );
 
       const activeUserId = user?.id || auth.currentUser?.uid || 'usr_guest';
+      if (nextDone && activeUserId && !activeUserId.startsWith('usr_guest')) {
+        void triggerStudyRoomEmote({ uid: activeUserId, type: 'celebrate' });
+      }
+      if (nextDone) {
+        void api
+          .awardXP({
+            eventId: `topic_${updated.id}`,
+            source: 'topic_completion',
+            sourceId: updated.id,
+          })
+          .then((xpRes) => {
+            if (xpRes?.awarded && xpRes.xpAdded > 0) {
+              showToast(
+                xpRes.leveledUp
+                  ? `+${xpRes.xpAdded} XP · Level Up to Lv.${xpRes.newLevel}! 🎉`
+                  : `+${xpRes.xpAdded} XP earned!`,
+                'success'
+              );
+            }
+          });
+      }
       const subject = subjects.find((s) => s.code === updated.subjectCode);
       syncStudyTopicCompletionToGoogleSheets(activeUserId, updated, nextDone, subject?.name)
         .then((res) => {

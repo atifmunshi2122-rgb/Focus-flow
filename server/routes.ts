@@ -10,6 +10,14 @@ import {
   SavingsGoal,
 } from './db.js';
 import { vaultBackendService } from './vaultBackendService.js';
+import {
+  awardAuthoritativeXP,
+  getGamificationSnapshot,
+  getPaginatedGamificationLeaderboard,
+} from './gamificationService.js';
+import * as socialService from './socialService.js';
+import { validateAndSanitizeAvatarConfig } from '../src/features/avatar/avatar-catalog.ts';
+import type { GamificationLeaderboardCategory, XPSource } from '../src/features/gamification/types.ts';
 import { buildDefaultStudyWorkspace } from '../src/data/studySeedData.ts';
 import { AuthenticatedRequest, requireUserContext } from './auth.js';
 import { rateLimiter, sanitizeForLogging } from './security.js';
@@ -146,6 +154,9 @@ apiRouter.put('/settings', async (req: Request, res: Response, next: NextFunctio
     favoriteStyleIds,
     favoriteThemeIds,
     keyboardShortcutsEnabled,
+    studyRoomCustomization,
+    studyPlannerSettings,
+    avatarConfig,
   } = body;
 
   if (currency !== undefined) {
@@ -331,6 +342,27 @@ apiRouter.put('/settings', async (req: Request, res: Response, next: NextFunctio
       return;
     }
     settings.keyboardShortcutsEnabled = keyboardShortcutsEnabled;
+  }
+
+  if (studyRoomCustomization !== undefined) {
+    if (typeof studyRoomCustomization !== 'object' || studyRoomCustomization === null || Array.isArray(studyRoomCustomization)) {
+      res.status(400).json({ error: 'studyRoomCustomization must be an object' });
+      return;
+    }
+    settings.studyRoomCustomization = studyRoomCustomization as Record<string, unknown>;
+  }
+
+  if (studyPlannerSettings !== undefined) {
+    if (typeof studyPlannerSettings !== 'object' || studyPlannerSettings === null || Array.isArray(studyPlannerSettings)) {
+      res.status(400).json({ error: 'studyPlannerSettings must be an object' });
+      return;
+    }
+    settings.studyPlannerSettings = studyPlannerSettings as Record<string, unknown>;
+  }
+
+  if (avatarConfig !== undefined) {
+    // Strictly validate against approved catalog & never trust client-supplied modelUrl
+    settings.avatarConfig = validateAndSanitizeAvatarConfig(avatarConfig) as unknown as Record<string, unknown>;
   }
 
   try {
@@ -5514,6 +5546,369 @@ apiRouter.delete('/emergency-profile', async (req: Request, res: Response) => {
   } catch {
     res.status(500).json({ error: 'Database persistence failed' });
   }
+});
+
+// ----------------------------------------------------
+// Phase 5 — Authoritative Gamification & XP Endpoints
+// ----------------------------------------------------
+apiRouter.get('/gamification/profile', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const snapshot = getGamificationSnapshot(dbService.getRawDatabase(), userId);
+    res.json(snapshot);
+  } catch {
+    res.status(500).json({ error: 'Failed to load gamification profile' });
+  }
+});
+
+apiRouter.post('/gamification/award', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { eventId, source, sourceId } = req.body || {};
+
+  const allowedSources: readonly XPSource[] = [
+    'task_completion',
+    'focus_session',
+    'topic_completion',
+    'daily_goal',
+    'streak',
+  ];
+  if (
+    typeof eventId !== 'string' ||
+    !eventId.trim() ||
+    typeof sourceId !== 'string' ||
+    !sourceId.trim() ||
+    typeof source !== 'string' ||
+    !(allowedSources as readonly string[]).includes(source)
+  ) {
+    res.status(400).json({ error: 'Invalid XP award request: eventId, source, and sourceId are required.' });
+    return;
+  }
+
+  try {
+    const result = awardAuthoritativeXP(dbService.getRawDatabase(), userId, {
+      eventId: eventId.trim(),
+      source: source as XPSource,
+      sourceId: sourceId.trim(),
+    });
+    if (result.awarded) {
+      await dbService.save();
+    }
+    res.json(result);
+  } catch {
+    res.status(500).json({ error: 'Failed to award XP' });
+  }
+});
+
+apiRouter.get('/gamification/leaderboard', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const category = (typeof req.query.category === 'string'
+    ? req.query.category
+    : 'all_time') as GamificationLeaderboardCategory;
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 10);
+
+  try {
+    const data = getPaginatedGamificationLeaderboard(dbService.getRawDatabase(), userId, {
+      category,
+      page: Number.isFinite(page) ? page : 1,
+      limit: Number.isFinite(limit) ? limit : 10,
+    });
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Failed to load gamification leaderboard' });
+  }
+});
+
+// ----------------------------------------------------
+// Phase 6 — Social, Friends, Squads, Timer, Chat & Notifications
+// ----------------------------------------------------
+apiRouter.get('/social/overview', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const friends = socialService.getFriendsOverview(db, userId);
+  const squads = socialService.getUserSquadsOverview(db, userId);
+  const privacy = socialService.getUserPrivacy(db, userId);
+  const roomInvitations = (db.roomInvitations || []).filter(
+    (r) => r.recipientId === userId && r.status === 'pending' && r.expiresAt > Date.now()
+  );
+  const notifications = (db.socialNotifications || []).filter((n) => n.userId === userId).slice(0, 30);
+  const activities = (db.socialActivities || []).slice(0, 30);
+  const activeSessions = (db.groupSessions || []).filter(
+    (s) => s.status === 'scheduled' || s.status === 'running' || s.status === 'paused'
+  );
+  res.json({
+    ...friends,
+    ...squads,
+    privacy,
+    roomInvitations,
+    notifications,
+    activities,
+    activeSessions,
+  });
+});
+
+apiRouter.get('/social/users/search', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 10);
+  res.json(socialService.searchSocialUsers(dbService.getRawDatabase(), userId, q, page, limit));
+});
+
+apiRouter.post('/social/friends/request', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const f = socialService.sendFriendRequest(dbService.getRawDatabase(), userId, String(req.body?.recipientId || ''));
+    await dbService.save();
+    res.json(f);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to send friend request' });
+  }
+});
+
+apiRouter.post('/social/friends/:id/respond', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const action = req.body?.action;
+  if (!['accept', 'reject', 'cancel', 'remove'].includes(action)) {
+    res.status(400).json({ error: 'Invalid friend response action' });
+    return;
+  }
+  try {
+    const f = socialService.respondFriendRequest(dbService.getRawDatabase(), userId, String(req.params.id), action);
+    await dbService.save();
+    res.json(f);
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unauthorized' });
+  }
+});
+
+apiRouter.post('/social/users/:id/block', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const blk = socialService.blockSocialUser(dbService.getRawDatabase(), userId, String(req.params.id));
+    await dbService.save();
+    res.json(blk);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to block user' });
+  }
+});
+
+apiRouter.post('/social/users/:id/report', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const rep = socialService.reportSocialUser(dbService.getRawDatabase(), userId, String(req.params.id), String(req.body?.reason || ''));
+    await dbService.save();
+    res.json(rep);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to report user' });
+  }
+});
+
+apiRouter.put('/social/privacy', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const next = socialService.updateUserPrivacy(dbService.getRawDatabase(), userId, req.body || {});
+  await dbService.save();
+  res.json(next);
+});
+
+apiRouter.post('/social/squads', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const squad = socialService.createSocialSquad(dbService.getRawDatabase(), userId, req.body || {});
+    await dbService.save();
+    res.json(squad);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to create squad' });
+  }
+});
+
+apiRouter.post('/social/squads/:id/invite', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const inv = socialService.inviteToSocialSquad(
+      dbService.getRawDatabase(),
+      userId,
+      String(req.params.id),
+      String(req.body?.recipientId || '')
+    );
+    await dbService.save();
+    res.json(inv);
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unable to invite to squad' });
+  }
+});
+
+apiRouter.post('/social/squad-invitations/:id/respond', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const action = req.body?.action;
+  if (action !== 'accept' && action !== 'reject') {
+    res.status(400).json({ error: 'Invalid action' });
+    return;
+  }
+  try {
+    const out = socialService.respondSquadInvitation(dbService.getRawDatabase(), userId, String(req.params.id), action);
+    await dbService.save();
+    res.json(out);
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unable to respond to squad invitation' });
+  }
+});
+
+apiRouter.post('/social/squads/:id/members', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const { targetUserId, action } = req.body || {};
+  if (!['remove', 'promote', 'demote', 'transfer_ownership', 'leave'].includes(action)) {
+    res.status(400).json({ error: 'Invalid member action' });
+    return;
+  }
+  try {
+    const squad = socialService.manageSocialSquadMember(
+      dbService.getRawDatabase(),
+      userId,
+      String(req.params.id),
+      String(targetUserId || userId),
+      action
+    );
+    await dbService.save();
+    res.json(squad);
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unauthorized' });
+  }
+});
+
+apiRouter.delete('/social/squads/:id', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const deleted = socialService.deleteSocialSquad(dbService.getRawDatabase(), userId, String(req.params.id));
+    await dbService.save();
+    res.json({ success: deleted });
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unauthorized' });
+  }
+});
+
+apiRouter.get('/social/squads/:id/challenges', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const list = socialService.getSquadWeeklyChallenges(dbService.getRawDatabase(), userId, String(req.params.id));
+    res.json({ challenges: list });
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unauthorized' });
+  }
+});
+
+apiRouter.post('/social/room-invitations', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const inv = socialService.sendRoomInvitation(dbService.getRawDatabase(), userId, req.body || {});
+    await dbService.save();
+    res.json(inv);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to send room invite' });
+  }
+});
+
+apiRouter.post('/social/room-invitations/:id/respond', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const action = req.body?.action;
+  if (action !== 'accept' && action !== 'reject') {
+    res.status(400).json({ error: 'Invalid action' });
+    return;
+  }
+  try {
+    const inv = socialService.respondRoomInvitation(dbService.getRawDatabase(), userId, String(req.params.id), action);
+    await dbService.save();
+    res.json(inv);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to respond to room invite' });
+  }
+});
+
+apiRouter.post('/social/sessions', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const sess = socialService.createGroupStudySession(dbService.getRawDatabase(), userId, req.body || {});
+    await dbService.save();
+    res.json(sess);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to create group session' });
+  }
+});
+
+apiRouter.post('/social/sessions/:id/transition', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const action = req.body?.action;
+  if (!['start', 'pause', 'resume', 'end', 'join'].includes(action)) {
+    res.status(400).json({ error: 'Invalid session action' });
+    return;
+  }
+  try {
+    const sess = socialService.transitionGroupStudySession(dbService.getRawDatabase(), userId, String(req.params.id), action);
+    await dbService.save();
+    res.json(sess);
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unable to update session' });
+  }
+});
+
+apiRouter.get('/social/chat', (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const messages = socialService.getChatMessages(dbService.getRawDatabase(), userId, {
+      squadId: typeof req.query.squadId === 'string' ? req.query.squadId : undefined,
+      roomId: typeof req.query.roomId === 'string' ? req.query.roomId : undefined,
+      limit: Number(req.query.limit || 25),
+      before: req.query.before ? Number(req.query.before) : undefined,
+    });
+    res.json({ messages });
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unauthorized' });
+  }
+});
+
+apiRouter.post('/social/chat', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const msg = socialService.sendChatMessage(dbService.getRawDatabase(), userId, req.body || {});
+    await dbService.save();
+    res.json(msg);
+  } catch (err: any) {
+    const status = String(err?.message || '').includes('Rate limit') ? 429 : 400;
+    res.status(status).json({ error: err?.message || 'Unable to send message' });
+  }
+});
+
+apiRouter.post('/social/chat/:id/react', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const msg = socialService.reactToChatMessage(dbService.getRawDatabase(), userId, String(req.params.id), String(req.body?.emoji || ''));
+    await dbService.save();
+    res.json(msg);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to react' });
+  }
+});
+
+apiRouter.delete('/social/chat/:id', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  try {
+    const msg = socialService.deleteChatMessage(dbService.getRawDatabase(), userId, String(req.params.id));
+    await dbService.save();
+    res.json(msg);
+  } catch (err: any) {
+    res.status(403).json({ error: err?.message || 'Unauthorized' });
+  }
+});
+
+apiRouter.post('/social/notifications/:id/read', async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const n = (db.socialNotifications || []).find((x) => x.id === req.params.id && x.userId === userId);
+  if (n) {
+    n.read = true;
+    await dbService.save();
+  }
+  res.json({ success: true });
 });
 
 // ----------------------------------------------------

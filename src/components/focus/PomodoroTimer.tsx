@@ -503,6 +503,24 @@ export const PomodoroTimer: React.FC = () => {
           ? `${hrsPart}h`
           : `${minsPart}m`;
       showToast(`Logged ${label} of study / focus time!`, 'success');
+      if (totalMinutes >= 5 && created?.id) {
+        void api
+          .awardXP({
+            eventId: `focus_${created.id}`,
+            source: 'focus_session',
+            sourceId: created.id,
+          })
+          .then((xpRes) => {
+            if (xpRes?.awarded && xpRes.xpAdded > 0) {
+              showToast(
+                xpRes.leveledUp
+                  ? `+${xpRes.xpAdded} XP · Level Up to Lv.${xpRes.newLevel}! 🎉`
+                  : `+${xpRes.xpAdded} XP earned!`,
+                'success'
+              );
+            }
+          });
+      }
     } catch (err: any) {
       setManualError(err?.message || 'Failed to log study time. Please try again.');
     } finally {

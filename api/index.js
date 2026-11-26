@@ -534,7 +534,9 @@ var init_db = __esm({
           doomscrollLogs: [],
           lifeMilestones: [],
           timeCapsules: [],
-          emergencyAssetProfiles: []
+          emergencyAssetProfiles: [],
+          gamificationProfiles: [],
+          xpTransactions: []
         };
         this.writeQueue = Promise.resolve();
         this.pendingWrites = [];
@@ -701,7 +703,9 @@ var init_db = __esm({
             doomscrollLogs: this.sanitizeAndQuarantineRecords(parsed.doomscrollLogs, "doomscrollLogs"),
             lifeMilestones: this.sanitizeAndQuarantineRecords(parsed.lifeMilestones, "lifeMilestones"),
             timeCapsules: this.sanitizeAndQuarantineRecords(parsed.timeCapsules, "timeCapsules"),
-            emergencyAssetProfiles: this.sanitizeAndQuarantineRecords(parsed.emergencyAssetProfiles, "emergencyAssetProfiles")
+            emergencyAssetProfiles: this.sanitizeAndQuarantineRecords(parsed.emergencyAssetProfiles, "emergencyAssetProfiles"),
+            gamificationProfiles: Array.isArray(parsed.gamificationProfiles) ? parsed.gamificationProfiles : [],
+            xpTransactions: Array.isArray(parsed.xpTransactions) ? parsed.xpTransactions : []
           };
         } catch (err) {
           this.isCorrupted = true;
@@ -955,7 +959,9 @@ var init_db = __esm({
             subscriptions: preservedSubscriptions,
             auditLogs: preservedAuditLogs,
             syncQueue: preservedSyncQueue,
-            studyTiers: preservedStudyTiers
+            studyTiers: preservedStudyTiers,
+            gamificationProfiles: [],
+            xpTransactions: []
           };
           this.ensureSeedDataForUser("usr_atif_default", true);
           this.checkRecurringBills("usr_atif_default");
@@ -3247,6 +3253,10 @@ var init_db = __esm({
           return true;
         }
         return false;
+      }
+      // 9. Authoritative Gamification Store Access
+      getRawDatabase() {
+        return this.db;
       }
     };
     dbService = new DatabaseService();
@@ -5541,6 +5551,1445 @@ import express from "express";
 init_db();
 init_vaultBackendService();
 import { Router as Router5 } from "express";
+
+// src/features/gamification/xp-calculator.ts
+var XP_PER_LEVEL = 500;
+function calculateLevel(totalXP) {
+  const safeXP = Math.max(0, Math.floor(Number.isFinite(totalXP) ? totalXP : 0));
+  return Math.floor(safeXP / XP_PER_LEVEL) + 1;
+}
+function calculateXPProgress(totalXP) {
+  const safeXP = Math.max(0, Math.floor(Number.isFinite(totalXP) ? totalXP : 0));
+  const level = calculateLevel(safeXP);
+  const levelStartXP = (level - 1) * XP_PER_LEVEL;
+  const nextLevelXP = level * XP_PER_LEVEL;
+  const currentLevelXP = safeXP - levelStartXP;
+  const progressPercent = Math.min(
+    100,
+    Math.max(0, Math.round(currentLevelXP / XP_PER_LEVEL * 1e3) / 10)
+  );
+  return {
+    totalXP: safeXP,
+    level,
+    currentLevelXP,
+    nextLevelXP,
+    progressPercent
+  };
+}
+
+// src/features/gamification/reward-config.ts
+var XP_REWARDS = {
+  task_completion: 10,
+  focus_session: 20,
+  topic_completion: 30,
+  daily_goal: 25,
+  streak: 30,
+  achievement: 50
+};
+var STREAK_REWARDS = {
+  3: 30,
+  7: 75,
+  30: 300
+};
+var ACHIEVEMENT_CATALOG = [
+  {
+    id: "first_step",
+    title: "First Step",
+    description: "Complete your first study or productivity task",
+    icon: "\u{1F331}",
+    requirement: 1,
+    rewardXP: 25,
+    metric: "completed_tasks"
+  },
+  {
+    id: "getting_started",
+    title: "Getting Started",
+    description: "Complete 10 tasks",
+    icon: "\u2705",
+    requirement: 10,
+    rewardXP: 50,
+    metric: "completed_tasks"
+  },
+  {
+    id: "focus_beginner",
+    title: "Focus Beginner",
+    description: "Complete 5 verified focus sessions",
+    icon: "\u23F1\uFE0F",
+    requirement: 5,
+    rewardXP: 50,
+    metric: "completed_sessions"
+  },
+  {
+    id: "focus_master",
+    title: "Focus Master",
+    description: "Complete 50 verified focus sessions",
+    icon: "\u{1F3AF}",
+    requirement: 50,
+    rewardXP: 150,
+    metric: "completed_sessions"
+  },
+  {
+    id: "consistent_learner",
+    title: "Consistent Learner",
+    description: "Maintain a 7-day study streak",
+    icon: "\u{1F525}",
+    requirement: 7,
+    rewardXP: 75,
+    metric: "streak_days"
+  },
+  {
+    id: "study_warrior",
+    title: "Study Warrior",
+    description: "Maintain a 30-day study streak",
+    icon: "\u2694\uFE0F",
+    requirement: 30,
+    rewardXP: 300,
+    metric: "streak_days"
+  },
+  {
+    id: "knowledge_seeker",
+    title: "Knowledge Seeker",
+    description: "Complete 25 syllabus topics",
+    icon: "\u{1F4DA}",
+    requirement: 25,
+    rewardXP: 120,
+    metric: "completed_topics"
+  },
+  {
+    id: "night_owl",
+    title: "Night Owl",
+    description: "Complete a verified focus session between 10 PM and 4 AM",
+    icon: "\u{1F989}",
+    requirement: 1,
+    rewardXP: 40,
+    metric: "night_owl_sessions"
+  },
+  {
+    id: "early_bird",
+    title: "Early Bird",
+    description: "Complete a verified focus session between 5 AM and 8 AM",
+    icon: "\u{1F305}",
+    requirement: 1,
+    rewardXP: 40,
+    metric: "early_bird_sessions"
+  },
+  {
+    id: "century_club",
+    title: "Century Club",
+    description: "Earn 10,000 lifetime XP",
+    icon: "\u{1F451}",
+    requirement: 1e4,
+    rewardXP: 500,
+    metric: "total_xp"
+  }
+];
+
+// server/gamificationService.ts
+init_dateTime();
+function getIsoWeekKey(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y || 2026, (m || 1) - 1, d || 1));
+  const dayNum = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((dt.getTime() - yearStart.getTime()) / 864e5 + 1) / 7);
+  return `${dt.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+function getPeriodKeys(timezone, now = /* @__PURE__ */ new Date()) {
+  const dailyKey = formatDateInTimezone(now, timezone);
+  return {
+    dailyKey,
+    weekKey: getIsoWeekKey(dailyKey),
+    monthKey: dailyKey.slice(0, 7)
+  };
+}
+function getHourInTimezone(iso, timezone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      hour12: false
+    }).formatToParts(new Date(iso));
+    const hrPart = parts.find((p) => p.type === "hour");
+    const hr = Number(hrPart?.value ?? 12);
+    return Number.isFinite(hr) ? hr % 24 : 12;
+  } catch {
+    return 12;
+  }
+}
+function computeUserStreaksFromSessions(sessions, timezone, now = /* @__PURE__ */ new Date()) {
+  const todayKey = formatDateInTimezone(now, timezone);
+  const minutesByDay = /* @__PURE__ */ new Map();
+  for (const s of sessions) {
+    if (!s.completed) continue;
+    const mins = Math.max(0, Math.round(s.durationMinutes || 0));
+    if (mins < 5) continue;
+    const dayKey = formatDateInTimezone(s.startedAt, timezone);
+    minutesByDay.set(dayKey, (minutesByDay.get(dayKey) || 0) + mins);
+  }
+  const qualifyingDays = Array.from(minutesByDay.entries()).filter(([, mins]) => mins >= 5).map(([day]) => day).sort();
+  const todayMinutes = minutesByDay.get(todayKey) || 0;
+  if (qualifyingDays.length === 0) {
+    return { currentStreak: 0, longestStreak: 0, todayMinutes };
+  }
+  let longestStreak = 1;
+  let run = 1;
+  for (let i = 1; i < qualifyingDays.length; i++) {
+    const prevMs = Date.parse(`${qualifyingDays[i - 1]}T12:00:00Z`);
+    const currMs = Date.parse(`${qualifyingDays[i]}T12:00:00Z`);
+    const diffDays = Math.round((currMs - prevMs) / 864e5);
+    if (diffDays === 1) {
+      run += 1;
+      if (run > longestStreak) longestStreak = run;
+    } else if (diffDays > 1) {
+      run = 1;
+    }
+  }
+  const daySet = new Set(qualifyingDays);
+  let currentStreak = 0;
+  const cursor = /* @__PURE__ */ new Date(`${todayKey}T12:00:00Z`);
+  if (!daySet.has(todayKey)) {
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  while (true) {
+    const key = cursor.toISOString().slice(0, 10);
+    if (!daySet.has(key)) break;
+    currentStreak += 1;
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return { currentStreak, longestStreak, todayMinutes };
+}
+function getOrCreateProfile(db, userId, timezone) {
+  if (!Array.isArray(db.gamificationProfiles)) db.gamificationProfiles = [];
+  if (!Array.isArray(db.xpTransactions)) db.xpTransactions = [];
+  const keys = getPeriodKeys(timezone);
+  let profile = db.gamificationProfiles.find((p) => p.userId === userId);
+  if (!profile) {
+    profile = {
+      userId,
+      totalXP: 0,
+      level: 1,
+      dailyXP: 0,
+      weeklyXP: 0,
+      monthlyXP: 0,
+      dailyKey: keys.dailyKey,
+      weekKey: keys.weekKey,
+      monthKey: keys.monthKey,
+      longestStreak: 0,
+      currentStreak: 0,
+      unlockedAchievementIds: [],
+      achievementUnlockedAt: {},
+      awardedMilestoneLevels: []
+    };
+    db.gamificationProfiles.push(profile);
+  }
+  if (profile.dailyKey !== keys.dailyKey) {
+    profile.dailyKey = keys.dailyKey;
+    profile.dailyXP = 0;
+  }
+  if (profile.weekKey !== keys.weekKey) {
+    profile.weekKey = keys.weekKey;
+    profile.weeklyXP = 0;
+  }
+  if (profile.monthKey !== keys.monthKey) {
+    profile.monthKey = keys.monthKey;
+    profile.monthlyXP = 0;
+  }
+  const userSessions = db.focusSessions.filter((s) => s.userId === userId);
+  const streakStats = computeUserStreaksFromSessions(userSessions, timezone);
+  profile.currentStreak = streakStats.currentStreak;
+  profile.longestStreak = Math.max(profile.longestStreak || 0, streakStats.longestStreak);
+  profile.level = calculateLevel(profile.totalXP);
+  return profile;
+}
+function computeAchievementMetrics(db, userId, profile, timezone) {
+  const completedTasks = db.tasks.filter(
+    (t) => t.userId === userId && !t.deletedAt && t.status === "completed"
+  ).length;
+  const completedSessions = db.focusSessions.filter(
+    (s) => s.userId === userId && s.completed && (s.durationMinutes || 0) >= 5
+  );
+  const completedTopics = (db.studyTopics || []).filter(
+    (t) => t.userId === userId && t.theory && t.practice
+  ).length;
+  let nightOwlSessions = 0;
+  let earlyBirdSessions = 0;
+  for (const s of completedSessions) {
+    const hr = getHourInTimezone(s.startedAt, timezone);
+    if (hr >= 22 || hr < 4) nightOwlSessions++;
+    if (hr >= 5 && hr < 8) earlyBirdSessions++;
+  }
+  return {
+    completed_tasks: completedTasks,
+    completed_sessions: completedSessions.length,
+    completed_topics: completedTopics,
+    streak_days: Math.max(profile.currentStreak, profile.longestStreak),
+    night_owl_sessions: nightOwlSessions,
+    early_bird_sessions: earlyBirdSessions,
+    total_xp: profile.totalXP
+  };
+}
+function buildUserAchievements(db, userId, profile, timezone) {
+  const metrics = computeAchievementMetrics(db, userId, profile, timezone);
+  const unlockedSet = new Set(profile.unlockedAchievementIds || []);
+  return ACHIEVEMENT_CATALOG.map((def) => {
+    const val = metrics[def.metric] || 0;
+    const unlocked = unlockedSet.has(def.id) || val >= def.requirement;
+    const progress = unlocked ? 100 : Math.min(99, Math.round(val / Math.max(1, def.requirement) * 100));
+    return {
+      id: def.id,
+      title: def.title,
+      description: def.description,
+      icon: def.icon,
+      requirement: def.requirement,
+      rewardXP: def.rewardXP,
+      unlocked,
+      progress,
+      unlockedAt: profile.achievementUnlockedAt?.[def.id]
+    };
+  });
+}
+function getGamificationSnapshot(db, userId) {
+  const settings = db.userSettings.find((s) => s.userId === userId);
+  const timezone = settings?.timezone || DEFAULT_TIMEZONE;
+  const profile = getOrCreateProfile(db, userId, timezone);
+  const achievements = buildUserAchievements(db, userId, profile, timezone);
+  const transactions = (db.xpTransactions || []).filter((tx) => tx.userId === userId).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50);
+  return {
+    profile,
+    progress: calculateXPProgress(profile.totalXP),
+    achievements,
+    transactions
+  };
+}
+function addXPTransaction(db, profile, input) {
+  const now = Date.now();
+  const tx = {
+    id: input.id,
+    userId: profile.userId,
+    source: input.source,
+    sourceId: input.sourceId,
+    amount: input.amount,
+    createdAt: now,
+    description: input.description
+  };
+  db.xpTransactions.push(tx);
+  profile.totalXP += input.amount;
+  profile.dailyXP += input.amount;
+  profile.weeklyXP += input.amount;
+  profile.monthlyXP += input.amount;
+  profile.level = calculateLevel(profile.totalXP);
+  return tx;
+}
+function awardAuthoritativeXP(db, userId, req) {
+  const settings = db.userSettings.find((s) => s.userId === userId);
+  const timezone = settings?.timezone || DEFAULT_TIMEZONE;
+  const profile = getOrCreateProfile(db, userId, timezone);
+  const previousLevel = profile.level;
+  const eventId = (req.eventId || "").trim();
+  const sourceId = (req.sourceId || "").trim();
+  const source = req.source;
+  if (!eventId || !sourceId || !source) {
+    return {
+      awarded: false,
+      alreadyAwarded: false,
+      xpAdded: 0,
+      previousLevel,
+      newLevel: previousLevel,
+      leveledUp: false,
+      profile,
+      progress: calculateXPProgress(profile.totalXP),
+      unlockedAchievements: [],
+      transactions: []
+    };
+  }
+  const duplicate = (db.xpTransactions || []).find(
+    (tx) => tx.userId === userId && (tx.id === eventId || tx.source === source && tx.sourceId === sourceId)
+  );
+  if (duplicate) {
+    return {
+      awarded: false,
+      alreadyAwarded: true,
+      xpAdded: 0,
+      previousLevel,
+      newLevel: profile.level,
+      leveledUp: false,
+      profile,
+      progress: calculateXPProgress(profile.totalXP),
+      unlockedAchievements: [],
+      transactions: []
+    };
+  }
+  let rewardAmount = 0;
+  let description = "";
+  if (source === "task_completion") {
+    const task = db.tasks.find((t) => t.id === sourceId && t.userId === userId && !t.deletedAt);
+    if (!task || task.status !== "completed") {
+      return {
+        awarded: false,
+        alreadyAwarded: false,
+        xpAdded: 0,
+        previousLevel,
+        newLevel: previousLevel,
+        leveledUp: false,
+        profile,
+        progress: calculateXPProgress(profile.totalXP),
+        unlockedAchievements: [],
+        transactions: []
+      };
+    }
+    rewardAmount = XP_REWARDS.task_completion;
+    description = `Completed task: ${task.title.slice(0, 48)}`;
+  } else if (source === "focus_session") {
+    const session = db.focusSessions.find(
+      (s) => s.id === sourceId && s.userId === userId
+    );
+    if (!session || !session.completed || (session.durationMinutes || 0) < 5) {
+      return {
+        awarded: false,
+        alreadyAwarded: false,
+        xpAdded: 0,
+        previousLevel,
+        newLevel: previousLevel,
+        leveledUp: false,
+        profile,
+        progress: calculateXPProgress(profile.totalXP),
+        unlockedAchievements: [],
+        transactions: []
+      };
+    }
+    rewardAmount = XP_REWARDS.focus_session;
+    description = `Completed ${session.durationMinutes}m focus session`;
+  } else if (source === "topic_completion") {
+    const topic = (db.studyTopics || []).find((t) => t.id === sourceId && t.userId === userId);
+    if (!topic || !topic.theory || !topic.practice) {
+      return {
+        awarded: false,
+        alreadyAwarded: false,
+        xpAdded: 0,
+        previousLevel,
+        newLevel: previousLevel,
+        leveledUp: false,
+        profile,
+        progress: calculateXPProgress(profile.totalXP),
+        unlockedAchievements: [],
+        transactions: []
+      };
+    }
+    rewardAmount = XP_REWARDS.topic_completion;
+    description = `Mastered topic: ${(topic.subtopic || topic.topic).slice(0, 48)}`;
+  } else if (source === "daily_goal") {
+    const userSessions = db.focusSessions.filter((s) => s.userId === userId);
+    const { todayMinutes } = computeUserStreaksFromSessions(userSessions, timezone);
+    const goalMins = settings?.dailyFocusGoalMinutes || 120;
+    if (todayMinutes < goalMins) {
+      return {
+        awarded: false,
+        alreadyAwarded: false,
+        xpAdded: 0,
+        previousLevel,
+        newLevel: previousLevel,
+        leveledUp: false,
+        profile,
+        progress: calculateXPProgress(profile.totalXP),
+        unlockedAchievements: [],
+        transactions: []
+      };
+    }
+    rewardAmount = XP_REWARDS.daily_goal;
+    description = `Reached daily study goal (${goalMins}m)`;
+  } else if (source === "streak") {
+    const milestone = Number(sourceId);
+    const milestoneXP = STREAK_REWARDS[milestone];
+    if (!milestoneXP || profile.currentStreak < milestone) {
+      return {
+        awarded: false,
+        alreadyAwarded: false,
+        xpAdded: 0,
+        previousLevel,
+        newLevel: previousLevel,
+        leveledUp: false,
+        profile,
+        progress: calculateXPProgress(profile.totalXP),
+        unlockedAchievements: [],
+        transactions: []
+      };
+    }
+    rewardAmount = milestoneXP;
+    description = `Maintained ${milestone}-day study streak`;
+  } else {
+    return {
+      awarded: false,
+      alreadyAwarded: false,
+      xpAdded: 0,
+      previousLevel,
+      newLevel: previousLevel,
+      leveledUp: false,
+      profile,
+      progress: calculateXPProgress(profile.totalXP),
+      unlockedAchievements: [],
+      transactions: []
+    };
+  }
+  const createdTransactions = [];
+  createdTransactions.push(
+    addXPTransaction(db, profile, {
+      id: eventId,
+      source,
+      sourceId,
+      amount: rewardAmount,
+      description
+    })
+  );
+  const unlockedSet = new Set(profile.unlockedAchievementIds || []);
+  const metrics = computeAchievementMetrics(db, userId, profile, timezone);
+  const newlyUnlocked = [];
+  for (const def of ACHIEVEMENT_CATALOG) {
+    if (unlockedSet.has(def.id)) continue;
+    if ((metrics[def.metric] || 0) >= def.requirement) {
+      unlockedSet.add(def.id);
+      if (!profile.achievementUnlockedAt) profile.achievementUnlockedAt = {};
+      const nowMs = Date.now();
+      profile.achievementUnlockedAt[def.id] = nowMs;
+      createdTransactions.push(
+        addXPTransaction(db, profile, {
+          id: `ach_${userId}_${def.id}`,
+          source: "achievement",
+          sourceId: def.id,
+          amount: def.rewardXP,
+          description: `Unlocked achievement: ${def.title}`
+        })
+      );
+      newlyUnlocked.push({
+        id: def.id,
+        title: def.title,
+        description: def.description,
+        icon: def.icon,
+        requirement: def.requirement,
+        rewardXP: def.rewardXP,
+        unlocked: true,
+        progress: 100,
+        unlockedAt: nowMs
+      });
+    }
+  }
+  profile.unlockedAchievementIds = Array.from(unlockedSet);
+  const xpAdded = createdTransactions.reduce((acc, t) => acc + t.amount, 0);
+  const newLevel = profile.level;
+  return {
+    awarded: true,
+    alreadyAwarded: false,
+    xpAdded,
+    previousLevel,
+    newLevel,
+    leveledUp: newLevel > previousLevel,
+    profile,
+    progress: calculateXPProgress(profile.totalXP),
+    unlockedAchievements: newlyUnlocked,
+    transactions: createdTransactions
+  };
+}
+function getPaginatedGamificationLeaderboard(db, currentUserId, options = {}) {
+  const category = options.category || "all_time";
+  const page = Math.max(1, Math.floor(options.page || 1));
+  const limit = Math.min(50, Math.max(1, Math.floor(options.limit || 10)));
+  const profiles = db.gamificationProfiles || [];
+  const rows = profiles.map((p) => {
+    const user = db.users.find((u) => u.id === p.userId);
+    const sortXP = category === "weekly" ? p.weeklyXP || 0 : category === "monthly" ? p.monthlyXP || 0 : p.totalXP || 0;
+    return {
+      userId: p.userId,
+      displayName: user?.name || "Focus Student",
+      avatarUrl: user?.avatarUrl || void 0,
+      level: calculateLevel(p.totalXP || 0),
+      totalXP: sortXP,
+      streak: p.currentStreak || 0
+    };
+  }).sort((a, b) => {
+    if (b.totalXP !== a.totalXP) return b.totalXP - a.totalXP;
+    if (b.streak !== a.streak) return b.streak - a.streak;
+    return a.displayName.localeCompare(b.displayName);
+  }).map((row, idx) => ({
+    ...row,
+    rank: idx + 1
+  }));
+  const currentUserEntry = rows.find((r) => r.userId === currentUserId) || null;
+  const start = (page - 1) * limit;
+  const paged = rows.slice(start, start + limit);
+  return {
+    category,
+    page,
+    limit,
+    total: rows.length,
+    hasMore: start + limit < rows.length,
+    currentUserRank: currentUserEntry?.rank ?? null,
+    entries: paged
+  };
+}
+
+// src/features/social/types.ts
+var defaultUserPrivacySettings = {
+  allowFriendRequests: true,
+  showOnlineStatus: true,
+  showStudyProgress: true,
+  allowRoomInvites: true
+};
+
+// server/socialService.ts
+var MAX_SQUAD_MEMBERS = 25;
+var MAX_ROOM_CAPACITY = 8;
+var ROOM_INVITE_TTL_MS = 15 * 60 * 1e3;
+var CHAT_RATE_LIMIT_WINDOW_MS = 15e3;
+var CHAT_RATE_LIMIT_MAX = 8;
+var ALLOWED_CHAT_EMOJIS = /* @__PURE__ */ new Set(["\u{1F44D}", "\u2764\uFE0F", "\u{1F525}", "\u{1F389}", "\u{1F44F}"]);
+function ensureSocialCollections(db) {
+  if (!Array.isArray(db.friendships)) db.friendships = [];
+  if (!Array.isArray(db.socialSquads)) db.socialSquads = [];
+  if (!Array.isArray(db.squadMembers)) db.squadMembers = [];
+  if (!Array.isArray(db.squadInvitations)) db.squadInvitations = [];
+  if (!Array.isArray(db.roomInvitations)) db.roomInvitations = [];
+  if (!Array.isArray(db.groupSessions)) db.groupSessions = [];
+  if (!Array.isArray(db.studyChatMessages)) db.studyChatMessages = [];
+  if (!Array.isArray(db.socialActivities)) db.socialActivities = [];
+  if (!Array.isArray(db.socialNotifications)) db.socialNotifications = [];
+  if (!Array.isArray(db.userPrivacySettings)) db.userPrivacySettings = [];
+  if (!Array.isArray(db.userReports)) db.userReports = [];
+}
+function getUserPrivacy(db, userId) {
+  ensureSocialCollections(db);
+  const found = db.userPrivacySettings.find((p) => p.userId === userId);
+  return found ? { ...defaultUserPrivacySettings, ...found } : { ...defaultUserPrivacySettings, userId };
+}
+function updateUserPrivacy(db, userId, patch) {
+  ensureSocialCollections(db);
+  const current = getUserPrivacy(db, userId);
+  const next = {
+    userId,
+    allowFriendRequests: typeof patch.allowFriendRequests === "boolean" ? patch.allowFriendRequests : current.allowFriendRequests,
+    showOnlineStatus: typeof patch.showOnlineStatus === "boolean" ? patch.showOnlineStatus : current.showOnlineStatus,
+    showStudyProgress: typeof patch.showStudyProgress === "boolean" ? patch.showStudyProgress : current.showStudyProgress,
+    allowRoomInvites: typeof patch.allowRoomInvites === "boolean" ? patch.allowRoomInvites : current.allowRoomInvites
+  };
+  const idx = db.userPrivacySettings.findIndex((p) => p.userId === userId);
+  if (idx >= 0) db.userPrivacySettings[idx] = next;
+  else db.userPrivacySettings.push(next);
+  return next;
+}
+function isBlockedBetween(db, a, b) {
+  ensureSocialCollections(db);
+  return db.friendships.some(
+    (f) => f.status === "blocked" && (f.requesterId === a && f.recipientId === b || f.requesterId === b && f.recipientId === a)
+  );
+}
+function toSafeSocialProfile(db, targetUserId) {
+  const user = db.users.find((u) => u.id === targetUserId);
+  if (!user) return null;
+  const privacy = getUserPrivacy(db, targetUserId);
+  const gam = (db.gamificationProfiles || []).find((g) => g.userId === targetUserId);
+  return {
+    userId: user.id,
+    displayName: user.name || "Focus Student",
+    avatarUrl: user.avatarUrl || void 0,
+    level: privacy.showStudyProgress ? calculateLevel(gam?.totalXP || 0) : void 0,
+    totalXP: privacy.showStudyProgress ? gam?.totalXP || 0 : void 0,
+    currentStreak: privacy.showStudyProgress ? gam?.currentStreak || 0 : void 0,
+    isOnline: privacy.showOnlineStatus ? true : void 0,
+    allowRoomInvites: privacy.allowRoomInvites
+  };
+}
+function pushNotification(db, input) {
+  ensureSocialCollections(db);
+  db.socialNotifications.unshift({
+    id: `snot_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    read: false,
+    createdAt: Date.now(),
+    ...input
+  });
+  if (db.socialNotifications.length > 500) {
+    db.socialNotifications = db.socialNotifications.slice(0, 500);
+  }
+}
+function pushActivity(db, input) {
+  ensureSocialCollections(db);
+  db.socialActivities.unshift({
+    id: `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: Date.now(),
+    ...input
+  });
+  if (db.socialActivities.length > 500) {
+    db.socialActivities = db.socialActivities.slice(0, 500);
+  }
+}
+function searchSocialUsers(db, currentUserId, queryStr, page = 1, limit = 10) {
+  ensureSocialCollections(db);
+  const q = (queryStr || "").trim().toLowerCase();
+  const safeLimit = Math.min(25, Math.max(1, limit));
+  const safePage = Math.max(1, page);
+  const matches = db.users.filter((u) => {
+    if (u.id === currentUserId) return false;
+    if (isBlockedBetween(db, currentUserId, u.id)) return false;
+    if (!q) return true;
+    return (u.name || "").toLowerCase().includes(q);
+  }).map((u) => {
+    const profile = toSafeSocialProfile(db, u.id);
+    const rel = db.friendships.find(
+      (f) => f.requesterId === currentUserId && f.recipientId === u.id || f.requesterId === u.id && f.recipientId === currentUserId
+    );
+    return {
+      ...profile,
+      relationshipStatus: rel?.status || "none",
+      friendshipId: rel?.id || null,
+      isIncomingRequest: Boolean(rel && rel.status === "pending" && rel.recipientId === currentUserId)
+    };
+  });
+  const start = (safePage - 1) * safeLimit;
+  return {
+    page: safePage,
+    limit: safeLimit,
+    total: matches.length,
+    hasMore: start + safeLimit < matches.length,
+    users: matches.slice(start, start + safeLimit)
+  };
+}
+function getFriendsOverview(db, userId) {
+  ensureSocialCollections(db);
+  const accepted = db.friendships.filter(
+    (f) => f.status === "accepted" && (f.requesterId === userId || f.recipientId === userId)
+  );
+  const friends = accepted.map((f) => {
+    const otherId = f.requesterId === userId ? f.recipientId : f.requesterId;
+    return toSafeSocialProfile(db, otherId);
+  }).filter((p) => Boolean(p));
+  const incomingRequests = db.friendships.filter((f) => f.status === "pending" && f.recipientId === userId).map((f) => ({
+    friendship: f,
+    sender: toSafeSocialProfile(db, f.requesterId)
+  })).filter((r) => Boolean(r.sender));
+  const outgoingRequests = db.friendships.filter((f) => f.status === "pending" && f.requesterId === userId).map((f) => ({
+    friendship: f,
+    recipient: toSafeSocialProfile(db, f.recipientId)
+  })).filter((r) => Boolean(r.recipient));
+  return { friends, incomingRequests, outgoingRequests };
+}
+function sendFriendRequest(db, requesterId, recipientId) {
+  ensureSocialCollections(db);
+  if (!recipientId || requesterId === recipientId) {
+    throw new Error("Cannot send friend request to yourself.");
+  }
+  const recipient = db.users.find((u) => u.id === recipientId);
+  if (!recipient) throw new Error("User not found.");
+  if (isBlockedBetween(db, requesterId, recipientId)) {
+    throw new Error("Cannot send friend request due to block settings.");
+  }
+  const privacy = getUserPrivacy(db, recipientId);
+  if (!privacy.allowFriendRequests) {
+    throw new Error("This user is not accepting friend requests.");
+  }
+  const existing = db.friendships.find(
+    (f) => (f.status === "pending" || f.status === "accepted") && (f.requesterId === requesterId && f.recipientId === recipientId || f.requesterId === recipientId && f.recipientId === requesterId)
+  );
+  if (existing) {
+    throw new Error(
+      existing.status === "accepted" ? "Already friends." : "Friend request already pending."
+    );
+  }
+  const now = Date.now();
+  const friendship = {
+    id: `fr_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    requesterId,
+    recipientId,
+    status: "pending",
+    createdAt: now,
+    updatedAt: now
+  };
+  db.friendships.push(friendship);
+  const sender = db.users.find((u) => u.id === requesterId);
+  pushNotification(db, {
+    userId: recipientId,
+    type: "friend_request",
+    title: "New Friend Request",
+    body: `${sender?.name || "A student"} wants to connect with you.`,
+    targetTab: "social"
+  });
+  return friendship;
+}
+function respondFriendRequest(db, userId, friendshipId, action) {
+  ensureSocialCollections(db);
+  const f = db.friendships.find((item) => item.id === friendshipId);
+  if (!f) throw new Error("Friendship not found.");
+  if (action === "accept" || action === "reject") {
+    if (f.recipientId !== userId || f.status !== "pending") {
+      throw new Error("Unauthorized or invalid friend request state.");
+    }
+    f.status = action === "accept" ? "accepted" : "rejected";
+    f.updatedAt = Date.now();
+    if (action === "accept") {
+      const acceptor = db.users.find((u) => u.id === userId);
+      pushNotification(db, {
+        userId: f.requesterId,
+        type: "friend_accepted",
+        title: "Friend Request Accepted",
+        body: `${acceptor?.name || "Your friend"} accepted your friend request!`,
+        targetTab: "social"
+      });
+    }
+    return f;
+  }
+  if (action === "cancel") {
+    if (f.requesterId !== userId || f.status !== "pending") {
+      throw new Error("Only the sender can cancel a pending request.");
+    }
+    f.status = "cancelled";
+    f.updatedAt = Date.now();
+    return f;
+  }
+  if (f.requesterId !== userId && f.recipientId !== userId) {
+    throw new Error("Unauthorized.");
+  }
+  f.status = "cancelled";
+  f.updatedAt = Date.now();
+  return f;
+}
+function blockSocialUser(db, userId, targetUserId) {
+  ensureSocialCollections(db);
+  if (!targetUserId || userId === targetUserId) throw new Error("Invalid target user.");
+  db.friendships = db.friendships.filter(
+    (f) => !(f.requesterId === userId && f.recipientId === targetUserId || f.requesterId === targetUserId && f.recipientId === userId)
+  );
+  const now = Date.now();
+  const blockRecord = {
+    id: `blk_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    requesterId: userId,
+    recipientId: targetUserId,
+    status: "blocked",
+    createdAt: now,
+    updatedAt: now
+  };
+  db.friendships.push(blockRecord);
+  return blockRecord;
+}
+function reportSocialUser(db, reporterId, targetUserId, reason) {
+  ensureSocialCollections(db);
+  const cleanReason = (reason || "").trim().slice(0, 300);
+  if (!cleanReason) throw new Error("Report reason is required.");
+  const report = {
+    id: `rep_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    reporterId,
+    targetUserId,
+    reason: cleanReason,
+    createdAt: Date.now()
+  };
+  db.userReports.push(report);
+  return report;
+}
+function createSocialSquad(db, ownerId, input) {
+  ensureSocialCollections(db);
+  const name = (input.name || "").trim();
+  if (name.length < 3 || name.length > 40) {
+    throw new Error("Squad name must be between 3 and 40 characters.");
+  }
+  const privacy = input.privacy === "public" || input.privacy === "unlisted" ? input.privacy : "private";
+  const now = Date.now();
+  const squad = {
+    id: `ssq_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    name,
+    description: (input.description || "").trim().slice(0, 250),
+    icon: (input.icon || "\u{1F4DA}").slice(0, 8),
+    ownerId,
+    privacy,
+    memberCount: 1,
+    createdAt: now,
+    updatedAt: now
+  };
+  db.socialSquads.push(squad);
+  const ownerUser = db.users.find((u) => u.id === ownerId);
+  db.squadMembers.push({
+    squadId: squad.id,
+    userId: ownerId,
+    displayName: ownerUser?.name || "Focus Student",
+    role: "owner",
+    joinedAt: now
+  });
+  pushActivity(db, {
+    actorId: ownerId,
+    actorName: ownerUser?.name || "Focus Student",
+    squadId: squad.id,
+    type: "squad_created",
+    visibility: privacy === "public" ? "public" : "squad",
+    metadata: { squadName: squad.name }
+  });
+  return squad;
+}
+function getUserSquadsOverview(db, userId) {
+  ensureSocialCollections(db);
+  const myMemberships = db.squadMembers.filter((m) => m.userId === userId);
+  const mySquadIds = new Set(myMemberships.map((m) => m.squadId));
+  const squads = db.socialSquads.filter((s) => mySquadIds.has(s.id)).map((s) => ({
+    ...s,
+    members: db.squadMembers.filter((m) => m.squadId === s.id),
+    myRole: myMemberships.find((m) => m.squadId === s.id)?.role || "member"
+  }));
+  const publicSquads = db.socialSquads.filter((s) => s.privacy === "public" && !mySquadIds.has(s.id)).slice(0, 20);
+  const squadInvitations = db.squadInvitations.filter(
+    (inv) => inv.recipientId === userId && inv.status === "pending"
+  );
+  return { squads, publicSquads, squadInvitations };
+}
+function getMemberRole(db, squadId, userId) {
+  const m = (db.squadMembers || []).find((x) => x.squadId === squadId && x.userId === userId);
+  return m ? m.role : null;
+}
+function inviteToSocialSquad(db, senderId, squadId, recipientId) {
+  ensureSocialCollections(db);
+  const squad = db.socialSquads.find((s) => s.id === squadId);
+  if (!squad) throw new Error("Squad not found.");
+  const senderRole = getMemberRole(db, squadId, senderId);
+  if (senderRole !== "owner" && senderRole !== "moderator") {
+    throw new Error("Only squad owners or moderators can invite members.");
+  }
+  if (squad.memberCount >= MAX_SQUAD_MEMBERS) {
+    throw new Error("Squad has reached maximum member capacity.");
+  }
+  if (getMemberRole(db, squadId, recipientId)) {
+    throw new Error("User is already a squad member.");
+  }
+  if (isBlockedBetween(db, senderId, recipientId)) {
+    throw new Error("Cannot invite blocked user.");
+  }
+  const dup = db.squadInvitations.find(
+    (i) => i.squadId === squadId && i.recipientId === recipientId && i.status === "pending"
+  );
+  if (dup) throw new Error("Invitation already pending.");
+  const sender = db.users.find((u) => u.id === senderId);
+  const inv = {
+    id: `sinv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    squadId,
+    squadName: squad.name,
+    senderId,
+    senderName: sender?.name || "Focus Student",
+    recipientId,
+    status: "pending",
+    createdAt: Date.now()
+  };
+  db.squadInvitations.push(inv);
+  pushNotification(db, {
+    userId: recipientId,
+    type: "squad_invite",
+    title: "Squad Invitation",
+    body: `${sender?.name || "A friend"} invited you to join "${squad.name}".`,
+    targetTab: "social"
+  });
+  return inv;
+}
+function respondSquadInvitation(db, userId, invitationId, action) {
+  ensureSocialCollections(db);
+  const inv = db.squadInvitations.find((i) => i.id === invitationId);
+  if (!inv || inv.recipientId !== userId || inv.status !== "pending") {
+    throw new Error("Invalid or unauthorized squad invitation.");
+  }
+  const squad = db.socialSquads.find((s) => s.id === inv.squadId);
+  if (!squad) throw new Error("Squad no longer exists.");
+  if (action === "reject") {
+    inv.status = "rejected";
+    return { invitation: inv, squad };
+  }
+  if (squad.memberCount >= MAX_SQUAD_MEMBERS) {
+    throw new Error("Squad is full.");
+  }
+  inv.status = "accepted";
+  if (!getMemberRole(db, squad.id, userId)) {
+    const u = db.users.find((x) => x.id === userId);
+    db.squadMembers.push({
+      squadId: squad.id,
+      userId,
+      displayName: u?.name || "Focus Student",
+      role: "member",
+      joinedAt: Date.now()
+    });
+    squad.memberCount = db.squadMembers.filter((m) => m.squadId === squad.id).length;
+    squad.updatedAt = Date.now();
+  }
+  return { invitation: inv, squad };
+}
+function manageSocialSquadMember(db, actorId, squadId, targetUserId, action) {
+  ensureSocialCollections(db);
+  const squad = db.socialSquads.find((s) => s.id === squadId);
+  if (!squad) throw new Error("Squad not found.");
+  if (action === "leave") {
+    const myRole = getMemberRole(db, squadId, actorId);
+    if (!myRole) throw new Error("Not a squad member.");
+    if (myRole === "owner") {
+      throw new Error("Transfer ownership before leaving or delete the squad.");
+    }
+    db.squadMembers = db.squadMembers.filter(
+      (m) => !(m.squadId === squadId && m.userId === actorId)
+    );
+    squad.memberCount = db.squadMembers.filter((m) => m.squadId === squadId).length;
+    squad.updatedAt = Date.now();
+    return squad;
+  }
+  const actorRole = getMemberRole(db, squadId, actorId);
+  const targetMember = db.squadMembers.find(
+    (m) => m.squadId === squadId && m.userId === targetUserId
+  );
+  if (!targetMember) throw new Error("Target member not found.");
+  if (action === "remove") {
+    if (actorRole !== "owner" && !(actorRole === "moderator" && targetMember.role === "member")) {
+      throw new Error("Insufficient permissions to remove member.");
+    }
+    if (targetMember.role === "owner") throw new Error("Cannot remove squad owner.");
+    db.squadMembers = db.squadMembers.filter(
+      (m) => !(m.squadId === squadId && m.userId === targetUserId)
+    );
+    squad.memberCount = db.squadMembers.filter((m) => m.squadId === squadId).length;
+    squad.updatedAt = Date.now();
+    return squad;
+  }
+  if (actorRole !== "owner") {
+    throw new Error("Only the squad owner can change roles or transfer ownership.");
+  }
+  if (action === "promote") {
+    targetMember.role = "moderator";
+  } else if (action === "demote") {
+    if (targetMember.role !== "owner") targetMember.role = "member";
+  } else if (action === "transfer_ownership") {
+    const ownerMember = db.squadMembers.find(
+      (m) => m.squadId === squadId && m.userId === actorId
+    );
+    if (ownerMember) ownerMember.role = "moderator";
+    targetMember.role = "owner";
+    squad.ownerId = targetUserId;
+  }
+  squad.updatedAt = Date.now();
+  return squad;
+}
+function deleteSocialSquad(db, actorId, squadId) {
+  ensureSocialCollections(db);
+  const squad = db.socialSquads.find((s) => s.id === squadId);
+  if (!squad) return false;
+  if (squad.ownerId !== actorId) throw new Error("Only the squad owner can delete this squad.");
+  db.socialSquads = db.socialSquads.filter((s) => s.id !== squadId);
+  db.squadMembers = db.squadMembers.filter((m) => m.squadId !== squadId);
+  db.squadInvitations = db.squadInvitations.filter((i) => i.squadId !== squadId);
+  return true;
+}
+function sendRoomInvitation(db, senderId, input) {
+  ensureSocialCollections(db);
+  if (input.squadId && !getMemberRole(db, input.squadId, senderId)) {
+    throw new Error("Only squad members can invite to this squad room.");
+  }
+  const privacy = getUserPrivacy(db, input.recipientId);
+  if (!privacy.allowRoomInvites || isBlockedBetween(db, senderId, input.recipientId)) {
+    throw new Error("Recipient is not accepting study room invitations.");
+  }
+  if (input.squadId) {
+    const activeMembers = db.squadMembers.filter((m) => m.squadId === input.squadId).length;
+    if (activeMembers > MAX_ROOM_CAPACITY) {
+      throw new Error("Study room has reached maximum capacity.");
+    }
+  }
+  const now = Date.now();
+  const dup = db.roomInvitations.find(
+    (r) => r.roomId === input.roomId && r.recipientId === input.recipientId && r.status === "pending" && r.expiresAt > now
+  );
+  if (dup) throw new Error("Room invitation already pending.");
+  const sender = db.users.find((u) => u.id === senderId);
+  const inv = {
+    id: `rinv_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    roomId: input.roomId,
+    squadId: input.squadId,
+    roomName: (input.roomName || "Study Lounge").slice(0, 64),
+    senderId,
+    senderName: sender?.name || "Focus Student",
+    recipientId: input.recipientId,
+    status: "pending",
+    expiresAt: now + ROOM_INVITE_TTL_MS,
+    createdAt: now
+  };
+  db.roomInvitations.push(inv);
+  pushNotification(db, {
+    userId: input.recipientId,
+    type: "room_invite",
+    title: "3D Study Room Invite",
+    body: `${inv.senderName} invited you to study in "${inv.roomName}".`,
+    targetTab: "leaderboard"
+  });
+  return inv;
+}
+function respondRoomInvitation(db, userId, invitationId, action) {
+  ensureSocialCollections(db);
+  const inv = db.roomInvitations.find((r) => r.id === invitationId);
+  if (!inv || inv.recipientId !== userId || inv.status !== "pending") {
+    throw new Error("Invalid room invitation.");
+  }
+  if (Date.now() > inv.expiresAt) {
+    inv.status = "expired";
+    throw new Error("Room invitation has expired.");
+  }
+  inv.status = action === "accept" ? "accepted" : "rejected";
+  return inv;
+}
+function createGroupStudySession(db, hostId, input) {
+  ensureSocialCollections(db);
+  if (input.squadId && !getMemberRole(db, input.squadId, hostId)) {
+    throw new Error("Only squad members can start a squad session.");
+  }
+  const durationSeconds = Math.min(10800, Math.max(300, Math.round(input.durationSeconds || 1500)));
+  const now = Date.now();
+  const session = {
+    id: `gsess_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    squadId: input.squadId,
+    roomId: input.roomId || "global_lounge",
+    hostId,
+    status: "scheduled",
+    durationSeconds,
+    accumulatedPausedSeconds: 0,
+    participantIds: [hostId],
+    completedParticipantIds: [],
+    createdAt: now,
+    updatedAt: now
+  };
+  db.groupSessions.unshift(session);
+  return session;
+}
+function transitionGroupStudySession(db, actorId, sessionId, action) {
+  ensureSocialCollections(db);
+  const session = db.groupSessions.find((s) => s.id === sessionId);
+  if (!session) throw new Error("Group study session not found.");
+  if (action === "join") {
+    if (session.squadId && !getMemberRole(db, session.squadId, actorId)) {
+      throw new Error("Unauthorized to join private squad session.");
+    }
+    if (!session.participantIds.includes(actorId)) {
+      if (session.participantIds.length >= MAX_ROOM_CAPACITY) {
+        throw new Error("Session room capacity reached.");
+      }
+      session.participantIds.push(actorId);
+      session.updatedAt = Date.now();
+    }
+    return session;
+  }
+  const isMod = session.squadId ? ["owner", "moderator"].includes(getMemberRole(db, session.squadId, actorId) || "") : false;
+  if (session.hostId !== actorId && !isMod) {
+    throw new Error("Only the session host or squad moderator can control the timer.");
+  }
+  const now = Date.now();
+  if (action === "start") {
+    if (session.status !== "scheduled") throw new Error("Session can only start from scheduled state.");
+    session.status = "running";
+    session.startedAt = now;
+  } else if (action === "pause") {
+    if (session.status !== "running") throw new Error("Only running sessions can be paused.");
+    session.status = "paused";
+    session.pausedAt = now;
+  } else if (action === "resume") {
+    if (session.status !== "paused" || !session.pausedAt) {
+      throw new Error("Only paused sessions can be resumed.");
+    }
+    session.accumulatedPausedSeconds += Math.max(0, Math.floor((now - session.pausedAt) / 1e3));
+    session.pausedAt = void 0;
+    session.status = "running";
+  } else if (action === "end") {
+    if (session.status !== "running" && session.status !== "paused") {
+      throw new Error("Session is already finished.");
+    }
+    session.status = "completed";
+    session.completedParticipantIds = [...session.participantIds];
+    pushActivity(db, {
+      actorId,
+      actorName: db.users.find((u) => u.id === actorId)?.name || "Focus Student",
+      squadId: session.squadId,
+      type: "group_session_completed",
+      visibility: session.squadId ? "squad" : "friends",
+      metadata: {
+        participants: session.participantIds.length,
+        minutes: Math.round(session.durationSeconds / 60)
+      }
+    });
+  }
+  session.updatedAt = now;
+  return session;
+}
+function getChatMessages(db, userId, input) {
+  ensureSocialCollections(db);
+  if (input.squadId && !getMemberRole(db, input.squadId, userId)) {
+    throw new Error("Unauthorized: Not a member of this squad.");
+  }
+  const safeLimit = Math.min(50, Math.max(1, input.limit || 25));
+  const msgs = db.studyChatMessages.filter((m) => {
+    if (input.squadId && m.squadId !== input.squadId) return false;
+    if (input.roomId && m.roomId !== input.roomId) return false;
+    if (input.before && m.createdAt >= input.before) return false;
+    if (isBlockedBetween(db, userId, m.senderId)) return false;
+    return true;
+  }).sort((a, b) => a.createdAt - b.createdAt);
+  return msgs.slice(-safeLimit);
+}
+function sendChatMessage(db, senderId, input) {
+  ensureSocialCollections(db);
+  if (input.squadId && !getMemberRole(db, input.squadId, senderId)) {
+    throw new Error("Unauthorized: Not a member of this squad.");
+  }
+  const text = (input.text || "").trim();
+  if (!text || text.length > 1e3) {
+    throw new Error("Message must be between 1 and 1000 characters.");
+  }
+  const now = Date.now();
+  const recentCount = db.studyChatMessages.filter(
+    (m) => m.senderId === senderId && now - m.createdAt < CHAT_RATE_LIMIT_WINDOW_MS
+  ).length;
+  if (recentCount >= CHAT_RATE_LIMIT_MAX) {
+    throw new Error("Rate limit exceeded. Please wait a few seconds before sending more messages.");
+  }
+  const sender = db.users.find((u) => u.id === senderId);
+  const msg = {
+    id: `cmsg_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    squadId: input.squadId,
+    roomId: input.roomId,
+    senderId,
+    senderName: sender?.name || "Focus Student",
+    senderAvatar: sender?.avatarUrl || void 0,
+    text,
+    createdAt: now,
+    replyToId: input.replyToId,
+    reactionCounts: {},
+    reactionUsers: {}
+  };
+  db.studyChatMessages.push(msg);
+  return msg;
+}
+function reactToChatMessage(db, userId, messageId, emoji) {
+  ensureSocialCollections(db);
+  if (!ALLOWED_CHAT_EMOJIS.has(emoji)) throw new Error("Unsupported reaction emoji.");
+  const msg = db.studyChatMessages.find((m) => m.id === messageId);
+  if (!msg || msg.deletedAt) throw new Error("Message not found.");
+  if (msg.squadId && !getMemberRole(db, msg.squadId, userId)) {
+    throw new Error("Unauthorized.");
+  }
+  if (!msg.reactionUsers) msg.reactionUsers = {};
+  if (!msg.reactionCounts) msg.reactionCounts = {};
+  const list = msg.reactionUsers[emoji] || [];
+  if (list.includes(userId)) {
+    msg.reactionUsers[emoji] = list.filter((id) => id !== userId);
+  } else {
+    msg.reactionUsers[emoji] = [...list, userId];
+  }
+  msg.reactionCounts[emoji] = msg.reactionUsers[emoji].length;
+  return msg;
+}
+function deleteChatMessage(db, actorId, messageId) {
+  ensureSocialCollections(db);
+  const msg = db.studyChatMessages.find((m) => m.id === messageId);
+  if (!msg) throw new Error("Message not found.");
+  const isMod = msg.squadId ? ["owner", "moderator"].includes(getMemberRole(db, msg.squadId, actorId) || "") : false;
+  if (msg.senderId !== actorId && !isMod) {
+    throw new Error("Unauthorized to delete this message.");
+  }
+  msg.deletedAt = Date.now();
+  return msg;
+}
+function getSquadWeeklyChallenges(db, userId, squadId) {
+  ensureSocialCollections(db);
+  if (!getMemberRole(db, squadId, userId)) {
+    throw new Error("Unauthorized: Not a member of this squad.");
+  }
+  const memberIds = new Set(
+    db.squadMembers.filter((m) => m.squadId === squadId).map((m) => m.userId)
+  );
+  const weekAgoMs = Date.now() - 7 * 864e5;
+  const focusMinutes = db.focusSessions.filter((s) => memberIds.has(s.userId) && s.completed && Date.parse(s.startedAt) >= weekAgoMs).reduce((acc, s) => acc + Math.max(0, s.durationMinutes || 0), 0);
+  const focusHours = Math.round(focusMinutes / 60 * 10) / 10;
+  const completedTasks = db.tasks.filter(
+    (t) => memberIds.has(t.userId) && !t.deletedAt && t.status === "completed"
+  ).length;
+  const completedTopics = (db.studyTopics || []).filter(
+    (t) => memberIds.has(t.userId) && t.theory && t.practice
+  ).length;
+  return [
+    {
+      id: "ch_focus_together",
+      title: "Focus Together",
+      description: "20 combined valid focus hours",
+      metric: "focus_hours",
+      goal: 20,
+      progress: focusHours,
+      rewardXP: 150,
+      completed: focusHours >= 20
+    },
+    {
+      id: "ch_task_masters",
+      title: "Task Masters",
+      description: "Complete 100 squad tasks",
+      metric: "tasks",
+      goal: 100,
+      progress: completedTasks,
+      rewardXP: 200,
+      completed: completedTasks >= 100
+    },
+    {
+      id: "ch_topic_hunters",
+      title: "Topic Hunters",
+      description: "Master 30 syllabus topics",
+      metric: "topics",
+      goal: 30,
+      progress: completedTopics,
+      rewardXP: 250,
+      completed: completedTopics >= 30
+    }
+  ];
+}
+
+// src/features/avatar/avatar-catalog.ts
+var AVATAR_CATALOG = [
+  {
+    id: "anime-boy-01",
+    displayName: "Kaito \u2014 Varsity Scholar",
+    style: "male",
+    modelUrl: "/models/avatars/anime-boy-01.glb",
+    previewLabel: "Spiky Navy \xB7 Varsity",
+    modelFormat: "glb",
+    rigType: "humanoid_seated_v1",
+    animationCompatibility: ["idle", "studying", "typing", "reading", "writing"],
+    license: "MIT (FocusFlow Original Rig)",
+    available: true,
+    supportedCustomization: {
+      hairColors: ["#1e2438", "#27272a", "#4a2c2a", "#4338ca", "#9f1239"],
+      eyeColors: ["#4f46e5", "#0284c7", "#10b981", "#d97706", "#8b5cf6"],
+      outfitColors: ["#312e81", "#0f766e", "#334155", "#7f1d1d", "#6d28d9"],
+      accessories: ["glasses", "headphones"]
+    },
+    defaults: {
+      skinTone: "#fce0c8",
+      hairColor: "#1e2438",
+      hairHighlight: "#3b4a78",
+      eyeColor: "#4f46e5",
+      outfitColor: "#312e81",
+      outfitSecondary: "#e2e8f0"
+    }
+  },
+  {
+    id: "anime-boy-02",
+    displayName: "Ren \u2014 Minimalist Coder",
+    style: "male",
+    modelUrl: "/models/avatars/anime-boy-02.glb",
+    previewLabel: "Swept Charcoal \xB7 Teal",
+    modelFormat: "glb",
+    rigType: "humanoid_seated_v1",
+    animationCompatibility: ["idle", "studying", "typing", "reading", "writing"],
+    license: "MIT (FocusFlow Original Rig)",
+    available: true,
+    supportedCustomization: {
+      hairColors: ["#27272a", "#1e293b", "#78350f", "#0f766e", "#6d28d9"],
+      eyeColors: ["#0284c7", "#4f46e5", "#059669", "#e11d48", "#f59e0b"],
+      outfitColors: ["#0f766e", "#1e293b", "#4338ca", "#b45309", "#475569"],
+      accessories: ["glasses", "headphones"]
+    },
+    defaults: {
+      skinTone: "#f7d5b9",
+      hairColor: "#27272a",
+      hairHighlight: "#52525b",
+      eyeColor: "#0284c7",
+      outfitColor: "#0f766e",
+      outfitSecondary: "#f1f5f9"
+    }
+  },
+  {
+    id: "anime-girl-01",
+    displayName: "Sora \u2014 Ponytail Researcher",
+    style: "female",
+    modelUrl: "/models/avatars/anime-girl-01.glb",
+    previewLabel: "Ponytail \xB7 Lavender",
+    modelFormat: "glb",
+    rigType: "humanoid_seated_v1",
+    animationCompatibility: ["idle", "studying", "typing", "reading", "writing"],
+    license: "MIT (FocusFlow Original Rig)",
+    available: true,
+    supportedCustomization: {
+      hairColors: ["#3b2436", "#1e2438", "#78350f", "#be185d", "#6d28d9"],
+      eyeColors: ["#8b5cf6", "#ec4899", "#0ea5e9", "#10b981", "#f59e0b"],
+      outfitColors: ["#c4b5fd", "#fbcfe8", "#a5f3fc", "#fde68a", "#312e81"],
+      accessories: ["glasses", "headphones", "ribbon"]
+    },
+    defaults: {
+      skinTone: "#fde4d0",
+      hairColor: "#3b2436",
+      hairHighlight: "#6b3e62",
+      eyeColor: "#8b5cf6",
+      outfitColor: "#c4b5fd",
+      outfitSecondary: "#f8fafc"
+    }
+  },
+  {
+    id: "anime-girl-02",
+    displayName: "Hana \u2014 Twin-Tail Strategist",
+    style: "female",
+    modelUrl: "/models/avatars/anime-girl-02.glb",
+    previewLabel: "Twin-Tails \xB7 Sakura",
+    modelFormat: "glb",
+    rigType: "humanoid_seated_v1",
+    animationCompatibility: ["idle", "studying", "typing", "reading", "writing"],
+    license: "MIT (FocusFlow Original Rig)",
+    available: true,
+    supportedCustomization: {
+      hairColors: ["#4a2c2a", "#27272a", "#f472b6", "#4f46e5", "#92400e"],
+      eyeColors: ["#db2777", "#8b5cf6", "#0284c7", "#10b981", "#d97706"],
+      outfitColors: ["#fda4af", "#c4b5fd", "#93c5fd", "#86efac", "#1e293b"],
+      accessories: ["glasses", "headphones", "ribbon"]
+    },
+    defaults: {
+      skinTone: "#fce1cb",
+      hairColor: "#4a2c2a",
+      hairHighlight: "#7c4a46",
+      eyeColor: "#db2777",
+      outfitColor: "#fda4af",
+      outfitSecondary: "#fff1f2"
+    }
+  }
+];
+var DEFAULT_AVATAR_ID = "anime-boy-01";
+var HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+var ALLOWED_ACCESSORIES = /* @__PURE__ */ new Set(["glasses", "headphones", "ribbon"]);
+function getAvatarCatalogEntry(avatarId) {
+  return AVATAR_CATALOG.find((e) => e.id === avatarId && e.available) || AVATAR_CATALOG[0];
+}
+function validateAndSanitizeAvatarConfig(raw) {
+  const fallbackEntry = getAvatarCatalogEntry(DEFAULT_AVATAR_ID);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      avatarId: fallbackEntry.id,
+      modelUrl: fallbackEntry.modelUrl,
+      customization: {
+        hairColor: fallbackEntry.defaults.hairColor,
+        eyeColor: fallbackEntry.defaults.eyeColor,
+        outfitColor: fallbackEntry.defaults.outfitColor,
+        accessories: []
+      },
+      updatedAt: Date.now()
+    };
+  }
+  const obj = raw;
+  const entry = getAvatarCatalogEntry(typeof obj.avatarId === "string" ? obj.avatarId : null);
+  const cust = obj.customization && typeof obj.customization === "object" && !Array.isArray(obj.customization) ? obj.customization : {};
+  const safeColor = (val, fallback) => typeof val === "string" && HEX_COLOR_RE.test(val.trim()) ? val.trim() : fallback;
+  const accessories = Array.isArray(cust.accessories) ? Array.from(
+    new Set(
+      cust.accessories.filter((a) => typeof a === "string" && ALLOWED_ACCESSORIES.has(a)).filter((a) => entry.supportedCustomization.accessories.includes(a))
+    )
+  ).slice(0, 3) : [];
+  return {
+    avatarId: entry.id,
+    modelUrl: entry.modelUrl,
+    // Authoritative catalog URL only
+    customization: {
+      hairstyle: typeof cust.hairstyle === "string" ? cust.hairstyle.slice(0, 32) : void 0,
+      hairColor: safeColor(cust.hairColor, entry.defaults.hairColor),
+      eyeColor: safeColor(cust.eyeColor, entry.defaults.eyeColor),
+      outfit: typeof cust.outfit === "string" ? cust.outfit.slice(0, 32) : void 0,
+      outfitColor: safeColor(cust.outfitColor, entry.defaults.outfitColor),
+      accessories
+    },
+    updatedAt: typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt) ? obj.updatedAt : Date.now()
+  };
+}
 
 // server/auth.ts
 import crypto3 from "crypto";
@@ -13149,7 +14598,10 @@ apiRouter.put("/settings", async (req, res, next) => {
     notificationPrefs,
     favoriteStyleIds,
     favoriteThemeIds,
-    keyboardShortcutsEnabled
+    keyboardShortcutsEnabled,
+    studyRoomCustomization,
+    studyPlannerSettings,
+    avatarConfig
   } = body;
   if (currency !== void 0) {
     const parsedCurrency = parseEnum(currency, ALLOWED_CURRENCIES);
@@ -13314,6 +14766,23 @@ apiRouter.put("/settings", async (req, res, next) => {
       return;
     }
     settings.keyboardShortcutsEnabled = keyboardShortcutsEnabled;
+  }
+  if (studyRoomCustomization !== void 0) {
+    if (typeof studyRoomCustomization !== "object" || studyRoomCustomization === null || Array.isArray(studyRoomCustomization)) {
+      res.status(400).json({ error: "studyRoomCustomization must be an object" });
+      return;
+    }
+    settings.studyRoomCustomization = studyRoomCustomization;
+  }
+  if (studyPlannerSettings !== void 0) {
+    if (typeof studyPlannerSettings !== "object" || studyPlannerSettings === null || Array.isArray(studyPlannerSettings)) {
+      res.status(400).json({ error: "studyPlannerSettings must be an object" });
+      return;
+    }
+    settings.studyPlannerSettings = studyPlannerSettings;
+  }
+  if (avatarConfig !== void 0) {
+    settings.avatarConfig = validateAndSanitizeAvatarConfig(avatarConfig);
   }
   try {
     await dbService.save();
@@ -17732,6 +19201,326 @@ apiRouter.delete("/emergency-profile", async (req, res) => {
   } catch {
     res.status(500).json({ error: "Database persistence failed" });
   }
+});
+apiRouter.get("/gamification/profile", (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const snapshot = getGamificationSnapshot(dbService.getRawDatabase(), userId);
+    res.json(snapshot);
+  } catch {
+    res.status(500).json({ error: "Failed to load gamification profile" });
+  }
+});
+apiRouter.post("/gamification/award", async (req, res) => {
+  const { userId } = getAuth(req);
+  const { eventId, source, sourceId } = req.body || {};
+  const allowedSources = [
+    "task_completion",
+    "focus_session",
+    "topic_completion",
+    "daily_goal",
+    "streak"
+  ];
+  if (typeof eventId !== "string" || !eventId.trim() || typeof sourceId !== "string" || !sourceId.trim() || typeof source !== "string" || !allowedSources.includes(source)) {
+    res.status(400).json({ error: "Invalid XP award request: eventId, source, and sourceId are required." });
+    return;
+  }
+  try {
+    const result = awardAuthoritativeXP(dbService.getRawDatabase(), userId, {
+      eventId: eventId.trim(),
+      source,
+      sourceId: sourceId.trim()
+    });
+    if (result.awarded) {
+      await dbService.save();
+    }
+    res.json(result);
+  } catch {
+    res.status(500).json({ error: "Failed to award XP" });
+  }
+});
+apiRouter.get("/gamification/leaderboard", (req, res) => {
+  const { userId } = getAuth(req);
+  const category = typeof req.query.category === "string" ? req.query.category : "all_time";
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 10);
+  try {
+    const data = getPaginatedGamificationLeaderboard(dbService.getRawDatabase(), userId, {
+      category,
+      page: Number.isFinite(page) ? page : 1,
+      limit: Number.isFinite(limit) ? limit : 10
+    });
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: "Failed to load gamification leaderboard" });
+  }
+});
+apiRouter.get("/social/overview", (req, res) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const friends = getFriendsOverview(db, userId);
+  const squads = getUserSquadsOverview(db, userId);
+  const privacy = getUserPrivacy(db, userId);
+  const roomInvitations = (db.roomInvitations || []).filter(
+    (r) => r.recipientId === userId && r.status === "pending" && r.expiresAt > Date.now()
+  );
+  const notifications = (db.socialNotifications || []).filter((n) => n.userId === userId).slice(0, 30);
+  const activities = (db.socialActivities || []).slice(0, 30);
+  const activeSessions = (db.groupSessions || []).filter(
+    (s) => s.status === "scheduled" || s.status === "running" || s.status === "paused"
+  );
+  res.json({
+    ...friends,
+    ...squads,
+    privacy,
+    roomInvitations,
+    notifications,
+    activities,
+    activeSessions
+  });
+});
+apiRouter.get("/social/users/search", (req, res) => {
+  const { userId } = getAuth(req);
+  const q = typeof req.query.q === "string" ? req.query.q : "";
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 10);
+  res.json(searchSocialUsers(dbService.getRawDatabase(), userId, q, page, limit));
+});
+apiRouter.post("/social/friends/request", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const f = sendFriendRequest(dbService.getRawDatabase(), userId, String(req.body?.recipientId || ""));
+    await dbService.save();
+    res.json(f);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || "Unable to send friend request" });
+  }
+});
+apiRouter.post("/social/friends/:id/respond", async (req, res) => {
+  const { userId } = getAuth(req);
+  const action = req.body?.action;
+  if (!["accept", "reject", "cancel", "remove"].includes(action)) {
+    res.status(400).json({ error: "Invalid friend response action" });
+    return;
+  }
+  try {
+    const f = respondFriendRequest(dbService.getRawDatabase(), userId, String(req.params.id), action);
+    await dbService.save();
+    res.json(f);
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unauthorized" });
+  }
+});
+apiRouter.post("/social/users/:id/block", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const blk = blockSocialUser(dbService.getRawDatabase(), userId, String(req.params.id));
+    await dbService.save();
+    res.json(blk);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || "Unable to block user" });
+  }
+});
+apiRouter.post("/social/users/:id/report", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const rep = reportSocialUser(dbService.getRawDatabase(), userId, String(req.params.id), String(req.body?.reason || ""));
+    await dbService.save();
+    res.json(rep);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || "Unable to report user" });
+  }
+});
+apiRouter.put("/social/privacy", async (req, res) => {
+  const { userId } = getAuth(req);
+  const next = updateUserPrivacy(dbService.getRawDatabase(), userId, req.body || {});
+  await dbService.save();
+  res.json(next);
+});
+apiRouter.post("/social/squads", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const squad = createSocialSquad(dbService.getRawDatabase(), userId, req.body || {});
+    await dbService.save();
+    res.json(squad);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || "Unable to create squad" });
+  }
+});
+apiRouter.post("/social/squads/:id/invite", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const inv = inviteToSocialSquad(
+      dbService.getRawDatabase(),
+      userId,
+      String(req.params.id),
+      String(req.body?.recipientId || "")
+    );
+    await dbService.save();
+    res.json(inv);
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unable to invite to squad" });
+  }
+});
+apiRouter.post("/social/squad-invitations/:id/respond", async (req, res) => {
+  const { userId } = getAuth(req);
+  const action = req.body?.action;
+  if (action !== "accept" && action !== "reject") {
+    res.status(400).json({ error: "Invalid action" });
+    return;
+  }
+  try {
+    const out = respondSquadInvitation(dbService.getRawDatabase(), userId, String(req.params.id), action);
+    await dbService.save();
+    res.json(out);
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unable to respond to squad invitation" });
+  }
+});
+apiRouter.post("/social/squads/:id/members", async (req, res) => {
+  const { userId } = getAuth(req);
+  const { targetUserId, action } = req.body || {};
+  if (!["remove", "promote", "demote", "transfer_ownership", "leave"].includes(action)) {
+    res.status(400).json({ error: "Invalid member action" });
+    return;
+  }
+  try {
+    const squad = manageSocialSquadMember(
+      dbService.getRawDatabase(),
+      userId,
+      String(req.params.id),
+      String(targetUserId || userId),
+      action
+    );
+    await dbService.save();
+    res.json(squad);
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unauthorized" });
+  }
+});
+apiRouter.delete("/social/squads/:id", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const deleted = deleteSocialSquad(dbService.getRawDatabase(), userId, String(req.params.id));
+    await dbService.save();
+    res.json({ success: deleted });
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unauthorized" });
+  }
+});
+apiRouter.get("/social/squads/:id/challenges", (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const list = getSquadWeeklyChallenges(dbService.getRawDatabase(), userId, String(req.params.id));
+    res.json({ challenges: list });
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unauthorized" });
+  }
+});
+apiRouter.post("/social/room-invitations", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const inv = sendRoomInvitation(dbService.getRawDatabase(), userId, req.body || {});
+    await dbService.save();
+    res.json(inv);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || "Unable to send room invite" });
+  }
+});
+apiRouter.post("/social/room-invitations/:id/respond", async (req, res) => {
+  const { userId } = getAuth(req);
+  const action = req.body?.action;
+  if (action !== "accept" && action !== "reject") {
+    res.status(400).json({ error: "Invalid action" });
+    return;
+  }
+  try {
+    const inv = respondRoomInvitation(dbService.getRawDatabase(), userId, String(req.params.id), action);
+    await dbService.save();
+    res.json(inv);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || "Unable to respond to room invite" });
+  }
+});
+apiRouter.post("/social/sessions", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const sess = createGroupStudySession(dbService.getRawDatabase(), userId, req.body || {});
+    await dbService.save();
+    res.json(sess);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || "Unable to create group session" });
+  }
+});
+apiRouter.post("/social/sessions/:id/transition", async (req, res) => {
+  const { userId } = getAuth(req);
+  const action = req.body?.action;
+  if (!["start", "pause", "resume", "end", "join"].includes(action)) {
+    res.status(400).json({ error: "Invalid session action" });
+    return;
+  }
+  try {
+    const sess = transitionGroupStudySession(dbService.getRawDatabase(), userId, String(req.params.id), action);
+    await dbService.save();
+    res.json(sess);
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unable to update session" });
+  }
+});
+apiRouter.get("/social/chat", (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const messages = getChatMessages(dbService.getRawDatabase(), userId, {
+      squadId: typeof req.query.squadId === "string" ? req.query.squadId : void 0,
+      roomId: typeof req.query.roomId === "string" ? req.query.roomId : void 0,
+      limit: Number(req.query.limit || 25),
+      before: req.query.before ? Number(req.query.before) : void 0
+    });
+    res.json({ messages });
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unauthorized" });
+  }
+});
+apiRouter.post("/social/chat", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const msg = sendChatMessage(dbService.getRawDatabase(), userId, req.body || {});
+    await dbService.save();
+    res.json(msg);
+  } catch (err) {
+    const status = String(err?.message || "").includes("Rate limit") ? 429 : 400;
+    res.status(status).json({ error: err?.message || "Unable to send message" });
+  }
+});
+apiRouter.post("/social/chat/:id/react", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const msg = reactToChatMessage(dbService.getRawDatabase(), userId, String(req.params.id), String(req.body?.emoji || ""));
+    await dbService.save();
+    res.json(msg);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || "Unable to react" });
+  }
+});
+apiRouter.delete("/social/chat/:id", async (req, res) => {
+  const { userId } = getAuth(req);
+  try {
+    const msg = deleteChatMessage(dbService.getRawDatabase(), userId, String(req.params.id));
+    await dbService.save();
+    res.json(msg);
+  } catch (err) {
+    res.status(403).json({ error: err?.message || "Unauthorized" });
+  }
+});
+apiRouter.post("/social/notifications/:id/read", async (req, res) => {
+  const { userId } = getAuth(req);
+  const db = dbService.getRawDatabase();
+  const n = (db.socialNotifications || []).find((x) => x.id === req.params.id && x.userId === userId);
+  if (n) {
+    n.read = true;
+    await dbService.save();
+  }
+  res.json({ success: true });
 });
 apiRouter.use((_req, res) => {
   res.status(404).json({ error: "API route not found" });

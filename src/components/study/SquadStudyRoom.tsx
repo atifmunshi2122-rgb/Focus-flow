@@ -26,7 +26,18 @@ import {
   Crown,
 } from 'lucide-react';
 import type { RankedLeaderboardEntry, StudySquad } from '../../types/leaderboard.ts';
+import { useApp } from '../../context/AppContext.tsx';
 import { ThemeButton } from '../ui/ThemePrimitives.tsx';
+import { AnimeCharacterSvg } from '../study-room/AnimeCharacterSvg.tsx';
+import StudyActivityBar from '../study-room/StudyActivityBar.tsx';
+import { deriveStudyActivity, resolveStudyAvatarIdentity } from '../../lib/studyAvatarRegistry.ts';
+import { ACTIVITY_META, EMOTE_META, type AvatarEmote, type StudyActivity } from '../../features/study-room/types.ts';
+import {
+  defaultRoomCustomization,
+  sanitizeRoomCustomization,
+  type RoomCustomization,
+} from '../../features/study-room/customization-types.ts';
+import { triggerStudyRoomEmote, updateStudyRoomActivity } from '../../lib/leaderboardService.ts';
 
 const LazySquadWebGLRoom = lazy(() => import('./SquadWebGLRoom.tsx'));
 
@@ -122,33 +133,38 @@ const SpatialStudyPodCard: React.FC<{
           </div>
         </div>
 
-        {/* Mini 3D Monitor + Seated Avatar Stage */}
+        {/* Mini 3D Pod Desk + Seated Anime Avatar Stage */}
         <div
-          className={`relative rounded-xl p-3 mb-3 border flex items-center gap-3 ${
+          className={`relative rounded-xl p-3 mb-3 border flex items-center gap-3 overflow-hidden ${
             entry.isStudyingLive
-              ? 'bg-slate-950/70 border-sky-400/30 shadow-inner'
+              ? 'bg-gradient-to-r from-slate-950/90 via-indigo-950/60 to-slate-950/90 border-sky-400/35 shadow-inner'
               : 'bg-[var(--ff-surface-muted)]/60 border-[var(--ff-border-color)]/70'
           }`}
         >
+          {/* Pod Desk Lamp Strip */}
+          <div
+            aria-hidden="true"
+            className={`absolute bottom-0 inset-x-0 h-1 ${
+              entry.isStudyingLive ? 'bg-gradient-to-r from-amber-400/60 via-sky-400/60 to-indigo-400/60' : 'bg-slate-700/30'
+            }`}
+          />
           <div className="relative shrink-0">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-md"
-              style={{ backgroundColor: entry.avatarColor }}
-            >
-              {entry.displayName.slice(0, 1).toUpperCase()}
-            </div>
-            {entry.isStudyingLive && (
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-slate-950 flex items-center justify-center">
-                <Sparkles className="w-2 h-2 text-slate-950" />
-              </span>
-            )}
+            <AnimeCharacterSvg
+              identity={resolveStudyAvatarIdentity(entry)}
+              isLive={entry.isStudyingLive}
+              activity={deriveStudyActivity(entry)}
+              variant="bust"
+              className="w-11 h-11 rounded-xl shadow-md"
+            />
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-bold text-[var(--ff-text-primary)] truncate">
-              {entry.displayName}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-[var(--ff-text-primary)] truncate">
+                {entry.displayName}
+              </span>
               {entry.isCurrentUser && (
-                <span className="ml-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[var(--ff-accent)]/20 text-[var(--ff-accent-text)]">
+                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[var(--ff-accent)]/20 text-[var(--ff-accent-text)]">
                   You
                 </span>
               )}
@@ -156,11 +172,11 @@ const SpatialStudyPodCard: React.FC<{
             <div className="text-[11px] truncate mt-0.5 font-mono">
               {entry.isStudyingLive ? (
                 <span className="text-sky-300">
-                  {entry.activeSubject || 'Deep Focus'} ·{' '}
+                  {deriveStudyActivity(entry).toUpperCase()} · {entry.activeSubject || 'Deep Focus'} ·{' '}
                   {entry.liveElapsedMinutes > 0 ? `${entry.liveElapsedMinutes}m` : '<1m'}
                 </span>
               ) : (
-                <span className="text-[var(--ff-text-muted)]">Desk resting</span>
+                <span className="text-[var(--ff-text-muted)]">Pod resting · Desk ready</span>
               )}
             </div>
           </div>
@@ -194,29 +210,144 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   copiedCode,
   onStartFocus,
 }) => {
+  const { settings, updateSettings, setCurrentTab } = useApp();
   const [roomStyle, setRoomStyle] = useState<StudyRoomStyle>('isometric');
-  const [ambiance, setAmbiance] = useState<'night' | 'dusk'>(() => {
+  const [localCustomization, setLocalCustomization] = useState<RoomCustomization>(() => {
+    if (settings?.studyRoomCustomization) {
+      return sanitizeRoomCustomization(settings.studyRoomCustomization);
+    }
+    try {
+      const saved = localStorage.getItem('ff_study_room_customization');
+      if (saved) return sanitizeRoomCustomization(JSON.parse(saved));
+    } catch {
+      // ignore storage read errors
+    }
     const hr = new Date().getHours();
-    return hr >= 6 && hr < 18 ? 'dusk' : 'night';
+    return {
+      ...defaultRoomCustomization,
+      lighting: hr >= 6 && hr < 18 ? 'afternoon' : 'night',
+    };
   });
+
+  const handleUpdateCustomization = (next: RoomCustomization) => {
+    const clean = sanitizeRoomCustomization(next);
+    setLocalCustomization(clean);
+    try {
+      localStorage.setItem('ff_study_room_customization', JSON.stringify(clean));
+    } catch {
+      // ignore storage write errors
+    }
+    void updateSettings({ studyRoomCustomization: clean }, { silent: true }).catch(() => {});
+  };
+
+  const ambiance: 'night' | 'dusk' =
+    localCustomization.lighting === 'night' ||
+    localCustomization.theme === 'midnight' ||
+    localCustomization.theme === 'neon'
+      ? 'night'
+      : 'dusk';
+
+  const setAmbiance = (updater: (prev: 'night' | 'dusk') => 'night' | 'dusk') => {
+    const nextAmb = updater(ambiance);
+    handleUpdateCustomization({
+      ...localCustomization,
+      lighting: nextAmb === 'night' ? 'night' : 'sunset',
+    });
+  };
   const [selectedUid, setSelectedUid] = useState<string | null>(
     () => entries.find((e) => e.isStudyingLive)?.uid || entries[0]?.uid || null
   );
 
+  const currentUserEntry = useMemo(
+    () => entries.find((e) => e.isCurrentUser) || null,
+    [entries]
+  );
+
+  // Optimistic local activity state for instant responsiveness + Firestore sync
+  const [optimisticActivity, setOptimisticActivity] = useState<StudyActivity | null>(null);
+  const [optimisticEmote, setOptimisticEmote] = useState<{
+    id: string;
+    memberId: string;
+    type: AvatarEmote;
+    createdAt: number;
+  } | null>(null);
+
+  const effectiveEntries = useMemo(() => {
+    return entries.map((e) => {
+      if (!e.isCurrentUser) return e;
+      return {
+        ...e,
+        studyActivity: optimisticActivity ?? e.studyActivity,
+        lastEmote:
+          optimisticEmote && (!e.lastEmote || optimisticEmote.createdAt >= e.lastEmote.createdAt)
+            ? optimisticEmote
+            : e.lastEmote,
+      };
+    });
+  }, [entries, optimisticActivity, optimisticEmote]);
+
+  const currentActivity: StudyActivity = useMemo(() => {
+    if (optimisticActivity) return optimisticActivity;
+    if (currentUserEntry) return deriveStudyActivity(currentUserEntry);
+    return 'idle';
+  }, [optimisticActivity, currentUserEntry]);
+
+  const handleActivityChange = async (nextActivity: StudyActivity) => {
+    setOptimisticActivity(nextActivity);
+    if (currentUserEntry?.uid) {
+      await updateStudyRoomActivity({ uid: currentUserEntry.uid, activity: nextActivity });
+    }
+  };
+
+  const handleTriggerEmote = async (type: AvatarEmote) => {
+    if (!currentUserEntry?.uid) return;
+    const nowMs = Date.now();
+    setOptimisticEmote({
+      id: `local_${nowMs.toString(36)}`,
+      memberId: currentUserEntry.uid,
+      type,
+      createdAt: nowMs,
+    });
+    await triggerStudyRoomEmote({ uid: currentUserEntry.uid, type });
+  };
+
   const selectedEntry = useMemo(
-    () => entries.find((e) => e.uid === selectedUid) || entries[0] || null,
-    [entries, selectedUid]
+    () => effectiveEntries.find((e) => e.uid === selectedUid) || effectiveEntries[0] || null,
+    [effectiveEntries, selectedUid]
   );
 
   const liveCount = useMemo(
-    () => entries.filter((e) => e.isStudyingLive).length,
-    [entries]
+    () => effectiveEntries.filter((e) => e.isStudyingLive).length,
+    [effectiveEntries]
   );
 
   const isNight = ambiance === 'night';
 
   return (
     <div className="space-y-4">
+      {/* Multiplayer Activity Bar for Current User */}
+      {currentUserEntry && (
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+          <StudyActivityBar
+            value={currentActivity}
+            onChange={(act) => void handleActivityChange(act)}
+          />
+          <div className="flex items-center gap-1.5 shrink-0">
+            {(['wave', 'clap', 'celebrate'] as const).map((emoteKey) => (
+              <button
+                key={emoteKey}
+                type="button"
+                onClick={() => void handleTriggerEmote(emoteKey)}
+                className="px-2.5 py-2 rounded-xl text-[11px] font-semibold bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] hover:border-[var(--ff-accent)]/60 hover:bg-[var(--ff-surface-hover)] transition-all flex items-center gap-1"
+                title={`Send ${EMOTE_META[emoteKey].label} reaction`}
+              >
+                <span>{EMOTE_META[emoteKey].icon}</span>
+                <span>{EMOTE_META[emoteKey].label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Room Top Bar: Style Switcher + Ambiance + Live Count */}
       <div className="p-3.5 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 flex-wrap">
@@ -268,6 +399,16 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
               );
             })}
           </div>
+
+          <button
+            type="button"
+            onClick={() => setCurrentTab('avatar_studio')}
+            className="px-2.5 py-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 text-[11px] font-semibold flex items-center gap-1.5 transition-colors"
+            title="Customize your 3D Study Avatar"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Customize Avatar</span>
+          </button>
 
           <button
             type="button"
@@ -334,8 +475,10 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
               strokeWidth="1.5"
             />
 
-            {/* Left-Wall Ambient Window with Moon/Stars */}
+            {/* Left-Wall Ambient Window with Curtains & Moon/Stars */}
             <polygon points="210,138 355,80 355,148 210,206" fill="url(#window-sky)" stroke="#475569" strokeWidth="3" />
+            <polygon points="196,144 214,136 214,208 196,216" fill={isNight ? '#4338ca' : '#9a3412'} opacity="0.88" />
+            <polygon points="351,81 369,74 369,146 351,153" fill={isNight ? '#4338ca' : '#9a3412'} opacity="0.88" />
             <line x1="282" y1="109" x2="282" y2="177" stroke="#475569" strokeWidth="2" />
             <line x1="210" y1="172" x2="355" y2="114" stroke="#475569" strokeWidth="2" />
             <circle cx="318" cy="116" r="11" fill="#fef08a" opacity="0.9" />
@@ -347,6 +490,11 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
               </>
             )}
 
+            {/* Stylish Wall Clock & Framed Poster */}
+            <circle cx="450" cy="96" r="16" fill="#f8fafc" stroke="#334155" strokeWidth="3" />
+            <line x1="450" y1="96" x2="450" y2="85" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
+            <line x1="450" y1="96" x2="458" y2="99" stroke="#1e293b" strokeWidth="2" strokeLinecap="round" />
+
             {/* Right-Wall Bookshelf */}
             <polygon points="560,86 710,146 710,214 560,154" fill="#2c2220" stroke="#475569" strokeWidth="1.5" />
             <line x1="560" y1="120" x2="710" y2="180" stroke="#57433f" strokeWidth="2" />
@@ -356,9 +504,24 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
             <polygon points="638,125 650,130 650,154 638,149" fill="#ec4899" />
             <polygon points="656,133 668,138 668,162 656,157" fill="#38bdf8" />
 
+            {/* Decorative Corner Indoor Plants */}
+            {[
+              { x: 115, y: 280 },
+              { x: 785, y: 280 },
+              { x: 450, y: 422 },
+            ].map((plant, pIdx) => (
+              <g key={`iso-plant-${pIdx}`} transform={`translate(${plant.x}, ${plant.y})`}>
+                <ellipse cx="0" cy="6" rx="11" ry="5" fill="#7c4a3a" />
+                <rect x="-8" y="-6" width="16" height="12" rx="3" fill="#a16f63" />
+                <ellipse cx="-6" cy="-12" rx="6" ry="9" transform="rotate(-24 -6 -12)" fill="#70a77f" />
+                <ellipse cx="6" cy="-12" rx="6" ry="9" transform="rotate(24 6 -12)" fill="#5b926a" />
+                <ellipse cx="0" cy="-15" rx="5" ry="10" fill="#86efac" opacity="0.85" />
+              </g>
+            ))}
+
             {/* Render up to 8 Isometric Desks */}
             {ISO_SEAT_POSITIONS.map((pos, idx) => {
-              const entry = entries[idx] || null;
+              const entry = effectiveEntries[idx] || null;
               const isLive = Boolean(entry?.isStudyingLive);
               const isSelected = Boolean(entry && selectedEntry?.uid === entry.uid);
 
@@ -420,22 +583,14 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
                     fill={isLive ? '#fbbf24' : '#64748b'}
                   />
 
-                  {/* Seated Avatar */}
+                  {/* Seated Anime Avatar */}
                   {entry ? (
-                    <g transform="translate(0, 14)">
-                      {/* Chair Back */}
-                      <rect x="-13" y="4" width="26" height="16" rx="5" fill="#1e293b" stroke="#475569" strokeWidth="1" />
-                      {/* Body */}
-                      <circle cx="0" cy="-2" r="12" fill={entry.avatarColor} stroke="#0f172a" strokeWidth="1.5" />
-                      {/* Head */}
-                      <circle cx="0" cy="-16" r="8.5" fill={isLive ? '#fde68a' : '#cbd5e1'} />
-                      {/* Live Pulse Dot */}
-                      {isLive && (
-                        <circle cx="11" cy="-22" r="4" fill="#ef4444" stroke="#0f172a" strokeWidth="1.5">
-                          <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
-                        </circle>
-                      )}
-                    </g>
+                    <AnimeCharacterSvg
+                      identity={resolveStudyAvatarIdentity(entry)}
+                      isLive={isLive}
+                      activity={deriveStudyActivity(entry)}
+                      variant="seated"
+                    />
                   ) : (
                     <text
                       x="0"
@@ -502,12 +657,12 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
       {/* MODE 2: INTERACTIVE 3D STUDY PODS */}
       {roomStyle === 'pods' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-          {entries.length === 0 ? (
+          {effectiveEntries.length === 0 ? (
             <div className="col-span-full p-8 rounded-2xl border border-dashed border-[var(--ff-border-color)] text-center text-xs text-[var(--ff-text-muted)]">
               No squad members seated yet. Share your invite code or sync your study hours to take the first desk!
             </div>
           ) : (
-            entries.map((entry) => (
+            effectiveEntries.map((entry) => (
               <SpatialStudyPodCard
                 key={entry.uid}
                 entry={entry}
@@ -530,10 +685,12 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
           }
         >
           <LazySquadWebGLRoom
-            entries={entries}
+            entries={effectiveEntries}
             selectedUid={selectedEntry?.uid || null}
             onSelectMember={(uid) => setSelectedUid(uid)}
             ambiance={ambiance}
+            customization={localCustomization}
+            onUpdateCustomization={handleUpdateCustomization}
           />
         </Suspense>
       )}
@@ -543,15 +700,13 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
         <div className="p-4 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="relative shrink-0">
-              <div
-                className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-base shadow-sm"
-                style={{ backgroundColor: selectedEntry.avatarColor }}
-              >
-                {selectedEntry.displayName.slice(0, 1).toUpperCase()}
-              </div>
-              {selectedEntry.isStudyingLive && (
-                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-red-500 border-2 border-[var(--ff-surface-card)] animate-pulse" />
-              )}
+              <AnimeCharacterSvg
+                identity={resolveStudyAvatarIdentity(selectedEntry)}
+                isLive={selectedEntry.isStudyingLive}
+                activity={deriveStudyActivity(selectedEntry)}
+                variant="bust"
+                className="w-11 h-11 rounded-xl shadow-sm"
+              />
             </div>
 
             <div className="min-w-0">
@@ -565,11 +720,14 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
                 {selectedEntry.isStudyingLive ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                    Studying {selectedEntry.activeSubject || 'Deep Focus'} ·{' '}
+                    {ACTIVITY_META[deriveStudyActivity(selectedEntry)].badgeText} ·{' '}
+                    {selectedEntry.activeSubject || 'Deep Focus'} ·{' '}
                     {selectedEntry.liveElapsedMinutes > 0 ? `${selectedEntry.liveElapsedMinutes}m` : '<1m'}
                   </span>
                 ) : (
-                  <span className="text-[11px] text-[var(--ff-text-muted)]">Currently offline</span>
+                  <span className="text-[11px] text-[var(--ff-text-muted)]">
+                    {ACTIVITY_META[deriveStudyActivity(selectedEntry)].badgeText} · Offline
+                  </span>
                 )}
               </div>
 

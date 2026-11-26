@@ -1,0 +1,177 @@
+.leaderboard {
+  width: 100%;
+  padding: 22px;
+
+  color: #ffffff;
+
+  background: linear-gradient(145deg, #20243d, #11172b);
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  border-radius: 22px;
+}
+
+.leaderboard-header {
+  margin-bottom: 20px;
+}
+
+.leaderboard-header h2 {
+  margin: 0;
+
+  font-size: 21px;
+  font-weight: 750;
+}
+
+.leaderboard-header p {
+  margin: 6px 0 0;
+
+  color: #aab3d0;
+  font-size: 12px;
+}
+
+.leaderboard-list {
+  display: grid;
+  gap: 10px;
+}
+
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 13px;
+
+  background: rgba(255, 255, 255, 0.045);
+
+  border: 1px solid rgba(255, 255, 255, 0.07);
+
+  border-radius: 14px;
+}
+
+.leaderboard-row.rank-1 {
+  background: linear-gradient(
+    100deg,
+    rgba(255, 194, 94, 0.18),
+    rgba(255, 255, 255, 0.04)
+  );
+
+  border-color: rgba(255, 194, 94, 0.4);
+}
+
+.leaderboard-row.rank-2 {
+  border-color: rgba(197, 205, 224, 0.35);
+}
+
+.leaderboard-row.rank-3 {
+  border-color: rgba(207, 143, 103, 0.35);
+}
+
+.leaderboard-row.current-user {
+  outline: 1px solid #9886ff;
+  background: rgba(133, 112, 255, 0.12);
+}
+
+.leaderboard-rank {
+  width: 35px;
+
+  flex-shrink: 0;
+
+  font-size: 15px;
+  font-weight: 800;
+
+  text-align: center;
+}
+
+.leaderboard-avatar {
+  display: grid;
+  place-items: center;
+
+  width: 42px;
+  height: 42px;
+
+  overflow: hidden;
+  flex-shrink: 0;
+
+  background: linear-gradient(145deg, #9180ff, #5548b8);
+
+  border-radius: 50%;
+
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.leaderboard-avatar img {
+  width: 100%;
+  height: 100%;
+
+  object-fit: cover;
+}
+
+.leaderboard-player {
+  display: grid;
+  gap: 5px;
+
+  flex: 1;
+  min-width: 0;
+}
+
+.leaderboard-player strong {
+  overflow: hidden;
+
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-player small {
+  color: #aeb5d2;
+  font-size: 10px;
+}
+
+.leaderboard-xp {
+  display: grid;
+  gap: 3px;
+
+  text-align: right;
+}
+
+.leaderboard-xp strong {
+  font-size: 14px;
+}
+
+.leaderboard-xp small {
+  color: #aeb5d2;
+  font-size: 10px;
+}
+
+.leaderboard-more {
+  display: block;
+  width: 100%;
+
+  margin-top: 17px;
+  padding: 12px;
+
+  color: #ffffff;
+
+  background: rgba(133, 112, 255, 0.17);
+
+  border: 1px solid rgba(133, 112, 255, 0.35);
+
+  border-radius: 12px;
+
+  cursor: pointer;
+}
+
+.leaderboard-more:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.leaderboard-empty {
+  padding: 30px;
+
+  color: #b5bdd8;
+
+  text-align: center;
+}
+
