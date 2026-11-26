@@ -504,6 +504,7 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
   const makeZoneHandlers = (zone: HomeZoneId) => ({
     onClick: (e: any) => {
       e.stopPropagation();
+      if ((e.delta ?? 0) > 6) return;
       onSelectZone(zone);
     },
     onPointerOver: (e: any) => {
@@ -524,6 +525,7 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
   ) => ({
     onClick: (e: any) => {
       e.stopPropagation();
+      if ((e.delta ?? 0) > 6) return;
       onClickFurniture?.(id);
     },
     onPointerOver: (e: any) => {

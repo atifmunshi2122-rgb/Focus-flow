@@ -1082,9 +1082,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const safeWorkMin =
           Number.isFinite(rawWorkMin) && rawWorkMin >= 1 ? Math.min(180, Math.round(rawWorkMin)) : 25;
         const initialSecs = safeWorkMin * 60;
-        if (!isRunning && !timerModifiedByUserRef.current) {
+        if (!isRunning && !timerModifiedByUserRef.current && timerMode === 'work') {
           setTimeLeft(initialSecs);
+          timeLeftRef.current = initialSecs;
           setTotalDuration(initialSecs);
+          totalDurationRef.current = initialSecs;
         }
       })
       .catch((err) => {
@@ -1133,7 +1135,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
           if (userTimer.isExpired && userTimer.timerMode === 'work' && userTimer.sessionStartTime) {
             finalizeExpiredSession(userTimer, fbUser.uid);
-          } else if (userTimer.isRunning || userTimer.timeLeft !== 25 * 60) {
+          } else if (userTimer.isRunning || userTimer.timerMode !== 'work' || userTimer.timeLeft !== 25 * 60) {
             setTimerEngineState(userTimer.timerEngine);
             setTimerMode(userTimer.timerMode);
             setTimeLeft(userTimer.timeLeft);

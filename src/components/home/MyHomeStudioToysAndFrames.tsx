@@ -138,6 +138,29 @@ export const ConstellationSkyDomeProp: React.FC<{
   stars: ConstellationStar[];
   isObservatoryMode: boolean;
 }> = ({ stars, isObservatoryMode }) => {
+  const [hoveredStarId, setHoveredStarId] = useState<string | null>(null);
+
+  // Pick up to 4 well-spaced anchor stars for persistent labels in Observatory mode to avoid overlap
+  const anchorLabelIds = useMemo(() => {
+    const selected: ConstellationStar[] = [];
+    for (const st of stars) {
+      if (!st.unlocked) continue;
+      const tooClose = selected.some(
+        (other) =>
+          Math.hypot(
+            st.pos[0] - other.pos[0],
+            st.pos[1] - other.pos[1],
+            st.pos[2] - other.pos[2]
+          ) < 1.35
+      );
+      if (!tooClose) {
+        selected.push(st);
+        if (selected.length >= 4) break;
+      }
+    }
+    return new Set(selected.map((s) => s.id));
+  }, [stars]);
+
   const lineGeom = useMemo(() => {
     const unlocked = stars.filter((s) => s.unlocked);
     const points: number[] = [];
@@ -157,26 +180,41 @@ export const ConstellationSkyDomeProp: React.FC<{
 
   return (
     <group>
-      {stars.map((st) => (
-        <group key={st.id} position={st.pos}>
-          <mesh>
-            <octahedronGeometry args={[st.unlocked ? 0.085 : 0.045, 0]} />
-            <meshStandardMaterial
-              color={st.color}
-              emissive={st.color}
-              emissiveIntensity={st.unlocked ? 2.1 : 0.4}
-            />
-          </mesh>
-          {isObservatoryMode && (
-            <Html position={[0, 0.16, 0]} center distanceFactor={11} style={{ pointerEvents: 'none' }}>
-              <div className="px-2 py-0.5 rounded-full bg-slate-950/85 border border-indigo-400/40 text-[10px] text-indigo-100 whitespace-nowrap">
-                {st.kind === 'skill' ? '⚡ ' : st.kind === 'study' ? '📘 ' : '✦ '}
-                {st.label}
-              </div>
-            </Html>
-          )}
-        </group>
-      ))}
+      {stars.map((st) => {
+        const isHovered = hoveredStarId === st.id;
+        const showLabel = isObservatoryMode && (isHovered || anchorLabelIds.has(st.id));
+        return (
+          <group
+            key={st.id}
+            position={st.pos}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              setHoveredStarId(st.id);
+            }}
+            onPointerOut={(e) => {
+              e.stopPropagation();
+              setHoveredStarId((curr) => (curr === st.id ? null : curr));
+            }}
+          >
+            <mesh>
+              <octahedronGeometry args={[st.unlocked ? (isHovered ? 0.11 : 0.085) : 0.045, 0]} />
+              <meshStandardMaterial
+                color={st.color}
+                emissive={st.color}
+                emissiveIntensity={st.unlocked ? (isHovered ? 2.6 : 2.1) : 0.4}
+              />
+            </mesh>
+            {showLabel && (
+              <Html position={[0, 0.18, 0]} center distanceFactor={9} style={{ pointerEvents: 'none' }}>
+                <div className="px-2 py-0.5 rounded-full bg-slate-950/90 border border-indigo-400/45 text-[10px] text-indigo-100 whitespace-nowrap shadow-md">
+                  {st.kind === 'skill' ? '⚡ ' : st.kind === 'study' ? '📘 ' : '✦ '}
+                  {st.label}
+                </div>
+              </Html>
+            )}
+          </group>
+        );
+      })}
       {stars.filter((s) => s.unlocked).length >= 2 && (
         <lineSegments geometry={lineGeom}>
           <lineBasicMaterial color="#818cf8" transparent opacity={0.55} />

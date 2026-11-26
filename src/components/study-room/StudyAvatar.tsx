@@ -85,7 +85,7 @@ class AvatarErrorBoundary extends Component<AvatarErrorBoundaryProps, AvatarErro
     if (this.state.hasError) {
       return (
         <group position={this.props.position}>
-          <Html position={[0, this.props.nameplateHeight * 0.55, 0]} center distanceFactor={8} zIndexRange={[20, 0]}>
+          <Html position={[0, this.props.nameplateHeight * 0.55, 0]} center zIndexRange={[20, 0]}>
             <div className="flex flex-col items-center gap-1.5 pointer-events-none">
               <div className="avatar-fallback">{this.props.name.slice(0, 1).toUpperCase()}</div>
               <div className={`avatar-nameplate ${this.props.isLive ? 'avatar-nameplate--live' : ''}`}>
@@ -299,7 +299,7 @@ function StudyAvatarMesh({
       </group>
 
       {showNameplate && (
-        <Html position={[0, nameplateHeight, 0]} center distanceFactor={8} zIndexRange={[20, 0]}>
+        <Html position={[0, nameplateHeight, 0]} center zIndexRange={[20, 0]}>
           <div className="flex flex-col items-center pointer-events-none">
             {isSleeping && !emoteMeta && (
               <div className="avatar-sleeping-zzz">

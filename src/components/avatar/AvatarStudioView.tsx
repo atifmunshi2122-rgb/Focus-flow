@@ -464,7 +464,12 @@ export const AvatarStudioView: React.FC = () => {
                     <StudyAvatar
                       modelUrl={sanitizedPreviewConfig.modelUrl}
                       name={userDisplayName}
-                      activity={activePreviewActivity}
+                      activity={selectedEntry.hasHumanoidSkeleton ? activePreviewActivity : 'idle'}
+                      poseMode={
+                        selectedEntry.hasHumanoidSkeleton && activePreviewActivity === 'studying'
+                          ? 'seated'
+                          : 'standing'
+                      }
                       position={[0, -0.88, 0]}
                       rotation={[0, 0.18, 0]}
                       scale={1}
@@ -475,6 +480,22 @@ export const AvatarStudioView: React.FC = () => {
                       isSelected
                       subtitle="Live 3D Preview"
                     />
+                    {selectedEntry.hasHumanoidSkeleton && activePreviewActivity === 'studying' && (
+                      <group position={[0, -0.88, 0]} rotation={[0, 0.18, 0]}>
+                        <mesh position={[0, 0.42, -0.06]} castShadow receiveShadow>
+                          <boxGeometry args={[0.44, 0.05, 0.42]} />
+                          <meshStandardMaterial color="#1e293b" roughness={0.6} />
+                        </mesh>
+                        <mesh position={[0, 0.21, -0.06]}>
+                          <cylinderGeometry args={[0.035, 0.035, 0.42, 10]} />
+                          <meshStandardMaterial color="#475569" metalness={0.5} roughness={0.4} />
+                        </mesh>
+                        <mesh position={[0, 0.02, -0.06]}>
+                          <cylinderGeometry args={[0.24, 0.24, 0.03, 16]} />
+                          <meshStandardMaterial color="#334155" metalness={0.4} roughness={0.5} />
+                        </mesh>
+                      </group>
+                    )}
                     <ContactShadows
                       position={[0, -0.88, 0]}
                       opacity={0.45}

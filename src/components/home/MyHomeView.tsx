@@ -193,8 +193,8 @@ const HOME_CAMERA_PRESETS: Record<RoomCameraMode, { position: [number, number, n
     target: [0, 0.9, -0.35],
   },
   desk_pov: {
-    position: [-3.35, 1.34, 1.07],
-    target: [-4.55, 1.04, 0.92],
+    position: [-2.65, 1.56, 1.15],
+    target: [-4.35, 0.95, 1.05],
   },
   observatory: {
     position: [-5.4, 1.85, 2.2],
@@ -2319,10 +2319,16 @@ export const MyHomeView: React.FC = () => {
     [shopState, selectedShopItemId, persistShop]
   );
 
+  const petToastCooldownRef = useRef<number>(0);
+
   const handlePetCompanion = useCallback(() => {
     setPetReactionCue({ type: 'pet', seq: Date.now() });
     setNeeds((prev) => ({ ...prev, mood: Math.min(100, Math.round((prev.mood + 10) * 10) / 10) }));
-    showToast?.('🐾 Petted your companion! +10 Mood', 'success');
+    const now = Date.now();
+    if (now - petToastCooldownRef.current > 4000) {
+      petToastCooldownRef.current = now;
+      showToast?.('🐾 Petted your companion! +10 Mood', 'success');
+    }
   }, [showToast]);
 
   const handleFeedCompanion = useCallback(() => {
@@ -2332,7 +2338,11 @@ export const MyHomeView: React.FC = () => {
       energy: Math.min(100, Math.round((prev.energy + 8) * 10) / 10),
       mood: Math.min(100, Math.round((prev.mood + 6) * 10) / 10),
     }));
-    showToast?.('🍖 Fed your companion! +Energy & +Mood', 'success');
+    const now = Date.now();
+    if (now - petToastCooldownRef.current > 4000) {
+      petToastCooldownRef.current = now;
+      showToast?.('🍖 Fed your companion! +Energy & +Mood', 'success');
+    }
   }, [showToast]);
 
   const handleStartBreathing = useCallback(() => {

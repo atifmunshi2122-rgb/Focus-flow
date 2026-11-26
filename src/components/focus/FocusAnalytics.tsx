@@ -878,11 +878,17 @@ export const FocusAnalytics: React.FC = () => {
                           !Number.isNaN(s.actualDurationSeconds) &&
                           (!s.completed || s.actualDurationSeconds > 0)
                             ? s.actualDurationSeconds
+                            : s.interrupted && s.startedAt && s.endedAt
+                            ? Math.max(
+                                1,
+                                Math.round((Date.parse(s.endedAt) - Date.parse(s.startedAt)) / 1000)
+                              )
                             : null;
                         if (actualSecs !== null) {
                           if (actualSecs < 60) return `${Math.round(actualSecs)}s`;
                           return `${Math.round(actualSecs / 60)} min`;
                         }
+                        if (s.interrupted) return 'Partial';
                         return `${s.durationMinutes || Math.max(1, Math.round((s.durationSeconds || 0) / 60))} min`;
                       })()}
                     </span>

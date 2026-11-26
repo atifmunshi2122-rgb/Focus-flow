@@ -44,12 +44,30 @@ export const GamificationHubView: React.FC = () => {
   const { user, firebaseUser, habits, settings, refreshKey, setCurrentTab } = useApp();
   const currentUserId = firebaseUser?.uid || user?.id || 'usr_guest';
 
+  const cacheKey = `focusflow_rpg_cache_${currentUserId}`;
+  const cachedSnapshot = React.useMemo(() => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, [cacheKey]);
+
   const [subTab, setSubTab] = useState<GamificationSubTab>('overview');
-  const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<UserGamificationProfile | null>(null);
-  const [progress, setProgress] = useState<XPProgress>(() => calculateXPProgress(0));
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
-  const [transactions, setTransactions] = useState<XPTransaction[]>([]);
+  const [loading, setLoading] = useState(!cachedSnapshot);
+  const [profile, setProfile] = useState<UserGamificationProfile | null>(
+    () => cachedSnapshot?.profile ?? null
+  );
+  const [progress, setProgress] = useState<XPProgress>(
+    () => cachedSnapshot?.progress ?? calculateXPProgress(0)
+  );
+  const [achievements, setAchievements] = useState<Achievement[]>(
+    () => cachedSnapshot?.achievements ?? []
+  );
+  const [transactions, setTransactions] = useState<XPTransaction[]>(
+    () => cachedSnapshot?.transactions ?? []
+  );
 
   const [lbCategory, setLbCategory] = useState<GamificationLeaderboardCategory>('all_time');
   const [lbEntries, setLbEntries] = useState<LeaderboardEntry[]>([]);
@@ -111,10 +129,23 @@ export const GamificationHubView: React.FC = () => {
       setProgress(computed.progress);
       setAchievements(computed.achievements);
       setTransactions(computed.transactions);
+      try {
+        localStorage.setItem(
+          cacheKey,
+          JSON.stringify({
+            profile: computed.profile,
+            progress: computed.progress,
+            achievements: computed.achievements,
+            transactions: computed.transactions.slice(0, 30),
+          })
+        );
+      } catch {
+        // ignore storage quota errors
+      }
     } finally {
       setLoading(false);
     }
-  }, [currentUserId, firebaseUser?.uid, habits, settings?.timezone, refreshKey]);
+  }, [currentUserId, cacheKey, firebaseUser?.uid, habits, settings?.timezone, refreshKey]);
 
   const loadLeaderboard = useCallback(
     async (cat: GamificationLeaderboardCategory, pageNum: number, _append: boolean) => {
@@ -213,13 +244,17 @@ export const GamificationHubView: React.FC = () => {
   return (
     <div className="space-y-5">
       {/* Top XP HUD */}
-      <GamificationHUD
-        progress={progress}
-        streak={profile?.currentStreak ?? 0}
-        dailyXP={profile?.dailyXP ?? 0}
-        onOpenAchievements={() => setSubTab('achievements')}
-        onOpenLeaderboard={() => setSubTab('leaderboard')}
-      />
+      {loading && !profile ? (
+        <div className="h-32 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]/60 animate-pulse" />
+      ) : (
+        <GamificationHUD
+          progress={progress}
+          streak={profile?.currentStreak ?? 0}
+          dailyXP={profile?.dailyXP ?? 0}
+          onOpenAchievements={() => setSubTab('achievements')}
+          onOpenLeaderboard={() => setSubTab('leaderboard')}
+        />
+      )}
 
       {/* Sub-navigation */}
       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -353,7 +353,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
               <div
                 key={hour}
                 ref={isCurrentHour ? currentHourRef : undefined}
-                className="relative flex items-start min-h-[72px] transition-colors hover:bg-[var(--ff-muted)]/10"
+                className="relative flex items-start min-h-[72px] min-w-0 overflow-hidden transition-colors hover:bg-[var(--ff-muted)]/10"
               >
                 {/* Real-time Current Hour Indicator Line */}
                 {isCurrentHour && (
@@ -375,7 +375,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                 </div>
 
                 {/* Slot Area */}
-                <div className="flex-1 p-2 flex flex-wrap gap-2 items-center">
+                <div className="flex-1 min-w-0 p-2 flex flex-wrap gap-2 items-center">
                   {activeInHour.length === 0 ? (
                     <button
                       type="button"
@@ -392,7 +392,7 @@ export const DailyTimeBlockPlanner: React.FC = () => {
                       return (
                         <div
                           key={b.id}
-                          className={`flex items-center justify-between gap-2 p-2 sm:p-2.5 rounded-xl border transition-all ${
+                          className={`flex items-center justify-between gap-2 p-2 sm:p-2.5 rounded-xl border transition-all max-w-full min-w-0 overflow-hidden ${
                             b.completed
                               ? 'bg-[var(--ff-card-bg)] opacity-60 border-[var(--ff-border)]'
                               : 'bg-[var(--ff-card-bg)] shadow-xs'

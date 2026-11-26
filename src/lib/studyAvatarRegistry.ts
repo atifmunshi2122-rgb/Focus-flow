@@ -70,9 +70,13 @@ export function resolveStudyAvatarIdentity(
     };
   }
 
-  // Deterministic default from catalog for users who haven't customized yet
-  const poolIdx = hashString(entry.uid || entry.displayName || 'student') % AVATAR_CATALOG.length;
-  const cat = AVATAR_CATALOG[poolIdx];
+  // Deterministic default from rigged seated-capable catalog for users who haven't customized yet
+  const riggedSeatedPool = AVATAR_CATALOG.filter(
+    (a) => a.hasHumanoidSkeleton && a.supportedPoses.includes('seated')
+  );
+  const pool = riggedSeatedPool.length > 0 ? riggedSeatedPool : AVATAR_CATALOG;
+  const poolIdx = hashString(entry.uid || entry.displayName || 'student') % pool.length;
+  const cat = pool[poolIdx];
   const outfitColor = entry.avatarColor || cat.defaults.outfitColor;
 
   return {

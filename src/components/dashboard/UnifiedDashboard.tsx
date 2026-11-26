@@ -29,6 +29,8 @@ import {
   computeProductivityScore,
   isHabitScheduledOnDate,
 } from '../../lib/productivityIntelligence.ts';
+import { computeGamificationFromRealData } from '../../features/gamification/firestoreGamification.ts';
+import { getLevelTitle } from '../../features/gamification/reward-config.ts';
 import {
   buildExamPrepSnapshot,
   buildRecentActivityFeed,
@@ -623,6 +625,42 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   );
 
   const isInitialLoading = loading && !data;
+
+  const rpgOverride = useMemo(() => {
+    const computed = computeGamificationFromRealData({
+      userId: user?.id || 'usr_guest',
+      tasks,
+      focusSessions: sessions,
+      subjects: studySubjects,
+      topics: studyTopics,
+      studyPlanTasks,
+      studyRevisions,
+      habits,
+      bills,
+      savingsGoals,
+      timezone: settings?.timezone,
+    });
+    return {
+      level: computed.progress.level,
+      rankTitle: getLevelTitle(computed.progress.level),
+      totalXP: computed.progress.totalXP,
+      currentLevelXP: computed.progress.currentLevelXP,
+      nextLevelXP: computed.progress.nextLevelXP,
+      progressPercent: computed.progress.progressPercent,
+    };
+  }, [
+    user?.id,
+    tasks,
+    sessions,
+    studySubjects,
+    studyTopics,
+    studyPlanTasks,
+    studyRevisions,
+    habits,
+    bills,
+    savingsGoals,
+    settings?.timezone,
+  ]);
 
   const renderWidgetBody = (id: DashboardWidgetId) => {
     const resolvedSpan = gridSpans[id] || 'lg:col-span-12';
@@ -1723,6 +1761,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
               focusStreakDays={data?.focusStreakDays || 0}
               bestStreakDays={data?.bestStreakDays}
               dailyFocusGoalMinutes={settings?.dailyFocusGoalMinutes}
+              rpgOverride={rpgOverride}
               compact={true}
             />
           );
@@ -1742,6 +1781,7 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
                   focusStreakDays={data?.focusStreakDays || 0}
                   bestStreakDays={data?.bestStreakDays}
                   dailyFocusGoalMinutes={settings?.dailyFocusGoalMinutes}
+                  rpgOverride={rpgOverride}
                 />
               </div>
               <div className="lg:col-span-5">

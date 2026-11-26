@@ -449,13 +449,13 @@ export function buildTodaysPriorities(input: {
 
   for (const rev of [...dueRevs, ...upcomingRevs]) {
     const date = rev.nextRevisionAt.slice(0, 10);
-    if (date >= todayStr && date <= horizonEnd) {
+    if (date > todayStr && date <= horizonEnd) {
       upcomingEvents.push({
         id: `rev:${rev.id}`,
         title: `${rev.subjectCode} • ${rev.topicTitle}`,
         date,
         kind: 'revision',
-        meta: date === todayStr ? 'Due today' : 'Revision',
+        meta: 'Revision',
         targetTab: 'study',
       });
     }
@@ -463,7 +463,7 @@ export function buildTodaysPriorities(input: {
 
   for (const task of activePendingTasks) {
     const date = task.dueDate ? task.dueDate.slice(0, 10) : '';
-    if (date && date >= todayStr && date <= horizonEnd) {
+    if (date && date > todayStr && date <= horizonEnd) {
       upcomingEvents.push({
         id: `task:${task.id}`,
         title: task.title,

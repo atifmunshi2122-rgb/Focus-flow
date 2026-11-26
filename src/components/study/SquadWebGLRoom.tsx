@@ -141,8 +141,8 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
             : `Offline / Idle • #${entry.rank} • ${entry.hoursFormatted}`;
 
           // Rigged avatars sit on the chair at z=0.56; unrigged static models (e.g. avatar-02)
-          // stand behind the chair backrest at z=1.12 to prevent chair clipping and nameplate face overlap.
-          const avatarPosition: [number, number, number] = canSit ? [0, 0, 0.56] : [0, 0, 1.12];
+          // stand right beside the desk at [0.44, 0, 0.56] instead of behind the chair.
+          const avatarPosition: [number, number, number] = canSit ? [0, 0, 0.56] : [0.44, 0, 0.56];
           const avatarNameplateHeight = canSit ? 1.65 : 2.02;
 
           return (

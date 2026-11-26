@@ -50,7 +50,7 @@
 .planner-week-grid {
   display: grid;
 
-  grid-template-columns: repeat(7, minmax(150px, 1fr));
+  grid-template-columns: repeat(7, minmax(185px, 1fr));
 
   gap: 10px;
 
@@ -58,7 +58,7 @@
 }
 
 .planner-day-column {
-  min-width: 150px;
+  min-width: 185px;
 
   padding: 12px;
 
@@ -98,6 +98,9 @@
   margin-bottom: 4px;
 
   font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .planner-session-card small {

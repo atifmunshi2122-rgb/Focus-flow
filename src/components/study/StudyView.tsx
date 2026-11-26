@@ -2241,12 +2241,36 @@ export const StudyView: React.FC = () => {
 
           {/* Subject Overview Cards Carousel / Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-            {visibleSubjects.length === 0 && (
+            {loading && visibleSubjects.length === 0 && (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={`sub-skel-${i}`}
+                  className="h-24 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)]/60 animate-pulse"
+                />
+              ))
+            )}
+            {!loading && visibleSubjects.length === 0 && activeTopics.length === 0 && (
               <div className="col-span-full p-8 text-center text-xs text-[var(--ff-text-muted)] border border-dashed border-[var(--ff-border-color)] rounded-2xl">
                 No study subjects found. Click &quot;+ Add Subject&quot; above to create one.
               </div>
             )}
-            {visibleSubjects.map((sub) => {
+            {(visibleSubjects.length > 0
+              ? visibleSubjects
+              : Array.from(new Set(activeTopics.map((t) => t.subjectCode).filter(Boolean))).map(
+                  (code): import('../../types/index.ts').StudySubject => ({
+                    id: `derived_${code}`,
+                    userId: 'local',
+                    code,
+                    name: code,
+                    color: '#6366f1',
+                    tierId: 'all',
+                    totalSubtopics: activeTopics.filter((t) => t.subjectCode === code).length,
+                    completedSubtopics: activeTopics.filter((t) => t.subjectCode === code && t.theory && t.practice).length,
+                    createdAt: '',
+                    updatedAt: '',
+                  })
+                )
+            ).map((sub) => {
               const subTopics = activeTopics.filter((t) => t.subjectCode === sub.code);
               const fullyMastered = subTopics.filter((t) => t.theory && t.practice).length;
               const theoryCount = subTopics.filter((t) => t.theory).length;

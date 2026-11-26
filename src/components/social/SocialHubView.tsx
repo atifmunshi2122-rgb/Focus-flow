@@ -3,6 +3,7 @@ import { Bell, Copy, KeyRound, LogOut, Lock, Search, Shield, Sparkles, Users } f
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import {
+  aggregateFocusStatsForLeaderboard,
   computeSquadChallengeProgress,
   createStudySquad,
   fetchSquadMemberProfiles,
@@ -13,6 +14,7 @@ import {
   joinStudySquadByCode,
   leaveStudySquad,
   listUserSquads,
+  subscribeGlobalLeaderboard,
 } from '../../lib/leaderboardService.ts';
 import type { LeaderboardProfile, StudySquad } from '../../types/leaderboard.ts';
 import type { SocialProfile, UserPrivacySettings } from '../../features/social/types.ts';
@@ -32,7 +34,7 @@ import SharedStudyTimer from './SharedStudyTimer.tsx';
 import StudyChat from './StudyChat.tsx';
 
 export const SocialHubView: React.FC = () => {
-  const { user, firebaseUser, settings, setCurrentTab, showToast } = useApp();
+  const { user, firebaseUser, settings, setCurrentTab, showToast, confirmAction } = useApp();
   const currentUserId = firebaseUser?.uid || user?.id || 'usr_guest';
 
   const [loading, setLoading] = useState(true);
@@ -123,14 +125,34 @@ export const SocialHubView: React.FC = () => {
     }
     const fsSquad = firestoreSquads.find((s) => s.id === selectedSquadId);
     if (firebaseUser?.uid && fsSquad) {
-      void fetchSquadMemberProfiles(fsSquad.memberUids)
-        .then((memberProfiles) => {
-          setSquadMembers(memberProfiles);
+      void Promise.all([
+        fetchSquadMemberProfiles(fsSquad.memberUids),
+        api.getFocusSessions().catch(() => []),
+      ])
+        .then(([memberProfiles, localSessions]) => {
           const { weekKey } = getCurrentPeriodKeys(settings?.timezone);
+          const ownStats = aggregateFocusStatsForLeaderboard({
+            sessions: Array.isArray(localSessions) ? localSessions : [],
+            timezone: settings?.timezone,
+          });
+          const mergedProfiles = memberProfiles.map((mp) =>
+            mp.uid === firebaseUser.uid
+              ? {
+                  ...mp,
+                  todayKey: ownStats.todayKey,
+                  weekKey: ownStats.weekKey,
+                  monthKey: ownStats.monthKey,
+                  todayMinutes: Math.max(mp.todayMinutes || 0, ownStats.todayMinutes),
+                  weekMinutes: Math.max(mp.weekMinutes || 0, ownStats.weekMinutes),
+                  monthMinutes: Math.max(mp.monthMinutes || 0, ownStats.monthMinutes),
+                }
+              : mp
+          );
+          setSquadMembers(mergedProfiles);
           const goalHours = Math.max(1, fsSquad.weeklyGoalHours || 20);
           const progressStats = computeSquadChallengeProgress({
             squad: fsSquad,
-            memberProfiles,
+            memberProfiles: mergedProfiles,
             timezone: settings?.timezone,
           });
           setChallenges([
@@ -154,8 +176,12 @@ export const SocialHubView: React.FC = () => {
         .then((res) => setChallenges(res.challenges || []))
         .catch(() => setChallenges([]));
     }
+    const chatQuery =
+      firebaseUser?.uid && fsSquad
+        ? { roomId: `fs_squad_${selectedSquadId}`, limit: 25 }
+        : { squadId: selectedSquadId, limit: 25 };
     void api
-      .getSocialChat({ squadId: selectedSquadId, limit: 25 })
+      .getSocialChat(chatQuery)
       .then((res) => setChatMessages(res.messages || []))
       .catch(() => setChatMessages([]));
   }, [selectedSquadId, firestoreSquads, firebaseUser?.uid, settings?.timezone]);
@@ -194,7 +220,13 @@ export const SocialHubView: React.FC = () => {
 
   const handleLeaveSelectedSquad = async (squadId: string, squadName: string) => {
     if (!firebaseUser?.uid) return;
-    if (!window.confirm(`Leave squad "${squadName}"?`)) return;
+    const confirmed = await confirmAction({
+      title: 'Leave Study Squad?',
+      message: `Are you sure you want to leave "${squadName}"? You will need an invite code to rejoin.`,
+      confirmLabel: 'Leave Squad',
+      cancelLabel: 'Stay',
+    });
+    if (!confirmed) return;
     try {
       await leaveStudySquad(firebaseUser.uid, squadId);
       showToast(`Left squad "${squadName}"`, 'info');
@@ -207,9 +239,79 @@ export const SocialHubView: React.FC = () => {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
+    const q = searchQuery.trim().toLowerCase();
     try {
-      const res = await api.searchSocialUsers(searchQuery, 1, 10);
-      setSearchResults(res.users || []);
+      const fetchLeaderboardUsers = () =>
+        new Promise<LeaderboardProfile[]>((resolve) => {
+          let settled = false;
+          let unsub: (() => void) | null = null;
+          let shouldUnsubImmediately = false;
+          const safeUnsub = () => {
+            if (unsub) {
+              unsub();
+            } else {
+              shouldUnsubImmediately = true;
+            }
+          };
+          const timer = window.setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              safeUnsub();
+              resolve([]);
+            }
+          }, 3000);
+          unsub = subscribeGlobalLeaderboard(
+            (profiles) => {
+              if (!settled) {
+                settled = true;
+                window.clearTimeout(timer);
+                safeUnsub();
+                resolve(profiles);
+              }
+            },
+            () => {
+              if (!settled) {
+                settled = true;
+                window.clearTimeout(timer);
+                safeUnsub();
+                resolve([]);
+              }
+            }
+          );
+          if (shouldUnsubImmediately) {
+            unsub();
+          }
+        });
+
+      const allSquadMemberUids = Array.from(
+        new Set(firestoreSquads.flatMap((s) => s.memberUids || []))
+      ).filter((uid) => uid && uid !== firebaseUser?.uid);
+
+      const [apiRes, lbEntries, privateSquadProfiles] = await Promise.all([
+        api.searchSocialUsers(searchQuery, 1, 10).catch(() => ({ users: [] })),
+        firebaseUser?.uid ? fetchLeaderboardUsers() : Promise.resolve([]),
+        firebaseUser?.uid && allSquadMemberUids.length > 0
+          ? fetchSquadMemberProfiles(allSquadMemberUids).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      const merged: any[] = [...(apiRes.users || [])];
+      const seenIds = new Set(merged.map((u) => u.userId));
+      for (const entry of [...privateSquadProfiles, ...squadMembers, ...lbEntries]) {
+        if (!entry.uid || entry.uid === firebaseUser?.uid || seenIds.has(entry.uid)) continue;
+        if (!q || (entry.displayName || '').toLowerCase().includes(q)) {
+          seenIds.add(entry.uid);
+          const alreadyFriend = friends.some((f) => f.userId === entry.uid);
+          merged.push({
+            userId: entry.uid,
+            displayName: entry.displayName || 'Study Member',
+            relationshipStatus: alreadyFriend ? 'friends' : 'none',
+          });
+        }
+      }
+      setSearchResults(merged.slice(0, 10));
+      if (merged.length === 0) {
+        showToast('No matching study friends found.', 'info');
+      }
     } catch {
       showToast('Failed to search users', 'error');
     }
@@ -622,8 +724,18 @@ export const SocialHubView: React.FC = () => {
               messages={chatMessages}
               currentUserId={currentUserId}
               onSend={async (text) => {
-                const msg = await api.sendSocialChat({ squadId: selectedSquadId, text });
-                setChatMessages((prev) => [...prev, msg]);
+                try {
+                  const isFsSquad = firestoreSquads.some((s) => s.id === selectedSquadId);
+                  const msg = await api.sendSocialChat(
+                    isFsSquad
+                      ? { roomId: `fs_squad_${selectedSquadId}`, text }
+                      : { squadId: selectedSquadId, text }
+                  );
+                  setChatMessages((prev) => [...prev, msg]);
+                } catch (err: any) {
+                  showToast(err?.message || 'Unable to send chat message right now.', 'error');
+                  throw err;
+                }
               }}
               onReact={async (messageId, emoji) => {
                 const upd = await api.reactSocialChat(messageId, emoji);

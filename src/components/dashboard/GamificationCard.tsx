@@ -25,6 +25,14 @@ interface GamificationCardProps {
   focusStreakDays: number;
   bestStreakDays?: number;
   dailyFocusGoalMinutes?: number;
+  rpgOverride?: {
+    level: number;
+    rankTitle: string;
+    totalXP: number;
+    currentLevelXP: number;
+    nextLevelXP: number;
+    progressPercent: number;
+  } | null;
   compact?: boolean;
   className?: string;
 }
@@ -37,6 +45,7 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
   focusStreakDays,
   bestStreakDays,
   dailyFocusGoalMinutes,
+  rpgOverride = null,
   compact = false,
   className = '',
 }) => {
@@ -59,6 +68,13 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
 
   const visibleBadges = showAllBadges ? summary.badges : summary.badges.slice(0, 6);
 
+  const displayLevel = rpgOverride ? rpgOverride.level : summary.level;
+  const displayRankTitle = rpgOverride ? rpgOverride.rankTitle : summary.rankTitle;
+  const displayXP = rpgOverride ? rpgOverride.totalXP : summary.xp;
+  const displayCurrentLevelXP = rpgOverride ? rpgOverride.currentLevelXP : summary.currentLevelXp;
+  const displayNextLevelXP = rpgOverride ? rpgOverride.nextLevelXP : summary.nextLevelXp;
+  const displayProgressPct = rpgOverride ? rpgOverride.progressPercent : summary.levelProgressPercent;
+
   return (
     <InteractiveSurface3D maxTilt={1.5} className={`h-full ${className}`}>
       <ThemeCard className="space-y-4 h-full flex flex-col">
@@ -80,10 +96,10 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-bold text-[var(--ff-text-primary)] leading-snug break-words">
-                Level {summary.level} · {summary.rankTitle}
+                Level {displayLevel} · {displayRankTitle}
               </h3>
               <ThemeBadge tone="accent">
-                <AnimatedNumber value={summary.xp} /> XP
+                <AnimatedNumber value={displayXP} /> XP
               </ThemeBadge>
             </div>
             <p className="text-xs text-[var(--ff-text-muted)] whitespace-normal break-words leading-snug mt-0.5">
@@ -112,11 +128,11 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[var(--ff-text-muted)] mb-1">
           <span>Level Progress</span>
           <span className="font-mono whitespace-nowrap tabular-nums">
-            {summary.currentLevelXp} / {summary.nextLevelXp} XP ({summary.levelProgressPercent}%)
+            {displayCurrentLevelXP} / {displayNextLevelXP} XP ({displayProgressPct}%)
           </span>
         </div>
         <AnimatedProgressBar
-          value={summary.levelProgressPercent}
+          value={displayProgressPct}
           showShimmer={true}
           heightClass="h-2"
           ariaLabel="Level XP Progress"
