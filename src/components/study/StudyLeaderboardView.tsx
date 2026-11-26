@@ -29,7 +29,9 @@ import {
   BookOpen,
   TrendingUp,
   Radio,
+  LampDesk,
 } from 'lucide-react';
+import { SquadStudyRoom } from './SquadStudyRoom.tsx';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { DEFAULT_TIMEZONE } from '../../lib/dateTime.ts';
@@ -70,7 +72,7 @@ interface StudyLeaderboardViewProps {
 }
 
 export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focusSessions: focusSessionsProp }) => {
-  const { user, firebaseUser, settings, signInWithGoogle, showToast, refreshKey } = useApp();
+  const { user, firebaseUser, settings, signInWithGoogle, showToast, refreshKey, setCurrentTab } = useApp();
   const activeUid = firebaseUser?.uid || null;
   const timezone = settings?.timezone || DEFAULT_TIMEZONE;
   const dailyGoalMinutes = settings?.dailyFocusGoalMinutes || 120;
@@ -96,6 +98,7 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
   const focusSessions = focusSessionsProp ?? loadedSessions;
 
   const [scope, setScope] = useState<'squads' | 'global'>('squads');
+  const [viewMode, setViewMode] = useState<'leaderboard' | 'room'>('leaderboard');
   const [period, setPeriod] = useState<LeaderboardPeriod>('today');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -477,9 +480,12 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
             <ThemeBadge tone="success">Verified Pomodoro Hours</ThemeBadge>
             <ThemeBadge tone="neutral">16h/day Anti-Cheat Cap</ThemeBadge>
             {liveStudyingCount > 0 && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                {liveStudyingCount} Studying Now
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
+                <span className="relative flex w-2 h-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full w-2 h-2 bg-red-500" />
+                </span>
+                <span className="animate-pulse">{liveStudyingCount} Studying Now</span>
               </span>
             )}
           </div>
@@ -561,27 +567,56 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
           </button>
         </div>
 
-        <div className="flex items-center gap-1 bg-[var(--ff-surface-muted)] p-1 rounded-xl border border-[var(--ff-border-color)] w-fit">
-          {(
-            [
-              { id: 'today', label: 'Today' },
-              { id: 'week', label: 'This Week' },
-              { id: 'month', label: 'This Month' },
-            ] as const
-          ).map((p) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 bg-[var(--ff-surface-muted)] p-1 rounded-xl border border-[var(--ff-border-color)] w-fit">
             <button
-              key={p.id}
               type="button"
-              onClick={() => setPeriod(p.id)}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                period === p.id
+              onClick={() => setViewMode('leaderboard')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                viewMode === 'leaderboard'
                   ? 'bg-[var(--ff-surface-card)] text-[var(--ff-text-primary)] shadow-xs'
                   : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
               }`}
             >
-              {p.label}
+              <Trophy className="w-3.5 h-3.5" />
+              <span>Rankings</span>
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={() => setViewMode('room')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                viewMode === 'room'
+                  ? 'bg-[var(--ff-accent)] text-white shadow-xs'
+                  : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+              }`}
+            >
+              <LampDesk className="w-3.5 h-3.5" />
+              <span>3D Study Room</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 bg-[var(--ff-surface-muted)] p-1 rounded-xl border border-[var(--ff-border-color)] w-fit">
+            {(
+              [
+                { id: 'today', label: 'Today' },
+                { id: 'week', label: 'This Week' },
+                { id: 'month', label: 'This Month' },
+              ] as const
+            ).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPeriod(p.id)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  period === p.id
+                    ? 'bg-[var(--ff-surface-card)] text-[var(--ff-text-primary)] shadow-xs'
+                    : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -777,11 +812,30 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
             </div>
           )}
 
+          {viewMode === 'room' ? (
+            <SquadStudyRoom
+              squad={scope === 'squads' ? activeSquad : null}
+              entries={rankedEntries}
+              periodLabel={
+                effectiveSubjectFilter !== 'ALL'
+                  ? effectiveSubjectFilter
+                  : period === 'today'
+                  ? 'Today'
+                  : period === 'week'
+                  ? 'This Week'
+                  : 'This Month'
+              }
+              onCopyInvite={handleCopyInvite}
+              copiedCode={copiedCode}
+              onStartFocus={() => setCurrentTab('focus')}
+            />
+          ) : (
+            <>
           {/* Calm Bento / Linear: Live Studying Now Strip */}
           {liveStudyingEntries.length > 0 && (
-            <div className="p-3.5 rounded-2xl bg-[var(--ff-surface-card)] border border-emerald-500/25 flex flex-col sm:flex-row sm:items-center gap-2.5">
-              <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-400 shrink-0">
-                <Radio className="w-3.5 h-3.5 animate-pulse" />
+            <div className="p-3.5 rounded-2xl bg-[var(--ff-surface-card)] border border-red-500/25 flex flex-col sm:flex-row sm:items-center gap-2.5">
+              <div className="inline-flex items-center gap-2 text-xs font-semibold text-red-400 shrink-0">
+                <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
                 <span>Studying Live ({liveStudyingEntries.length})</span>
               </div>
               <div className="flex items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar">
@@ -800,7 +854,7 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
                       {entry.displayName}
                     </span>
                     <span className="text-[var(--ff-text-muted)]">•</span>
-                    <span className="text-emerald-400 font-medium max-w-[110px] truncate">
+                    <span className="text-red-400 font-medium max-w-[110px] truncate">
                       {entry.activeSubject || 'Deep Focus'}
                     </span>
                     <span className="font-mono tabular-nums text-[10px] text-[var(--ff-text-muted)]">
@@ -870,7 +924,7 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
                         </div>
                         {entry.isStudyingLive && (
                           <span
-                            className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[var(--ff-surface-card)] animate-pulse"
+                            className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-red-500 border-2 border-[var(--ff-surface-card)] animate-pulse"
                             title="Studying live right now"
                           />
                         )}
@@ -899,10 +953,13 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
                     </div>
 
                     {entry.isStudyingLive && (
-                      <div className="relative inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[10px] font-semibold text-emerald-400 w-fit max-w-full">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                      <div className="relative inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 w-fit max-w-full">
+                        <span className="relative flex w-1.5 h-1.5 shrink-0">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full w-1.5 h-1.5 bg-red-500" />
+                        </span>
                         <span className="truncate">
-                          LIVE • {entry.activeSubject || 'Deep Focus'} •{' '}
+                          <span className="animate-pulse">LIVE</span> • {entry.activeSubject || 'Deep Focus'} •{' '}
                           {entry.liveElapsedMinutes > 0 ? `${entry.liveElapsedMinutes}m` : '<1m'}
                         </span>
                       </div>
@@ -1028,7 +1085,7 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
                           </div>
                           {entry.isStudyingLive && (
                             <span
-                              className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[var(--ff-surface-card)] animate-pulse"
+                              className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-[var(--ff-surface-card)] animate-pulse"
                               title="Studying live right now"
                             />
                           )}
@@ -1044,9 +1101,12 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
                               </span>
                             )}
                             {entry.isStudyingLive && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[10px] font-semibold text-emerald-400 shrink-0">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                LIVE • {entry.activeSubject || 'Deep Focus'} •{' '}
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 shrink-0">
+                                <span className="relative flex w-1.5 h-1.5">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                                  <span className="relative inline-flex rounded-full w-1.5 h-1.5 bg-red-500" />
+                                </span>
+                                <span className="animate-pulse">LIVE</span> • {entry.activeSubject || 'Deep Focus'} •{' '}
                                 {entry.liveElapsedMinutes > 0 ? `${entry.liveElapsedMinutes}m` : '<1m'}
                               </span>
                             )}
@@ -1080,6 +1140,8 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
               </div>
             )}
           </ThemeCard>
+            </>
+          )}
         </>
       )}
 

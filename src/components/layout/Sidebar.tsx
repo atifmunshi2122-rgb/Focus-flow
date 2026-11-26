@@ -392,18 +392,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {/* Compact Tag Badge */}
                     {isExpanded && item.tag && (
                       <span
-                        className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded shrink-0 flex items-center gap-1"
-                        style={{
-                          background: isPaused ? 'rgba(245, 158, 11, 0.2)' : 'var(--ff-accent-soft)',
-                          color: isPaused ? '#f59e0b' : 'var(--ff-accent-text)',
-                        }}
+                        className={`px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded shrink-0 flex items-center gap-1 ${
+                          item.tag === 'Live' && !isPaused
+                            ? 'bg-red-500/15 text-red-500 border border-red-500/30'
+                            : ''
+                        }`}
+                        style={
+                          item.tag === 'Live' && !isPaused
+                            ? undefined
+                            : {
+                                background: isPaused ? 'rgba(245, 158, 11, 0.2)' : 'var(--ff-accent-soft)',
+                                color: isPaused ? '#f59e0b' : 'var(--ff-accent-text)',
+                              }
+                        }
                       >
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            isPaused ? 'bg-amber-500' : 'bg-[var(--ff-accent)] animate-pulse'
-                          }`}
-                        />
-                        <span>{item.tag}</span>
+                        {item.tag === 'Live' && !isPaused ? (
+                          <span className="relative flex w-1.5 h-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full w-1.5 h-1.5 bg-red-500" />
+                          </span>
+                        ) : (
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isPaused ? 'bg-amber-500' : 'bg-[var(--ff-accent)] animate-pulse'
+                            }`}
+                          />
+                        )}
+                        <span className={item.tag === 'Live' && !isPaused ? 'animate-pulse' : undefined}>
+                          {item.tag}
+                        </span>
                       </span>
                     )}
                   </motion.button>
