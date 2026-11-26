@@ -1,0 +1,2517 @@
+import React, { Component, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
+import {
+  BatteryCharging,
+  BedDouble,
+  Bot,
+  Camera,
+  Coffee,
+  Eye,
+  GraduationCap,
+  Hand,
+  Home,
+  LampDesk,
+  Laptop,
+  Maximize2,
+  Moon,
+  RefreshCw,
+  RotateCcw,
+  ShowerHead,
+  Smile,
+  Sparkles,
+  Sun,
+  Sunrise,
+  Target,
+  Timer,
+  Users,
+  Utensils,
+  Volume2,
+  VolumeX,
+  Zap,
+} from 'lucide-react';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
+import { BINAURAL_PRESETS, binauralBeatsEngine } from '../../lib/binauralBeats.ts';
+import type { AmbientPreset } from '../../lib/ambientAudio.ts';
+import {
+  DEFAULT_AVATAR_ID,
+  getAvatarCatalogEntry,
+  validateAndSanitizeAvatarConfig,
+  type UserAvatarConfig,
+} from '../../features/avatar/avatar-catalog.ts';
+import type { RoomLighting } from '../../features/study-room/customization-types.ts';
+import type { RigCapabilities } from '../../features/study-room/humanoidRigController.ts';
+import { resolveStudyAvatarIdentity } from '../../lib/studyAvatarRegistry.ts';
+import {
+  fetchSquadMemberProfiles,
+  isProfileStudyingLive,
+  listUserSquads,
+  updateUserAvatarConfig,
+} from '../../lib/leaderboardService.ts';
+import { getTodayDateString } from '../../lib/dateTime.ts';
+import type {
+  Bill,
+  ExpenseCategory,
+  ExpenseTransaction,
+  FocusSession,
+  SavingsGoal,
+  Task,
+  TimeBlock,
+} from '../../types/index.ts';
+import type { StudyExam, StudySubject, StudyTopic } from '../../types/study.ts';
+import type { DoomscrollTaxEntry, TimeCapsuleLetter } from '../../types/features15.ts';
+import {
+  HOME_ZONES,
+  computeHomeWaypointPath,
+  deriveDefaultLightingForHour,
+  deriveHomeRoutineState,
+  getZonedHourMinute,
+  type HomeZoneId,
+} from '../../features/home/homeRoutineEngine.ts';
+import {
+  MORNING_SEQUENCE_TOTAL_SECONDS,
+  buildVisitorHomeFromLeaderboardProfile,
+  buildVisitorHomeFromVaultPartner,
+  computeApartmentExpansion,
+  computeCalendarSeasonState,
+  computeDailyWrapUpStats,
+  computeDoomscrollJarState,
+  computeDoorstepDeliveries,
+  computeExamAndTargetSummary,
+  computeFlowStateStatus,
+  computeHomeUnlocks,
+  computeHydrationHabitState,
+  computeInitialSimsNeeds,
+  computeLivingBookshelfState,
+  computeLivingPlantState,
+  computeRoomCleanliness,
+  computeTimeCapsuleChestState,
+  computeVaultSafeState,
+  getMorningSequenceStep,
+  getNeedStatusLabel,
+  isHydrationOrCoffeeHabitTitle,
+  selectCorkboardTasks,
+  stepSimsNeeds,
+  summarizeTodayHabits,
+  type ApartmentExpansionState,
+  type ApartmentTierOverride,
+  type CalendarSeasonState,
+  type CorkboardTaskNote,
+  type DoomscrollJarState,
+  type DoorstepDeliveriesState,
+  type ExamCountdownSummary,
+  type FurnitureShortcutId,
+  type HomeDecorUnlocks,
+  type HydrationHabitState,
+  type LivingBookshelfSlot,
+  type LivingPlantStage,
+  type PetSpecies,
+  type SeasonOverrideMode,
+  type SimsNeedsState,
+  type TimeCapsuleChestState,
+  type VaultSafeState,
+  type VisitorHomeTarget,
+} from '../../features/home/homeFeaturesEngine.ts';
+import StudyAvatar, { preloadStudyAvatarModels, type StudyAvatarActivity } from '../study-room/StudyAvatar.tsx';
+import RoomCameraRig, { type RoomCameraMode } from '../study-room/RoomCameraRig.tsx';
+import RoomLightingController from '../study-room/RoomLightingController.tsx';
+import RoomWeatherEffects from '../study-room/RoomWeatherEffects.tsx';
+import { MyHomeApartment } from './MyHomeApartment.tsx';
+import { MyHomePet } from './MyHomePet.tsx';
+import {
+  DoomscrollJarModal,
+  DoorstepParcelMailModal,
+  EndDaySleepModal,
+  ExamAndSeasonModal,
+  KitchenDiningPopup,
+  TimeCapsuleQuickModal,
+  UpgradesAndPetModal,
+  VisitHomeModal,
+  WallSchedulePopup,
+} from './MyHomeModals.tsx';
+
+type HomeCameraPreset = 'isometric' | 'free' | 'follow' | 'desk_pov';
+
+const HOME_CAMERA_PRESETS: Record<RoomCameraMode, { position: [number, number, number]; target: [number, number, number] }> = {
+  isometric: {
+    position: [8.8, 8.6, 10.6],
+    target: [0, 0.75, -0.15],
+  },
+  free: {
+    position: [0.2, 6.2, 10.2],
+    target: [0, 0.75, -0.15],
+  },
+  cinematic: {
+    position: [6.4, 4.8, 9.2],
+    target: [0, 0.9, -0.35],
+  },
+  desk_pov: {
+    position: [-3.35, 1.34, 1.07],
+    target: [-4.55, 1.04, 0.92],
+  },
+};
+
+const ACTIVITY_LABELS: Partial<Record<StudyAvatarActivity, string>> = {
+  typing: 'Focusing on Laptop',
+  studying: 'Studying at Desk',
+  reading: 'Reading Books',
+  writing: 'Writing Notes',
+  sleeping: 'Sleeping Soundly',
+  eating: 'Enjoying a Meal',
+  coffee: 'Brewing & Sipping Coffee',
+  freshening_up: 'Freshening Up',
+  walking: 'Walking Across Room',
+  idle: 'Relaxing',
+};
+
+const LOCAL_AVATAR_STORAGE_KEY = 'ff_user_avatar_config';
+
+function shortestAngleLerp(current: number, target: number, alpha: number): number {
+  const diff = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  return current + diff * alpha;
+}
+
+function loadUserAvatarConfig(activeUid: string, settingsConfig?: UserAvatarConfig | null): UserAvatarConfig {
+  if (settingsConfig && typeof settingsConfig === 'object') {
+    return validateAndSanitizeAvatarConfig(settingsConfig);
+  }
+  try {
+    const raw = localStorage.getItem(`${LOCAL_AVATAR_STORAGE_KEY}_${activeUid}`);
+    if (raw) {
+      return validateAndSanitizeAvatarConfig(JSON.parse(raw));
+    }
+  } catch {
+    // ignore storage read error
+  }
+  return validateAndSanitizeAvatarConfig({ avatarId: DEFAULT_AVATAR_ID });
+}
+
+class HomeWebGLErrorBoundary extends Component<
+  { fallback: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
+interface HomeSceneContentProps {
+  avatarUrl: string;
+  avatarName: string;
+  customization: UserAvatarConfig['customization'];
+  isStaticUnrigged: boolean;
+  routineState: ReturnType<typeof deriveHomeRoutineState>;
+  lighting: RoomLighting;
+  cameraPreset: HomeCameraPreset;
+  resetCounter: number;
+  isWalking: boolean;
+  clutterLevel: 0 | 1 | 2 | 3;
+  lampDimFactor: number;
+  unlocks: HomeDecorUnlocks;
+  isRaining: boolean;
+  petSpecies: PetSpecies;
+  petStreakDays: number;
+  hasPetCollar: boolean;
+  hasPetBed: boolean;
+  isVisiting: boolean;
+  corkboardTasks: CorkboardTaskNote[];
+  examSummary: ExamCountdownSummary;
+  seasonState: CalendarSeasonState;
+  laptopScreen: {
+    timerLabel: string;
+    modeLabel: string;
+    isRunning: boolean;
+    progressRatio: number;
+    subtitle: string;
+  };
+  outOfRoom: { visible: boolean; label: string };
+  plantStage: LivingPlantStage;
+  vaultSafe: VaultSafeState;
+  deliveries: DoorstepDeliveriesState;
+  whiteboardPreview: { dataUrl: string | null; title?: string };
+  isFlowStateActive: boolean;
+  hasFourCycleLantern: boolean;
+  doomscrollJar: DoomscrollJarState;
+  bookshelfBooks: LivingBookshelfSlot[];
+  timeCapsuleChest: TimeCapsuleChestState;
+  isVinylPlaying: boolean;
+  hydrationState: HydrationHabitState;
+  apartmentExpansion: ApartmentExpansionState;
+  hideAvatarForPov: boolean;
+  onRegisterCapture?: (fn: (() => string) | null) => void;
+  onWalkingChange: (walking: boolean) => void;
+  onSelectZone: (zone: HomeZoneId) => void;
+  onClickFurniture: (shortcut: FurnitureShortcutId) => void;
+  onCompleteCorkboardTask: (taskId: string) => void;
+  onClickPet: () => void;
+}
+
+const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
+  avatarUrl,
+  avatarName,
+  customization,
+  isStaticUnrigged,
+  routineState,
+  lighting,
+  cameraPreset,
+  resetCounter,
+  isWalking,
+  clutterLevel,
+  lampDimFactor,
+  unlocks,
+  isRaining,
+  petSpecies,
+  petStreakDays,
+  hasPetCollar,
+  hasPetBed,
+  isVisiting,
+  corkboardTasks,
+  examSummary,
+  seasonState,
+  laptopScreen,
+  outOfRoom,
+  plantStage,
+  vaultSafe,
+  deliveries,
+  whiteboardPreview,
+  isFlowStateActive,
+  hasFourCycleLantern,
+  doomscrollJar,
+  bookshelfBooks,
+  timeCapsuleChest,
+  isVinylPlaying,
+  hydrationState,
+  apartmentExpansion,
+  hideAvatarForPov,
+  onRegisterCapture,
+  onWalkingChange,
+  onSelectZone,
+  onClickFurniture,
+  onCompleteCorkboardTask,
+  onClickPet,
+}) => {
+  const { gl, scene, camera } = useThree();
+
+  useEffect(() => {
+    onRegisterCapture?.(() => {
+      gl.render(scene, camera);
+      return gl.domElement.toDataURL('image/png');
+    });
+    return () => onRegisterCapture?.(null);
+  }, [gl, scene, camera, onRegisterCapture]);
+  const initialCfg = HOME_ZONES[routineState.zone];
+  const startPos: [number, number, number] = isStaticUnrigged ? initialCfg.approachPosition : initialCfg.anchorPosition;
+
+  const walkerRef = useRef<THREE.Group>(null);
+  const currentPosRef = useRef<[number, number, number]>([...startPos]);
+  const currentRotYRef = useRef<number>(initialCfg.targetRotationY);
+  const queueRef = useRef<Array<[number, number, number]>>([]);
+  const walkingFlagRef = useRef<boolean>(false);
+  const followPointRef = useRef<[number, number, number] | null>([...startPos]);
+  const [rigCaps, setRigCaps] = useState<RigCapabilities | null>(null);
+
+  const mountedZoneRef = useRef<HomeZoneId>(routineState.zone);
+
+  // Trigger smooth waypoint path whenever destination zone or rig type changes
+  useEffect(() => {
+    if (mountedZoneRef.current === routineState.zone && !walkingFlagRef.current) {
+      // Snap cleanly on first load or when toggling seated <-> standing fallback on same zone
+      const zoneCfg = HOME_ZONES[routineState.zone];
+      const dest = isStaticUnrigged && zoneCfg.supportsStaticStandingOnlyFallback
+        ? zoneCfg.approachPosition
+        : zoneCfg.anchorPosition;
+      const dist = Math.hypot(
+        dest[0] - currentPosRef.current[0],
+        dest[2] - currentPosRef.current[2]
+      );
+      if (dist < 0.05) return;
+    }
+
+    mountedZoneRef.current = routineState.zone;
+    const zoneCfg = HOME_ZONES[routineState.zone];
+    const nextPath = computeHomeWaypointPath(currentPosRef.current, routineState.zone, {
+      standingOnlyFallback: isStaticUnrigged && zoneCfg.supportsStaticStandingOnlyFallback,
+    });
+    queueRef.current = nextPath;
+    if (nextPath.length > 0 && !walkingFlagRef.current) {
+      walkingFlagRef.current = true;
+      onWalkingChange(true);
+    }
+  }, [routineState.zone, isStaticUnrigged, onWalkingChange]);
+
+  useFrame((_, delta) => {
+    const walker = walkerRef.current;
+    if (!walker) return;
+
+    const clampedDelta = Math.min(0.05, Math.max(0.001, delta));
+    const zoneCfg = HOME_ZONES[routineState.zone];
+    const queue = queueRef.current;
+
+    if (queue.length > 0) {
+      const target = queue[0];
+      const [cx, cy, cz] = currentPosRef.current;
+      const dx = target[0] - cx;
+      const dy = target[1] - cy;
+      const dz = target[2] - cz;
+      const horizDist = Math.hypot(dx, dz);
+      const step = 1.9 * clampedDelta;
+
+      if (horizDist <= step + 0.025) {
+        currentPosRef.current = [target[0], target[1], target[2]];
+        queue.shift();
+        if (queue.length === 0 && walkingFlagRef.current) {
+          walkingFlagRef.current = false;
+          onWalkingChange(false);
+        }
+      } else {
+        const ratio = step / horizDist;
+        currentPosRef.current = [
+          cx + dx * ratio,
+          THREE.MathUtils.lerp(cy, target[1], Math.min(1, clampedDelta * 8)),
+          cz + dz * ratio,
+        ];
+        const moveYaw = Math.atan2(dx, dz);
+        currentRotYRef.current = shortestAngleLerp(
+          currentRotYRef.current,
+          moveYaw,
+          Math.min(1, clampedDelta * 10)
+        );
+      }
+    } else {
+      // Arrived cleanly: face the zone's natural orientation
+      currentRotYRef.current = shortestAngleLerp(
+        currentRotYRef.current,
+        zoneCfg.targetRotationY,
+        Math.min(1, clampedDelta * 7)
+      );
+    }
+
+    walker.position.set(
+      currentPosRef.current[0],
+      currentPosRef.current[1],
+      currentPosRef.current[2]
+    );
+    walker.rotation.y = currentRotYRef.current;
+    followPointRef.current = currentPosRef.current;
+  });
+
+  const effectivePoseMode = isWalking
+    ? 'standing'
+    : isStaticUnrigged
+    ? 'standing'
+    : routineState.poseMode;
+
+  const effectiveActivity: StudyAvatarActivity = isWalking
+    ? 'walking'
+    : isStaticUnrigged && (routineState.poseMode === 'seated' || routineState.poseMode === 'sleeping')
+    ? 'standing'
+    : routineState.activity;
+
+  const isRigidChibi = rigCaps?.rigKind === 'rigid_node';
+  const avatarScale = isRigidChibi ? 1.18 : 1.0;
+  const modelYOffset = isRigidChibi
+    ? effectivePoseMode === 'seated'
+      ? 0.08
+      : 0.0
+    : effectivePoseMode === 'sleeping'
+    ? 0.02
+    : -0.02;
+
+  const nameplateHeight =
+    effectivePoseMode === 'sleeping'
+      ? 0.78
+      : isStaticUnrigged
+      ? 1.92
+      : isRigidChibi
+      ? 1.48
+      : 1.66;
+
+  const roomLightingMode: RoomLighting =
+    routineState.isSleeping && !isWalking ? 'night' : lighting;
+
+  return (
+    <>
+      <color attach="background" args={['#071026']} />
+      <fog attach="fog" args={['#071026', 20, 42]} />
+
+      <RoomLightingController
+        mode={roomLightingMode}
+        accentColor={routineState.isSleeping ? '#f59e0b' : '#818cf8'}
+      />
+
+      <RoomCameraRig
+        mode={cameraPreset === 'follow' ? 'isometric' : cameraPreset}
+        followEnabled={cameraPreset === 'follow'}
+        followRef={followPointRef}
+        minDistance={cameraPreset === 'desk_pov' ? 0.5 : 3.2}
+        presetsOverride={HOME_CAMERA_PRESETS}
+        resetCounter={resetCounter}
+      />
+
+      <RoomWeatherEffects
+        weather="clear"
+        ambientEffects={lighting !== 'night' && !routineState.isSleeping}
+      />
+
+      <MyHomeApartment
+        activeZone={routineState.zone}
+        lightingMode={roomLightingMode}
+        isSleeping={routineState.isSleeping && !isWalking}
+        isStudying={routineState.isStudying && !isWalking}
+        isBrewingCoffee={routineState.zone === 'kitchen' && !isWalking}
+        clutterLevel={clutterLevel}
+        lampDimFactor={lampDimFactor}
+        unlocks={unlocks}
+        isRaining={isRaining}
+        isVisiting={isVisiting}
+        corkboardTasks={corkboardTasks}
+        examSummary={examSummary}
+        seasonState={seasonState}
+        laptopScreen={laptopScreen}
+        outOfRoom={outOfRoom}
+        plantStage={plantStage}
+        vaultSafe={vaultSafe}
+        deliveries={deliveries}
+        whiteboardPreview={whiteboardPreview}
+        isFlowStateActive={isFlowStateActive}
+        hasFourCycleLantern={hasFourCycleLantern}
+        doomscrollJar={doomscrollJar}
+        bookshelfBooks={bookshelfBooks}
+        timeCapsuleChest={timeCapsuleChest}
+        isVinylPlaying={isVinylPlaying}
+        hydrationState={hydrationState}
+        apartmentExpansion={apartmentExpansion}
+        onSelectZone={onSelectZone}
+        onClickFurniture={onClickFurniture}
+        onCompleteCorkboardTask={onCompleteCorkboardTask}
+      />
+
+      <MyHomePet
+        species={petSpecies}
+        hasCollar={hasPetCollar}
+        hasLuxuryPetBed={hasPetBed}
+        activeZone={routineState.zone}
+        isWalking={isWalking}
+        avatarGroupRef={walkerRef}
+        streakDays={petStreakDays}
+        isVisiting={isVisiting}
+        onClickPet={onClickPet}
+      />
+
+      <group
+        ref={walkerRef}
+        position={startPos}
+        rotation={[0, initialCfg.targetRotationY, 0]}
+        visible={!hideAvatarForPov && !outOfRoom.visible}
+      >
+        <Suspense fallback={null}>
+          <StudyAvatar
+            modelUrl={avatarUrl}
+            name={avatarName}
+            activity={effectiveActivity}
+            position={[0, 0, 0]}
+            rotation={[0, 0, 0]}
+            scale={avatarScale}
+            modelPosition={[0, modelYOffset, 0]}
+            nameplateHeight={nameplateHeight}
+            poseMode={effectivePoseMode}
+            customization={customization}
+            isLive={routineState.isStudying && !isWalking}
+            subtitle={isWalking ? 'Walking...' : HOME_ZONES[routineState.zone].statusText}
+            onRigInspected={setRigCaps}
+          />
+        </Suspense>
+      </group>
+    </>
+  );
+};
+
+export const MyHomeView: React.FC = () => {
+  const {
+    user,
+    firebaseUser,
+    settings,
+    updateSettings,
+    isRunning,
+    timerEngine,
+    timerMode,
+    timeLeft,
+    totalDuration,
+    stopwatchElapsed,
+    startTimer,
+    pauseTimer,
+    switchTimerMode,
+    setCustomDuration,
+    ambientPreset,
+    ambientVolume,
+    setAmbientSound,
+    habits,
+    refreshKey,
+    triggerRefresh,
+    setCurrentTab,
+    showToast,
+  } = useApp();
+
+  const activeUid = firebaseUser?.uid || user?.id || 'usr_guest';
+  const userTimezone = settings?.timezone || 'Asia/Kolkata';
+
+  const [avatarConfig, setAvatarConfig] = useState<UserAvatarConfig>(() =>
+    loadUserAvatarConfig(activeUid, settings?.avatarConfig ?? null)
+  );
+
+  useEffect(() => {
+    setAvatarConfig(loadUserAvatarConfig(activeUid, settings?.avatarConfig ?? null));
+  }, [activeUid, settings?.avatarConfig]);
+
+  const userDisplayName = firebaseUser?.displayName?.trim() || user?.name?.trim() || 'You';
+  const avatarIdentity = useMemo(
+    () =>
+      resolveStudyAvatarIdentity({
+        uid: activeUid,
+        displayName: userDisplayName,
+        avatarColor: '#6366f1',
+        avatarConfig,
+      }),
+    [activeUid, userDisplayName, avatarConfig]
+  );
+  const catalogEntry = useMemo(() => getAvatarCatalogEntry(avatarIdentity.id), [avatarIdentity.id]);
+  const isStaticUnrigged = !catalogEntry.hasHumanoidSkeleton;
+
+  useEffect(() => {
+    preloadStudyAvatarModels([avatarIdentity.modelUrl]);
+  }, [avatarIdentity.modelUrl]);
+
+  // Live time-of-day clock tick every 30s (no AI calls)
+  const [clockTick, setClockTick] = useState(() => getZonedHourMinute(userTimezone));
+  useEffect(() => {
+    setClockTick(getZonedHourMinute(userTimezone));
+    const timer = setInterval(() => {
+      setClockTick(getZonedHourMinute(userTimezone));
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [userTimezone]);
+
+  // Detect live habit completions & hydration/coffee ticks
+  const [habitCompletedRecently, setHabitCompletedRecently] = useState(false);
+  const [hydrationCompletedRecently, setHydrationCompletedRecently] = useState(false);
+  const todayStr = getTodayDateString(userTimezone);
+  const completedTodayCount = useMemo(
+    () =>
+      (habits || []).filter(
+        (h) => !h.deletedAt && !h.archived && (h.completedDates || []).includes(todayStr)
+      ).length,
+    [habits, todayStr]
+  );
+  const completedHydrationTodayCount = useMemo(
+    () =>
+      (habits || []).filter(
+        (h) =>
+          !h.deletedAt &&
+          !h.archived &&
+          isHydrationOrCoffeeHabitTitle(`${h.title} ${h.category || ''}`) !== null &&
+          (h.completedDates || []).includes(todayStr)
+      ).length,
+    [habits, todayStr]
+  );
+  const prevHabitCountRef = useRef<number>(completedTodayCount);
+  const prevHydrationCountRef = useRef<number>(completedHydrationTodayCount);
+  useEffect(() => {
+    if (completedHydrationTodayCount > prevHydrationCountRef.current) {
+      setHydrationCompletedRecently(true);
+      const ht = setTimeout(() => setHydrationCompletedRecently(false), 18_000);
+      prevHydrationCountRef.current = completedHydrationTodayCount;
+      prevHabitCountRef.current = completedTodayCount;
+      return () => clearTimeout(ht);
+    }
+    prevHydrationCountRef.current = completedHydrationTodayCount;
+
+    if (completedTodayCount > prevHabitCountRef.current) {
+      setHabitCompletedRecently(true);
+      const t = setTimeout(() => setHabitCompletedRecently(false), 45_000);
+      prevHabitCountRef.current = completedTodayCount;
+      return () => clearTimeout(t);
+    }
+    prevHabitCountRef.current = completedTodayCount;
+  }, [completedTodayCount, completedHydrationTodayCount]);
+
+  // 10-second Morning Opening Sequence (plays once per morning or via replay button)
+  const [morningElapsedSec, setMorningElapsedSec] = useState<number | null>(() => {
+    try {
+      const hourNow = getZonedHourMinute(userTimezone).hour;
+      const key = `focusflow_home_morning_${activeUid}_${todayStr}`;
+      if (hourNow >= 5 && hourNow < 12 && !localStorage.getItem(key)) {
+        localStorage.setItem(key, '1');
+        return 0;
+      }
+    } catch {
+      // ignore storage error
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (morningElapsedSec === null) return;
+    if (morningElapsedSec >= MORNING_SEQUENCE_TOTAL_SECONDS) {
+      setMorningElapsedSec(null);
+      return;
+    }
+    const id = window.setInterval(() => {
+      setMorningElapsedSec((prev) =>
+        prev === null ? null : prev + 0.25 >= MORNING_SEQUENCE_TOTAL_SECONDS ? null : prev + 0.25
+      );
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [morningElapsedSec !== null]);
+
+  const activeMorningFrame = useMemo(
+    () => (morningElapsedSec === null ? null : getMorningSequenceStep(morningElapsedSec)),
+    [morningElapsedSec]
+  );
+
+  // Track uninterrupted Focus session (Flow State zero-pause detection)
+  const [wasPausedThisRun, setWasPausedThisRun] = useState(false);
+  const wasRunningRef = useRef(isRunning);
+  useEffect(() => {
+    const prevRunning = wasRunningRef.current;
+    wasRunningRef.current = isRunning;
+    if (prevRunning && !isRunning) {
+      const partialRun =
+        timerEngine === 'stopwatch'
+          ? stopwatchElapsed > 3
+          : timeLeft > 0 && timeLeft < totalDuration - 2;
+      if (partialRun) {
+        setWasPausedThisRun(true);
+      }
+    } else if (!prevRunning && isRunning) {
+      const freshRun =
+        timerEngine === 'stopwatch' ? stopwatchElapsed <= 3 : timeLeft >= totalDuration - 2;
+      if (freshRun) {
+        setWasPausedThisRun(false);
+      }
+    }
+  }, [isRunning, timerEngine, timeLeft, totalDuration, stopwatchElapsed]);
+
+  const [autoRoutine, setAutoRoutine] = useState(true);
+  const [manualZone, setManualZone] = useState<HomeZoneId>('study');
+  const [lighting, setLighting] = useState<RoomLighting>(() =>
+    deriveDefaultLightingForHour(clockTick.hour)
+  );
+  const [cameraPreset, setCameraPreset] = useState<HomeCameraPreset>('isometric');
+  const [zenPovHud, setZenPovHud] = useState(false);
+  const [resetCounter, setResetCounter] = useState(0);
+  const [isWalking, setIsWalking] = useState(false);
+  const [isBinauralPlaying, setIsBinauralPlaying] = useState(() => binauralBeatsEngine.getStatus().isPlaying);
+  const captureSceneRef = useRef<(() => string) | null>(null);
+
+  // Load real FocusFlow tasks, bills, savings goals, categories, time-blocks, sessions, expenses, exams, study OS, whiteboard, doomscroll & capsules
+  const [tasksData, setTasksData] = useState<Task[]>([]);
+  const [billsData, setBillsData] = useState<Bill[]>([]);
+  const [savingsGoalsData, setSavingsGoalsData] = useState<SavingsGoal[]>([]);
+  const [categoriesData, setCategoriesData] = useState<ExpenseCategory[]>([]);
+  const [timeBlocksData, setTimeBlocksData] = useState<TimeBlock[]>([]);
+  const [sessionsData, setSessionsData] = useState<FocusSession[]>([]);
+  const [expensesData, setExpensesData] = useState<ExpenseTransaction[]>([]);
+  const [examsData, setExamsData] = useState<StudyExam[]>([]);
+  const [subjectsData, setSubjectsData] = useState<StudySubject[]>([]);
+  const [topicsData, setTopicsData] = useState<StudyTopic[]>([]);
+  const [latestWhiteboard, setLatestWhiteboard] = useState<{ dataUrl: string | null; title?: string }>({
+    dataUrl: null,
+  });
+  const [doomscrollLogs, setDoomscrollLogs] = useState<DoomscrollTaxEntry[]>([]);
+  const [timeCapsules, setTimeCapsules] = useState<TimeCapsuleLetter[]>([]);
+  const [gamificationXP, setGamificationXP] = useState<number>(0);
+  const [gamificationStreak, setGamificationStreak] = useState<number>(0);
+
+  // Custom local preferences (Exam override, Season preview, Expansion preview)
+  const [customExamOverride, setCustomExamOverride] = useState<{ title: string; examDate: string } | null>(() => {
+    try {
+      const raw = localStorage.getItem(`focusflow_home_exam_${activeUid}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [seasonOverride, setSeasonOverride] = useState<SeasonOverrideMode>(() => {
+    try {
+      const saved = localStorage.getItem(`focusflow_home_season_${activeUid}`);
+      if (saved === 'monsoon' || saved === 'winter' || saved === 'spring_clear') return saved;
+    } catch {
+      // ignore
+    }
+    return 'auto';
+  });
+  const [apartmentTierOverride, setApartmentTierOverride] = useState<ApartmentTierOverride>(() => {
+    try {
+      const saved = localStorage.getItem(`focusflow_home_tier_${activeUid}`);
+      if (saved === 'studio' || saved === 'balcony' || saved === 'penthouse') return saved;
+    } catch {
+      // ignore
+    }
+    return 'auto';
+  });
+
+  const routineState = useMemo(() => {
+    if (activeMorningFrame) {
+      return {
+        zone: activeMorningFrame.zone,
+        activity: activeMorningFrame.activity as StudyAvatarActivity,
+        poseMode:
+          activeMorningFrame.zone === 'study'
+            ? ('seated' as const)
+            : ('standing' as const),
+        reason: activeMorningFrame.label,
+        isSleeping: false,
+        isStudying: activeMorningFrame.zone === 'study',
+      };
+    }
+    if (hydrationCompletedRecently && !isRunning) {
+      return {
+        zone: 'kitchen' as HomeZoneId,
+        activity: 'coffee' as StudyAvatarActivity,
+        poseMode: 'standing' as const,
+        reason: 'Hydration / Coffee Habit · Refreshed',
+        isSleeping: false,
+        isStudying: false,
+      };
+    }
+    return deriveHomeRoutineState({
+      isRunning,
+      timerEngine,
+      timerMode,
+      currentHour: clockTick.hour,
+      currentMinute: clockTick.minute,
+      habitCompletedRecently,
+      autoRoutine,
+      manualZone,
+      todayStr,
+      timeBlocks: timeBlocksData,
+    });
+  }, [
+    activeMorningFrame,
+    hydrationCompletedRecently,
+    isRunning,
+    timerEngine,
+    timerMode,
+    clockTick.hour,
+    clockTick.minute,
+    habitCompletedRecently,
+    autoRoutine,
+    manualZone,
+    todayStr,
+    timeBlocksData,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHomeData = async () => {
+      try {
+        const [
+          tasksRes,
+          billsRes,
+          goalsRes,
+          catsRes,
+          gamifRes,
+          blocksRes,
+          sessionsRes,
+          expensesRes,
+          examsRes,
+          subjectsRes,
+          topicsRes,
+          wbRes,
+          doomRes,
+          capsRes,
+        ] = await Promise.all([
+          api.getTasks().catch(() => [] as Task[]),
+          api.getBills().catch(() => [] as Bill[]),
+          api.getSavingsGoals().catch(() => [] as SavingsGoal[]),
+          api.getCategories().catch(() => [] as ExpenseCategory[]),
+          api.getGamificationProfile().catch(() => null),
+          api.getTimeBlocks(todayStr).catch(() => [] as TimeBlock[]),
+          api.getFocusSessions().catch(() => [] as FocusSession[]),
+          api.getExpenses().catch(() => [] as ExpenseTransaction[]),
+          api.getStudyExams().catch(() => [] as StudyExam[]),
+          api.getStudySubjects().catch(() => [] as StudySubject[]),
+          api.getStudyTopics().catch(() => [] as StudyTopic[]),
+          api.getWhiteboardDrawings().catch(() => []),
+          api.getDoomscrollLogs().catch(() => [] as DoomscrollTaxEntry[]),
+          api.getTimeCapsules().catch(() => [] as TimeCapsuleLetter[]),
+        ]);
+        if (cancelled) return;
+        setTasksData(Array.isArray(tasksRes) ? tasksRes : []);
+        setBillsData(Array.isArray(billsRes) ? billsRes : []);
+        setSavingsGoalsData(Array.isArray(goalsRes) ? goalsRes : []);
+        setCategoriesData(Array.isArray(catsRes) ? catsRes : []);
+        setTimeBlocksData(Array.isArray(blocksRes) ? blocksRes : []);
+        setSessionsData(Array.isArray(sessionsRes) ? sessionsRes : []);
+        setExpensesData(Array.isArray(expensesRes) ? expensesRes : []);
+        setExamsData(Array.isArray(examsRes) ? examsRes : []);
+        setSubjectsData(Array.isArray(subjectsRes) ? subjectsRes : []);
+        setTopicsData(Array.isArray(topicsRes) ? topicsRes : []);
+
+        // Latest Whiteboard drawing (cloud or local fallback)
+        if (Array.isArray(wbRes) && wbRes.length > 0) {
+          const sortedWb = [...wbRes].sort((a, b) =>
+            (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '')
+          );
+          setLatestWhiteboard({ dataUrl: sortedWb[0].dataUrl || null, title: sortedWb[0].title });
+        } else {
+          try {
+            const localWb = localStorage.getItem(`focusflow_${activeUid}_whiteboard_latest`);
+            setLatestWhiteboard({
+              dataUrl: localWb && localWb.startsWith('data:image/') ? localWb : null,
+              title: 'Latest Sketch',
+            });
+          } catch {
+            setLatestWhiteboard({ dataUrl: null });
+          }
+        }
+
+        // Doomscroll logs (cloud or local fallback)
+        if (Array.isArray(doomRes) && doomRes.length > 0) {
+          setDoomscrollLogs(doomRes);
+        } else {
+          try {
+            const localDoom = localStorage.getItem(`focusflow_${activeUid}_doomscroll_jar_v1`);
+            setDoomscrollLogs(localDoom ? JSON.parse(localDoom) : []);
+          } catch {
+            setDoomscrollLogs([]);
+          }
+        }
+
+        // Time capsules (cloud or local fallback)
+        if (Array.isArray(capsRes) && capsRes.length > 0) {
+          setTimeCapsules(capsRes);
+        } else {
+          try {
+            const localCaps = localStorage.getItem(`focusflow_${activeUid}_time_capsules_v1`);
+            setTimeCapsules(localCaps ? JSON.parse(localCaps) : []);
+          } catch {
+            setTimeCapsules([]);
+          }
+        }
+
+        if (gamifRes?.profile) {
+          setGamificationXP(Number(gamifRes.profile.totalXP || 0));
+          setGamificationStreak(Number(gamifRes.profile.currentStreak || gamifRes.profile.longestStreak || 0));
+        }
+      } catch {
+        // Keep safe defaults
+      }
+    };
+    void loadHomeData();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUid, refreshKey, todayStr]);
+
+  // Persistent pet species ('cat' | 'dog')
+  const [petSpecies, setPetSpecies] = useState<PetSpecies>(() => {
+    try {
+      const saved = localStorage.getItem(`focusflow_home_pet_${activeUid}`);
+      return saved === 'dog' ? 'dog' : 'cat';
+    } catch {
+      return 'cat';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`focusflow_home_pet_${activeUid}`);
+      setPetSpecies(saved === 'dog' ? 'dog' : 'cat');
+    } catch {
+      // ignore storage errors
+    }
+  }, [activeUid]);
+
+  const handleSetPetSpecies = useCallback(
+    (species: PetSpecies) => {
+      setPetSpecies(species);
+      try {
+        localStorage.setItem(`focusflow_home_pet_${activeUid}`, species);
+      } catch {
+        // ignore storage errors
+      }
+    },
+    [activeUid]
+  );
+
+  // Privacy-safe Visitor Mode State
+  const [visitingTarget, setVisitingTarget] = useState<VisitorHomeTarget | null>(null);
+  const [visitModalOpen, setVisitModalOpen] = useState(false);
+  const [visitLoading, setVisitLoading] = useState(false);
+  const [visitorList, setVisitorList] = useState<VisitorHomeTarget[]>([]);
+  const [activeShortcutModal, setActiveShortcutModal] = useState<
+    | null
+    | 'wall_schedule'
+    | 'kitchen_dining'
+    | 'upgrades'
+    | 'end_day'
+    | 'exam_season'
+    | 'parcel_mail'
+    | 'doomscroll_jar'
+    | 'time_capsule'
+  >(null);
+
+  const isVisiting = Boolean(visitingTarget);
+
+  const handleSelectZone = useCallback(
+    (zone: HomeZoneId) => {
+      if (visitingTarget) {
+        showToast?.(
+          `Viewing ${visitingTarget.displayName}'s home (Read-Only). Return home to move your avatar.`,
+          'info'
+        );
+        return;
+      }
+      setAutoRoutine(false);
+      setManualZone(zone);
+    },
+    [visitingTarget, showToast]
+  );
+
+  const openVisitHomeModal = useCallback(async () => {
+    setVisitModalOpen(true);
+    setVisitLoading(true);
+    try {
+      const byUid = new Map<string, VisitorHomeTarget>();
+
+      // 1. Firebase Study Squad members (public profile data only)
+      let publicProfileByUid = new Map<string, Awaited<ReturnType<typeof fetchSquadMemberProfiles>>[number]>();
+      if (firebaseUser?.uid) {
+        try {
+          const squads = await listUserSquads(firebaseUser.uid);
+          const allMemberUids = Array.from(
+            new Set(squads.flatMap((sq) => sq.memberUids || []).filter((id) => id && id !== activeUid))
+          );
+          if (allMemberUids.length > 0) {
+            const profiles = await fetchSquadMemberProfiles(allMemberUids);
+            publicProfileByUid = new Map(profiles.map((p) => [p.uid, p]));
+            for (const sq of squads) {
+              for (const uid of sq.memberUids || []) {
+                if (!uid || uid === activeUid || byUid.has(uid)) continue;
+                const prof = publicProfileByUid.get(uid);
+                if (!prof) continue;
+                byUid.set(
+                  uid,
+                  buildVisitorHomeFromLeaderboardProfile(prof, {
+                    source: 'squad',
+                    sourceLabel: `Squad · ${sq.name}`,
+                    isStudyingLive: isProfileStudyingLive(prof),
+                  })
+                );
+              }
+            }
+          }
+        } catch {
+          // ignore squad fetch failure
+        }
+      }
+
+      // 2. Joint Vault partners — strictly read ONLY member.uid & member.name, NEVER vault amounts
+      try {
+        const vaults = await api.getJointVaults();
+        const partnerEntries: Array<{ uid: string; name: string; vaultName: string }> = [];
+        for (const summary of vaults || []) {
+          const vaultName = summary?.vault?.name || 'Joint Vault';
+          for (const m of summary?.members || []) {
+            if (!m || m.status !== 'active' || !m.uid || m.uid === activeUid) continue;
+            partnerEntries.push({ uid: m.uid, name: m.name || 'Partner', vaultName });
+          }
+        }
+        const missingProfileUids = partnerEntries
+          .map((p) => p.uid)
+          .filter((uid) => !publicProfileByUid.has(uid));
+        if (firebaseUser?.uid && missingProfileUids.length > 0) {
+          const fetched = await fetchSquadMemberProfiles(Array.from(new Set(missingProfileUids))).catch(() => []);
+          for (const prof of fetched) {
+            publicProfileByUid.set(prof.uid, prof);
+          }
+        }
+        for (const p of partnerEntries) {
+          if (byUid.has(p.uid)) continue;
+          const pub = publicProfileByUid.get(p.uid) || null;
+          byUid.set(
+            p.uid,
+            buildVisitorHomeFromVaultPartner({
+              uid: p.uid,
+              name: p.name,
+              vaultName: p.vaultName,
+              publicProfile: pub,
+              isStudyingLive: pub ? isProfileStudyingLive(pub) : false,
+            })
+          );
+        }
+      } catch {
+        // ignore vaults fetch failure
+      }
+
+      // 3. Accepted local/social friends fallback
+      if (byUid.size === 0) {
+        try {
+          const social = await api.getSocialOverview();
+          const friends = social?.friends?.friends || [];
+          for (const f of friends) {
+            if (!f?.userId || f.userId === activeUid || byUid.has(f.userId)) continue;
+            byUid.set(f.userId, {
+              uid: f.userId,
+              displayName: f.displayName || 'Study Friend',
+              source: 'friend',
+              sourceLabel: 'Study Friend',
+              streakDays: Number(f.currentStreak || 0),
+              estimatedXP: Number(f.totalXP || 0),
+              isStudyingLive: Boolean(f.isOnline),
+              studyActivity: f.isOnline ? 'studying' : 'coffee',
+              petSpecies: Number(f.currentStreak || 0) >= 7 ? 'dog' : 'cat',
+            });
+          }
+        } catch {
+          // ignore fallback error
+        }
+      }
+
+      setVisitorList(Array.from(byUid.values()));
+    } finally {
+      setVisitLoading(false);
+    }
+  }, [activeUid, firebaseUser?.uid]);
+
+  const habitSummary = useMemo(() => summarizeTodayHabits(habits, todayStr), [habits, todayStr]);
+
+  const ownCleanliness = useMemo(
+    () =>
+      computeRoomCleanliness({
+        tasks: tasksData,
+        bills: billsData,
+        todayStr,
+      }),
+    [tasksData, billsData, todayStr]
+  );
+
+  // Privacy boundary: when visiting someone else's home, personal tasks/bills/finances NEVER appear
+  const effectiveCleanliness = useMemo(
+    () =>
+      isVisiting
+        ? {
+            overdueTasksCount: 0,
+            dueTodayTasksCount: 0,
+            unpaidBillsCount: 0,
+            overdueBillsCount: 0,
+            clutterLevel: 0 as const,
+            lampDimFactor: 1,
+            isNeatAndBright: true,
+            actionableTasks: [],
+            actionableBills: [],
+          }
+        : ownCleanliness,
+    [isVisiting, ownCleanliness]
+  );
+
+  const effectiveStreakDays = visitingTarget
+    ? visitingTarget.streakDays
+    : Math.max(gamificationStreak, habitSummary.bestHabitStreak);
+
+  const effectiveUnlocksSummary = useMemo(
+    () =>
+      computeHomeUnlocks({
+        totalXP: visitingTarget ? visitingTarget.estimatedXP : gamificationXP,
+        savingsGoals: visitingTarget ? [] : savingsGoalsData,
+        streakDays: effectiveStreakDays,
+      }),
+    [visitingTarget, gamificationXP, savingsGoalsData, effectiveStreakDays]
+  );
+
+  const effectiveRoutineState = useMemo(() => {
+    if (!visitingTarget) return routineState;
+    return visitingTarget.isStudyingLive
+      ? {
+          zone: 'study' as HomeZoneId,
+          activity: visitingTarget.studyActivity,
+          poseMode: 'seated' as const,
+          isSleeping: false,
+          isStudying: true,
+          reason: visitingTarget.activeSubject
+            ? `Live Studying · ${visitingTarget.activeSubject}`
+            : `${visitingTarget.displayName} is focusing now`,
+          isOutOfRoom: false,
+          outReason: undefined,
+          activeBlockTitle: visitingTarget.activeSubject,
+        }
+      : {
+          zone: 'dining' as HomeZoneId,
+          activity: 'coffee' as const,
+          poseMode: 'seated' as const,
+          isSleeping: false,
+          isStudying: false,
+          reason: `${visitingTarget.displayName} is taking a breather`,
+          isOutOfRoom: false,
+          outReason: undefined,
+          activeBlockTitle: undefined,
+        };
+  }, [visitingTarget, routineState]);
+
+  const effectiveAvatarIdentity = useMemo(() => {
+    if (!visitingTarget) return avatarIdentity;
+    return resolveStudyAvatarIdentity({
+      uid: visitingTarget.uid,
+      displayName: visitingTarget.displayName,
+      avatarColor: '#0ea5e9',
+      avatarConfig: visitingTarget.avatarConfig ?? null,
+    });
+  }, [visitingTarget, avatarIdentity]);
+
+  const effectiveIsStaticUnrigged = useMemo(() => {
+    const entry = getAvatarCatalogEntry(effectiveAvatarIdentity.id);
+    return !entry.hasHumanoidSkeleton;
+  }, [effectiveAvatarIdentity.id]);
+
+  // Batch 2-4 Personal OS Computations (strictly hidden/neutralized in Visit Home mode)
+  const corkboardTasks = useMemo(
+    () => (isVisiting ? [] : selectCorkboardTasks(tasksData, todayStr, 4)),
+    [isVisiting, tasksData, todayStr]
+  );
+
+  const dailyWrapUpStats = useMemo(
+    () =>
+      computeDailyWrapUpStats({
+        sessions: sessionsData,
+        expenses: expensesData,
+        habits,
+        tasks: tasksData,
+        todayStr,
+        timezone: userTimezone,
+      }),
+    [sessionsData, expensesData, habits, tasksData, todayStr, userTimezone]
+  );
+
+  const examSummary = useMemo(
+    () =>
+      computeExamAndTargetSummary({
+        exams: isVisiting ? [] : examsData,
+        todayStr,
+        todayFocusMinutes: isVisiting ? 0 : dailyWrapUpStats.focusMinutesToday,
+        dailyGoalMinutes: settings?.dailyFocusGoalMinutes || 120,
+        customExamOverride: isVisiting ? null : customExamOverride,
+      }),
+    [
+      isVisiting,
+      examsData,
+      todayStr,
+      dailyWrapUpStats.focusMinutesToday,
+      settings?.dailyFocusGoalMinutes,
+      customExamOverride,
+    ]
+  );
+
+  const seasonState = useMemo(
+    () =>
+      computeCalendarSeasonState({
+        todayStr,
+        birthDate: isVisiting ? null : settings?.birthDate,
+        isExamWeek: examSummary.isExamWeek,
+        seasonOverride: isVisiting ? 'auto' : seasonOverride,
+      }),
+    [todayStr, isVisiting, settings?.birthDate, examSummary.isExamWeek, seasonOverride]
+  );
+
+  const plantState = useMemo(
+    () =>
+      isVisiting
+        ? {
+            stage: (effectiveStreakDays >= 30
+              ? 'blooming'
+              : effectiveStreakDays >= 7
+                ? 'leafy'
+                : 'sprout') as LivingPlantStage,
+            streakDays: effectiveStreakDays,
+            daysSinceLastHabit: 0,
+            label: `${effectiveStreakDays}d Streak Plants`,
+          }
+        : computeLivingPlantState({
+            streakDays: effectiveStreakDays,
+            habits,
+            todayStr,
+          }),
+    [isVisiting, effectiveStreakDays, habits, todayStr]
+  );
+
+  const vaultSafe = useMemo(
+    () => computeVaultSafeState(isVisiting ? 0 : effectiveUnlocksSummary.bestSavingsPct),
+    [isVisiting, effectiveUnlocksSummary.bestSavingsPct]
+  );
+
+  const deliveries = useMemo(
+    () =>
+      isVisiting
+        ? {
+            hasParcel: false,
+            hasMail: false,
+            parcelCount: 0,
+            mailCount: 0,
+            recentShoppingParcels: [],
+            upcomingBills: [],
+          }
+        : computeDoorstepDeliveries({
+            expenses: expensesData,
+            bills: billsData,
+            todayStr,
+          }),
+    [isVisiting, expensesData, billsData, todayStr]
+  );
+
+  const flowStateSummary = useMemo(
+    () =>
+      isVisiting
+        ? {
+            isFlowStateActive: false,
+            elapsedUninterruptedMinutes: 0,
+            completedWorkCyclesToday: 0,
+            hasFourCycleLantern: false,
+          }
+        : computeFlowStateStatus({
+            isRunning,
+            timerMode,
+            timerEngine,
+            totalDuration,
+            timeLeft,
+            stopwatchElapsed,
+            wasPausedThisRun,
+            sessions: sessionsData,
+            todayStr,
+            timezone: userTimezone,
+          }),
+    [
+      isVisiting,
+      isRunning,
+      timerMode,
+      timerEngine,
+      totalDuration,
+      timeLeft,
+      stopwatchElapsed,
+      wasPausedThisRun,
+      sessionsData,
+      todayStr,
+      userTimezone,
+    ]
+  );
+
+  const doomscrollJarState = useMemo(
+    () =>
+      isVisiting
+        ? { totalTaxAmount: 0, totalMinutes: 0, entryCount: 0, coinCount: 0, isEmpty: true }
+        : computeDoomscrollJarState(doomscrollLogs),
+    [isVisiting, doomscrollLogs]
+  );
+
+  const bookshelfState = useMemo(
+    () =>
+      computeLivingBookshelfState({
+        subjects: isVisiting ? [] : subjectsData,
+        topics: isVisiting ? [] : topicsData,
+      }),
+    [isVisiting, subjectsData, topicsData]
+  );
+
+  const timeCapsuleChestState = useMemo(
+    () =>
+      isVisiting
+        ? {
+            totalCount: 0,
+            readyCount: 0,
+            lockedCount: 0,
+            openedCount: 0,
+            shouldGlow: false,
+            readyCapsules: [],
+            lockedCapsules: [],
+          }
+        : computeTimeCapsuleChestState({ capsules: timeCapsules, todayStr }),
+    [isVisiting, timeCapsules, todayStr]
+  );
+
+  const hydrationState = useMemo(
+    () =>
+      isVisiting
+        ? { hasHydrationHabit: false, hydratedToday: true, waterFillRatio: 0.78 }
+        : computeHydrationHabitState({ habits, todayStr }),
+    [isVisiting, habits, todayStr]
+  );
+
+  const apartmentExpansion = useMemo(
+    () =>
+      computeApartmentExpansion({
+        level: effectiveUnlocksSummary.level,
+        override: isVisiting ? 'auto' : apartmentTierOverride,
+      }),
+    [effectiveUnlocksSummary.level, isVisiting, apartmentTierOverride]
+  );
+
+  const formatTimerClock = (totalSec: number) => {
+    const mins = Math.floor(Math.max(0, totalSec) / 60);
+    const secs = Math.max(0, totalSec) % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  const laptopScreenState = useMemo(() => {
+    if (isVisiting) {
+      return {
+        timerLabel: visitingTarget?.isStudyingLive ? 'LIVE' : 'CHILL',
+        modeLabel: visitingTarget?.displayName?.slice(0, 12) || 'PARTNER',
+        isRunning: Boolean(visitingTarget?.isStudyingLive),
+        progressRatio: visitingTarget?.isStudyingLive ? 0.65 : 0.25,
+        subtitle: visitingTarget?.activeSubject || 'Shared Room',
+      };
+    }
+    const label =
+      timerEngine === 'stopwatch' ? formatTimerClock(stopwatchElapsed) : formatTimerClock(timeLeft);
+    const ratio =
+      timerEngine === 'stopwatch'
+        ? Math.min(1, stopwatchElapsed / 3600)
+        : totalDuration > 0
+          ? 1 - timeLeft / totalDuration
+          : 0;
+    const modeLabel =
+      timerMode === 'short_break' || timerEngine === 'short_break'
+        ? 'BREAK'
+        : timerMode === 'long_break' || timerEngine === 'long_break'
+          ? 'LONG BRK'
+          : isRunning
+            ? 'FOCUS'
+            : 'READY';
+    return {
+      timerLabel: label,
+      modeLabel,
+      isRunning,
+      progressRatio: Math.max(0, Math.min(1, ratio)),
+      subtitle: effectiveRoutineState.activeBlockTitle || effectiveRoutineState.reason,
+    };
+  }, [
+    isVisiting,
+    visitingTarget,
+    timerEngine,
+    stopwatchElapsed,
+    timeLeft,
+    totalDuration,
+    timerMode,
+    isRunning,
+    effectiveRoutineState,
+  ]);
+
+  // Sims-Style Needs Bars (Energy, Focus, Mood) updated deterministically every 1s
+  const needsContext = useMemo(
+    () => ({
+      isRunning,
+      timerMode,
+      timerEngine,
+      activeZone: routineState.zone,
+      activity: routineState.activity,
+      isWalking,
+      completedHabitsToday: habitSummary.completedHabitsToday,
+      totalActiveHabits: habitSummary.totalActiveHabits,
+      streakDays: effectiveStreakDays,
+      clutterLevel: ownCleanliness.clutterLevel,
+      currentHour: clockTick.hour,
+    }),
+    [
+      isRunning,
+      timerMode,
+      timerEngine,
+      routineState.zone,
+      routineState.activity,
+      isWalking,
+      habitSummary.completedHabitsToday,
+      habitSummary.totalActiveHabits,
+      effectiveStreakDays,
+      ownCleanliness.clutterLevel,
+      clockTick.hour,
+    ]
+  );
+
+  const [needs, setNeeds] = useState<SimsNeedsState>(() => computeInitialSimsNeeds(needsContext));
+  const needsCtxRef = useRef(needsContext);
+  needsCtxRef.current = needsContext;
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNeeds((prev) => stepSimsNeeds(prev, needsCtxRef.current, 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const handleTogglePetSpecies = useCallback(() => {
+    if (visitingTarget) {
+      showToast?.(`You're visiting ${visitingTarget.displayName}'s companion (Read-Only).`, 'info');
+      return;
+    }
+    const next: PetSpecies = petSpecies === 'cat' ? 'dog' : 'cat';
+    handleSetPetSpecies(next);
+    showToast?.(
+      next === 'cat' ? '🐈 Switched pet companion to Mochi (Cat)' : '🐕 Switched pet companion to Kibo (Shiba)',
+      'success'
+    );
+  }, [visitingTarget, petSpecies, handleSetPetSpecies, showToast]);
+
+  const handleClickFurniture = useCallback(
+    (shortcut: FurnitureShortcutId) => {
+      if (visitingTarget) {
+        showToast?.(
+          `Viewing ${visitingTarget.displayName}'s home (Read-Only). Return home to use shortcuts.`,
+          'info'
+        );
+        return;
+      }
+
+      if (shortcut === 'laptop') {
+        if (isRunning) {
+          pauseTimer();
+          showToast?.('Focus timer paused from Study Laptop', 'info');
+        } else {
+          if (timerMode !== 'work') {
+            switchTimerMode('work');
+          }
+          startTimer();
+          showToast?.('Focus session started from Study Desk!', 'success');
+        }
+        return;
+      }
+
+      if (shortcut === 'bookshelf') {
+        showToast?.('Opening Study OS & Syllabus...', 'info');
+        setCurrentTab('study');
+        return;
+      }
+
+      if (shortcut === 'kitchen_dining') {
+        setActiveShortcutModal('kitchen_dining');
+        return;
+      }
+
+      if (shortcut === 'wall_schedule') {
+        setActiveShortcutModal('wall_schedule');
+        return;
+      }
+
+      if (shortcut === 'window_speaker') {
+        const order: AmbientPreset[] = ['rain', 'cafe', 'drone', 'off'];
+        const currIdx = order.indexOf(ambientPreset);
+        const nextPreset = order[(currIdx + 1) % order.length];
+        void setAmbientSound(nextPreset, ambientVolume);
+        const labels: Record<AmbientPreset, string> = {
+          rain: '🌧️ Rain ambience ON (look outside the window!)',
+          cafe: '☕ Cozy Cafe chatter ON',
+          drone: '🎧 Lo-Fi Focus drone ON',
+          ocean: '🌊 Ocean waves ON',
+          off: '🔇 Ambient audio muted',
+        };
+        showToast?.(labels[nextPreset], 'info');
+        return;
+      }
+
+      if (shortcut === 'bed') {
+        setActiveShortcutModal('end_day');
+        return;
+      }
+
+      if (shortcut === 'exam_frame') {
+        setActiveShortcutModal('exam_season');
+        return;
+      }
+
+      if (shortcut === 'vault_safe') {
+        showToast?.(`🏦 ${vaultSafe.label} — Opening Savings Goals`, 'info');
+        setCurrentTab('envelopes');
+        return;
+      }
+
+      if (shortcut === 'parcel_mail') {
+        setActiveShortcutModal('parcel_mail');
+        return;
+      }
+
+      if (shortcut === 'mini_whiteboard') {
+        try {
+          sessionStorage.setItem('focusflow_study_initial_subtab', 'whiteboard');
+        } catch {
+          // ignore
+        }
+        showToast?.('✏️ Opening Rough Whiteboard Sketch Pad...', 'info');
+        setCurrentTab('study');
+        return;
+      }
+
+      if (shortcut === 'doomscroll_jar') {
+        setActiveShortcutModal('doomscroll_jar');
+        return;
+      }
+
+      if (shortcut === 'time_capsule') {
+        setActiveShortcutModal('time_capsule');
+        return;
+      }
+
+      if (shortcut === 'vinyl_player') {
+        if (binauralBeatsEngine.getStatus().isPlaying) {
+          binauralBeatsEngine.stop();
+          setIsBinauralPlaying(false);
+          showToast?.('🎵 Vinyl Turntable & Binaural Beats paused', 'info');
+        } else {
+          binauralBeatsEngine.start(BINAURAL_PRESETS[0], 0.3);
+          setIsBinauralPlaying(true);
+          showToast?.('🎵 Vinyl Spinning — Alpha Flow Binaural Beats ON!', 'success');
+        }
+        return;
+      }
+
+      if (shortcut === 'hydration_bottle') {
+        setHydrationCompletedRecently(true);
+        setTimeout(() => setHydrationCompletedRecently(false), 12_000);
+        setAutoRoutine(false);
+        setManualZone('kitchen');
+        showToast?.('💧 Drinking water in kitchen — staying hydrated!', 'success');
+        return;
+      }
+
+      if (shortcut === 'balcony_chair') {
+        setAutoRoutine(false);
+        setManualZone('dining');
+        showToast?.('🌃 Taking a balcony skyline breather!', 'info');
+      }
+    },
+    [
+      visitingTarget,
+      isRunning,
+      pauseTimer,
+      timerMode,
+      switchTimerMode,
+      startTimer,
+      setCurrentTab,
+      ambientPreset,
+      ambientVolume,
+      setAmbientSound,
+      vaultSafe.label,
+      showToast,
+    ]
+  );
+
+  const handleCompleteCorkboardTask = useCallback(
+    async (taskId: string) => {
+      if (isVisiting) return;
+      try {
+        await api.updateTask(taskId, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        });
+        setTasksData((prev) =>
+          prev.map((t) =>
+            t.id === taskId ? { ...t, status: 'completed', completedAt: new Date().toISOString() } : t
+          )
+        );
+        triggerRefresh();
+        showToast?.('✓ Task completed directly from your 3D Corkboard!', 'success');
+      } catch {
+        showToast?.('Could not mark task completed right now.', 'error');
+      }
+    },
+    [isVisiting, triggerRefresh, showToast]
+  );
+
+  const handleConfirmEndDaySleep = useCallback(() => {
+    if (isRunning) pauseTimer();
+    setLighting('night');
+    setAutoRoutine(false);
+    setManualZone('bedroom');
+    showToast?.('🌙 End Day confirmed — resting in dim moonlight mode. Good night!', 'success');
+  }, [isRunning, pauseTimer, showToast]);
+
+  const handleSaveCustomExam = useCallback(
+    (title: string, examDate: string) => {
+      const next = { title: title.trim() || 'Target Exam', examDate };
+      setCustomExamOverride(next);
+      try {
+        localStorage.setItem(`focusflow_home_exam_${activeUid}`, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      showToast?.(`Updated Exam Countdown frame: ${next.title}`, 'success');
+    },
+    [activeUid, showToast]
+  );
+
+  const handleSaveBirthDate = useCallback(
+    async (birthDate: string) => {
+      await updateSettings({ birthDate }, { silent: true });
+      triggerRefresh();
+      showToast?.('🎂 Birthday saved for Dining Table celebration!', 'success');
+    },
+    [updateSettings, triggerRefresh, showToast]
+  );
+
+  const handleChangeSeasonOverride = useCallback(
+    (mode: SeasonOverrideMode) => {
+      setSeasonOverride(mode);
+      try {
+        localStorage.setItem(`focusflow_home_season_${activeUid}`, mode);
+      } catch {
+        // ignore
+      }
+    },
+    [activeUid]
+  );
+
+  const handleChangeApartmentTierOverride = useCallback(
+    (tier: ApartmentTierOverride) => {
+      setApartmentTierOverride(tier);
+      try {
+        localStorage.setItem(`focusflow_home_tier_${activeUid}`, tier);
+      } catch {
+        // ignore
+      }
+    },
+    [activeUid]
+  );
+
+  const handleSweepDoomscrollJarToGoal = useCallback(async () => {
+    try {
+      const topGoal = savingsGoalsData[0];
+      if (topGoal && doomscrollJarState.totalTaxAmount > 0) {
+        const addedPaise = Math.round(doomscrollJarState.totalTaxAmount * 100);
+        await api.updateSavingsGoal(topGoal.id, {
+          savedPaise: (topGoal.savedPaise || 0) + addedPaise,
+        });
+      }
+      await api.clearDoomscrollLogs();
+      try {
+        localStorage.removeItem(`focusflow_${activeUid}_doomscroll_jar_v1`);
+      } catch {
+        // ignore
+      }
+      setDoomscrollLogs([]);
+      triggerRefresh();
+      showToast?.('✨ Doomscroll Tax Jar swept cleanly & jar emptied!', 'success');
+    } catch {
+      showToast?.('Could not sweep jar right now.', 'error');
+    }
+  }, [savingsGoalsData, doomscrollJarState.totalTaxAmount, activeUid, triggerRefresh, showToast]);
+
+  const handleUnsealTimeCapsule = useCallback(
+    async (capsuleId: string) => {
+      const cap = timeCapsules.find((c) => c.id === capsuleId);
+      if (!cap) return;
+      const opened: TimeCapsuleLetter = {
+        ...cap,
+        isUnlocked: true,
+        openedAt: new Date().toISOString(),
+      };
+      await api.saveTimeCapsule(opened);
+      setTimeCapsules((prev) => prev.map((c) => (c.id === capsuleId ? opened : c)));
+      triggerRefresh();
+      showToast?.(`💌 Time Capsule "${cap.title}" unsealed!`, 'success');
+    },
+    [timeCapsules, triggerRefresh, showToast]
+  );
+
+  const handleTakeRoomPostcard = useCallback(() => {
+    const snapFn = captureSceneRef.current;
+    if (!snapFn) {
+      showToast?.('3D scene is still initializing — try again in a moment.', 'info');
+      return;
+    }
+    try {
+      const dataUrl = snapFn();
+      const img = new Image();
+      img.onload = () => {
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = 1280;
+        outCanvas.height = 780;
+        const ctx = outCanvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.fillStyle = '#071026';
+        ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+
+        // Draw 3D scene snapshot cleanly into upper 680px
+        ctx.drawImage(img, 0, 0, 1280, 680);
+
+        // Sleek bottom postcard footer badge strip
+        ctx.fillStyle = '#0e1733';
+        ctx.fillRect(0, 680, 1280, 100);
+        ctx.strokeStyle = 'rgba(129, 140, 248, 0.35)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 680);
+        ctx.lineTo(1280, 680);
+        ctx.stroke();
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = 'bold 26px system-ui, -apple-system, sans-serif';
+        const ownerLabel = visitingTarget
+          ? `${visitingTarget.displayName}'s My Home`
+          : `${userDisplayName}'s My Home`;
+        ctx.fillText(ownerLabel, 36, 722);
+
+        ctx.fillStyle = '#fbbf24';
+        ctx.font = '600 18px system-ui, -apple-system, sans-serif';
+        ctx.fillText(
+          `Lv ${effectiveUnlocksSummary.level} • ${effectiveStreakDays}d Streak • ${apartmentExpansion.tierLabel} • ${seasonState.seasonLabel}`,
+          36,
+          756
+        );
+
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '600 16px system-ui, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`FocusFlow & Finance • ${todayStr}`, 1244, 742);
+
+        const pngUrl = outCanvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = pngUrl;
+        a.download = `focusflow-my-home-${todayStr}.png`;
+        a.click();
+        showToast?.('📸 Room Postcard PNG downloaded!', 'success');
+      };
+      img.src = dataUrl;
+    } catch {
+      showToast?.('Could not export Room Postcard snapshot.', 'error');
+    }
+  }, [
+    visitingTarget,
+    userDisplayName,
+    effectiveUnlocksSummary.level,
+    effectiveStreakDays,
+    apartmentExpansion.tierLabel,
+    seasonState.seasonLabel,
+    todayStr,
+    showToast,
+  ]);
+
+  const handleStartKitchenBreak = useCallback(
+    (minutes: number) => {
+      switchTimerMode('short_break', minutes);
+      setCustomDuration(minutes);
+      startTimer();
+      setAutoRoutine(false);
+      setManualZone(minutes <= 5 ? 'kitchen' : 'dining');
+      showToast?.(`☕ ${minutes}-minute recharge break started!`, 'success');
+    },
+    [switchTimerMode, setCustomDuration, startTimer, showToast]
+  );
+
+  const handleLogQuickKitchenExpense = useCallback(
+    async (payload: {
+      description: string;
+      amountRupees: number;
+      categoryId: string;
+      paymentMethod: 'upi_bank' | 'cash' | 'credit_card' | 'debit_card';
+    }) => {
+      const amountPaise = Math.round(payload.amountRupees * 100);
+      await api.createExpense({
+        type: 'variable',
+        categoryId: payload.categoryId,
+        amountPaise,
+        date: todayStr,
+        description: payload.description,
+        paymentMethod: payload.paymentMethod,
+        notes: 'Logged from My Home Kitchen/Dining',
+      });
+      triggerRefresh();
+      showToast?.(`Logged ₹${payload.amountRupees} (${payload.description})`, 'success');
+    },
+    [todayStr, triggerRefresh, showToast]
+  );
+
+  const handleSwitchToRiggedAvatar = async () => {
+    try {
+      const clean = validateAndSanitizeAvatarConfig({
+        avatarId: DEFAULT_AVATAR_ID,
+        updatedAt: Date.now(),
+      });
+      setAvatarConfig(clean);
+      try {
+        localStorage.setItem(`${LOCAL_AVATAR_STORAGE_KEY}_${activeUid}`, JSON.stringify(clean));
+      } catch {
+        // ignore storage errors
+      }
+      await updateSettings({ avatarConfig: clean }, { silent: true });
+      if (firebaseUser?.uid) {
+        await updateUserAvatarConfig(firebaseUser.uid, clean);
+      }
+      showToast?.('Switched to Yuki (Rigged) for full sit, walk & sleep animations!', 'success');
+    } catch {
+      showToast?.('Could not switch avatar right now.', 'error');
+    }
+  };
+
+  const [webglSupported] = useState(() => {
+    if (typeof document === 'undefined') return false;
+    try {
+      const c = document.createElement('canvas');
+      return Boolean(c.getContext('webgl2') || c.getContext('webgl'));
+    } catch {
+      return false;
+    }
+  });
+
+  const zoneButtons: Array<{
+    zone: HomeZoneId;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }> = [
+    { zone: 'study', label: 'Study', icon: LampDesk },
+    { zone: 'bedroom', label: 'Sleep', icon: BedDouble },
+    { zone: 'dining', label: 'Eat', icon: Utensils },
+    { zone: 'kitchen', label: 'Coffee', icon: Coffee },
+    { zone: 'washroom', label: 'Washroom', icon: ShowerHead },
+  ];
+
+  const lightingOptions: Array<{
+    mode: RoomLighting;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }> = [
+    { mode: 'afternoon', label: 'Day', icon: Sun },
+    { mode: 'sunset', label: 'Sunset', icon: Sunrise },
+    { mode: 'night', label: 'Night', icon: Moon },
+  ];
+
+  const fallbackUI = (
+    <div className="p-10 rounded-3xl border border-slate-800 bg-[#071026] text-center space-y-3 text-slate-300">
+      <Home className="w-10 h-10 mx-auto text-indigo-400" />
+      <h3 className="text-base font-bold text-white">3D Apartment Requires WebGL</h3>
+      <p className="text-xs text-slate-400 max-w-md mx-auto">
+        WebGL rendering is unavailable on this browser or hardware configuration. Enable hardware acceleration to explore My Home in 3D.
+      </p>
+    </div>
+  );
+
+  if (!webglSupported) {
+    return fallbackUI;
+  }
+
+  return (
+    <HomeWebGLErrorBoundary fallback={fallbackUI}>
+      <div className="relative w-full min-h-[540px] h-[calc(100dvh-10rem)] max-h-[780px] rounded-3xl overflow-hidden border border-indigo-500/20 bg-[#071026] shadow-2xl">
+        {/* Interactive R3F Canvas */}
+        <div className="w-full h-full cursor-grab active:cursor-grabbing">
+          <Canvas
+            shadows
+            dpr={[1, 1.5]}
+            gl={{ powerPreference: 'high-performance', antialias: true, preserveDrawingBuffer: true }}
+            camera={{ position: HOME_CAMERA_PRESETS.isometric.position, fov: 44, near: 0.1, far: 75 }}
+            style={{ width: '100%', height: '100%', touchAction: 'none' }}
+            onCreated={({ gl }) => {
+              gl.domElement.addEventListener(
+                'webglcontextlost',
+                (event) => {
+                  event.preventDefault();
+                },
+                false
+              );
+            }}
+          >
+            <HomeSceneContent
+              avatarUrl={effectiveAvatarIdentity.modelUrl}
+              avatarName={visitingTarget ? visitingTarget.displayName : userDisplayName}
+              customization={effectiveAvatarIdentity.customization}
+              isStaticUnrigged={effectiveIsStaticUnrigged}
+              routineState={effectiveRoutineState}
+              lighting={lighting}
+              cameraPreset={cameraPreset}
+              resetCounter={resetCounter}
+              isWalking={visitingTarget ? false : isWalking}
+              clutterLevel={effectiveCleanliness.clutterLevel}
+              lampDimFactor={effectiveCleanliness.lampDimFactor}
+              unlocks={effectiveUnlocksSummary.unlocks}
+              isRaining={ambientPreset === 'rain' || seasonState.showRainWindow}
+              petSpecies={visitingTarget ? visitingTarget.petSpecies : petSpecies}
+              petStreakDays={effectiveStreakDays}
+              hasPetCollar={effectiveUnlocksSummary.pet.hasCollar}
+              hasPetBed={effectiveUnlocksSummary.pet.hasLuxuryPetBed}
+              isVisiting={isVisiting}
+              corkboardTasks={corkboardTasks}
+              examSummary={examSummary}
+              seasonState={seasonState}
+              laptopScreen={laptopScreenState}
+              outOfRoom={{
+                visible: Boolean(effectiveRoutineState.isOutOfRoom),
+                label: effectiveRoutineState.outReason || 'Back Soon',
+              }}
+              plantStage={plantState.stage}
+              vaultSafe={vaultSafe}
+              deliveries={deliveries}
+              whiteboardPreview={isVisiting ? { dataUrl: null } : latestWhiteboard}
+              isFlowStateActive={flowStateSummary.isFlowStateActive}
+              hasFourCycleLantern={flowStateSummary.hasFourCycleLantern}
+              doomscrollJar={doomscrollJarState}
+              bookshelfBooks={bookshelfState.books}
+              timeCapsuleChest={timeCapsuleChestState}
+              isVinylPlaying={isBinauralPlaying || ambientPreset !== 'off'}
+              hydrationState={hydrationState}
+              apartmentExpansion={apartmentExpansion}
+              hideAvatarForPov={cameraPreset === 'desk_pov' && !isVisiting}
+              onRegisterCapture={(fn) => {
+                captureSceneRef.current = fn;
+              }}
+              onWalkingChange={setIsWalking}
+              onSelectZone={handleSelectZone}
+              onClickFurniture={handleClickFurniture}
+              onCompleteCorkboardTask={handleCompleteCorkboardTask}
+              onClickPet={handleTogglePetSpecies}
+            />
+          </Canvas>
+        </div>
+
+        {/* MORNING AWAKENING SEQUENCE OVERLAY PILL */}
+        {activeMorningFrame && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-auto flex items-center gap-3 px-4 py-2 rounded-full bg-amber-950/90 border border-amber-400/45 text-xs text-amber-100 shadow-2xl backdrop-blur-md">
+            <span>☀️ {activeMorningFrame.label}</span>
+            <button
+              type="button"
+              onClick={() => setMorningElapsedSec(null)}
+              className="px-2.5 py-0.5 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold text-[11px] transition"
+            >
+              Skip Intro
+            </button>
+          </div>
+        )}
+
+        {/* DESK POV ZEN TOGGLE */}
+        {cameraPreset === 'desk_pov' && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setZenPovHud((v) => !v)}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border backdrop-blur-md shadow-lg transition ${
+                zenPovHud
+                  ? 'bg-indigo-500/80 border-indigo-300 text-white'
+                  : 'bg-[#0e1733]/85 border-white/15 text-slate-200 hover:bg-white/10'
+              }`}
+            >
+              {zenPovHud ? 'Show Full HUD' : '🧘 Zen Focus View'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setZenPovHud(false);
+                setCameraPreset('isometric');
+              }}
+              className="px-3 py-1.5 rounded-full text-[11px] font-semibold bg-slate-950/85 hover:bg-slate-900 border border-white/15 text-slate-200 shadow-lg backdrop-blur-md"
+            >
+              Exit Desk POV
+            </button>
+          </div>
+        )}
+
+        {/* TOP-LEFT STATUS HUD */}
+        {!zenPovHud && (
+        <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 max-w-[calc(100%-2rem)] sm:max-w-sm pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-xl">
+            <span
+              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                isRunning
+                  ? 'bg-red-400 animate-pulse shadow-[0_0_10px_rgba(248,113,113,0.9)]'
+                  : routineState.isSleeping
+                  ? 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.8)]'
+                  : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+              }`}
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-white truncate">
+                <span>{HOME_ZONES[effectiveRoutineState.zone].icon}</span>
+                <span>{visitingTarget ? `${visitingTarget.displayName} · ${HOME_ZONES[effectiveRoutineState.zone].label}` : HOME_ZONES[effectiveRoutineState.zone].label}</span>
+                <span className="text-slate-400 font-normal">•</span>
+                <span className="text-amber-300 font-medium truncate">
+                  {!isVisiting && isWalking
+                    ? 'Walking...'
+                    : ACTIVITY_LABELS[effectiveRoutineState.activity] || HOME_ZONES[effectiveRoutineState.zone].statusText}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-slate-300/80 mt-0.5 truncate">
+                <span>{effectiveRoutineState.reason}</span>
+                {!isVisiting && isRunning && (
+                  <button
+                    type="button"
+                    onClick={() => setCurrentTab('focus')}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/20 text-red-200 border border-red-400/30 font-mono text-[10px] hover:bg-red-500/30"
+                  >
+                    <Timer className="w-2.5 h-2.5" />
+                    {timerEngine === 'stopwatch'
+                      ? formatTimerClock(stopwatchElapsed)
+                      : formatTimerClock(timeLeft)}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* SIMS-STYLE NEEDS BARS (Energy, Focus, Mood) */}
+          {!isVisiting && (
+            <div className="pointer-events-auto rounded-2xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 px-3.5 py-2.5 shadow-xl space-y-2">
+              <div className="grid grid-cols-3 gap-2.5">
+                {[
+                  {
+                    id: 'energy',
+                    label: 'Energy',
+                    val: needs.energy,
+                    icon: BatteryCharging,
+                    barClass:
+                      needs.energy >= 60
+                        ? 'bg-emerald-400'
+                        : needs.energy >= 30
+                        ? 'bg-amber-400'
+                        : 'bg-rose-500',
+                    textClass: 'text-emerald-300',
+                  },
+                  {
+                    id: 'focus',
+                    label: 'Focus',
+                    val: needs.focus,
+                    icon: Zap,
+                    barClass: 'bg-indigo-400',
+                    textClass: 'text-indigo-300',
+                  },
+                  {
+                    id: 'mood',
+                    label: 'Mood',
+                    val: needs.mood,
+                    icon: Smile,
+                    barClass: 'bg-pink-400',
+                    textClass: 'text-pink-300',
+                  },
+                ].map((bar) => {
+                  const BarIcon = bar.icon;
+                  const rounded = Math.round(bar.val);
+                  return (
+                    <div key={bar.id} className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="inline-flex items-center gap-1 font-semibold text-slate-200">
+                          <BarIcon className={`w-3 h-3 ${bar.textClass}`} />
+                          {bar.label}
+                        </span>
+                        <span className="font-mono text-slate-300">{rounded}%</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-slate-900/90 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${bar.barClass}`}
+                          style={{ width: `${Math.max(4, Math.min(100, rounded))}%` }}
+                          title={`${bar.label}: ${rounded}% (${getNeedStatusLabel(rounded)})`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desk Clutter, Decor, Flow State & Expansion Strip */}
+              <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-white/10 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setActiveShortcutModal('wall_schedule')}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border transition ${
+                    effectiveCleanliness.clutterLevel > 0
+                      ? 'bg-rose-500/15 border-rose-400/35 text-rose-200 hover:bg-rose-500/25'
+                      : 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/25'
+                  }`}
+                >
+                  <span>
+                    {effectiveCleanliness.clutterLevel > 0
+                      ? `Papers (${effectiveCleanliness.overdueTasksCount + effectiveCleanliness.unpaidBillsCount})`
+                      : 'Desk Neat ✨'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveShortcutModal('upgrades')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-400/30 text-indigo-200 transition"
+                >
+                  <span>
+                    Lv {effectiveUnlocksSummary.level} · Decor {effectiveUnlocksSummary.unlockedCount}/{effectiveUnlocksSummary.totalDecorCount} · {petSpecies === 'cat' ? '🐈' : '🐕'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveShortcutModal('exam_season')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 text-sky-200 transition"
+                >
+                  <Target className="w-2.5 h-2.5" />
+                  <span>
+                    {examSummary.hasExam && examSummary.daysLeft !== null
+                      ? `${examSummary.daysLeft}d Exam`
+                      : seasonState.seasonLabel}
+                  </span>
+                </button>
+                {flowStateSummary.isFlowStateActive && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-200">
+                    ✨ Flow Aura ({flowStateSummary.elapsedUninterruptedMinutes}m)
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isVisiting && isStaticUnrigged && (
+            <div className="pointer-events-auto flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-amber-950/85 backdrop-blur-md border border-amber-500/35 text-[11px] text-amber-100 shadow-lg">
+              <span className="truncate">Static mesh avatar stays standing safely.</span>
+              <button
+                type="button"
+                onClick={() => void handleSwitchToRiggedAvatar()}
+                className="shrink-0 px-2 py-1 rounded-lg bg-amber-500/25 hover:bg-amber-500/40 border border-amber-400/40 font-semibold text-amber-200 transition"
+              >
+                Use Rigged Avatar
+              </button>
+            </div>
+          )}
+        </div>
+        )}
+
+        {/* TOP-RIGHT MODE, LIGHTING & AVATAR CONTROLS */}
+        {!zenPovHud && (
+        <div className="absolute top-4 right-4 z-10 flex flex-wrap items-center justify-end gap-2">
+          {/* Auto-Routine vs Manual Toggle */}
+          <button
+            type="button"
+            onClick={() => setAutoRoutine((v) => !v)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+              autoRoutine
+                ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40 hover:bg-emerald-500/30'
+                : 'bg-amber-500/20 text-amber-200 border-amber-400/40 hover:bg-amber-500/30'
+            }`}
+            title="Toggle automatic FocusFlow schedule sync vs manual room control"
+          >
+            {autoRoutine ? <Bot className="w-3.5 h-3.5" /> : <Hand className="w-3.5 h-3.5" />}
+            <span>{autoRoutine ? 'Auto-Routine' : 'Manual Mode'}</span>
+          </button>
+
+          {/* Day / Sunset / Night Toggle */}
+          <div className="flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">
+            {lightingOptions.map((opt) => {
+              const Icon = opt.icon;
+              const active = lighting === opt.mode;
+              return (
+                <button
+                  key={opt.mode}
+                  type="button"
+                  onClick={() => setLighting(opt.mode)}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                    active
+                      ? 'bg-indigo-500/40 text-white border border-indigo-400/50'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Icon className="w-3 h-3" />
+                  <span className="hidden sm:inline">{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Visit Squad / Partner Home Button */}
+          <button
+            type="button"
+            onClick={() => void openVisitHomeModal()}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+              isVisiting
+                ? 'bg-cyan-500/25 text-cyan-100 border-cyan-400/50 hover:bg-cyan-500/35'
+                : 'bg-[#0e1733]/85 hover:bg-cyan-500/25 text-slate-200 border-white/12'
+            }`}
+            title="Visit a Study Squad member or Joint Vault partner's apartment (Privacy-Safe)"
+          >
+            <Users className="w-3.5 h-3.5 text-cyan-300" />
+            <span className="hidden md:inline">{isVisiting ? 'Switch Home' : 'Visit Home'}</span>
+          </button>
+
+          {/* Window / Ambient Audio Quick Cycle */}
+          <button
+            type="button"
+            onClick={() => handleClickFurniture('window_speaker')}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+              ambientPreset !== 'off'
+                ? 'bg-sky-500/25 text-sky-100 border-sky-400/45 hover:bg-sky-500/35'
+                : 'bg-[#0e1733]/85 hover:bg-white/10 text-slate-300 border-white/12'
+            }`}
+            title="Cycle Window Ambient Audio (Rain / Cafe / Lo-Fi / Off)"
+          >
+            {ambientPreset !== 'off' ? (
+              <Volume2 className="w-3.5 h-3.5 text-sky-300" />
+            ) : (
+              <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+            )}
+            <span className="hidden lg:inline capitalize">
+              {ambientPreset === 'off' ? 'Sound' : ambientPreset === 'drone' ? 'Lo-Fi' : ambientPreset}
+            </span>
+          </button>
+
+          {/* 1-Click End Day Sleep Ritual */}
+          {!isVisiting && (
+            <button
+              type="button"
+              onClick={() => setActiveShortcutModal('end_day')}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-indigo-500/30 text-indigo-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+              title="End Day Daily Wrap-Up & Moonlight Sleep Ritual"
+            >
+              <Moon className="w-3.5 h-3.5 text-indigo-300" />
+              <span className="hidden lg:inline">End Day</span>
+            </button>
+          )}
+
+          {/* 1-Click Room Postcard PNG Snapshot */}
+          <button
+            type="button"
+            onClick={handleTakeRoomPostcard}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-amber-500/25 text-amber-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+            title="Download Room Postcard Snapshot PNG"
+          >
+            <Maximize2 className="w-3.5 h-3.5 text-amber-300" />
+            <span className="hidden lg:inline">Postcard</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCurrentTab('avatar_studio')}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-indigo-500/30 text-slate-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+            title="Customize your 3D avatar"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+            <span className="hidden md:inline">Avatar</span>
+          </button>
+        </div>
+        )}
+
+        {/* PRIVACY-SAFE VISITOR BANNER */}
+        {visitingTarget && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-auto flex flex-wrap items-center justify-center gap-2.5 px-4 py-2 rounded-full bg-cyan-950/90 border border-cyan-400/45 text-xs text-cyan-100 shadow-2xl backdrop-blur-md">
+            <span>
+              Viewing <strong>{visitingTarget.displayName}</strong>&apos;s Apartment · Read-Only Privacy Mode ({visitingTarget.streakDays}d streak)
+            </span>
+            <button
+              type="button"
+              onClick={() => setActiveShortcutModal('upgrades')}
+              className="px-2.5 py-1 rounded-full bg-indigo-500/35 hover:bg-indigo-500/50 border border-indigo-400/45 text-indigo-100 font-semibold text-[11px] transition"
+            >
+              Decor {effectiveUnlocksSummary.unlockedCount}/{effectiveUnlocksSummary.totalDecorCount} ·{' '}
+              {visitingTarget.petSpecies === 'cat' ? '🐈' : '🐕'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisitingTarget(null)}
+              className="px-2.5 py-1 rounded-full bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold text-[11px] transition"
+            >
+              Return Home
+            </button>
+          </div>
+        )}
+
+        {/* BOTTOM NAVIGATION & CAMERA CONTROLS */}
+        <div className="absolute bottom-4 inset-x-4 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+          {/* Quick Room / Action Buttons */}
+          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-[#0e1733]/88 backdrop-blur-md border border-white/12 shadow-xl">
+            {zoneButtons.map((btn) => {
+              const Icon = btn.icon;
+              const active = routineState.zone === btn.zone;
+              return (
+                <button
+                  key={btn.zone}
+                  type="button"
+                  onClick={() => handleSelectZone(btn.zone)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                    active
+                      ? 'bg-indigo-500/45 text-white border border-indigo-400/55 shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-white/10 border border-transparent'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5 text-amber-300" />
+                  <span>{btn.label}</span>
+                </button>
+              );
+            })}
+            {!autoRoutine && (
+              <button
+                type="button"
+                onClick={() => setAutoRoutine(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 border border-emerald-400/35 transition"
+                title="Resume Auto-Routine"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Auto</span>
+              </button>
+            )}
+          </div>
+
+          {/* Camera Presets */}
+          <div className="pointer-events-auto flex items-center gap-1 p-1.5 rounded-2xl bg-[#0e1733]/88 backdrop-blur-md border border-white/12 shadow-xl">
+            {(
+              [
+                { id: 'isometric', label: 'Isometric', icon: Camera },
+                { id: 'free', label: 'Free 360°', icon: Eye },
+                { id: 'desk_pov', label: 'Desk POV', icon: Laptop },
+                { id: 'follow', label: 'Follow Character', icon: GraduationCap },
+              ] as const
+            ).map((cam) => {
+              const Icon = cam.icon;
+              const active = cameraPreset === cam.id;
+              return (
+                <button
+                  key={cam.id}
+                  type="button"
+                  onClick={() => setCameraPreset(cam.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold transition ${
+                    active
+                      ? 'bg-indigo-500/45 text-white border border-indigo-400/55'
+                      : 'text-slate-300 hover:text-white hover:bg-white/10 border border-transparent'
+                  }`}
+                >
+                  <Icon className="w-3 h-3 text-indigo-300" />
+                  <span className="hidden sm:inline">{cam.label}</span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setResetCounter((c) => c + 1)}
+              className="p-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition"
+              title="Reset camera angle"
+              aria-label="Reset camera"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* SHORTCUT & FEATURE MODALS */}
+      {activeShortcutModal === 'wall_schedule' && (
+        <WallSchedulePopup
+          cleanliness={ownCleanliness}
+          onClose={() => setActiveShortcutModal(null)}
+          onNavigateTasks={() => {
+            setActiveShortcutModal(null);
+            setCurrentTab('tasks');
+          }}
+          onNavigateBills={() => {
+            setActiveShortcutModal(null);
+            setCurrentTab('bills');
+          }}
+        />
+      )}
+
+      {activeShortcutModal === 'kitchen_dining' && (
+        <KitchenDiningPopup
+          categories={categoriesData}
+          onStartBreak={handleStartKitchenBreak}
+          onLogQuickExpense={handleLogQuickKitchenExpense}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'upgrades' && (
+        <UpgradesAndPetModal
+          unlocksSummary={effectiveUnlocksSummary}
+          petSpecies={visitingTarget ? visitingTarget.petSpecies : petSpecies}
+          onChangePetSpecies={isVisiting ? undefined : handleSetPetSpecies}
+          apartmentTierOverride={apartmentTierOverride}
+          onChangeApartmentTierOverride={isVisiting ? undefined : handleChangeApartmentTierOverride}
+          isVisiting={isVisiting}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'end_day' && (
+        <EndDaySleepModal
+          stats={dailyWrapUpStats}
+          onConfirmSleep={handleConfirmEndDaySleep}
+          onWalkOnly={() => handleSelectZone('bedroom')}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'exam_season' && (
+        <ExamAndSeasonModal
+          examSummary={examSummary}
+          todayStr={todayStr}
+          birthDate={settings?.birthDate}
+          seasonOverride={seasonOverride}
+          customExamTitle={customExamOverride?.title || ''}
+          customExamDate={customExamOverride?.examDate || ''}
+          onSaveCustomExam={handleSaveCustomExam}
+          onSaveBirthDate={handleSaveBirthDate}
+          onChangeSeasonOverride={handleChangeSeasonOverride}
+          onReplayMorningSequence={() => setMorningElapsedSec(0)}
+          onOpenStudyExams={() => {
+            try {
+              sessionStorage.setItem('focusflow_study_initial_subtab', 'exams');
+            } catch {
+              // ignore
+            }
+            setCurrentTab('study');
+          }}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'parcel_mail' && (
+        <DoorstepParcelMailModal
+          state={deliveries}
+          onNavigateTransactions={() => setCurrentTab('transactions')}
+          onNavigateBills={() => setCurrentTab('bills')}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'doomscroll_jar' && (
+        <DoomscrollJarModal
+          state={doomscrollJarState}
+          savingsGoals={savingsGoalsData}
+          onClearJarToGoal={handleSweepDoomscrollJarToGoal}
+          onOpenFullTaxJar={() => {
+            try {
+              sessionStorage.setItem('focusflow_dashboard_initial_subtab', 'doomscroll');
+            } catch {
+              // ignore
+            }
+            setCurrentTab('dashboard');
+          }}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {activeShortcutModal === 'time_capsule' && (
+        <TimeCapsuleQuickModal
+          state={timeCapsuleChestState}
+          onOpenCapsule={handleUnsealTimeCapsule}
+          onOpenFullCapsules={() => {
+            try {
+              sessionStorage.setItem('focusflow_dashboard_initial_subtab', 'timecapsule');
+            } catch {
+              // ignore
+            }
+            setCurrentTab('dashboard');
+          }}
+          onClose={() => setActiveShortcutModal(null)}
+        />
+      )}
+
+      {visitModalOpen && (
+        <VisitHomeModal
+          visitors={visitorList}
+          loading={visitLoading}
+          activeVisitorUid={visitingTarget?.uid || null}
+          onSelectVisitor={(visitor) => {
+            setVisitingTarget(visitor);
+            showToast?.(`Visiting ${visitor.displayName}'s 3D Apartment (Privacy-Safe Read-Only)`, 'info');
+          }}
+          onReturnHome={() => {
+            setVisitingTarget(null);
+            showToast?.('Returned to your apartment', 'success');
+          }}
+          onClose={() => setVisitModalOpen(false)}
+        />
+      )}
+    </HomeWebGLErrorBoundary>
+  );
+};
+
+export default MyHomeView;
+

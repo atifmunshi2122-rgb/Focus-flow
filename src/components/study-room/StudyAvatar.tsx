@@ -14,6 +14,7 @@ import { useStudyAvatarAnimation } from '../../features/study-room/useStudyAvata
 import {
   applyHumanoidProceduralPose,
   inspectRigCapabilities,
+  type ProceduralPoseActivity,
   type RigCapabilities,
 } from '../../features/study-room/humanoidRigController.ts';
 import {
@@ -28,7 +29,7 @@ export type { StudyActivity };
 
 type Vector3Tuple = [number, number, number];
 
-export type StudyAvatarActivity = StudyActivity | 'walking' | 'standing';
+export type StudyAvatarActivity = ProceduralPoseActivity;
 
 export interface StudyAvatarProps {
   modelUrl: string;
@@ -40,7 +41,7 @@ export interface StudyAvatarProps {
   modelPosition?: Vector3Tuple;
   nameplateHeight?: number;
   showNameplate?: boolean;
-  poseMode?: 'standing' | 'seated';
+  poseMode?: 'standing' | 'seated' | 'sleeping';
   animationOverrides?: Partial<Record<StudyActivity, string>>;
   customization?: UserAvatarCustomization;
   isLive?: boolean;
@@ -229,7 +230,23 @@ function StudyAvatarMesh({
   }, [emoteEvent]);
 
   const clipActivity: StudyActivity =
-    activity === 'walking' || activity === 'standing' ? 'idle' : activity;
+    activity === 'walking' || activity === 'standing'
+      ? 'idle'
+      : activity === 'sleeping' || activity === 'eating' || activity === 'coffee' || activity === 'freshening_up'
+      ? 'break'
+      : activity;
+
+  // Never let baked GLB sitting clips block procedural seated/sleeping/walking/home poses
+  const forceProceduralPose =
+    Boolean(activeEmote) ||
+    poseMode === 'seated' ||
+    poseMode === 'sleeping' ||
+    activity === 'walking' ||
+    activity === 'standing' ||
+    activity === 'sleeping' ||
+    activity === 'eating' ||
+    activity === 'coffee' ||
+    activity === 'freshening_up';
 
   const { animationName } = useStudyAvatarAnimation({
     actions,
@@ -237,13 +254,16 @@ function StudyAvatarMesh({
     activity: clipActivity,
     preferredAnimation: animationOverrides?.[clipActivity],
     activeEmote,
+    enabled: !forceProceduralPose,
   });
 
   // Reusable rig-capability-aware animation controller
   useFrame(({ clock }, delta) => {
     if (!modelGroupRef.current) return;
-    if (animationName && !activeEmote) {
+    if (animationName && !forceProceduralPose) {
       modelGroupRef.current.position.y = modelPosition[1];
+      modelGroupRef.current.rotation.x = 0;
+      modelGroupRef.current.rotation.z = 0;
       return;
     }
     applyHumanoidProceduralPose({
@@ -259,6 +279,7 @@ function StudyAvatarMesh({
   });
 
   const emoteMeta = activeEmote ? EMOTE_META[activeEmote] : null;
+  const isSleeping = poseMode === 'sleeping' || activity === 'sleeping';
 
   return (
     <group
@@ -280,6 +301,12 @@ function StudyAvatarMesh({
       {showNameplate && (
         <Html position={[0, nameplateHeight, 0]} center distanceFactor={8} zIndexRange={[20, 0]}>
           <div className="flex flex-col items-center pointer-events-none">
+            {isSleeping && !emoteMeta && (
+              <div className="avatar-sleeping-zzz">
+                <span>💤</span>
+                <span>Zzz...</span>
+              </div>
+            )}
             {emoteMeta && (
               <div className="avatar-emote-burst">
                 <span>{emoteMeta.icon}</span>

@@ -372,6 +372,8 @@ export function searchUniversalWorkspace(
     { tab: 'vaults', label: 'Couple Shared Vaults', desc: 'Shared savings goals, partner splits & contributions', icon: 'Heart' },
     { tab: 'study', label: 'Study OS & Academic Intelligence', desc: 'Syllabus mastery, Ebbinghaus spaced repetitions & mistake notebook', shortcut: 'Alt+9', icon: 'GraduationCap' },
     { tab: 'leaderboard', label: 'Study Leaderboard & Squads', desc: 'Private study squads, live presence, weekly challenges & subject rankings', shortcut: 'Alt+L', icon: 'Trophy' },
+    { tab: 'my_home', label: 'My Home (Virtual Life Room)', desc: 'Interactive 3D apartment synced with your live focus & daily schedule', icon: 'Home' },
+    { tab: 'avatar_studio', label: '3D Avatar Studio', desc: 'Customize your 3D study & home character appearance', icon: 'Sparkles' },
     { tab: 'sheet_hub', label: 'Universal Sheet Sync Hub', desc: 'Connect Google Sheets, two-way habit sync & live sheet views', icon: 'FileSpreadsheet' },
     { tab: 'analytics', label: 'Analytics & Visual Intelligence', desc: '12-month trend charts, savings rates, financial analytics & KPI reports', shortcut: 'Alt+7', icon: 'BarChart3' },
     { tab: 'exports', label: 'Export Center', desc: 'PDF, CSV, Markdown & executive report exports', icon: 'Download' },

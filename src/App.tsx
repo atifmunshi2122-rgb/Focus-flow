@@ -56,6 +56,7 @@ const StudyLeaderboardView = lazyWithRetry(() => import('./components/study/Stud
 const GamificationHubView = lazyWithRetry(() => import('./components/gamification/GamificationHubView.tsx').then((m) => ({ default: m.GamificationHubView })));
 const SocialHubView = lazyWithRetry(() => import('./components/social/SocialHubView.tsx').then((m) => ({ default: m.SocialHubView })));
 const SmartPlannerHubView = lazyWithRetry(() => import('./components/planner/SmartPlannerHubView.tsx').then((m) => ({ default: m.SmartPlannerHubView })));
+const MyHomeView = lazyWithRetry(() => import('./components/home/MyHomeView.tsx').then((m) => ({ default: m.MyHomeView })));
 const AvatarStudioView = lazyWithRetry(() => import('./components/avatar/AvatarStudioView.tsx').then((m) => ({ default: m.AvatarStudioView })));
 const AvatarQAView = import.meta.env.DEV
   ? lazyWithRetry(() => import('./components/avatar/AvatarQAView.tsx').then((m) => ({ default: m.AvatarQAView })))
@@ -94,6 +95,7 @@ import {
   LogOut,
   Users,
   Sparkles,
+  Home,
 } from 'lucide-react';
 
 const PRIMARY_MOBILE_TABS: NavTab[] = ['dashboard', 'focus', 'tasks', 'finance'];
@@ -114,6 +116,7 @@ const MOBILE_MORE_SECTIONS: Array<{ title: string; items: MobileMoreItem[] }> = 
       { id: 'clock', label: 'Real Clock', shortLabel: 'Clock', icon: Clock },
       { id: 'timeblocks', label: 'Time Blocks', shortLabel: 'Blocks', icon: Clock },
       { id: 'planner', label: 'Smart Planner', shortLabel: 'Planner', icon: Calendar, badge: 'Auto' },
+      { id: 'my_home', label: 'My Home', shortLabel: 'Home', icon: Home, badge: '3D' },
       { id: 'avatar_studio', label: 'Avatar Studio', shortLabel: 'Avatar', icon: Sparkles, badge: '3D' },
     ],
   },
@@ -503,6 +506,7 @@ const MainContent: React.FC = () => {
                   {currentTab === 'social' && <SocialHubView />}
 
                   {currentTab === 'planner' && <SmartPlannerHubView />}
+                  {currentTab === 'my_home' && <MyHomeView />}
                   {currentTab === 'avatar_studio' && <AvatarStudioView />}
                   {import.meta.env.DEV && AvatarQAView && currentTab === 'avatar_qa' && <AvatarQAView />}
 

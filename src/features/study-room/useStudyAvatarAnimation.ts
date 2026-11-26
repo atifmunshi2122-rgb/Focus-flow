@@ -18,6 +18,7 @@ interface UseStudyAvatarAnimationProps {
   preferredAnimation?: string;
   activeEmote?: AvatarEmote | null;
   preferredEmoteAnimation?: string;
+  enabled?: boolean;
 }
 
 export function useStudyAvatarAnimation({
@@ -27,23 +28,30 @@ export function useStudyAvatarAnimation({
   preferredAnimation,
   activeEmote = null,
   preferredEmoteAnimation,
+  enabled = true,
 }: UseStudyAvatarAnimationProps) {
   const currentAction = useRef<AnimationAction | null>(null);
 
   const animationName = useMemo(
-    () => findAnimation(names, activity, preferredAnimation),
-    [names, activity, preferredAnimation]
+    () => (enabled ? findAnimation(names, activity, preferredAnimation) : undefined),
+    [enabled, names, activity, preferredAnimation]
   );
 
   const emoteAnimationName = useMemo(
-    () => (activeEmote ? findEmoteAnimation(names, activeEmote, preferredEmoteAnimation) : undefined),
-    [names, activeEmote, preferredEmoteAnimation]
+    () => (enabled && activeEmote ? findEmoteAnimation(names, activeEmote, preferredEmoteAnimation) : undefined),
+    [enabled, names, activeEmote, preferredEmoteAnimation]
   );
 
-  const targetClipName = emoteAnimationName || animationName;
+  const targetClipName = enabled ? emoteAnimationName || animationName : undefined;
 
   useEffect(() => {
-    if (!targetClipName) return;
+    if (!enabled || !targetClipName) {
+      if (currentAction.current) {
+        currentAction.current.stop();
+        currentAction.current = null;
+      }
+      return;
+    }
 
     const nextAction = actions[targetClipName];
     if (!nextAction) return;
@@ -62,7 +70,7 @@ export function useStudyAvatarAnimation({
     previousAction?.fadeOut(0.25);
 
     currentAction.current = nextAction;
-  }, [targetClipName, actions, activeEmote]);
+  }, [enabled, targetClipName, actions, activeEmote]);
 
   useEffect(() => {
     return () => {

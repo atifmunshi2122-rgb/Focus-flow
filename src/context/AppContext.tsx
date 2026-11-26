@@ -87,6 +87,7 @@ export type NavTab =
   | 'gamification'
   | 'social'
   | 'planner'
+  | 'my_home'
   | 'avatar_studio'
   | 'avatar_qa'
   | 'finance'
@@ -114,6 +115,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'gamification',
   'social',
   'planner',
+  'my_home',
   'avatar_studio',
   ...(import.meta.env?.DEV ? (['avatar_qa'] as const) : []),
   'finance',
@@ -1375,70 +1377,134 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   // Expired Timer Recovery helper (Tab reopen or sleep/wake completion)
-  const finalizeExpiredSession = useCallback((timerState: InitialTimerStateResult, targetUserId?: string | null) => {
-    if (!timerState.isExpired || timerState.timerMode !== 'work' || !timerState.sessionStartTime) {
-      return;
-    }
-    const startedAt = timerState.sessionStartTime;
-    const endedAt = timerState.targetEndTimeMs
-      ? new Date(timerState.targetEndTimeMs).toISOString()
-      : new Date().toISOString();
-    const safeDurationSecs = Math.max(60, Math.round(timerState.totalDuration || 1500));
-    const durationMin = Math.max(1, Math.round(safeDurationSecs / 60));
+  const finalizeExpiredSession = useCallback(
+    (timerState: InitialTimerStateResult, targetUserId?: string | null) => {
+      if (!timerState.isExpired || timerState.timerMode !== 'work' || !timerState.sessionStartTime) {
+        return;
+      }
+      const startedAt = timerState.sessionStartTime;
+      const endedAt = timerState.targetEndTimeMs
+        ? new Date(timerState.targetEndTimeMs).toISOString()
+        : new Date().toISOString();
+      const safeDurationSecs = Math.max(60, Math.round(timerState.totalDuration || 1500));
+      const durationMin = Math.max(1, Math.round(safeDurationSecs / 60));
 
-    const completionKey = `comp_expired_${timerState.activeSessionId || startedAt}_${durationMin}`;
-    const storage = typeof window !== 'undefined' ? window.localStorage : null;
-    const isLeader = acquireCompletionLock(completionKey, storage);
-    if (!isLeader) {
-      clearTimerState(storage, targetUserId);
-      return;
-    }
+      const completionKey = `comp_expired_${timerState.activeSessionId || startedAt}_${durationMin}`;
+      const storage = typeof window !== 'undefined' ? window.localStorage : null;
+      const isLeader = acquireCompletionLock(completionKey, storage);
+      if (!isLeader) {
+        clearTimerState(storage, targetUserId);
+        return;
+      }
 
-    const persistPromise = timerState.activeSessionId
-      ? api
-          .updateFocusSession(timerState.activeSessionId, {
-            completed: true,
-            status: 'completed',
-            actualDurationSeconds: safeDurationSecs,
-            endedAt,
-            endReason: 'completed',
-          })
-          .catch(console.warn)
-      : api
-          .createFocusSession({
-            mode: 'work',
-            durationMinutes: durationMin,
-            durationSeconds: safeDurationSecs,
-            actualDurationSeconds: safeDurationSecs,
-            completed: true,
-            status: 'completed',
-            endReason: 'completed',
-            startedAt,
-            endedAt,
-            taskId: timerState.activeTaskId || undefined,
-            subjectCode: timerState.activeStudySubjectCode || undefined,
-            topicId: timerState.activeStudyTopicId || undefined,
-            activityType: timerState.activeStudyActivityType || undefined,
-          })
-          .catch(console.warn);
+      const fallbackCreatePayload = {
+        ...(timerState.activeSessionId ? { id: timerState.activeSessionId } : {}),
+        mode: 'work' as const,
+        durationMinutes: durationMin,
+        durationSeconds: safeDurationSecs,
+        actualDurationSeconds: safeDurationSecs,
+        completed: true,
+        status: 'completed' as const,
+        endReason: 'completed' as const,
+        startedAt,
+        endedAt,
+        taskId: timerState.activeTaskId || undefined,
+        subjectCode: timerState.activeStudySubjectCode || undefined,
+        topicId: timerState.activeStudyTopicId || undefined,
+        activityType:
+          timerState.activeStudyActivityType ||
+          (timerState.activeStudySubjectCode || timerState.activeStudyTopicId ? 'study' : undefined),
+      };
 
-    const syncUid = targetUserId || auth.currentUser?.uid;
-    if (syncUid) {
+      const persistPromise: Promise<FocusSession> = timerState.activeSessionId
+        ? api
+            .updateFocusSession(timerState.activeSessionId, {
+              mode: 'work',
+              durationMinutes: durationMin,
+              durationSeconds: safeDurationSecs,
+              startedAt,
+              completed: true,
+              status: 'completed',
+              actualDurationSeconds: safeDurationSecs,
+              endedAt,
+              endReason: 'completed',
+              taskId: timerState.activeTaskId || undefined,
+              subjectCode: timerState.activeStudySubjectCode || undefined,
+              topicId: timerState.activeStudyTopicId || undefined,
+              activityType: fallbackCreatePayload.activityType,
+            })
+            .catch(() => api.createFocusSession(fallbackCreatePayload))
+        : api.createFocusSession(fallbackCreatePayload);
+
       void persistPromise
-        .then(() => api.getFocusSessions())
-        .then((allSessions) =>
-          syncUserLeaderboardStats({
-            uid: syncUid,
-            displayName: auth.currentUser?.displayName || undefined,
-            sessions: Array.isArray(allSessions) ? allSessions : [],
-            timezone: settingsRef.current?.timezone,
-            onlyIfExists: true,
-          })
-        )
-        .catch(() => {});
-    }
-    clearTimerState(storage, targetUserId);
-  }, []);
+        .then(async (savedSession: FocusSession) => {
+          clearTimerState(storage, targetUserId);
+
+          if (timerState.activeStudyTopicId && timerState.activeStudyActivityType === 'practice') {
+            api.saveStudyTopic({ id: timerState.activeStudyTopicId, practice: true }).catch(console.warn);
+          } else if (timerState.activeStudyTopicId && timerState.activeStudyActivityType === 'theory') {
+            api.saveStudyTopic({ id: timerState.activeStudyTopicId, theory: true }).catch(console.warn);
+          }
+
+          const syncUid = targetUserId || auth.currentUser?.uid;
+          if (syncUid) {
+            void api
+              .getFocusSessions()
+              .then((allSessions) =>
+                syncUserLeaderboardStats({
+                  uid: syncUid,
+                  displayName: auth.currentUser?.displayName || undefined,
+                  sessions: Array.isArray(allSessions) ? allSessions : [savedSession],
+                  timezone: settingsRef.current?.timezone,
+                  onlyIfExists: true,
+                })
+              )
+              .catch(() => {});
+          }
+
+          if (durationMin >= 5 && savedSession?.id) {
+            void api
+              .awardXP({
+                eventId: `focus_${savedSession.id}`,
+                source: 'focus_session',
+                sourceId: savedSession.id,
+              })
+              .catch(() => {});
+          }
+
+          triggerRefresh();
+          showToast(`Recovered & saved ${durationMin} min focus session!`, 'success');
+
+          try {
+            await syncCoordinator.syncMutation(
+              'Focus_Sessions',
+              [
+                savedSession.id,
+                savedSession.startedAt.split('T')[0],
+                'WORK',
+                savedSession.durationMinutes,
+                savedSession.taskTitle ||
+                  (savedSession.subjectCode
+                    ? `Study: ${savedSession.subjectCode}${savedSession.activityType ? ` (${savedSession.activityType})` : ''}`
+                    : 'Focus Session'),
+                'YES',
+                savedSession.startedAt,
+                savedSession.endedAt,
+              ],
+              'append',
+              `Focus_Sessions_append_${savedSession.id}`
+            );
+          } catch (syncErr) {
+            console.warn('[Focus] Sheets sync deferred after expired session recovery:', syncErr);
+          }
+        })
+        .catch((err) => {
+          console.error('[Focus] Failed to recover expired focus session:', err);
+          showToast('Could not save completed background focus session. Please check your connection.', 'error');
+        });
+    },
+    [triggerRefresh, showToast]
+  );
 
   // Expired Timer Recovery (Tab reopen or sleep/wake completion for initial guest/fallback timer)
   useEffect(() => {
@@ -2543,27 +2609,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ).catch(() => {});
       }
 
-      await syncCoordinator.syncMutation(
-        'Focus_Sessions',
-        [
-          created.id,
-          created.startedAt.split('T')[0],
-          'WORK',
-          created.durationMinutes,
-          created.taskTitle ||
-            (created.subjectCode
-              ? `Study: ${created.subjectCode}${created.activityType ? ` (${created.activityType})` : ''}`
-              : 'Stopwatch Focus'),
-          'YES',
-          created.startedAt,
-          created.endedAt,
-        ],
-        'append',
-        `Focus_Sessions_append_${created.id}`
-      );
       resetTimer();
       triggerRefresh();
       showToast(`Logged ${mins} min stopwatch focus session!`, 'success');
+
+      if (mins >= 5 && created?.id) {
+        void api
+          .awardXP({
+            eventId: `focus_${created.id}`,
+            source: 'focus_session',
+            sourceId: created.id,
+          })
+          .then((xpRes) => {
+            if (xpRes?.awarded && xpRes.xpAdded > 0) {
+              showToast(
+                xpRes.leveledUp
+                  ? `+${xpRes.xpAdded} XP · Level Up to Lv.${xpRes.newLevel}! 🎉`
+                  : `+${xpRes.xpAdded} XP earned!`,
+                'success'
+              );
+            }
+          })
+          .catch(() => {});
+      }
+
+      try {
+        await syncCoordinator.syncMutation(
+          'Focus_Sessions',
+          [
+            created.id,
+            created.startedAt.split('T')[0],
+            'WORK',
+            created.durationMinutes,
+            created.taskTitle ||
+              (created.subjectCode
+                ? `Study: ${created.subjectCode}${created.activityType ? ` (${created.activityType})` : ''}`
+                : 'Stopwatch Focus'),
+            'YES',
+            created.startedAt,
+            created.endedAt,
+          ],
+          'append',
+          `Focus_Sessions_append_${created.id}`
+        );
+      } catch (syncErr) {
+        console.warn('[Focus] Sheets sync deferred after stopwatch save:', syncErr);
+      }
     } catch {
       showToast('Failed to log stopwatch session', 'error');
     }
@@ -2837,6 +2928,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               // Refresh UI immediately once session is saved in Firestore/local DB
               refreshNow();
 
+              if ((newSession.durationMinutes || durationMin) >= 5 && newSession?.id) {
+                void api
+                  .awardXP({
+                    eventId: `focus_${newSession.id}`,
+                    source: 'focus_session',
+                    sourceId: newSession.id,
+                  })
+                  .then((xpRes) => {
+                    if (xpRes?.awarded && xpRes.xpAdded > 0) {
+                      toastNow(
+                        xpRes.leveledUp
+                          ? `+${xpRes.xpAdded} XP · Level Up to Lv.${xpRes.newLevel}! 🎉`
+                          : `+${xpRes.xpAdded} XP earned!`,
+                        'success'
+                      );
+                    }
+                  })
+                  .catch(() => {});
+              }
+
               try {
                 await syncCoordinator.syncMutation(
                   'Focus_Sessions',
@@ -2856,6 +2967,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   'append',
                   `Focus_Sessions_append_${newSession.id}`
                 );
+                if (sheetIdNow && syncCoordinator.getState().status === 'auth_required') {
+                  toastNow('Session saved! Re-authorize Google Sheets in Settings to sync to your sheet.', 'info');
+                }
               } catch (syncErr) {
                 console.warn('[Focus] Sheets sync deferred after session save:', syncErr);
               }
@@ -3015,6 +3129,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               typeof window !== 'undefined' ? window.localStorage : null,
               fbUserNow?.uid
             );
+            broadcastTimerEvent({
+              type: 'TIMER_SYNC_START',
+              payload: {
+                targetEndTimeMs: targetEnd,
+                stopwatchStartMs: null,
+                totalDuration: workSecs,
+                timerMode: 'work',
+                timerEngine,
+                sessionStartTime: startIso,
+                activeSessionId: newSessId,
+                activePresetId: activePresetIdRef.current,
+                activeTaskId: taskNow,
+                activeStudySubjectCode: studySubjectNow,
+                activeStudyTopicId: studyTopicNow,
+                activeStudyActivityType: studyActivityNow,
+              },
+            });
+            setTimerSyncVersion((v) => v + 1);
             setIsRunning(true);
           }, 1000);
         }
@@ -3209,6 +3341,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       gamification: 'Study RPG & XP',
       social: 'Social & Squads',
       planner: 'Smart Study Planner',
+      my_home: 'My Home (3D Virtual Life)',
       avatar_studio: '3D Avatar Studio',
       avatar_qa: 'Avatar Visual QA (Dev)',
       finance: 'Finance Overview',

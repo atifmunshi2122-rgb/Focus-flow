@@ -172,7 +172,18 @@ export const StudyView: React.FC = () => {
   const cachedPlanTasks = clientDataCache.getStudyPlanTasks();
   const hasCachedStudy = Boolean(cachedSubs && cachedSubs.length > 0);
 
-  const [activeSubTab, setActiveSubTab] = useState<StudySubTab>('syllabus');
+  const [activeSubTab, setActiveSubTab] = useState<StudySubTab>(() => {
+    try {
+      const requested = sessionStorage.getItem('focusflow_study_initial_subtab');
+      if (requested) {
+        sessionStorage.removeItem('focusflow_study_initial_subtab');
+        return requested as StudySubTab;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return 'syllabus';
+  });
   const [selectedTier, setSelectedTier] = useState<string>('all');
   const [selectedSubjectCode, setSelectedSubjectCode] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');

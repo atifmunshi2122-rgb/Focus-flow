@@ -183,7 +183,18 @@ export const UnifiedDashboard: React.FC<UnifiedDashboardProps> = ({ onOpenQuickA
   const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
   const [activeProductivitySubTab, setActiveProductivitySubTab] = useState<
     'overview' | 'decisions' | 'doomscroll' | 'lifegrid' | 'timecapsule'
-  >('overview');
+  >(() => {
+    try {
+      const requested = sessionStorage.getItem('focusflow_dashboard_initial_subtab');
+      if (requested === 'decisions' || requested === 'doomscroll' || requested === 'lifegrid' || requested === 'timecapsule') {
+        sessionStorage.removeItem('focusflow_dashboard_initial_subtab');
+        return requested;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return 'overview';
+  });
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const studyFetchedForRefreshRef = useRef<number>(-1);
 
