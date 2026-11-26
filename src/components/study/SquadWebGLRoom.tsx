@@ -78,7 +78,10 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
   onUserDrag,
 }) => {
   const palette = ROOM_THEME_PALETTES[customization.theme] || ROOM_THEME_PALETTES.cozy;
-  const visibleEntries = useMemo(() => entries.slice(0, DESK_SLOTS.length), [entries]);
+  const visibleEntries = useMemo(
+    () => entries.filter((e) => e.isStudyingLive).slice(0, DESK_SLOTS.length),
+    [entries]
+  );
 
   return (
     <>

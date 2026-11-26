@@ -1,4 +1,5 @@
-import type { FocusSession, Habit, StudySubject, StudyTopic, Task } from '../../types/index.ts';
+import type { Bill, FocusSession, Habit, SavingsGoal, StudySubject, StudyTopic, Task } from '../../types/index.ts';
+import type { StudyPlanTask, StudyRevision } from '../../types/study.ts';
 import type { LeaderboardProfile } from '../../types/leaderboard.ts';
 import { computeFocusStreaks } from '../../lib/pomodoroAnalytics.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
@@ -47,7 +48,11 @@ export function computeGamificationFromRealData(input: {
   focusSessions: FocusSession[];
   subjects: StudySubject[];
   topics?: StudyTopic[];
+  studyPlanTasks?: StudyPlanTask[];
+  studyRevisions?: StudyRevision[];
   habits: Habit[];
+  bills?: Bill[];
+  savingsGoals?: SavingsGoal[];
   leaderboardProfile?: LeaderboardProfile | null;
   timezone?: string;
 }): ComputedGamificationData {
@@ -57,7 +62,11 @@ export function computeGamificationFromRealData(input: {
     focusSessions,
     subjects,
     topics = [],
+    studyPlanTasks = [],
+    studyRevisions = [],
     habits,
+    bills = [],
+    savingsGoals = [],
     leaderboardProfile,
     timezone = DEFAULT_TIMEZONE,
   } = input;
@@ -76,6 +85,23 @@ export function computeGamificationFromRealData(input: {
       amount: XP_REWARDS.task_completion,
       createdAt: ts,
       description: `Completed task: ${t.title}`,
+    });
+  }
+
+  // Completed Study Plan Tasks
+  const completedPlanTasks = studyPlanTasks.filter(
+    (pt: any) => !pt.deletedAt && (pt.completed === true || pt.status === 'completed')
+  );
+  for (const pt of completedPlanTasks as any[]) {
+    const ts = toTimestampMs(pt.completedAt || pt.updatedAt || pt.createdAt);
+    transactions.push({
+      id: `xp_plan_${pt.id}`,
+      userId,
+      source: 'task_completion',
+      sourceId: pt.id,
+      amount: XP_REWARDS.task_completion,
+      createdAt: ts,
+      description: `Completed study plan: ${pt.title || pt.topicName || 'Study Task'}`,
     });
   }
 
@@ -105,7 +131,7 @@ export function computeGamificationFromRealData(input: {
     });
   }
 
-  // Count mastered/completed study topics from both the real StudyTopic[] collection
+  // Count mastered & in-progress study topics from both the real StudyTopic[] collection
   // and any legacy embedded subject.topics arrays (deduplicated by topic id)
   const seenTopicIds = new Set<string>();
   let completedTopicsCount = 0;
@@ -117,6 +143,8 @@ export function computeGamificationFromRealData(input: {
       (topic as any).status === 'mastered' ||
       (topic as any).status === 'completed' ||
       (topic as any).completed === true;
+    const hasPartialProgress = !isMastered && Boolean(topic.theory || topic.practice || topic.pyq);
+
     if (isMastered) {
       seenTopicIds.add(topic.id);
       completedTopicsCount += 1;
@@ -129,6 +157,21 @@ export function computeGamificationFromRealData(input: {
         amount: XP_REWARDS.topic_completion,
         createdAt: ts,
         description: `Mastered topic: ${topic.subtopic || topic.topic || topic.subjectCode}`,
+      });
+    } else if (hasPartialProgress) {
+      seenTopicIds.add(topic.id);
+      const ts = toTimestampMs(topic.updatedAt || topic.createdAt);
+      const flags = [topic.theory && 'Theory', topic.practice && 'Practice', topic.pyq && 'PYQ']
+        .filter(Boolean)
+        .join(' + ');
+      transactions.push({
+        id: `xp_topic_prog_${topic.id}`,
+        userId,
+        source: 'topic_completion',
+        sourceId: topic.id,
+        amount: 15,
+        createdAt: ts,
+        description: `Studied topic (${flags}): ${topic.subtopic || topic.topic || topic.subjectCode}`,
       });
     }
   }
@@ -152,6 +195,71 @@ export function computeGamificationFromRealData(input: {
         });
       }
     }
+  }
+
+  // Completed / Reviewed Study Revisions
+  for (const rev of studyRevisions as any[]) {
+    if (rev.deletedAt) continue;
+    if (rev.status === 'mastered' || rev.status === 'completed' || (rev.repetition ?? 0) > 0) {
+      const ts = toTimestampMs(rev.lastReviewedAt || rev.updatedAt || rev.createdAt);
+      transactions.push({
+        id: `xp_rev_${rev.id}`,
+        userId,
+        source: 'topic_completion',
+        sourceId: rev.id,
+        amount: 15,
+        createdAt: ts,
+        description: `Revision review: ${rev.topicTitle || rev.subjectCode || 'Study Revision'}`,
+      });
+    }
+  }
+
+  // Habit Check-ins (real completedDates)
+  for (const h of habits) {
+    if (h.deletedAt || !Array.isArray(h.completedDates)) continue;
+    for (const dateStr of h.completedDates) {
+      if (!dateStr) continue;
+      const ts = toTimestampMs(`${dateStr.slice(0, 10)}T12:00:00`);
+      transactions.push({
+        id: `xp_habit_${h.id}_${dateStr.slice(0, 10)}`,
+        userId,
+        source: 'daily_goal',
+        sourceId: h.id,
+        amount: 10,
+        createdAt: ts,
+        description: `Habit completed: ${h.title} (${dateStr.slice(0, 10)})`,
+      });
+    }
+  }
+
+  // Paid Bills & Savings Goals (aligns with Dashboard GamificationCard)
+  for (const bill of bills) {
+    if (bill.deletedAt || bill.status !== 'PAID') continue;
+    const ts = toTimestampMs(bill.paymentDate || bill.updatedAt || bill.createdAt);
+    transactions.push({
+      id: `xp_bill_${bill.id}`,
+      userId,
+      source: 'daily_goal',
+      sourceId: bill.id,
+      amount: 15,
+      createdAt: ts,
+      description: `Paid bill: ${bill.name}`,
+    });
+  }
+
+  for (const goal of savingsGoals) {
+    if (goal.savedPaise <= 0) continue;
+    const reached = goal.targetPaise > 0 && goal.savedPaise >= goal.targetPaise;
+    const ts = toTimestampMs(goal.updatedAt || goal.createdAt);
+    transactions.push({
+      id: `xp_goal_${goal.id}`,
+      userId,
+      source: 'daily_goal',
+      sourceId: goal.id,
+      amount: reached ? 100 : 25,
+      createdAt: ts,
+      description: reached ? `Savings goal achieved: ${goal.title}` : `Funded savings goal: ${goal.title}`,
+    });
   }
 
   const todayKeyStr = getTodayDateString(timezone);

@@ -61,13 +61,36 @@ export const GamificationHubView: React.FC = () => {
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const [tasks, focusSessions, subjects, studyTopics, lbProfile] = await Promise.all([
+      const [
+        tasks,
+        focusSessions,
+        subjects,
+        studyTopics,
+        studyPlanTasks,
+        studyRevisions,
+        freshHabits,
+        bills,
+        savingsGoals,
+        lbProfile,
+      ] = await Promise.all([
         api.getTasks().catch(() => []),
         api.getFocusSessions().catch(() => []),
         api.getStudySubjects().catch(() => []),
         api.getStudyTopics().catch(() => []),
+        api.getStudyPlanTasks().catch(() => []),
+        api.getStudyRevisions().catch(() => []),
+        api.getHabits().catch(() => habits || []),
+        api.getBills().catch(() => []),
+        api.getSavingsGoals().catch(() => []),
         firebaseUser?.uid ? getLeaderboardProfile(firebaseUser.uid).catch(() => null) : Promise.resolve(null),
       ]);
+
+      const resolvedHabits =
+        Array.isArray(freshHabits) && freshHabits.length > 0
+          ? freshHabits
+          : Array.isArray(habits)
+          ? habits
+          : [];
 
       const computed = computeGamificationFromRealData({
         userId: currentUserId,
@@ -75,7 +98,11 @@ export const GamificationHubView: React.FC = () => {
         focusSessions: Array.isArray(focusSessions) ? focusSessions : [],
         subjects: Array.isArray(subjects) ? subjects : [],
         topics: Array.isArray(studyTopics) ? studyTopics : [],
-        habits: Array.isArray(habits) ? habits : [],
+        studyPlanTasks: Array.isArray(studyPlanTasks) ? studyPlanTasks : [],
+        studyRevisions: Array.isArray(studyRevisions) ? studyRevisions : [],
+        habits: resolvedHabits,
+        bills: Array.isArray(bills) ? bills : [],
+        savingsGoals: Array.isArray(savingsGoals) ? savingsGoals : [],
         leaderboardProfile: lbProfile,
         timezone: settings?.timezone,
       });

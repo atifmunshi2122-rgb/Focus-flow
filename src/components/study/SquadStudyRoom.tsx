@@ -213,7 +213,7 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   copiedCode,
   onStartFocus,
 }) => {
-  const { settings, updateSettings, setCurrentTab } = useApp();
+  const { settings, updateSettings, setCurrentTab, isRunning, timerMode } = useApp();
   const [roomStyle, setRoomStyle] = useState<StudyRoomStyle>(() => initialRoomStyle || 'isometric');
   const [localCustomization, setLocalCustomization] = useState<RoomCustomization>(() => {
     if (settings?.studyRoomCustomization) {
@@ -276,10 +276,12 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   } | null>(null);
 
   const effectiveEntries = useMemo(() => {
+    const isSelfFocusActive = Boolean(isRunning && timerMode === 'work');
     return entries.map((e) => {
       if (!e.isCurrentUser) return e;
       return {
         ...e,
+        isStudyingLive: e.isStudyingLive || isSelfFocusActive,
         studyActivity: optimisticActivity ?? e.studyActivity,
         lastEmote:
           optimisticEmote && (!e.lastEmote || optimisticEmote.createdAt >= e.lastEmote.createdAt)
@@ -287,7 +289,12 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
             : e.lastEmote,
       };
     });
-  }, [entries, optimisticActivity, optimisticEmote]);
+  }, [entries, optimisticActivity, optimisticEmote, isRunning, timerMode]);
+
+  const liveEntries = useMemo(
+    () => effectiveEntries.filter((e) => e.isStudyingLive),
+    [effectiveEntries]
+  );
 
   const currentActivity: StudyActivity = useMemo(() => {
     if (optimisticActivity) return optimisticActivity;
@@ -553,9 +560,9 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
               </g>
             ))}
 
-            {/* Render up to 8 Isometric Desks */}
+            {/* Render up to 8 Isometric Desks (only active Focus Mode users appear seated) */}
             {ISO_SEAT_POSITIONS.map((pos, idx) => {
-              const entry = effectiveEntries[idx] || null;
+              const entry = liveEntries[idx] || null;
               const isLive = Boolean(entry?.isStudyingLive);
               const isSelected = Boolean(entry && selectedEntry?.uid === entry.uid);
 
@@ -691,12 +698,22 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
       {/* MODE 2: INTERACTIVE 3D STUDY PODS */}
       {roomStyle === 'pods' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-          {effectiveEntries.length === 0 ? (
-            <div className="col-span-full p-8 rounded-2xl border border-dashed border-[var(--ff-border-color)] text-center text-xs text-[var(--ff-text-muted)]">
-              No squad members seated yet. Share your invite code or sync your study hours to take the first desk!
+          {liveEntries.length === 0 ? (
+            <div className="col-span-full p-8 rounded-2xl border border-dashed border-[var(--ff-border-color)] text-center text-xs text-[var(--ff-text-muted)] space-y-3">
+              <p>
+                Room is empty right now — only members with <strong>Focus Mode ON</strong> appear online here.
+              </p>
+              <button
+                type="button"
+                onClick={onStartFocus}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[var(--ff-accent)] text-white hover:opacity-90 inline-flex items-center gap-1.5"
+              >
+                <Timer className="w-3.5 h-3.5" />
+                <span>Turn On Focus Mode</span>
+              </button>
             </div>
           ) : (
-            effectiveEntries.map((entry) => (
+            liveEntries.map((entry) => (
               <SpatialStudyPodCard
                 key={entry.uid}
                 entry={entry}
@@ -719,7 +736,7 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
           }
         >
           <LazySquadWebGLRoom
-            entries={effectiveEntries}
+            entries={liveEntries}
             selectedUid={selectedEntry?.uid || null}
             onSelectMember={(uid) => setSelectedUid(uid)}
             ambiance={ambiance}
