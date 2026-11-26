@@ -32,6 +32,7 @@ import FriendList from './FriendList.tsx';
 import CreateSquadForm from './CreateSquadForm.tsx';
 import SharedStudyTimer from './SharedStudyTimer.tsx';
 import StudyChat from './StudyChat.tsx';
+import { startOrJoinGoogleMeetCall } from '../../lib/googleMeetService.ts';
 
 export const SocialHubView: React.FC = () => {
   const { user, firebaseUser, settings, setCurrentTab, showToast, confirmAction } = useApp();
@@ -58,6 +59,7 @@ export const SocialHubView: React.FC = () => {
   const [squadMembers, setSquadMembers] = useState<LeaderboardProfile[]>([]);
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [joiningSquad, setJoiningSquad] = useState(false);
+  const [callingMode, setCallingMode] = useState<'audio' | 'video' | null>(null);
   const [challenges, setChallenges] = useState<SquadChallengeSummary[]>([]);
   const [chatMessages, setChatMessages] = useState<StudyChatMessage[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -740,6 +742,40 @@ export const SocialHubView: React.FC = () => {
               onReact={async (messageId, emoji) => {
                 const upd = await api.reactSocialChat(messageId, emoji);
                 setChatMessages((prev) => prev.map((m) => (m.id === upd.id ? upd : m)));
+              }}
+              callingMode={callingMode}
+              onStartCall={async (mode) => {
+                if (!selectedSquadId || callingMode) return;
+                setCallingMode(mode);
+                try {
+                  const res = await startOrJoinGoogleMeetCall({
+                    roomKey: selectedSquadId,
+                    mode,
+                    loginHint: firebaseUser?.email || undefined,
+                  });
+                  window.open(res.meetingUri, '_blank', 'noopener,noreferrer');
+                  const isFsSquad = firestoreSquads.some((s) => s.id === selectedSquadId);
+                  const label = mode === 'audio' ? '🎙️ Voice Call started' : '📹 Video Call started';
+                  const text = `${label} — Join Google Meet: ${res.meetingUri}`;
+                  try {
+                    const msg = await api.sendSocialChat(
+                      isFsSquad
+                        ? { roomId: `fs_squad_${selectedSquadId}`, text }
+                        : { squadId: selectedSquadId, text }
+                    );
+                    setChatMessages((prev) => [...prev, msg]);
+                  } catch {
+                    // ignore chat broadcast failure
+                  }
+                  showToast(
+                    mode === 'audio'
+                      ? '🎙️ Google Meet Voice Call opened!'
+                      : '📹 Google Meet Video Call opened!',
+                    'success'
+                  );
+                } finally {
+                  setCallingMode(null);
+                }
               }}
             />
           ) : (

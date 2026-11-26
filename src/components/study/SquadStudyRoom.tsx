@@ -24,9 +24,12 @@ import {
   Check,
   Sparkles,
   Crown,
+  Phone,
+  Video,
 } from 'lucide-react';
 import type { RankedLeaderboardEntry, StudySquad } from '../../types/leaderboard.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { startOrJoinGoogleMeetCall } from '../../lib/googleMeetService.ts';
 import { ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { AnimeCharacterSvg } from '../study-room/AnimeCharacterSvg.tsx';
 import StudyActivityBar from '../study-room/StudyActivityBar.tsx';
@@ -213,7 +216,8 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   copiedCode,
   onStartFocus,
 }) => {
-  const { user, firebaseUser, settings, updateSettings, setCurrentTab, isRunning, timerMode, activeSessionId } = useApp();
+  const { user, firebaseUser, settings, updateSettings, setCurrentTab, isRunning, timerMode, activeSessionId, showToast } = useApp();
+  const [callingMode, setCallingMode] = useState<'audio' | 'video' | null>(null);
   const activeUid = firebaseUser?.uid || user?.id || 'usr_guest';
   const roomStorageKey = `ff_study_room_customization_${activeUid}`;
   const [roomStyle, setRoomStyle] = useState<StudyRoomStyle>(() => initialRoomStyle || 'isometric');
@@ -428,6 +432,56 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
               );
             })}
           </div>
+
+          <button
+            type="button"
+            disabled={Boolean(callingMode)}
+            onClick={async () => {
+              if (callingMode) return;
+              setCallingMode('audio');
+              try {
+                const res = await startOrJoinGoogleMeetCall({
+                  roomKey: squad?.id || 'global_lounge',
+                  mode: 'audio',
+                  loginHint: firebaseUser?.email || undefined,
+                });
+                window.open(res.meetingUri, '_blank', 'noopener,noreferrer');
+                showToast?.('🎙️ Voice Call opened in Google Meet!', 'success');
+              } finally {
+                setCallingMode(null);
+              }
+            }}
+            className="px-2.5 py-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50 text-[11px] font-semibold flex items-center gap-1.5 transition-colors"
+            title="Start Voice Call (Google Meet)"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            <span>{callingMode === 'audio' ? 'Joining...' : 'Call'}</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={Boolean(callingMode)}
+            onClick={async () => {
+              if (callingMode) return;
+              setCallingMode('video');
+              try {
+                const res = await startOrJoinGoogleMeetCall({
+                  roomKey: squad?.id || 'global_lounge',
+                  mode: 'video',
+                  loginHint: firebaseUser?.email || undefined,
+                });
+                window.open(res.meetingUri, '_blank', 'noopener,noreferrer');
+                showToast?.('📹 Video Call opened in Google Meet!', 'success');
+              } finally {
+                setCallingMode(null);
+              }
+            }}
+            className="px-2.5 py-1.5 rounded-xl border border-indigo-500/35 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 disabled:opacity-50 text-[11px] font-semibold flex items-center gap-1.5 transition-colors"
+            title="Start Video Call (Google Meet)"
+          >
+            <Video className="w-3.5 h-3.5" />
+            <span>{callingMode === 'video' ? 'Starting...' : 'Video Call'}</span>
+          </button>
 
           <button
             type="button"
