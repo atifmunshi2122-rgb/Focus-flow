@@ -279,7 +279,11 @@ async function withPrimaryWrite<T>(
     } else if (offlineHandler) {
       const op = offlineHandler.operationType;
       if (op.includes('task')) clientDataCache.invalidate('tasks');
-      if (op.includes('focus') || op.includes('pomodoro') || op.includes('interruption')) clientDataCache.invalidate('focus_sessions');
+      if (op.includes('focus') || op.includes('pomodoro') || op.includes('interruption')) {
+        clientDataCache.invalidate('focus_sessions');
+        clientDataCache.invalidate('focus_stats');
+        clientDataCache.invalidate('pomodoro_goals');
+      }
       if (op.includes('income')) { clientDataCache.invalidate('incomes'); clientDataCache.invalidate('transactions'); }
       if (op.includes('expense')) { clientDataCache.invalidate('expenses'); clientDataCache.invalidate('transactions'); }
       if (op.includes('bill')) clientDataCache.invalidate('bills');
@@ -715,7 +719,7 @@ export const api = {
         request<FocusSession>(`/focus/sessions/${encodeURIComponent(sessionId)}`, {
           method: 'PATCH',
           body: JSON.stringify(updates),
-        }).catch(() => ({ id: sessionId, ...updates } as FocusSession)),
+        }),
       {
         operationType: 'update_focus_session',
         dedupeKey: `upd_foc_${sessionId}_${Date.now()}`,

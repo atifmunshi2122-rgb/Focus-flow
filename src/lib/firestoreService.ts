@@ -503,8 +503,8 @@ export const firestoreService = {
     const durationSeconds = Number(input.durationSeconds);
     const safeSeconds =
       Number.isFinite(durationSeconds) && durationSeconds >= 1
-        ? Math.round(durationSeconds)
-        : safeMinutes * 60;
+        ? Math.min(86400, Math.round(durationSeconds))
+        : Math.min(86400, safeMinutes * 60);
     const mode =
       input.mode === 'short_break' || input.mode === 'long_break' ? input.mode : 'work';
     const completed = input.completed !== undefined ? Boolean(input.completed) : false;
@@ -550,15 +550,15 @@ export const firestoreService = {
       durationMinutes: safeMinutes,
       durationSeconds: safeSeconds,
       actualDurationSeconds:
-        typeof input.actualDurationSeconds === 'number' && input.actualDurationSeconds >= 0
-          ? Math.round(input.actualDurationSeconds)
+        typeof input.actualDurationSeconds === 'number' && Number.isFinite(input.actualDurationSeconds) && input.actualDurationSeconds >= 0
+          ? Math.min(86400, Math.round(input.actualDurationSeconds))
           : (completed ? safeSeconds : 0),
       completed,
       status: input.status || (completed ? 'completed' : 'in_progress'),
       interrupted: input.interrupted !== undefined ? Boolean(input.interrupted) : false,
-      pauseCount: typeof input.pauseCount === 'number' ? Math.max(0, Math.round(input.pauseCount)) : 0,
+      pauseCount: typeof input.pauseCount === 'number' && Number.isFinite(input.pauseCount) ? Math.max(0, Math.round(input.pauseCount)) : 0,
       totalPauseSeconds:
-        typeof input.totalPauseSeconds === 'number' ? Math.max(0, Math.round(input.totalPauseSeconds)) : 0,
+        typeof input.totalPauseSeconds === 'number' && Number.isFinite(input.totalPauseSeconds) ? Math.max(0, Math.round(input.totalPauseSeconds)) : 0,
       ...(input.interruptionReason ? { interruptionReason: String(input.interruptionReason).slice(0, 256) } : {}),
       startedAt: input.startedAt || new Date().toISOString(),
       endedAt: input.endedAt !== undefined ? input.endedAt : (completed ? new Date().toISOString() : null),
@@ -574,6 +574,10 @@ export const firestoreService = {
         // If document already reached terminal state ('completed' or 'interrupted'), do not revert to 'in_progress'
         if ((existing.status === 'completed' || existing.status === 'interrupted') && session.status === 'in_progress') {
           return existing;
+        }
+        // Preserve immutable startedAt when updating an existing document so Firestore rules pass
+        if (existing.startedAt) {
+          session.startedAt = existing.startedAt;
         }
       }
     } catch {
@@ -591,10 +595,12 @@ export const firestoreService = {
   ): Promise<FocusSession> {
     const path = `users/${userId}/focus_sessions/${sessionId}`;
     let existing: Partial<FocusSession> = {};
+    let docExists = false;
     try {
       const snap = await getDoc(doc(db, path));
       if (snap.exists()) {
         existing = snap.data() as FocusSession;
+        docExists = true;
       }
     } catch {
       // Proceed
@@ -626,9 +632,42 @@ export const firestoreService = {
       }
     }
 
+    const rawDurationMins =
+      updates.durationMinutes !== undefined ? Number(updates.durationMinutes) : Number(existing.durationMinutes ?? 25);
+    const safeDurationMins =
+      Number.isFinite(rawDurationMins) && rawDurationMins >= 1 && rawDurationMins <= 1440
+        ? Math.round(rawDurationMins)
+        : 25;
+
+    const rawDurationSecs =
+      updates.durationSeconds !== undefined ? Number(updates.durationSeconds) : Number(existing.durationSeconds ?? safeDurationMins * 60);
+    const safeDurationSecs =
+      Number.isFinite(rawDurationSecs) && rawDurationSecs >= 1
+        ? Math.min(86400, Math.round(rawDurationSecs))
+        : Math.min(86400, safeDurationMins * 60);
+
+    const rawActualSecs =
+      updates.actualDurationSeconds !== undefined
+        ? Number(updates.actualDurationSeconds)
+        : existing.actualDurationSeconds !== undefined
+          ? Number(existing.actualDurationSeconds)
+          : (completed ? safeDurationSecs : 0);
+    const safeActualSecs =
+      Number.isFinite(rawActualSecs) && rawActualSecs >= 0
+        ? Math.min(86400, Math.round(rawActualSecs))
+        : 0;
+
+    const rawPauseCount =
+      updates.pauseCount !== undefined ? Number(updates.pauseCount) : Number(existing.pauseCount ?? 0);
+    const safePauseCount = Number.isFinite(rawPauseCount) ? Math.max(0, Math.round(rawPauseCount)) : 0;
+
+    const rawTotalPauseSecs =
+      updates.totalPauseSeconds !== undefined ? Number(updates.totalPauseSeconds) : Number(existing.totalPauseSeconds ?? 0);
+    const safeTotalPauseSecs = Number.isFinite(rawTotalPauseSecs) ? Math.max(0, Math.round(rawTotalPauseSecs)) : 0;
+
     const merged: FocusSession = {
       id: sessionId,
-      userId,
+      userId: existing.userId || userId,
       taskId,
       taskTitle: updates.taskTitle !== undefined ? updates.taskTitle : (existing.taskTitle ?? null),
       subjectCode: updates.subjectCode !== undefined ? updates.subjectCode : (existing.subjectCode ?? null),
@@ -637,29 +676,27 @@ export const firestoreService = {
       activityType: updates.activityType !== undefined ? updates.activityType : (existing.activityType ?? null),
       mode,
       presetId: updates.presetId !== undefined ? updates.presetId : (existing.presetId ?? null),
-      durationMinutes:
-        updates.durationMinutes !== undefined ? updates.durationMinutes : (existing.durationMinutes ?? 25),
-      durationSeconds:
-        updates.durationSeconds !== undefined ? updates.durationSeconds : (existing.durationSeconds ?? 1500),
-      actualDurationSeconds:
-        updates.actualDurationSeconds !== undefined
-          ? updates.actualDurationSeconds
-          : (existing.actualDurationSeconds ?? (completed ? (existing.durationSeconds ?? 1500) : 0)),
+      durationMinutes: safeDurationMins,
+      durationSeconds: safeDurationSecs,
+      actualDurationSeconds: safeActualSecs,
       completed,
       status: updates.status ?? existing.status ?? (completed ? 'completed' : 'in_progress'),
-      interrupted: updates.interrupted !== undefined ? updates.interrupted : (existing.interrupted ?? false),
-      pauseCount: updates.pauseCount !== undefined ? updates.pauseCount : (existing.pauseCount ?? 0),
-      totalPauseSeconds:
-        updates.totalPauseSeconds !== undefined ? updates.totalPauseSeconds : (existing.totalPauseSeconds ?? 0),
+      interrupted: updates.interrupted !== undefined ? Boolean(updates.interrupted) : (existing.interrupted ?? false),
+      pauseCount: safePauseCount,
+      totalPauseSeconds: safeTotalPauseSecs,
       interruptionReason:
         updates.interruptionReason !== undefined ? updates.interruptionReason : existing.interruptionReason,
-      startedAt: updates.startedAt || existing.startedAt || new Date().toISOString(),
+      startedAt: (docExists && existing.startedAt) ? existing.startedAt : (updates.startedAt || existing.startedAt || new Date().toISOString()),
       endedAt: updates.endedAt !== undefined ? updates.endedAt : (existing.endedAt ?? (completed ? new Date().toISOString() : null)),
       endReason: updates.endReason !== undefined ? updates.endReason : (existing.endReason ?? (completed ? 'completed' : null)),
       createdAt: existing.createdAt || new Date().toISOString(),
     };
 
-    await setDoc(doc(db, path), stripUndefined({ ...merged }), { merge: true });
+    try {
+      await setDoc(doc(db, path), stripUndefined({ ...merged }), { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
     return merged;
   },
 

@@ -372,18 +372,37 @@ export function handleGuestLocalFallback(
     const list = readBucket<FocusSession[]>(sessionId, 'focus_sessions', []);
     if (method === 'GET') return list;
     if (method === 'POST') {
+      const completed = Boolean(body.completed);
+      const durationMinutes = Number(body.durationMinutes || 25);
+      const durationSeconds = Number(body.durationSeconds || durationMinutes * 60);
       const created: FocusSession = {
         id: (body.id as string) || makeId('fs'),
         userId: sessionId,
         taskId: (body.taskId as string | null) ?? null,
-        taskTitle: (body.taskTitle as string) || 'Focus Session',
+        taskTitle: (body.taskTitle as string) || undefined,
+        subjectCode: (body.subjectCode as string | null) ?? null,
+        subjectId: (body.subjectId as string | null) ?? null,
+        topicId: (body.topicId as string | null) ?? null,
+        activityType: (body.activityType as FocusSession['activityType']) ?? null,
+        presetId: (body.presetId as string | null) ?? null,
         mode: (body.mode as FocusSession['mode']) || 'work',
-        durationMinutes: Number(body.durationMinutes || 25),
-        durationSeconds: Number(body.durationSeconds || Number(body.durationMinutes || 25) * 60),
-        actualDurationSeconds: typeof body.actualDurationSeconds === 'number' ? body.actualDurationSeconds : undefined,
-        completed: Boolean(body.completed),
+        durationMinutes,
+        durationSeconds,
+        actualDurationSeconds:
+          typeof body.actualDurationSeconds === 'number'
+            ? body.actualDurationSeconds
+            : completed
+              ? durationSeconds
+              : 0,
+        completed,
+        status: (body.status as FocusSession['status']) || (completed ? 'completed' : 'in_progress'),
+        interrupted: Boolean(body.interrupted),
+        pauseCount: typeof body.pauseCount === 'number' ? body.pauseCount : 0,
+        totalPauseSeconds: typeof body.totalPauseSeconds === 'number' ? body.totalPauseSeconds : 0,
+        interruptionReason: typeof body.interruptionReason === 'string' ? body.interruptionReason : undefined,
         startedAt: (body.startedAt as string) || nowIso,
-        endedAt: (body.endedAt as string | null) ?? null,
+        endedAt: (body.endedAt as string | null) ?? (completed ? nowIso : null),
+        endReason: (body.endReason as FocusSession['endReason']) ?? (completed ? 'completed' : null),
         createdAt: nowIso,
       };
       writeBucket(sessionId, 'focus_sessions', [created, ...list.filter((s) => s.id !== created.id)]);
@@ -399,8 +418,35 @@ export function handleGuestLocalFallback(
       updated = { ...s, ...(body as Partial<FocusSession>) };
       return updated;
     });
+    if (!updated) {
+      const completed = Boolean(body.completed);
+      const durationMinutes = Number(body.durationMinutes || 25);
+      const durationSeconds = Number(body.durationSeconds || durationMinutes * 60);
+      const upserted: FocusSession = {
+        ...(body as Partial<FocusSession>),
+        id,
+        userId: sessionId,
+        taskId: (body.taskId as string | null) ?? null,
+        mode: (body.mode as FocusSession['mode']) || 'work',
+        durationMinutes,
+        durationSeconds,
+        actualDurationSeconds:
+          typeof body.actualDurationSeconds === 'number'
+            ? body.actualDurationSeconds
+            : completed
+              ? durationSeconds
+              : 0,
+        completed,
+        status: (body.status as FocusSession['status']) || (completed ? 'completed' : 'in_progress'),
+        startedAt: (body.startedAt as string) || nowIso,
+        endedAt: (body.endedAt as string | null) ?? (completed ? nowIso : null),
+        endReason: (body.endReason as FocusSession['endReason']) ?? (completed ? 'completed' : null),
+      };
+      updated = upserted;
+      next.unshift(upserted);
+    }
     writeBucket(sessionId, 'focus_sessions', next);
-    return updated || { id, userId: sessionId, ...(body as Partial<FocusSession>) };
+    return updated;
   }
 
   // Tasks

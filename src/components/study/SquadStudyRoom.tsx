@@ -213,7 +213,7 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   copiedCode,
   onStartFocus,
 }) => {
-  const { settings, updateSettings, setCurrentTab, isRunning, timerMode } = useApp();
+  const { settings, updateSettings, setCurrentTab, isRunning, timerMode, activeSessionId } = useApp();
   const [roomStyle, setRoomStyle] = useState<StudyRoomStyle>(() => initialRoomStyle || 'isometric');
   const [localCustomization, setLocalCustomization] = useState<RoomCustomization>(() => {
     if (settings?.studyRoomCustomization) {
@@ -276,20 +276,26 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   } | null>(null);
 
   const effectiveEntries = useMemo(() => {
+    const isOnShortPauseOrBreak =
+      (!isRunning && Boolean(activeSessionId)) ||
+      timerMode === 'short_break' ||
+      timerMode === 'long_break';
     const isSelfFocusActive = Boolean(isRunning && timerMode === 'work');
     return entries.map((e) => {
       if (!e.isCurrentUser) return e;
       return {
         ...e,
-        isStudyingLive: e.isStudyingLive || isSelfFocusActive,
-        studyActivity: optimisticActivity ?? e.studyActivity,
+        isStudyingLive: isOnShortPauseOrBreak ? false : e.isStudyingLive || isSelfFocusActive,
+        studyActivity: isOnShortPauseOrBreak
+          ? 'break'
+          : optimisticActivity ?? e.studyActivity,
         lastEmote:
           optimisticEmote && (!e.lastEmote || optimisticEmote.createdAt >= e.lastEmote.createdAt)
             ? optimisticEmote
             : e.lastEmote,
       };
     });
-  }, [entries, optimisticActivity, optimisticEmote, isRunning, timerMode]);
+  }, [entries, optimisticActivity, optimisticEmote, isRunning, timerMode, activeSessionId]);
 
   const liveEntries = useMemo(
     () => effectiveEntries.filter((e) => e.isStudyingLive),

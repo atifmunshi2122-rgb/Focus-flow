@@ -1927,14 +1927,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const finalizeInterruptedWorkSession = useCallback(
     (reason: 'reset' | 'skipped' | 'abandoned') => {
       const sessId = activeSessionIdRef.current;
-      if (timerEngine === 'pomodoro' && timerMode === 'work' && sessionStartTimeRef.current && sessId) {
+      const startedAt = sessionStartTimeRef.current;
+      if (
+        (timerEngine === 'pomodoro' || timerEngine === 'countdown') &&
+        timerMode === 'work' &&
+        startedAt &&
+        sessId
+      ) {
         const liveRemaining =
           targetEndTimeMsRef.current !== null
             ? Math.max(0, Math.ceil((targetEndTimeMsRef.current - Date.now()) / 1000))
             : timeLeftRef.current;
-        const plannedSecs = Math.max(0, Math.floor(totalDurationRef.current));
+        const plannedSecs = Math.max(1, Math.floor(totalDurationRef.current) || 60);
         const elapsedActiveSecs = Math.max(0, Math.min(plannedSecs, Math.round(plannedSecs - liveRemaining)));
         const updatePayload = {
+          mode: 'work' as const,
+          durationMinutes: Math.max(1, Math.round(plannedSecs / 60)),
+          durationSeconds: plannedSecs,
+          startedAt,
           status: 'interrupted' as const,
           completed: false,
           actualDurationSeconds: elapsedActiveSecs,
@@ -1945,14 +1955,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           totalPauseSeconds: totalPauseSecsRef.current,
         };
         const pendingCreation = pendingSessionCreationRef.current[sessId];
-        if (pendingCreation) {
-          pendingCreation
-            .then(() => api.updateFocusSession(sessId, updatePayload))
-            .catch(() => api.updateFocusSession(sessId, updatePayload))
-            .catch(console.warn);
-        } else {
-          api.updateFocusSession(sessId, updatePayload).catch(console.warn);
-        }
+        const persistInterrupted = pendingCreation
+          ? pendingCreation
+              .then(() => api.updateFocusSession(sessId, updatePayload))
+              .catch(() => api.updateFocusSession(sessId, updatePayload))
+          : api.updateFocusSession(sessId, updatePayload);
+        persistInterrupted
+          .then(() => triggerRefresh())
+          .catch(console.warn);
       }
       activeSessionIdRef.current = null;
       setActiveSessionIdState(null);
@@ -1961,7 +1971,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pauseStartedMsRef.current = null;
       totalPauseSecsRef.current = 0;
     },
-    [timerEngine, timerMode]
+    [timerEngine, timerMode, triggerRefresh]
   );
 
   // Timer controls
@@ -2449,7 +2459,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         mode: 'work',
         durationMinutes: mins,
         durationSeconds: secs,
+        actualDurationSeconds: secs,
         completed: true,
+        status: 'completed',
+        endReason: 'completed',
         startedAt,
         endedAt,
         subjectCode: activeStudySubjectCode || undefined,
@@ -2686,6 +2699,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ? waitPendingCreate.then(() =>
                 api
                   .updateFocusSession(activeSessId, {
+                    taskId: taskNow,
+                    mode: 'work',
+                    durationMinutes: durationMin,
+                    durationSeconds: safeDurationSecs,
+                    startedAt,
                     completed: true,
                     status: 'completed',
                     actualDurationSeconds: actualSecs,
@@ -2694,6 +2712,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     interrupted: wasInterrupted,
                     pauseCount: pCount,
                     totalPauseSeconds: pSecs,
+                    presetId: activePresetIdRef.current || undefined,
+                    subjectCode: studySubjectNow || undefined,
+                    topicId: studyTopicNow || undefined,
+                    activityType: studyActivityNow || (studySubjectNow || studyTopicNow ? 'study' : undefined),
                   })
                   .catch(() =>
                     api.createFocusSession({
@@ -2784,7 +2806,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 console.warn('[Focus] Sheets sync deferred after session save:', syncErr);
               }
             })
-            .catch(console.error);
+            .catch((err) => {
+              console.error('[Focus] Failed to persist completed focus session:', err);
+              toastNow('Focus session finished, but failed to save. Please check your connection.', 'error');
+            });
         }
 
         switchModeNow(nextMode);

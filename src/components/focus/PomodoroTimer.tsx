@@ -19,6 +19,7 @@ import {
 import {
   syncUserLeaderboardStats,
   updateLiveStudyPresence,
+  updateStudyRoomActivity,
 } from '../../lib/leaderboardService.ts';
 import type { FocusSession } from '../../types/index.ts';
 import type {
@@ -491,6 +492,21 @@ export const PomodoroTimer: React.FC = () => {
       }
 
       setSessions((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
+      if (firebaseUser?.uid) {
+        void api
+          .getFocusSessions()
+          .then((allSessions) =>
+            syncUserLeaderboardStats({
+              uid: firebaseUser.uid,
+              displayName: firebaseUser.displayName || undefined,
+              dailyGoalMinutes: settings?.dailyFocusGoalMinutes || 120,
+              sessions: Array.isArray(allSessions) ? allSessions : [created],
+              timezone: userTimezone,
+              onlyIfExists: true,
+            })
+          )
+          .catch(() => {});
+      }
       triggerRefresh();
       setShowManualLogModal(false);
 
@@ -594,11 +610,18 @@ export const PomodoroTimer: React.FC = () => {
 
     const isActivelyStudying =
       isRunning && (timerEngine === 'stopwatch' || timerMode === 'work');
+    const isShortPauseOrBreak =
+      (!isRunning && Boolean(activeSessionId)) ||
+      timerMode === 'short_break' ||
+      timerMode === 'long_break';
 
     if (!isActivelyStudying) {
-      if (liveSessionStartRef.current) {
+      if (liveSessionStartRef.current || isShortPauseOrBreak) {
         liveSessionStartRef.current = null;
         void updateLiveStudyPresence({ uid, isStudyingNow: false });
+      }
+      if (isShortPauseOrBreak) {
+        void updateStudyRoomActivity({ uid, activity: 'break' });
       }
       return;
     }
@@ -610,6 +633,7 @@ export const PomodoroTimer: React.FC = () => {
       activeStudySubjectCode || activeTask?.title || 'Deep Focus';
     const sessionStartedAt = liveSessionStartRef.current;
 
+    void updateStudyRoomActivity({ uid, activity: 'studying' });
     void updateLiveStudyPresence({
       uid,
       isStudyingNow: true,
@@ -629,7 +653,7 @@ export const PomodoroTimer: React.FC = () => {
     return () => {
       window.clearInterval(heartbeatId);
     };
-  }, [firebaseUser?.uid, isRunning, timerEngine, timerMode, activeStudySubjectCode, activeTask?.title]);
+  }, [firebaseUser?.uid, isRunning, timerEngine, timerMode, activeSessionId, activeStudySubjectCode, activeTask?.title]);
 
   useEffect(() => {
     if (completedCycleCount > prevCycleCountRef.current) {

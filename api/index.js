@@ -15045,12 +15045,12 @@ apiRouter.post("/focus/sessions", async (req, res, _next) => {
   }
   const parsedMinutes = durationMinutes === void 0 ? 25 : parsePositiveInt(durationMinutes, 1, 1440);
   if (parsedMinutes === null) {
-    res.status(400).json({ error: "durationMinutes must be a positive integer between 1 and 180" });
+    res.status(400).json({ error: "durationMinutes must be a positive integer between 1 and 1440" });
     return;
   }
-  const parsedSeconds = durationSeconds === void 0 ? parsedMinutes * 60 : parsePositiveInt(durationSeconds, 1, 10800);
+  const parsedSeconds = durationSeconds === void 0 ? parsedMinutes * 60 : parsePositiveInt(durationSeconds, 1, 86400);
   if (parsedSeconds === null) {
-    res.status(400).json({ error: "durationSeconds must be a positive integer between 1 and 10800" });
+    res.status(400).json({ error: "durationSeconds must be a positive integer between 1 and 86400" });
     return;
   }
   if (completed !== void 0 && typeof completed !== "boolean") {
