@@ -1,7 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Bell, Lock, Search, Shield, Sparkles, Users } from 'lucide-react';
+import { Bell, Copy, KeyRound, LogOut, Lock, Search, Shield, Sparkles, Users } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import {
+  computeSquadChallengeProgress,
+  createStudySquad,
+  fetchSquadMemberProfiles,
+  formatFocusMinutesShort,
+  getCurrentPeriodKeys,
+  getEffectivePeriodMinutes,
+  isProfileStudyingLive,
+  joinStudySquadByCode,
+  leaveStudySquad,
+  listUserSquads,
+} from '../../lib/leaderboardService.ts';
+import type { LeaderboardProfile, StudySquad } from '../../types/leaderboard.ts';
 import type { SocialProfile, UserPrivacySettings } from '../../features/social/types.ts';
 import type {
   GroupStudySession,
@@ -19,7 +32,7 @@ import SharedStudyTimer from './SharedStudyTimer.tsx';
 import StudyChat from './StudyChat.tsx';
 
 export const SocialHubView: React.FC = () => {
-  const { user, firebaseUser, setCurrentTab, showToast } = useApp();
+  const { user, firebaseUser, settings, setCurrentTab, showToast } = useApp();
   const currentUserId = firebaseUser?.uid || user?.id || 'usr_guest';
 
   const [loading, setLoading] = useState(true);
@@ -39,6 +52,10 @@ export const SocialHubView: React.FC = () => {
   });
 
   const [selectedSquadId, setSelectedSquadId] = useState<string | null>(null);
+  const [firestoreSquads, setFirestoreSquads] = useState<StudySquad[]>([]);
+  const [squadMembers, setSquadMembers] = useState<LeaderboardProfile[]>([]);
+  const [joinCodeInput, setJoinCodeInput] = useState('');
+  const [joiningSquad, setJoiningSquad] = useState(false);
   const [challenges, setChallenges] = useState<SquadChallengeSummary[]>([]);
   const [chatMessages, setChatMessages] = useState<StudyChatMessage[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,41 +65,145 @@ export const SocialHubView: React.FC = () => {
   const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.getSocialOverview();
+      const [data, fsSquads] = await Promise.all([
+        api.getSocialOverview().catch(() => null),
+        firebaseUser?.uid ? listUserSquads(firebaseUser.uid).catch(() => []) : Promise.resolve([]),
+      ]);
+
       if (data) {
         setFriends(data.friends || []);
         setIncomingRequests(data.incomingRequests || []);
-        setSquads(data.squads || []);
         setSquadInvitations(data.squadInvitations || []);
         setRoomInvitations(data.roomInvitations || []);
         setNotifications(data.notifications || []);
         setActivities(data.activities || []);
         setActiveSessions(data.activeSessions || []);
         if (data.privacy) setPrivacy(data.privacy);
-        if (!selectedSquadId && data.squads?.length > 0) {
+      }
+
+      if (firebaseUser?.uid) {
+        setFirestoreSquads(fsSquads);
+        const mappedSquads: Array<SocialStudySquad & { myRole: string }> = fsSquads.map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description || `Invite Code: ${s.inviteCode}`,
+          icon: '📚',
+          privacy: 'private',
+          ownerId: s.ownerUid,
+          memberCount: s.memberUids.length,
+          createdAt: Date.parse(s.createdAt) || Date.now(),
+          updatedAt: Date.parse(s.updatedAt) || Date.now(),
+          myRole: s.ownerUid === firebaseUser.uid ? 'owner' : 'member',
+        }));
+        setSquads(mappedSquads);
+        if (!selectedSquadId && mappedSquads.length > 0) {
+          setSelectedSquadId(mappedSquads[0].id);
+        } else if (selectedSquadId && !mappedSquads.some((s) => s.id === selectedSquadId)) {
+          setSelectedSquadId(mappedSquads[0]?.id || null);
+        }
+      } else if (data?.squads) {
+        setSquads(data.squads);
+        if (!selectedSquadId && data.squads.length > 0) {
           setSelectedSquadId(data.squads[0].id);
         }
       }
     } finally {
       setLoading(false);
     }
-  }, [selectedSquadId]);
+  }, [firebaseUser?.uid, selectedSquadId]);
 
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
 
   useEffect(() => {
-    if (!selectedSquadId) return;
-    void api
-      .getSquadWeeklyChallenges(selectedSquadId)
-      .then((res) => setChallenges(res.challenges || []))
-      .catch(() => setChallenges([]));
+    if (!selectedSquadId) {
+      setSquadMembers([]);
+      return;
+    }
+    const fsSquad = firestoreSquads.find((s) => s.id === selectedSquadId);
+    if (firebaseUser?.uid && fsSquad) {
+      void fetchSquadMemberProfiles(fsSquad.memberUids)
+        .then((memberProfiles) => {
+          setSquadMembers(memberProfiles);
+          const { weekKey } = getCurrentPeriodKeys(settings?.timezone);
+          const goalHours = Math.max(1, fsSquad.weeklyGoalHours || 20);
+          const progressStats = computeSquadChallengeProgress({
+            squad: fsSquad,
+            memberProfiles,
+            timezone: settings?.timezone,
+          });
+          setChallenges([
+            {
+              id: `fs_chal_${fsSquad.id}_${weekKey}`,
+              title: fsSquad.challengeTitle || `Squad ${goalHours}h Weekly Focus Goal`,
+              goal: progressStats?.goalMinutes || goalHours * 60,
+              progress: progressStats?.completedMinutes || 0,
+              rewardXP: 150,
+            } as SquadChallengeSummary,
+          ]);
+        })
+        .catch(() => {
+          setSquadMembers([]);
+          setChallenges([]);
+        });
+    } else {
+      setSquadMembers([]);
+      void api
+        .getSquadWeeklyChallenges(selectedSquadId)
+        .then((res) => setChallenges(res.challenges || []))
+        .catch(() => setChallenges([]));
+    }
     void api
       .getSocialChat({ squadId: selectedSquadId, limit: 25 })
       .then((res) => setChatMessages(res.messages || []))
       .catch(() => setChatMessages([]));
-  }, [selectedSquadId]);
+  }, [selectedSquadId, firestoreSquads, firebaseUser?.uid, settings?.timezone]);
+
+  const handleJoinSquadByCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!firebaseUser?.uid) {
+      showToast('Sign in with Google to join a Firestore Study Squad.', 'info');
+      return;
+    }
+    const clean = joinCodeInput.trim().toUpperCase();
+    if (clean.length < 6) {
+      showToast('Enter a valid 6-character squad invite code.', 'error');
+      return;
+    }
+    setJoiningSquad(true);
+    try {
+      const sessions = await api.getFocusSessions().catch(() => []);
+      const joined = await joinStudySquadByCode({
+        uid: firebaseUser.uid,
+        inviteCode: clean,
+        displayName: firebaseUser.displayName || undefined,
+        sessions: Array.isArray(sessions) ? sessions : [],
+        timezone: settings?.timezone,
+      });
+      setJoinCodeInput('');
+      setSelectedSquadId(joined.id);
+      showToast(`Joined squad "${joined.name}"!`, 'success');
+      await loadOverview();
+    } catch (err: any) {
+      showToast(err?.message || 'Unable to join squad', 'error');
+    } finally {
+      setJoiningSquad(false);
+    }
+  };
+
+  const handleLeaveSelectedSquad = async (squadId: string, squadName: string) => {
+    if (!firebaseUser?.uid) return;
+    if (!window.confirm(`Leave squad "${squadName}"?`)) return;
+    try {
+      await leaveStudySquad(firebaseUser.uid, squadId);
+      showToast(`Left squad "${squadName}"`, 'info');
+      setSelectedSquadId(null);
+      await loadOverview();
+    } catch {
+      showToast('Failed to leave squad', 'error');
+    }
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -289,6 +410,20 @@ export const SocialHubView: React.FC = () => {
         <div className="space-y-4">
           <CreateSquadForm
             onCreate={async (data) => {
+              if (firebaseUser?.uid) {
+                const sessions = await api.getFocusSessions().catch(() => []);
+                const created = await createStudySquad({
+                  uid: firebaseUser.uid,
+                  name: data.name,
+                  description: data.description,
+                  displayName: firebaseUser.displayName || undefined,
+                  sessions: Array.isArray(sessions) ? sessions : [],
+                });
+                showToast(`Created squad "${created.name}" (Code: ${created.inviteCode})!`, 'success');
+                setSelectedSquadId(created.id);
+                await loadOverview();
+                return;
+              }
               const created = await api.createSocialSquad(data);
               showToast(`Created squad "${created.name}"!`, 'success');
               setSelectedSquadId(created.id);
@@ -296,9 +431,67 @@ export const SocialHubView: React.FC = () => {
             }}
           />
 
+          {firebaseUser?.uid && (
+            <form
+              onSubmit={handleJoinSquadByCode}
+              className="p-4 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] space-y-2.5"
+            >
+              <div className="flex items-center gap-2 text-xs font-bold text-[var(--ff-text-primary)]">
+                <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Join Squad by Invite Code</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={joinCodeInput}
+                  onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase().slice(0, 6))}
+                  placeholder="6-char code (e.g. AB12CD)"
+                  maxLength={6}
+                  className="flex-1 min-w-0 px-3 py-1.5 rounded-xl text-xs font-mono uppercase bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)]"
+                />
+                <button
+                  type="submit"
+                  disabled={joiningSquad || joinCodeInput.trim().length < 6}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--ff-accent)] text-white disabled:opacity-50"
+                >
+                  {joiningSquad ? 'Joining...' : 'Join'}
+                </button>
+              </div>
+            </form>
+          )}
+
           {squads.length > 0 && (
             <div className="p-4 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] space-y-3">
-              <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">My Study Squads</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">My Study Squads</h3>
+                {(() => {
+                  const activeFs = firestoreSquads.find((s) => s.id === selectedSquadId);
+                  if (!activeFs) return null;
+                  return (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(activeFs.inviteCode);
+                          showToast(`Copied invite code ${activeFs.inviteCode}`, 'success');
+                        }}
+                        className="px-2 py-1 rounded-lg bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[11px] font-mono font-bold text-indigo-400 flex items-center gap-1 hover:border-indigo-400/60"
+                        title="Copy squad invite code"
+                      >
+                        <span>{activeFs.inviteCode}</span>
+                        <Copy className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleLeaveSelectedSquad(activeFs.id, activeFs.name)}
+                        className="p-1 rounded-lg text-[var(--ff-text-muted)] hover:text-rose-400"
+                        title="Leave squad"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {squads.map((s) => (
                   <button
@@ -315,6 +508,46 @@ export const SocialHubView: React.FC = () => {
                   </button>
                 ))}
               </div>
+
+              {squadMembers.length > 0 && (
+                <div className="space-y-1.5 pt-2 border-t border-[var(--ff-border-color)]">
+                  <div className="text-[11px] font-bold text-[var(--ff-text-muted)]">
+                    Live Squad Members ({squadMembers.length})
+                  </div>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {squadMembers.map((m) => {
+                      const keys = getCurrentPeriodKeys(settings?.timezone);
+                      const weekMins = getEffectivePeriodMinutes(m, 'week', keys);
+                      const studying = isProfileStudyingLive(m);
+                      return (
+                        <div
+                          key={m.uid}
+                          className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-[var(--ff-surface-muted)] text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`w-2 h-2 rounded-full shrink-0 ${
+                                studying ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500/60'
+                              }`}
+                            />
+                            <span className="font-semibold truncate text-[var(--ff-text-primary)]">
+                              {m.displayName || 'Focus Student'}
+                            </span>
+                            {studying && (
+                              <span className="text-[10px] text-emerald-400 font-semibold shrink-0">
+                                Studying
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-mono text-[11px] text-[var(--ff-text-muted)] shrink-0">
+                            {formatFocusMinutesShort(weekMins)}/wk · 🔥{m.streakDays || 0}d
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {challenges.length > 0 && (
                 <div className="space-y-2 pt-2 border-t border-[var(--ff-border-color)]">

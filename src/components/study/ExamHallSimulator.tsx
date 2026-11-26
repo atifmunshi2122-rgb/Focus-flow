@@ -6,6 +6,7 @@ import {
 } from '../../types/features15.ts';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { syncUserLeaderboardStats } from '../../lib/leaderboardService.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Clock,
@@ -50,12 +51,37 @@ const PRESET_EXAMS: ExamSimulationConfig[] = [
 ];
 
 export const ExamHallSimulator: React.FC = () => {
-  const { user } = useApp();
+  const { user, firebaseUser, settings, triggerRefresh } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_exam_sim_state_v1`;
 
+  const [studyExamPresets, setStudyExamPresets] = useState<ExamSimulationConfig[]>([]);
   const [selectedPresetIndex, setSelectedPresetIndex] = useState(0);
   const [customConfig, setCustomConfig] = useState<ExamSimulationConfig>(PRESET_EXAMS[0]);
+
+  useEffect(() => {
+    api.getStudyExams()
+      .then((exams) => {
+        if (!Array.isArray(exams) || exams.length === 0) return;
+        const mapped: ExamSimulationConfig[] = exams.map((ex) => {
+          const mins = Math.max(30, Number((ex as any).durationMinutes || 120));
+          return {
+            examName: `${ex.title} (Study Exam)`,
+            totalMinutes: mins,
+            sections: [
+              { id: `sec-${ex.id}-1`, name: ex.title, durationMinutes: mins, questionsCount: 30 },
+            ],
+          };
+        });
+        setStudyExamPresets(mapped);
+      })
+      .catch(() => {});
+  }, []);
+
+  const allExamPresets = useMemo(
+    () => [...studyExamPresets, ...PRESET_EXAMS],
+    [studyExamPresets]
+  );
 
   // Active state
   const [examState, setExamState] = useState<ExamSimulationState | null>(() => {
@@ -131,6 +157,37 @@ export const ExamHallSimulator: React.FC = () => {
     setIsFinished(true);
     localStorage.removeItem(storageKey);
     api.saveExamSimulation(completedState).catch(() => {});
+
+    const spentSecs = Object.values(sectionSpentSeconds).reduce((s, v) => s + (v || 0), 0);
+    const durationMinutes = Math.max(1, Math.round(spentSecs / 60) || customConfig.totalMinutes);
+    const endedAt = new Date().toISOString();
+    const startedAt = new Date(Date.now() - durationMinutes * 60_000).toISOString();
+
+    void api
+      .createFocusSession({
+        mode: 'work',
+        durationMinutes,
+        durationSeconds: durationMinutes * 60,
+        actualDurationSeconds: spentSecs || durationMinutes * 60,
+        completed: true,
+        status: 'completed',
+        startedAt,
+        endedAt,
+        activityType: 'practice',
+      })
+      .then(async (created) => {
+        if (firebaseUser?.uid) {
+          const allSessions = await api.getFocusSessions().catch(() => [created]);
+          await syncUserLeaderboardStats({
+            uid: firebaseUser.uid,
+            displayName: firebaseUser.displayName || undefined,
+            sessions: Array.isArray(allSessions) ? allSessions : [created],
+            timezone: settings?.timezone,
+          }).catch(() => {});
+        }
+        triggerRefresh();
+      })
+      .catch(() => {});
   };
 
   // Countdown timer loop
@@ -253,12 +310,12 @@ export const ExamHallSimulator: React.FC = () => {
               onChange={(e) => {
                 const idx = parseInt(e.target.value, 10);
                 setSelectedPresetIndex(idx);
-                setCustomConfig(PRESET_EXAMS[idx]);
+                setCustomConfig(allExamPresets[idx] || PRESET_EXAMS[0]);
               }}
               className="px-3 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)] font-medium"
             >
-              {PRESET_EXAMS.map((p, idx) => (
-                <option key={p.examName} value={idx}>
+              {allExamPresets.map((p, idx) => (
+                <option key={`${p.examName}-${idx}`} value={idx}>
                   {p.examName} ({p.totalMinutes}m)
                 </option>
               ))}

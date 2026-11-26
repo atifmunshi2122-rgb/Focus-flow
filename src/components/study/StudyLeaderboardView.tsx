@@ -97,8 +97,23 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
 
   const focusSessions = focusSessionsProp ?? loadedSessions;
 
+  const [devLaunchRoomStyle] = useState<'isometric' | 'pods' | 'webgl' | undefined>(() => {
+    if (!import.meta.env?.DEV || typeof window === 'undefined') return undefined;
+    try {
+      const mode = sessionStorage.getItem('ff_dev_room_launch');
+      if (mode === 'isometric' || mode === 'pods' || mode === 'webgl') {
+        sessionStorage.removeItem('ff_dev_room_launch');
+        return mode;
+      }
+    } catch {
+      // ignore sessionStorage errors
+    }
+    return undefined;
+  });
   const [scope, setScope] = useState<'squads' | 'global'>('squads');
-  const [viewMode, setViewMode] = useState<'leaderboard' | 'room'>('leaderboard');
+  const [viewMode, setViewMode] = useState<'leaderboard' | 'room'>(() =>
+    devLaunchRoomStyle ? 'room' : 'leaderboard'
+  );
   const [period, setPeriod] = useState<LeaderboardPeriod>('today');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -816,6 +831,7 @@ export const StudyLeaderboardView: React.FC<StudyLeaderboardViewProps> = ({ focu
             <SquadStudyRoom
               squad={scope === 'squads' ? activeSquad : null}
               entries={rankedEntries}
+              initialRoomStyle={devLaunchRoomStyle}
               periodLabel={
                 effectiveSubjectFilter !== 'ALL'
                   ? effectiveSubjectFilter

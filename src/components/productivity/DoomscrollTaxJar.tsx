@@ -59,7 +59,7 @@ export const DoomscrollTaxJar: React.FC = () => {
         // fallback
       }
     }
-    return SEED_ENTRIES;
+    return [];
   });
 
   // Sync user-scoped storage & backend
@@ -72,7 +72,7 @@ export const DoomscrollTaxJar: React.FC = () => {
         if (Array.isArray(parsed)) setEntries(parsed);
       } catch {}
     } else {
-      setEntries(SEED_ENTRIES);
+      setEntries([]);
     }
 
     api.getDoomscrollLogs().then((remote) => {
@@ -141,12 +141,24 @@ export const DoomscrollTaxJar: React.FC = () => {
     setNotes('');
   };
 
-  const handleEmptyJar = () => {
-    if (!window.confirm('Simulate moving Discipline Jar balance to your Long-Term Savings Goal?')) return;
-    setIsTransferredNotice(true);
-    saveState([]);
-    api.clearDoomscrollLogs().catch(() => {});
-    setTimeout(() => setIsTransferredNotice(false), 5000);
+  const handleEmptyJar = async () => {
+    if (totalJarAmountPaise <= 0) return;
+    if (!window.confirm('Transfer this Discipline Jar balance to your active Savings Goal?')) return;
+    try {
+      const goals = await api.getSavingsGoals().catch(() => []);
+      const targetGoal = Array.isArray(goals) && goals.length > 0 ? goals[0] : undefined;
+      if (targetGoal) {
+        await api.updateSavingsGoal(targetGoal.id, {
+          savedPaise: (targetGoal.savedPaise || 0) + totalJarAmountPaise,
+        });
+      }
+      setIsTransferredNotice(true);
+      saveState([]);
+      api.clearDoomscrollLogs().catch(() => {});
+      setTimeout(() => setIsTransferredNotice(false), 5000);
+    } catch (err) {
+      console.error('Failed to transfer Discipline Jar to savings goal:', err);
+    }
   };
 
   const handleResetHistory = () => {

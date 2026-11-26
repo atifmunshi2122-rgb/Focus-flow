@@ -11,6 +11,16 @@ import type {
 } from '../../features/gamification/types.ts';
 import { calculateXPProgress } from '../../features/gamification/xp-calculator.ts';
 import {
+  computeGamificationFromRealData,
+  computeLeaderboardEntriesFromProfiles,
+} from '../../features/gamification/firestoreGamification.ts';
+import {
+  fetchSquadMemberProfiles,
+  getLeaderboardProfile,
+  listUserSquads,
+  subscribeGlobalLeaderboard,
+} from '../../lib/leaderboardService.ts';
+import {
   LEVEL_MILESTONES,
   STREAK_REWARDS,
   XP_REWARDS,
@@ -31,7 +41,7 @@ const CATEGORY_OPTIONS: Array<{ id: GamificationLeaderboardCategory; label: stri
 ];
 
 export const GamificationHubView: React.FC = () => {
-  const { user, firebaseUser, setCurrentTab } = useApp();
+  const { user, firebaseUser, habits, settings, refreshKey, setCurrentTab } = useApp();
   const currentUserId = firebaseUser?.uid || user?.id || 'usr_guest';
 
   const [subTab, setSubTab] = useState<GamificationSubTab>('overview');
@@ -51,37 +61,113 @@ export const GamificationHubView: React.FC = () => {
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.getGamificationProfile();
-      if (data) {
-        setProfile(data.profile);
-        setProgress(data.progress);
-        setAchievements(data.achievements);
-        setTransactions(data.transactions);
-      }
+      const [tasks, focusSessions, subjects, studyTopics, lbProfile] = await Promise.all([
+        api.getTasks().catch(() => []),
+        api.getFocusSessions().catch(() => []),
+        api.getStudySubjects().catch(() => []),
+        api.getStudyTopics().catch(() => []),
+        firebaseUser?.uid ? getLeaderboardProfile(firebaseUser.uid).catch(() => null) : Promise.resolve(null),
+      ]);
+
+      const computed = computeGamificationFromRealData({
+        userId: currentUserId,
+        tasks: Array.isArray(tasks) ? tasks : [],
+        focusSessions: Array.isArray(focusSessions) ? focusSessions : [],
+        subjects: Array.isArray(subjects) ? subjects : [],
+        topics: Array.isArray(studyTopics) ? studyTopics : [],
+        habits: Array.isArray(habits) ? habits : [],
+        leaderboardProfile: lbProfile,
+        timezone: settings?.timezone,
+      });
+
+      setProfile(computed.profile);
+      setProgress(computed.progress);
+      setAchievements(computed.achievements);
+      setTransactions(computed.transactions);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUserId, firebaseUser?.uid, habits, settings?.timezone, refreshKey]);
 
   const loadLeaderboard = useCallback(
-    async (cat: GamificationLeaderboardCategory, pageNum: number, append: boolean) => {
+    async (cat: GamificationLeaderboardCategory, pageNum: number, _append: boolean) => {
       setLbLoading(true);
       try {
-        const res = await api.getGamificationLeaderboard({
-          category: cat,
-          page: pageNum,
-          limit: 10,
-        });
-        if (res) {
-          setLbEntries((prev) => (append ? [...prev, ...res.entries] : res.entries));
-          setLbHasMore(res.hasMore);
-          setLbCurrentUserRank(res.currentUserRank);
+        if (!firebaseUser?.uid) {
+          const guestEntry: LeaderboardEntry = {
+            userId: currentUserId,
+            displayName: 'You (Local)',
+            level: progress.level,
+            totalXP: progress.totalXP,
+            streak: profile?.currentStreak ?? 0,
+            rank: 1,
+          };
+          setLbEntries([guestEntry]);
+          setLbHasMore(false);
+          setLbCurrentUserRank(1);
+          return;
         }
+
+        if (cat === 'squad') {
+          const userSquads = await listUserSquads(firebaseUser.uid).catch(() => []);
+          const memberUids = Array.from(
+            new Set(userSquads.flatMap((s) => s.memberUids || []))
+          );
+          const profiles = memberUids.length
+            ? await fetchSquadMemberProfiles(memberUids).catch(() => [])
+            : [];
+          const ranked = computeLeaderboardEntriesFromProfiles({
+            profiles,
+            category: cat,
+            currentUid: firebaseUser.uid,
+            currentUserXP: progress.totalXP,
+          });
+          setLbEntries(ranked.slice(0, pageNum * 10));
+          setLbHasMore(ranked.length > pageNum * 10);
+          const myRank = ranked.find((e) => e.userId === firebaseUser.uid)?.rank ?? null;
+          setLbCurrentUserRank(myRank);
+          return;
+        }
+
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const unsub = subscribeGlobalLeaderboard(
+            (profiles) => {
+              if (settled) return;
+              settled = true;
+              const ranked = computeLeaderboardEntriesFromProfiles({
+                profiles,
+                category: cat,
+                currentUid: firebaseUser.uid,
+                currentUserXP: progress.totalXP,
+              });
+              setLbEntries(ranked.slice(0, pageNum * 10));
+              setLbHasMore(ranked.length > pageNum * 10);
+              const myRank = ranked.find((e) => e.userId === firebaseUser.uid)?.rank ?? null;
+              setLbCurrentUserRank(myRank);
+              unsub();
+              resolve();
+            },
+            () => {
+              if (!settled) {
+                settled = true;
+                resolve();
+              }
+            }
+          );
+          setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              unsub();
+              resolve();
+            }
+          }, 3000);
+        });
       } finally {
         setLbLoading(false);
       }
     },
-    []
+    [currentUserId, firebaseUser?.uid, profile?.currentStreak, progress.level, progress.totalXP]
   );
 
   useEffect(() => {

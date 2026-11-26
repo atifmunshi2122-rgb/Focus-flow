@@ -6841,6 +6841,82 @@ function getSquadWeeklyChallenges(db, userId, squadId) {
 // src/features/avatar/avatar-catalog.ts
 var AVATAR_CATALOG = [
   {
+    id: "avatar-01",
+    displayName: "Yuki \u2014 Anime Cardigan Scholar",
+    style: "female",
+    modelUrl: "/models/avatars/avatar-01.glb",
+    previewLabel: "21-Bone Rig \xB7 Layered Cardigan",
+    modelFormat: "glb",
+    rigType: "humanoid_21_bones",
+    isRigged: true,
+    hasHumanoidSkeleton: true,
+    animationSupport: "procedural_skeletal",
+    supportedPoses: ["standing", "seated"],
+    rigStatus: "rigged_21_bones_procedural",
+    animationCompatibility: ["idle", "studying", "typing", "reading", "writing", "walking", "wave", "celebrate"],
+    license: "User Uploaded GLB (Shared Library #1)",
+    available: true,
+    supportedCustomization: {
+      hairColors: ["#2c1614", "#1e2438", "#4a2c2a", "#6d28d9", "#9f1239"],
+      hairMaterials: ["silky", "matte", "glossy"],
+      eyeColors: ["#4f46e5", "#0284c7", "#10b981", "#db2777", "#d97706"],
+      outfitColors: ["#7c3aed", "#312e81", "#0f766e", "#be185d", "#334155"],
+      outfitSecondaryColors: ["#f8fafc", "#fef3c7", "#e0e7ff", "#fce7f3", "#1e293b"],
+      pantsColors: ["#1e293b", "#0f172a", "#312e81", "#3f3f46", "#475569"],
+      shoesColors: ["#e9d5ff", "#f8fafc", "#1e293b", "#fda4af", "#93c5fd"],
+      accessories: ["glasses", "headphones"]
+    },
+    defaults: {
+      skinTone: "#fce0c8",
+      hairColor: "#2c1614",
+      hairHighlight: "#5c3029",
+      hairMaterial: "silky",
+      eyeColor: "#4f46e5",
+      outfitColor: "#7c3aed",
+      outfitSecondary: "#f8fafc",
+      pantsColor: "#1e293b",
+      shoesColor: "#e9d5ff"
+    }
+  },
+  {
+    id: "avatar-02",
+    displayName: "Ren \u2014 Hoodie & Watch Student",
+    style: "male",
+    modelUrl: "/models/avatars/avatar-02.glb",
+    previewLabel: "Unrigged Mesh \xB7 Navy Hoodie",
+    modelFormat: "glb",
+    rigType: "static_unrigged",
+    isRigged: false,
+    hasHumanoidSkeleton: false,
+    animationSupport: "whole_model_only",
+    supportedPoses: ["standing"],
+    rigStatus: "unrigged_static",
+    animationCompatibility: ["idle", "studying"],
+    license: "User Uploaded GLB (Shared Library #2)",
+    available: true,
+    supportedCustomization: {
+      hairColors: ["#141318", "#27272a", "#4a2c2a", "#1e3a8a", "#3f3f46"],
+      hairMaterials: ["silky", "matte", "glossy"],
+      eyeColors: ["#4a2518", "#0284c7", "#4f46e5", "#059669", "#d97706"],
+      outfitColors: ["#1e3a8a", "#0f766e", "#334155", "#7f1d1d", "#4338ca"],
+      outfitSecondaryColors: ["#ffffff", "#e2e8f0", "#fef3c7", "#cbd5e1", "#1e293b"],
+      pantsColors: ["#111827", "#1e293b", "#334155", "#27272a", "#3f3f46"],
+      shoesColors: ["#1e3a8a", "#111827", "#0f766e", "#7f1d1d", "#f8fafc"],
+      accessories: ["glasses", "headphones", "watch"]
+    },
+    defaults: {
+      skinTone: "#f5cbb0",
+      hairColor: "#141318",
+      hairHighlight: "#334155",
+      hairMaterial: "silky",
+      eyeColor: "#4a2518",
+      outfitColor: "#1e3a8a",
+      outfitSecondary: "#ffffff",
+      pantsColor: "#111827",
+      shoesColor: "#1e3a8a"
+    }
+  },
+  {
     id: "anime-boy-01",
     displayName: "Kaito \u2014 Varsity Scholar",
     style: "male",
@@ -6848,6 +6924,11 @@ var AVATAR_CATALOG = [
     previewLabel: "Spiky Navy \xB7 Varsity",
     modelFormat: "glb",
     rigType: "humanoid_seated_v1",
+    isRigged: true,
+    hasHumanoidSkeleton: true,
+    animationSupport: "embedded_clips",
+    supportedPoses: ["standing", "seated"],
+    rigStatus: "rigged_full_clips",
     animationCompatibility: ["idle", "studying", "typing", "reading", "writing"],
     license: "MIT (FocusFlow Original Rig)",
     available: true,
@@ -6874,6 +6955,11 @@ var AVATAR_CATALOG = [
     previewLabel: "Swept Charcoal \xB7 Teal",
     modelFormat: "glb",
     rigType: "humanoid_seated_v1",
+    isRigged: true,
+    hasHumanoidSkeleton: true,
+    animationSupport: "embedded_clips",
+    supportedPoses: ["standing", "seated"],
+    rigStatus: "rigged_full_clips",
     animationCompatibility: ["idle", "studying", "typing", "reading", "writing"],
     license: "MIT (FocusFlow Original Rig)",
     available: true,
@@ -6900,6 +6986,11 @@ var AVATAR_CATALOG = [
     previewLabel: "Ponytail \xB7 Lavender",
     modelFormat: "glb",
     rigType: "humanoid_seated_v1",
+    isRigged: true,
+    hasHumanoidSkeleton: true,
+    animationSupport: "embedded_clips",
+    supportedPoses: ["standing", "seated"],
+    rigStatus: "rigged_full_clips",
     animationCompatibility: ["idle", "studying", "typing", "reading", "writing"],
     license: "MIT (FocusFlow Original Rig)",
     available: true,
@@ -6926,6 +7017,11 @@ var AVATAR_CATALOG = [
     previewLabel: "Twin-Tails \xB7 Sakura",
     modelFormat: "glb",
     rigType: "humanoid_seated_v1",
+    isRigged: true,
+    hasHumanoidSkeleton: true,
+    animationSupport: "embedded_clips",
+    supportedPoses: ["standing", "seated"],
+    rigStatus: "rigged_full_clips",
     animationCompatibility: ["idle", "studying", "typing", "reading", "writing"],
     license: "MIT (FocusFlow Original Rig)",
     available: true,
@@ -6945,9 +7041,10 @@ var AVATAR_CATALOG = [
     }
   }
 ];
-var DEFAULT_AVATAR_ID = "anime-boy-01";
+var DEFAULT_AVATAR_ID = "avatar-01";
 var HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-var ALLOWED_ACCESSORIES = /* @__PURE__ */ new Set(["glasses", "headphones", "ribbon"]);
+var ALLOWED_ACCESSORIES = /* @__PURE__ */ new Set(["glasses", "headphones", "ribbon", "watch"]);
+var ALLOWED_HAIR_MATERIALS = /* @__PURE__ */ new Set(["silky", "matte", "glossy"]);
 function getAvatarCatalogEntry(avatarId) {
   return AVATAR_CATALOG.find((e) => e.id === avatarId && e.available) || AVATAR_CATALOG[0];
 }
@@ -6975,6 +7072,10 @@ function validateAndSanitizeAvatarConfig(raw) {
       cust.accessories.filter((a) => typeof a === "string" && ALLOWED_ACCESSORIES.has(a)).filter((a) => entry.supportedCustomization.accessories.includes(a))
     )
   ).slice(0, 3) : [];
+  const safeOptionalColor = (val, fallback) => typeof val === "string" && HEX_COLOR_RE.test(val.trim()) ? val.trim() : fallback;
+  const hairMat = typeof cust.hairMaterial === "string" && ALLOWED_HAIR_MATERIALS.has(cust.hairMaterial) ? cust.hairMaterial : entry.defaults.hairMaterial || "silky";
+  const primaryHex = safeColor(cust.outfitPrimary ?? cust.outfitColor, entry.defaults.outfitColor);
+  const eyeHex = safeColor(cust.irisColor ?? cust.eyeColor, entry.defaults.eyeColor);
   return {
     avatarId: entry.id,
     modelUrl: entry.modelUrl,
@@ -6982,9 +7083,15 @@ function validateAndSanitizeAvatarConfig(raw) {
     customization: {
       hairstyle: typeof cust.hairstyle === "string" ? cust.hairstyle.slice(0, 32) : void 0,
       hairColor: safeColor(cust.hairColor, entry.defaults.hairColor),
-      eyeColor: safeColor(cust.eyeColor, entry.defaults.eyeColor),
+      hairMaterial: hairMat,
+      eyeColor: eyeHex,
+      irisColor: eyeHex,
       outfit: typeof cust.outfit === "string" ? cust.outfit.slice(0, 32) : void 0,
-      outfitColor: safeColor(cust.outfitColor, entry.defaults.outfitColor),
+      outfitColor: primaryHex,
+      outfitPrimary: primaryHex,
+      outfitSecondary: safeOptionalColor(cust.outfitSecondary, entry.defaults.outfitSecondary),
+      pantsColor: safeOptionalColor(cust.pantsColor, entry.defaults.pantsColor),
+      shoesColor: safeOptionalColor(cust.shoesColor, entry.defaults.shoesColor),
       accessories
     },
     updatedAt: typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt) ? obj.updatedAt : Date.now()

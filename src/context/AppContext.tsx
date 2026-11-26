@@ -10,6 +10,7 @@ import {
   SavedCustomTheme,
 } from '../types/index.ts';
 import { api } from '../lib/api.ts';
+import { syncUserLeaderboardStats } from '../lib/leaderboardService.ts';
 import {
   playFocusCompleteSound,
   playBreakEndSound,
@@ -87,6 +88,7 @@ export type NavTab =
   | 'social'
   | 'planner'
   | 'avatar_studio'
+  | 'avatar_qa'
   | 'finance'
   | 'transactions'
   | 'bills'
@@ -113,6 +115,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
   'social',
   'planner',
   'avatar_studio',
+  ...(import.meta.env?.DEV ? (['avatar_qa'] as const) : []),
   'finance',
   'transactions',
   'bills',
@@ -1337,34 +1340,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    if (timerState.activeSessionId) {
-      api
-        .updateFocusSession(timerState.activeSessionId, {
-          completed: true,
-          status: 'completed',
-          actualDurationSeconds: safeDurationSecs,
-          endedAt,
-          endReason: 'completed',
-        })
-        .catch(console.warn);
-    } else {
-      api
-        .createFocusSession({
-          mode: 'work',
-          durationMinutes: durationMin,
-          durationSeconds: safeDurationSecs,
-          actualDurationSeconds: safeDurationSecs,
-          completed: true,
-          status: 'completed',
-          endReason: 'completed',
-          startedAt,
-          endedAt,
-          taskId: timerState.activeTaskId || undefined,
-          subjectCode: timerState.activeStudySubjectCode || undefined,
-          topicId: timerState.activeStudyTopicId || undefined,
-          activityType: timerState.activeStudyActivityType || undefined,
-        })
-        .catch(console.warn);
+    const persistPromise = timerState.activeSessionId
+      ? api
+          .updateFocusSession(timerState.activeSessionId, {
+            completed: true,
+            status: 'completed',
+            actualDurationSeconds: safeDurationSecs,
+            endedAt,
+            endReason: 'completed',
+          })
+          .catch(console.warn)
+      : api
+          .createFocusSession({
+            mode: 'work',
+            durationMinutes: durationMin,
+            durationSeconds: safeDurationSecs,
+            actualDurationSeconds: safeDurationSecs,
+            completed: true,
+            status: 'completed',
+            endReason: 'completed',
+            startedAt,
+            endedAt,
+            taskId: timerState.activeTaskId || undefined,
+            subjectCode: timerState.activeStudySubjectCode || undefined,
+            topicId: timerState.activeStudyTopicId || undefined,
+            activityType: timerState.activeStudyActivityType || undefined,
+          })
+          .catch(console.warn);
+
+    const syncUid = targetUserId || auth.currentUser?.uid;
+    if (syncUid) {
+      void persistPromise
+        .then(() => api.getFocusSessions())
+        .then((allSessions) =>
+          syncUserLeaderboardStats({
+            uid: syncUid,
+            displayName: auth.currentUser?.displayName || undefined,
+            sessions: Array.isArray(allSessions) ? allSessions : [],
+            timezone: settingsRef.current?.timezone,
+            onlyIfExists: true,
+          })
+        )
+        .catch(() => {});
     }
     clearTimerState(storage, targetUserId);
   }, []);
@@ -2447,6 +2464,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         api.saveStudyTopic({ id: activeStudyTopicId, theory: true }).catch(console.error);
       }
 
+      if (firebaseUser?.uid) {
+        void api.getFocusSessions().then((allSessions) =>
+          syncUserLeaderboardStats({
+            uid: firebaseUser.uid,
+            displayName: firebaseUser.displayName || undefined,
+            sessions: Array.isArray(allSessions) ? allSessions : [created],
+            timezone: settings?.timezone,
+            onlyIfExists: true,
+          })
+        ).catch(() => {});
+      }
+
       await syncCoordinator.syncMutation(
         'Focus_Sessions',
         [
@@ -2476,6 +2505,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     activeStudySubjectCode,
     activeStudyTopicId,
     activeStudyActivityType,
+    firebaseUser,
+    settings?.timezone,
     googleSpreadsheetId,
     googleAccessToken,
     resetTimer,
@@ -2713,6 +2744,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 api.saveStudyTopic({ id: studyTopicNow, practice: true }).catch(console.error);
               } else if (studyTopicNow && studyActivityNow === 'theory') {
                 api.saveStudyTopic({ id: studyTopicNow, theory: true }).catch(console.error);
+              }
+
+              if (fbUserNow?.uid) {
+                void api.getFocusSessions().then((allSessions) =>
+                  syncUserLeaderboardStats({
+                    uid: fbUserNow.uid,
+                    displayName: fbUserNow.displayName || undefined,
+                    sessions: Array.isArray(allSessions) ? allSessions : [newSession],
+                    timezone: settingsNow?.timezone,
+                    onlyIfExists: true,
+                  })
+                ).catch(() => {});
               }
 
               // Refresh UI immediately once session is saved in Firestore/local DB
@@ -3043,7 +3086,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       gamification: 'Study RPG & XP',
       social: 'Social & Squads',
       planner: 'Smart Study Planner',
-  avatar_studio: '3D Avatar Studio',
+      avatar_studio: '3D Avatar Studio',
+      avatar_qa: 'Avatar Visual QA (Dev)',
       finance: 'Finance Overview',
       transactions: 'Transactions Ledger',
       bills: 'Bills & Subscriptions',

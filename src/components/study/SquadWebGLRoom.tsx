@@ -22,6 +22,7 @@ import RoomLightingController from '../study-room/RoomLightingController.tsx';
 import RoomWeatherEffects from '../study-room/RoomWeatherEffects.tsx';
 import RoomCustomizationPanel from '../study-room/RoomCustomizationPanel.tsx';
 import { deriveStudyActivity, resolveStudyAvatarIdentity } from '../../lib/studyAvatarRegistry.ts';
+import { getAvatarCatalogEntry } from '../../features/avatar/avatar-catalog.ts';
 import { ACTIVITY_META } from '../../features/study-room/types.ts';
 import {
   defaultRoomCustomization,
@@ -119,6 +120,8 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
           const entry = visibleEntries[idx];
           if (!entry) return null;
           const identity = resolveStudyAvatarIdentity(entry);
+          const catalogEntry = getAvatarCatalogEntry(identity.id);
+          const canSit = catalogEntry.hasHumanoidSkeleton && catalogEntry.supportedPoses.includes('seated');
           const activity = deriveStudyActivity(entry);
           const isLive = Boolean(entry.isStudyingLive);
           const isSelected = selectedUid === entry.uid;
@@ -131,17 +134,23 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
             ? `${activityBadge} • #${entry.rank}`
             : `#${entry.rank} • ${entry.hoursFormatted} • ${entry.streakDays}d`;
 
+          // Rigged avatars sit on the chair at z=0.56; unrigged static models (e.g. avatar-02)
+          // stand behind the chair backrest at z=1.12 to prevent chair clipping and nameplate face overlap.
+          const avatarPosition: [number, number, number] = canSit ? [0, 0, 0.56] : [0, 0, 1.12];
+          const avatarNameplateHeight = canSit ? 1.65 : 2.02;
+
           return (
             <group key={`${entry.uid}-${idx}`} position={[slot.x, 0, slot.z]} rotation={[0, slot.rotY, 0]}>
               <StudyAvatar
                 modelUrl={identity.modelUrl}
                 name={entry.displayName}
                 activity={activity}
-                position={[0, 0, 0.56]}
+                position={avatarPosition}
                 rotation={[0, Math.PI, 0]}
                 scale={1}
                 modelPosition={[0, -0.02, 0]}
-                nameplateHeight={1.65}
+                nameplateHeight={avatarNameplateHeight}
+                poseMode={canSit ? 'seated' : 'standing'}
                 customization={identity.customization}
                 isLive={isLive}
                 isSelected={isSelected}

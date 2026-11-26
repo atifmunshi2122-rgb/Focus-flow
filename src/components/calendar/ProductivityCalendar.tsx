@@ -128,11 +128,67 @@ export const ProductivityCalendar: React.FC<ProductivityCalendarProps> = ({ onOp
       api.getIncomes(),
       api.getExpenses(),
       api.getHabits().catch(() => []),
+      api.getStudyExams().catch(() => []),
+      api.getStudyRevisions().catch(() => []),
+      api.getSubscriptions().catch(() => []),
     ])
-      .then(([t, b, s, inc, exp, h]) => {
-        setTasks(t.filter((item) => !item.deletedAt));
+      .then(([t, b, s, inc, exp, h, studyExams, studyRevs, subs]) => {
+        const examCalendarTasks: Task[] = (Array.isArray(studyExams) ? studyExams : [])
+          .filter((ex) => ex.examDate)
+          .map((ex) => ({
+            id: `cal_exam_${ex.id}`,
+            userId: ex.userId,
+            title: `📝 Exam: ${ex.title}`,
+            description: '',
+            category: 'Study',
+            priority: 'high',
+            status: 'todo',
+            estimatedPomodoros: 1,
+            completedPomodoros: 0,
+            dueDate: ex.examDate.slice(0, 10),
+            createdAt: ex.createdAt,
+            updatedAt: ex.updatedAt,
+          }));
+        const revCalendarTasks: Task[] = (Array.isArray(studyRevs) ? studyRevs : [])
+          .filter((rv) => (rv as any).nextRevisionDate || (rv as any).scheduledDate)
+          .map((rv) => {
+            const revDate = String((rv as any).nextRevisionDate || (rv as any).scheduledDate).slice(0, 10);
+            return {
+              id: `cal_rev_${rv.id}`,
+              userId: rv.userId,
+              title: `🔁 Revision: ${(rv as any).topicName || (rv as any).title || 'Study Revision'}`,
+              description: '',
+              category: 'Study',
+              priority: 'medium',
+              status: (rv as any).status === 'completed' ? 'completed' : 'todo',
+              estimatedPomodoros: 1,
+              completedPomodoros: 0,
+              dueDate: revDate,
+              createdAt: rv.createdAt,
+              updatedAt: rv.updatedAt,
+            };
+          });
+        const subRenewalBills: Bill[] = (Array.isArray(subs) ? subs : [])
+          .filter((sub) => sub.status === 'active' && sub.nextRenewalDate)
+          .map((sub) => ({
+            id: `cal_sub_${sub.id}`,
+            userId: sub.userId,
+            recurringExpenseId: null,
+            name: `💳 Renewal: ${sub.name}`,
+            amountPaise: sub.amountPaise,
+            categoryId: sub.categoryId || 'subscriptions',
+            categoryName: sub.categoryName || 'Subscriptions',
+            dueDate: sub.nextRenewalDate.slice(0, 10),
+            periodKey: sub.nextRenewalDate.slice(0, 7),
+            status: 'UNPAID',
+            paymentDate: null,
+            notes: `Subscription (${sub.billingCycle})`,
+            createdAt: sub.createdAt,
+            updatedAt: sub.updatedAt,
+          }));
+        setTasks([...t.filter((item) => !item.deletedAt), ...examCalendarTasks, ...revCalendarTasks]);
         clientDataCache.setTasks(t);
-        setBills(b.filter((item) => !item.deletedAt));
+        setBills([...b.filter((item) => !item.deletedAt), ...subRenewalBills]);
         clientDataCache.setBills(b);
         setSessions(s);
         clientDataCache.setFocusSessions(s);

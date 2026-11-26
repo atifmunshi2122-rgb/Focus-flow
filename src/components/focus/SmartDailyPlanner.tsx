@@ -66,13 +66,62 @@ export const SmartDailyPlanner: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [taskList, sessionList, habitList, blockList] = await Promise.all([
+      const [taskList, sessionList, habitList, blockList, planTasks, studyRevs, studyExams] = await Promise.all([
         api.getTasks().catch(() => [] as Task[]),
         api.getFocusSessions().catch(() => [] as FocusSession[]),
         api.getHabits().catch(() => [] as Habit[]),
         api.getTimeBlocks(todayStr).catch(() => [] as TimeBlock[]),
+        api.getStudyPlanTasks().catch(() => []),
+        api.getStudyRevisions().catch(() => []),
+        api.getStudyExams().catch(() => []),
       ]);
-      setTasks(taskList);
+      const studyPlanAsTasks: Task[] = (Array.isArray(planTasks) ? planTasks : []).map((pt: any) => ({
+        id: `sp_${pt.id}`,
+        userId: pt.userId || '',
+        title: `📚 ${pt.title || pt.topicName || 'Study Plan Task'}`,
+        description: pt.notes || '',
+        category: 'Study',
+        priority: pt.priority === 'high' ? 'high' : pt.priority === 'low' ? 'low' : 'medium',
+        status: pt.completed || pt.status === 'completed' ? 'completed' : 'todo',
+        estimatedPomodoros: Math.max(1, Math.round((pt.estimatedMinutes || 25) / 25)),
+        completedPomodoros: pt.completed ? 1 : 0,
+        dueDate: (pt.dueDate || pt.scheduledDate || todayStr).slice(0, 10),
+        createdAt: pt.createdAt || new Date().toISOString(),
+        updatedAt: pt.updatedAt || new Date().toISOString(),
+      }));
+      const revAsTasks: Task[] = (Array.isArray(studyRevs) ? studyRevs : [])
+        .filter((rv: any) => rv.nextRevisionDate || rv.scheduledDate)
+        .map((rv: any) => ({
+          id: `rev_${rv.id}`,
+          userId: rv.userId || '',
+          title: `🔁 Revision: ${rv.topicName || rv.title || 'Study Revision'}`,
+          description: '',
+          category: 'Study',
+          priority: 'medium',
+          status: rv.status === 'completed' ? 'completed' : 'todo',
+          estimatedPomodoros: 1,
+          completedPomodoros: rv.status === 'completed' ? 1 : 0,
+          dueDate: String(rv.nextRevisionDate || rv.scheduledDate).slice(0, 10),
+          createdAt: rv.createdAt || new Date().toISOString(),
+          updatedAt: rv.updatedAt || new Date().toISOString(),
+        }));
+      const examAsTasks: Task[] = (Array.isArray(studyExams) ? studyExams : [])
+        .filter((ex: any) => ex.examDate)
+        .map((ex: any) => ({
+          id: `ex_${ex.id}`,
+          userId: ex.userId || '',
+          title: `📝 Exam: ${ex.title}`,
+          description: '',
+          category: 'Study',
+          priority: 'high',
+          status: 'todo',
+          estimatedPomodoros: 2,
+          completedPomodoros: 0,
+          dueDate: String(ex.examDate).slice(0, 10),
+          createdAt: ex.createdAt || new Date().toISOString(),
+          updatedAt: ex.updatedAt || new Date().toISOString(),
+        }));
+      setTasks([...taskList, ...studyPlanAsTasks, ...revAsTasks, ...examAsTasks]);
       setSessions(sessionList);
       setHabits(habitList);
       setTimeBlocks(blockList);

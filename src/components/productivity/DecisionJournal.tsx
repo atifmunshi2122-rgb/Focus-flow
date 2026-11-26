@@ -68,7 +68,7 @@ export const DecisionJournal: React.FC = () => {
         // fallback
       }
     }
-    return SEED_DECISIONS;
+    return [];
   });
 
   // Sync with user-scoped storage & backend
@@ -81,7 +81,7 @@ export const DecisionJournal: React.FC = () => {
         if (Array.isArray(parsed)) setDecisions(parsed);
       } catch {}
     } else {
-      setDecisions(SEED_DECISIONS);
+      setDecisions([]);
     }
 
     api.getDecisionEntries().then((remote) => {

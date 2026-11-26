@@ -57,6 +57,9 @@ const GamificationHubView = lazyWithRetry(() => import('./components/gamificatio
 const SocialHubView = lazyWithRetry(() => import('./components/social/SocialHubView.tsx').then((m) => ({ default: m.SocialHubView })));
 const SmartPlannerHubView = lazyWithRetry(() => import('./components/planner/SmartPlannerHubView.tsx').then((m) => ({ default: m.SmartPlannerHubView })));
 const AvatarStudioView = lazyWithRetry(() => import('./components/avatar/AvatarStudioView.tsx').then((m) => ({ default: m.AvatarStudioView })));
+const AvatarQAView = import.meta.env.DEV
+  ? lazyWithRetry(() => import('./components/avatar/AvatarQAView.tsx').then((m) => ({ default: m.AvatarQAView })))
+  : null;
 const AnalyticsReportsView = lazyWithRetry(() => import('./components/analytics/AnalyticsReportsView.tsx').then((m) => ({ default: m.AnalyticsReportsView })));
 const ExportCenterView = lazyWithRetry(() => import('./components/export/ExportCenterView.tsx').then((m) => ({ default: m.ExportCenterView })));
 const ProductivityCalendar = lazyWithRetry(() => import('./components/calendar/ProductivityCalendar.tsx').then((m) => ({ default: m.ProductivityCalendar })));
@@ -500,7 +503,8 @@ const MainContent: React.FC = () => {
                   {currentTab === 'social' && <SocialHubView />}
 
                   {currentTab === 'planner' && <SmartPlannerHubView />}
-            {currentTab === 'avatar_studio' && <AvatarStudioView />}
+                  {currentTab === 'avatar_studio' && <AvatarStudioView />}
+                  {import.meta.env.DEV && AvatarQAView && currentTab === 'avatar_qa' && <AvatarQAView />}
 
                   {currentTab === 'analytics' && <AnalyticsReportsView />}
 

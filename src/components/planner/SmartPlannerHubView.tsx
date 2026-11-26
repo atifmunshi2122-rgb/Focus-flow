@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
-import type { FocusSession, Task } from '../../types/index.ts';
+import type { FocusSession, Task, TimeBlock } from '../../types/index.ts';
 import type { StudyExam, StudyRevision, StudySubject, StudyTopic } from '../../types/study.ts';
 import { DEFAULT_TIMEZONE, formatDateInTimezone } from '../../lib/dateTime.ts';
 import {
@@ -52,6 +52,8 @@ export const SmartPlannerHubView: React.FC = () => {
   const [exams, setExams] = useState<StudyExam[]>([]);
   const [subjects, setSubjects] = useState<StudySubject[]>([]);
   const [topics, setTopics] = useState<StudyTopic[]>([]);
+  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
+  const [, setSyncingTimeBlocks] = useState(false);
 
   const [plannerSettings, setPlannerSettings] = useState<StudyPlannerSettings>(() => {
     if (settings?.studyPlannerSettings) {
@@ -76,13 +78,14 @@ export const SmartPlannerHubView: React.FC = () => {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [tRes, sRes, rRes, eRes, subRes, topRes] = await Promise.all([
+      const [tRes, sRes, rRes, eRes, subRes, topRes, tbRes] = await Promise.all([
         api.getTasks().catch(() => []),
         api.getFocusSessions().catch(() => []),
         api.getStudyRevisions().catch(() => []),
         api.getStudyExams().catch(() => []),
         api.getStudySubjects().catch(() => []),
         api.getStudyTopics().catch(() => []),
+        api.getTimeBlocks().catch(() => []),
       ]);
       setTasks(tRes || []);
       setSessions(sRes || []);
@@ -90,6 +93,32 @@ export const SmartPlannerHubView: React.FC = () => {
       setExams(eRes || []);
       setSubjects(subRes || []);
       setTopics(topRes || []);
+      const blocks = Array.isArray(tbRes) ? tbRes : [];
+      setTimeBlocks(blocks);
+
+      // Hydrate previously persisted Smart Planner sessions from Firestore time_blocks
+      const hydrated = blocks
+        .filter((b) => typeof b.notes === 'string' && b.notes.includes('[smart-planner:'))
+        .map((b): PlannedStudySession | null => {
+          const match = b.notes?.match(/\[smart-planner:([^\]]+)\]/);
+          const sessionId = match?.[1] || b.id;
+          const baseDayMs = Date.parse(`${b.date}T00:00:00`);
+          if (!Number.isFinite(baseDayMs)) return null;
+          return {
+            id: sessionId,
+            taskId: b.taskId || sessionId,
+            startAt: baseDayMs + b.startMinute * 60_000,
+            endAt: baseDayMs + b.endMinute * 60_000,
+            durationMinutes: Math.max(15, b.endMinute - b.startMinute),
+            reason: 'Synced from Time Blocks',
+            generated: true,
+          };
+        })
+        .filter((s): s is PlannedStudySession => Boolean(s));
+
+      if (hydrated.length > 0) {
+        setPlannedSessions(hydrated);
+      }
     } finally {
       setLoading(false);
     }
@@ -128,6 +157,49 @@ export const SmartPlannerHubView: React.FC = () => {
     });
   }, [weekStart, plannerSettings.preferredStartHour, plannerSettings.preferredEndHour]);
 
+  const syncPlannedSessionsToTimeBlocks = useCallback(
+    async (sessionsToSync: PlannedStudySession[]) => {
+      if (sessionsToSync.length === 0) return;
+      setSyncingTimeBlocks(true);
+      try {
+        const existingMarkers = new Set(
+          timeBlocks
+            .map((b) => b.notes?.match(/\[smart-planner:([^\]]+)\]/)?.[1])
+            .filter(Boolean)
+        );
+        const createdBlocks: TimeBlock[] = [];
+        for (const sess of sessionsToSync) {
+          if (existingMarkers.has(sess.id)) continue;
+          const startD = new Date(sess.startAt);
+          const endD = new Date(sess.endAt);
+          const dateStr = formatDateInTimezone(startD, timezone);
+          const startMinute = startD.getHours() * 60 + startD.getMinutes();
+          const endMinute = Math.max(startMinute + 15, endD.getHours() * 60 + endD.getMinutes());
+          const matchedTask = tasks.find((t) => t.id === sess.taskId);
+          const created = await api.createTimeBlock({
+            date: dateStr,
+            title: matchedTask?.title || 'Planned Study Session',
+            startMinute,
+            endMinute,
+            category: 'study',
+            taskId: sess.taskId || null,
+            completed: matchedTask?.status === 'completed',
+            notes: `[smart-planner:${sess.id}]`,
+          });
+          createdBlocks.push(created);
+        }
+        if (createdBlocks.length > 0) {
+          setTimeBlocks((prev) => [...prev, ...createdBlocks]);
+        }
+      } catch (err) {
+        console.warn('Smart Planner -> TimeBlock sync skipped:', err);
+      } finally {
+        setSyncingTimeBlocks(false);
+      }
+    },
+    [timeBlocks, tasks, timezone]
+  );
+
   const runAutoPlan = useCallback(() => {
     const locked = plannedSessions.filter((s) => s.locked);
     const result = generateStudyPlan({
@@ -140,8 +212,9 @@ export const SmartPlannerHubView: React.FC = () => {
     });
     setPlannedSessions(result.sessions);
     setUnscheduled(result.unscheduled);
-    showToast(`Generated ${result.sessions.length} study session(s) for the week`, 'success');
-  }, [plannedSessions, studyTasks, weekWindows, plannerSettings, timezone, showToast]);
+    void syncPlannedSessionsToTimeBlocks(result.sessions);
+    showToast(`Generated & synced ${result.sessions.length} study session(s) to Time Blocks`, 'success');
+  }, [plannedSessions, studyTasks, weekWindows, plannerSettings, timezone, showToast, syncPlannedSessionsToTimeBlocks]);
 
   useEffect(() => {
     if (!loading && plannerSettings.autoSchedule && plannedSessions.length === 0 && studyTasks.length > 0) {

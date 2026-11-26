@@ -31,6 +31,7 @@ import { ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { AnimeCharacterSvg } from '../study-room/AnimeCharacterSvg.tsx';
 import StudyActivityBar from '../study-room/StudyActivityBar.tsx';
 import { deriveStudyActivity, resolveStudyAvatarIdentity } from '../../lib/studyAvatarRegistry.ts';
+import { getAvatarCatalogEntry } from '../../features/avatar/avatar-catalog.ts';
 import { ACTIVITY_META, EMOTE_META, type AvatarEmote, type StudyActivity } from '../../features/study-room/types.ts';
 import {
   defaultRoomCustomization,
@@ -47,6 +48,7 @@ interface SquadStudyRoomProps {
   squad: StudySquad | null;
   entries: RankedLeaderboardEntry[];
   periodLabel: string;
+  initialRoomStyle?: StudyRoomStyle;
   onCopyInvite?: (code: string) => void;
   copiedCode?: string | null;
   onStartFocus?: () => void;
@@ -206,12 +208,13 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   squad,
   entries,
   periodLabel,
+  initialRoomStyle,
   onCopyInvite,
   copiedCode,
   onStartFocus,
 }) => {
   const { settings, updateSettings, setCurrentTab } = useApp();
-  const [roomStyle, setRoomStyle] = useState<StudyRoomStyle>('isometric');
+  const [roomStyle, setRoomStyle] = useState<StudyRoomStyle>(() => initialRoomStyle || 'isometric');
   const [localCustomization, setLocalCustomization] = useState<RoomCustomization>(() => {
     if (settings?.studyRoomCustomization) {
       return sanitizeRoomCustomization(settings.studyRoomCustomization);
@@ -420,6 +423,37 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Dev-Only Study Room Avatar QA Status Overlay (excluded from production builds) */}
+      {import.meta.env.DEV && (() => {
+        const targetEntry = currentUserEntry || selectedEntry;
+        const identity = targetEntry ? resolveStudyAvatarIdentity(targetEntry) : null;
+        const cat = identity ? getAvatarCatalogEntry(identity.id) : null;
+        const canSit = Boolean(cat && cat.hasHumanoidSkeleton && cat.supportedPoses.includes('seated'));
+        const charPos = roomStyle === 'webgl' ? (canSit ? '[0, 0, 0.56]' : '[0, 0, 1.12]') : '2D Layout';
+        const nameplatePos = roomStyle === 'webgl' ? (canSit ? 'y = 1.65' : 'y = 2.02') : 'Inline Pill';
+        return (
+          <div className="px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] font-mono text-amber-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-bold text-amber-400">DEV QA</span>
+              <span>Mode: <strong>{roomStyle}</strong></span>
+              <span>Avatar: <strong>{identity?.id || 'none'}</strong></span>
+              <span>Model: <strong>{identity ? 'Ready' : 'None'}</strong></span>
+              <span>Rig: <strong>{cat ? (cat.hasHumanoidSkeleton ? '21-Bone Rig' : 'Unrigged Static') : 'n/a'}</strong></span>
+              <span>Pose: <strong>{canSit ? 'seated' : 'standing'}</strong></span>
+              <span>Pos: <strong>{charPos}</strong></span>
+              <span>Nameplate: <strong>{nameplatePos}</strong></span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCurrentTab('avatar_qa')}
+              className="px-2 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-semibold transition-colors"
+            >
+              Back to #avatar_qa
+            </button>
+          </div>
+        );
+      })()}
 
       {/* MODE 1: ISOMETRIC LO-FI STUDY LOUNGE (Crisp SVG 2.5D Room) */}
       {roomStyle === 'isometric' && (
