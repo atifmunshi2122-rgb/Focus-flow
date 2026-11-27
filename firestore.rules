@@ -2908,6 +2908,76 @@ service cloud.firestore {
         && isOptionalString(request.resource.data.get('challengeTitle', null), 80)
         && isIsoDate(request.resource.data.updatedAt);
       allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      // Real-time Study Squad Group Chat messages
+      match /messages/{messageId} {
+        function isSquadMember() {
+          let sq = get(/databases/$(database)/documents/study_squads/$(squadId));
+          return isSignedIn() && sq != null && (request.auth.uid in sq.data.memberUids);
+        }
+
+        allow read: if isSquadMember();
+        allow create: if isSquadMember()
+          && isValidId(messageId)
+          && request.resource.data.id == messageId
+          && request.resource.data.senderId == request.auth.uid
+          && isNonEmptyString(request.resource.data.senderName, 64)
+          && isNonEmptyString(request.resource.data.text, 1000)
+          && request.resource.data.createdAt is int;
+        allow update: if isSquadMember()
+          && (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactionCounts', 'reactionUsers', 'updatedAt'])
+            || (
+              resource.data.senderId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedAt', 'updatedAt'])
+            )
+          );
+        allow delete: if false;
+      }
+
+      // Ephemeral typing presence indicators for squad chat
+      match /typing/{typingUid} {
+        allow read: if isSignedIn()
+          && (request.auth.uid in get(/databases/$(database)/documents/study_squads/$(squadId)).data.memberUids);
+        allow create, update: if isSignedIn()
+          && request.auth.uid == typingUid
+          && (request.auth.uid in get(/databases/$(database)/documents/study_squads/$(squadId)).data.memberUids);
+        allow delete: if isSignedIn() && request.auth.uid == typingUid;
+      }
+    }
+
+    // Real-time 1-on-1 Study Direct Messages (dmRoomId = sorted "uidA__uidB")
+    match /study_dms/{dmRoomId} {
+      function isDmParticipant() {
+        return isSignedIn()
+          && dmRoomId.matches('^' + request.auth.uid + '__.*$|^.*__' + request.auth.uid + '$');
+      }
+
+      match /messages/{messageId} {
+        allow read: if isDmParticipant();
+        allow create: if isDmParticipant()
+          && isValidId(messageId)
+          && request.resource.data.id == messageId
+          && request.resource.data.senderId == request.auth.uid
+          && isNonEmptyString(request.resource.data.senderName, 64)
+          && isNonEmptyString(request.resource.data.text, 1000)
+          && request.resource.data.createdAt is int;
+        allow update: if isDmParticipant()
+          && (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactionCounts', 'reactionUsers', 'updatedAt'])
+            || (
+              resource.data.senderId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedAt', 'updatedAt'])
+            )
+          );
+        allow delete: if false;
+      }
+
+      match /typing/{typingUid} {
+        allow read: if isDmParticipant();
+        allow create, update: if isDmParticipant() && request.auth.uid == typingUid;
+        allow delete: if isDmParticipant() && request.auth.uid == typingUid;
+      }
     }
 
     match /squad_invites/{inviteCode} {

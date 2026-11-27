@@ -8,6 +8,7 @@ import { AppProvider, NavTab, useApp } from './context/AppContext.tsx';
 import { Sidebar } from './components/layout/Sidebar.tsx';
 import { Header } from './components/layout/Header.tsx';
 import { ToastContainer } from './components/layout/ToastContainer.tsx';
+import { FloatingMiniChat } from './components/social/FloatingMiniChat.tsx';
 import { QuickActionModal, type QuickActionType } from './components/common/QuickActionModal.tsx';
 import { CommandCenter } from './components/common/CommandCenter.tsx';
 import { TrashRestoreModal } from './components/common/TrashRestoreModal.tsx';
@@ -916,6 +917,9 @@ const MainContent: React.FC = () => {
         }}
         onClose={clearAuthError}
       />
+
+      {/* Global Floating Squad & DM Mini-Chat Drawer */}
+      <FloatingMiniChat />
 
       {/* Notification Toast Container */}
       <ToastContainer />

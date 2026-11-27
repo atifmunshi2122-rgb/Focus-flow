@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Bell, Copy, KeyRound, LogOut, Lock, Search, Shield, Sparkles, Users } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Bell, Copy, KeyRound, LogOut, Lock, Search, Shield, Sparkles, User, Users } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import {
@@ -33,10 +33,35 @@ import CreateSquadForm from './CreateSquadForm.tsx';
 import SharedStudyTimer from './SharedStudyTimer.tsx';
 import StudyChat from './StudyChat.tsx';
 import { startOrJoinGoogleMeetCall } from '../../lib/googleMeetService.ts';
+import {
+  buildDmRoomId,
+  markChatRoomRead,
+  sendStudyChatMessage,
+  setStudyChatTyping,
+  subscribeStudyChatMessages,
+  subscribeStudyChatTyping,
+  toggleStudyChatReaction,
+  type ChatChannelRef,
+  type TypingUser,
+} from '../../lib/studyChatService.ts';
 
 export const SocialHubView: React.FC = () => {
-  const { user, firebaseUser, settings, setCurrentTab, showToast, confirmAction } = useApp();
+  const {
+    user,
+    firebaseUser,
+    settings,
+    isRunning,
+    timerMode,
+    setCurrentTab,
+    setTimerEngine,
+    switchTimerMode,
+    startTimer,
+    showToast,
+    confirmAction,
+  } = useApp();
   const currentUserId = firebaseUser?.uid || user?.id || 'usr_guest';
+  const currentUserName = firebaseUser?.displayName || user?.name || 'Student';
+  const isInDeepFocus = isRunning && timerMode === 'work';
 
   const [loading, setLoading] = useState(true);
   const [friends, setFriends] = useState<SocialProfile[]>([]);
@@ -62,6 +87,8 @@ export const SocialHubView: React.FC = () => {
   const [callingMode, setCallingMode] = useState<'audio' | 'video' | null>(null);
   const [challenges, setChallenges] = useState<SquadChallengeSummary[]>([]);
   const [chatMessages, setChatMessages] = useState<StudyChatMessage[]>([]);
+  const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
+  const [dmTarget, setDmTarget] = useState<LeaderboardProfile | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectedProfile, setSelectedProfile] = useState<SocialProfile | null>(null);
@@ -178,15 +205,43 @@ export const SocialHubView: React.FC = () => {
         .then((res) => setChallenges(res.challenges || []))
         .catch(() => setChallenges([]));
     }
-    const chatQuery =
-      firebaseUser?.uid && fsSquad
-        ? { roomId: `fs_squad_${selectedSquadId}`, limit: 25 }
-        : { squadId: selectedSquadId, limit: 25 };
-    void api
-      .getSocialChat(chatQuery)
-      .then((res) => setChatMessages(res.messages || []))
-      .catch(() => setChatMessages([]));
   }, [selectedSquadId, firestoreSquads, firebaseUser?.uid, settings?.timezone]);
+
+  const activeChatChannel: ChatChannelRef | null = useMemo(() => {
+    if (dmTarget && currentUserId) {
+      return { kind: 'dm', id: buildDmRoomId(currentUserId, dmTarget.uid) };
+    }
+    if (selectedSquadId) {
+      return { kind: 'squad', id: selectedSquadId };
+    }
+    return null;
+  }, [dmTarget, selectedSquadId, currentUserId]);
+
+  useEffect(() => {
+    if (!activeChatChannel) {
+      setChatMessages([]);
+      setTypingUsers([]);
+      return;
+    }
+    const unsubMsgs = subscribeStudyChatMessages(
+      activeChatChannel,
+      (msgs) => {
+        setChatMessages(msgs);
+        markChatRoomRead(currentUserId, activeChatChannel);
+      },
+      { isAuthenticated: Boolean(firebaseUser?.uid) }
+    );
+    const unsubTyping = subscribeStudyChatTyping(
+      activeChatChannel,
+      currentUserId,
+      setTypingUsers,
+      { isAuthenticated: Boolean(firebaseUser?.uid) }
+    );
+    return () => {
+      unsubMsgs();
+      unsubTyping();
+    };
+  }, [activeChatChannel, currentUserId, firebaseUser?.uid]);
 
   const handleJoinSquadByCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -719,65 +774,127 @@ export const SocialHubView: React.FC = () => {
           )}
         </div>
 
-        {/* Column 3: Real-Time Group Chat, Invites & Notifications */}
+        {/* Column 3: Real-Time Group Chat, 1-on-1 DM, Invites & Notifications */}
         <div className="space-y-4">
-          {selectedSquadId ? (
-            <StudyChat
-              messages={chatMessages}
-              currentUserId={currentUserId}
-              onSend={async (text) => {
-                try {
-                  const isFsSquad = firestoreSquads.some((s) => s.id === selectedSquadId);
-                  const msg = await api.sendSocialChat(
-                    isFsSquad
-                      ? { roomId: `fs_squad_${selectedSquadId}`, text }
-                      : { squadId: selectedSquadId, text }
-                  );
-                  setChatMessages((prev) => [...prev, msg]);
-                } catch (err: any) {
-                  showToast(err?.message || 'Unable to send chat message right now.', 'error');
-                  throw err;
-                }
-              }}
-              onReact={async (messageId, emoji) => {
-                const upd = await api.reactSocialChat(messageId, emoji);
-                setChatMessages((prev) => prev.map((m) => (m.id === upd.id ? upd : m)));
-              }}
-              callingMode={callingMode}
-              onStartCall={async (mode) => {
-                if (!selectedSquadId || callingMode) return;
-                setCallingMode(mode);
-                try {
-                  const res = await startOrJoinGoogleMeetCall({
-                    roomKey: selectedSquadId,
-                    mode,
-                    loginHint: firebaseUser?.email || undefined,
-                  });
-                  window.open(res.meetingUri, '_blank', 'noopener,noreferrer');
-                  const isFsSquad = firestoreSquads.some((s) => s.id === selectedSquadId);
-                  const label = mode === 'audio' ? '🎙️ Voice Call started' : '📹 Video Call started';
-                  const text = `${label} — Join Google Meet: ${res.meetingUri}`;
-                  try {
-                    const msg = await api.sendSocialChat(
-                      isFsSquad
-                        ? { roomId: `fs_squad_${selectedSquadId}`, text }
-                        : { squadId: selectedSquadId, text }
+          {activeChatChannel ? (
+            <div className="space-y-2">
+              {/* Squad Group vs 1-on-1 DM Switcher */}
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => setDmTarget(null)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border whitespace-nowrap transition-colors ${
+                    !dmTarget
+                      ? 'bg-[var(--ff-accent)] text-white border-[var(--ff-accent)]'
+                      : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-secondary)] border-[var(--ff-border-color)] hover:bg-[var(--ff-surface-hover)]'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>{squads.find((s) => s.id === selectedSquadId)?.name || 'Squad Chat'}</span>
+                </button>
+                {squadMembers
+                  .filter((m) => m.uid !== currentUserId)
+                  .map((member) => {
+                    const isSelectedDm = dmTarget?.uid === member.uid;
+                    return (
+                      <button
+                        key={member.uid}
+                        type="button"
+                        onClick={() => setDmTarget(member)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border whitespace-nowrap transition-colors ${
+                          isSelectedDm
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                            : 'bg-[var(--ff-surface-card)] text-[var(--ff-text-secondary)] border-[var(--ff-border-color)] hover:bg-[var(--ff-surface-hover)]'
+                        }`}
+                        title={`Direct message ${member.displayName}`}
+                      >
+                        <User className="w-3.5 h-3.5" />
+                        <span>DM · {member.displayName.split(' ')[0]}</span>
+                      </button>
                     );
-                    setChatMessages((prev) => [...prev, msg]);
-                  } catch {
-                    // ignore chat broadcast failure
+                  })}
+              </div>
+
+              <StudyChat
+                messages={chatMessages}
+                currentUserId={currentUserId}
+                title={dmTarget ? dmTarget.displayName : squads.find((s) => s.id === selectedSquadId)?.name || 'Study Chat'}
+                subtitle={dmTarget ? 'Direct Message (Real-Time)' : 'Group Conversation (Real-Time)'}
+                typingUsers={typingUsers}
+                isRecipientInFocus={isInDeepFocus}
+                onSend={async (payload) => {
+                  try {
+                    await sendStudyChatMessage({
+                      channel: activeChatChannel,
+                      senderId: currentUserId,
+                      senderName: currentUserName,
+                      ...payload,
+                      isAuthenticated: Boolean(firebaseUser?.uid),
+                    });
+                  } catch (err: any) {
+                    showToast(err?.message || 'Unable to send chat message right now.', 'error');
+                    throw err;
                   }
-                  showToast(
-                    mode === 'audio'
-                      ? '🎙️ Google Meet Voice Call opened!'
-                      : '📹 Google Meet Video Call opened!',
-                    'success'
-                  );
-                } finally {
-                  setCallingMode(null);
-                }
-              }}
-            />
+                }}
+                onReact={async (msg, emoji) => {
+                  await toggleStudyChatReaction({
+                    channel: activeChatChannel,
+                    message: msg,
+                    emoji,
+                    userId: currentUserId,
+                    isAuthenticated: Boolean(firebaseUser?.uid),
+                  });
+                }}
+                onTypingChange={(typing) => {
+                  void setStudyChatTyping({
+                    channel: activeChatChannel,
+                    uid: currentUserId,
+                    displayName: currentUserName,
+                    isTyping: typing,
+                    isAuthenticated: Boolean(firebaseUser?.uid),
+                  });
+                }}
+                onJoinSprint={(durationMinutes) => {
+                  setTimerEngine('pomodoro');
+                  switchTimerMode('work', durationMinutes);
+                  startTimer();
+                  setCurrentTab('focus');
+                  showToast(`Joined ${durationMinutes}m Deep Focus sprint!`, 'success');
+                }}
+                callingMode={callingMode}
+                onStartCall={async (mode) => {
+                  if (!activeChatChannel || callingMode) return;
+                  setCallingMode(mode);
+                  try {
+                    const res = await startOrJoinGoogleMeetCall({
+                      roomKey: activeChatChannel.id,
+                      mode,
+                      loginHint: firebaseUser?.email || undefined,
+                    });
+                    window.open(res.meetingUri, '_blank', 'noopener,noreferrer');
+                    const label = mode === 'audio' ? '🎙️ Voice Call started' : '📹 Video Call started';
+                    const text = `${label} — Join Google Meet: ${res.meetingUri}`;
+                    await sendStudyChatMessage({
+                      channel: activeChatChannel,
+                      senderId: currentUserId,
+                      senderName: currentUserName,
+                      text,
+                      messageType: 'call_link',
+                      metadata: { meetingUri: res.meetingUri },
+                      isAuthenticated: Boolean(firebaseUser?.uid),
+                    }).catch(() => {});
+                    showToast(
+                      mode === 'audio'
+                        ? '🎙️ Google Meet Voice Call opened!'
+                        : '📹 Google Meet Video Call opened!',
+                      'success'
+                    );
+                  } finally {
+                    setCallingMode(null);
+                  }
+                }}
+              />
+            </div>
           ) : (
             <div className="p-6 rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] text-center text-xs text-[var(--ff-text-muted)]">
               <Lock className="w-5 h-5 mx-auto mb-2 opacity-60" />

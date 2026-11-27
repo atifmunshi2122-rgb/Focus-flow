@@ -1284,7 +1284,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!uid) return;
 
     const isActivelyStudying =
-      isRunning && (timerEngine === 'stopwatch' || timerMode === 'work');
+      isRunning && (timerEngine === 'stopwatch' || timerEngine === 'countdown' || timerMode === 'work');
     const isShortPauseOrBreak =
       (!isRunning && Boolean(activeSessionId)) ||
       timerMode === 'short_break' ||

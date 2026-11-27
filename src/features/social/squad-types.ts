@@ -73,6 +73,13 @@ export interface GroupStudySession {
   updatedAt: number;
 }
 
+export type StudyChatMessageType =
+  | 'text'
+  | 'pomodoro_invite'
+  | 'study_card'
+  | 'nudge'
+  | 'call_link';
+
 export interface StudyChatMessage {
   id: string;
   roomId?: string;
@@ -81,9 +88,21 @@ export interface StudyChatMessage {
   senderName: string;
   senderAvatar?: string;
   text: string;
+  messageType?: StudyChatMessageType;
+  deliverOnBreak?: boolean;
+  metadata?: {
+    durationMinutes?: number;
+    subjectCode?: string;
+    meetingUri?: string;
+    cardTitle?: string;
+  };
   createdAt: number;
   updatedAt?: number;
   replyToId?: string;
+  replyPreview?: {
+    senderName: string;
+    text: string;
+  };
   reactionCounts?: Record<string, number>;
   reactionUsers?: Record<string, string[]>;
   deletedAt?: number;

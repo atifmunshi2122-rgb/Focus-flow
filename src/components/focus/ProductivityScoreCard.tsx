@@ -297,7 +297,7 @@ export const ProductivityScoreCard: React.FC<ProductivityScoreCardProps> = ({
                 <div className="bg-[var(--ff-surface-card)] p-2 rounded-lg border border-[var(--ff-border-color)]">
                   <div className="text-[var(--ff-text-muted)] text-[10px]">Habits Done</div>
                   <div className="font-bold text-[var(--ff-text-primary)]">
-                    {scoreData.details.habitsCompletedToday} / {scoreData.details.habitsScheduledToday || 'all'}
+                    {scoreData.details.habitsCompletedToday} / {scoreData.details.habitsScheduledToday}
                   </div>
                 </div>
                 <div className="bg-[var(--ff-surface-card)] p-2 rounded-lg border border-[var(--ff-border-color)]">

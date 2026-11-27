@@ -216,7 +216,7 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
   copiedCode,
   onStartFocus,
 }) => {
-  const { user, firebaseUser, settings, updateSettings, setCurrentTab, isRunning, timerMode, activeSessionId, showToast } = useApp();
+  const { user, firebaseUser, settings, updateSettings, setCurrentTab, isRunning, timerEngine, timerMode, activeSessionId, activeStudySubjectCode, showToast } = useApp();
   const [callingMode, setCallingMode] = useState<'audio' | 'video' | null>(null);
   const activeUid = firebaseUser?.uid || user?.id || 'usr_guest';
   const roomStorageKey = `ff_study_room_customization_${activeUid}`;
@@ -291,25 +291,78 @@ export const SquadStudyRoom: React.FC<SquadStudyRoomProps> = ({
 
   const effectiveEntries = useMemo(() => {
     const isOnShortPauseOrBreak =
-      (!isRunning && Boolean(activeSessionId)) ||
-      timerMode === 'short_break' ||
-      timerMode === 'long_break';
-    const isSelfFocusActive = Boolean(isRunning && timerMode === 'work');
-    return entries.map((e) => {
+      (!isRunning && Boolean(activeSessionId) && timerEngine !== 'stopwatch') ||
+      (timerEngine === 'pomodoro' && (timerMode === 'short_break' || timerMode === 'long_break'));
+    const isSelfFocusActive = Boolean(
+      isRunning &&
+        (timerEngine === 'stopwatch' || timerEngine === 'countdown' || timerMode === 'work')
+    );
+    const mapped = entries.map((e) => {
       if (!e.isCurrentUser) return e;
+      const nextActivity: StudyActivity | undefined = isOnShortPauseOrBreak
+        ? 'break'
+        : isSelfFocusActive
+        ? optimisticActivity && optimisticActivity !== 'idle' && optimisticActivity !== 'break'
+          ? optimisticActivity
+          : e.studyActivity && e.studyActivity !== 'idle' && e.studyActivity !== 'break'
+          ? e.studyActivity
+          : 'studying'
+        : optimisticActivity ?? e.studyActivity;
       return {
         ...e,
         isStudyingLive: isOnShortPauseOrBreak ? false : e.isStudyingLive || isSelfFocusActive,
-        studyActivity: isOnShortPauseOrBreak
-          ? 'break'
-          : optimisticActivity ?? e.studyActivity,
+        activeSubject:
+          isSelfFocusActive && activeStudySubjectCode
+            ? activeStudySubjectCode
+            : e.activeSubject,
+        studyActivity: nextActivity,
         lastEmote:
           optimisticEmote && (!e.lastEmote || optimisticEmote.createdAt >= e.lastEmote.createdAt)
             ? optimisticEmote
             : e.lastEmote,
       };
     });
-  }, [entries, optimisticActivity, optimisticEmote, isRunning, timerMode, activeSessionId]);
+
+    if (isSelfFocusActive && !mapped.some((e) => e.isCurrentUser)) {
+      const selfUid = firebaseUser?.uid || user?.id || 'usr_self';
+      mapped.unshift({
+        uid: selfUid,
+        displayName: firebaseUser?.displayName || user?.name || 'You',
+        avatarColor: '#6366f1',
+        avatarConfig: settings?.avatarConfig ?? null,
+        rank: 1,
+        minutes: 0,
+        hoursFormatted: '0m',
+        streakDays: 0,
+        dailyGoalMinutes: settings?.dailyFocusGoalMinutes || 120,
+        goalProgressPct: 0,
+        isCurrentUser: true,
+        isPublic: false,
+        isStudyingLive: true,
+        activeSubject: activeStudySubjectCode || 'Deep Focus',
+        liveElapsedMinutes: 0,
+        studyActivity: optimisticActivity || 'studying',
+        lastEmote: optimisticEmote,
+      });
+    }
+
+    return mapped;
+  }, [
+    entries,
+    optimisticActivity,
+    optimisticEmote,
+    isRunning,
+    timerEngine,
+    timerMode,
+    activeSessionId,
+    activeStudySubjectCode,
+    firebaseUser?.uid,
+    firebaseUser?.displayName,
+    user?.id,
+    user?.name,
+    settings?.avatarConfig,
+    settings?.dailyFocusGoalMinutes,
+  ]);
 
   const roomSeatedEntries = useMemo(
     () =>
