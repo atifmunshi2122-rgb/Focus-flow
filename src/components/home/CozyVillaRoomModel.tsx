@@ -85,6 +85,23 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
     return root;
   }, [scene]);
 
+  const tzOffsetMs = useMemo(() => -new Date().getTimezoneOffset() * 60_000, []);
+
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = 'auto';
+      clonedScene.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          const mesh = obj as THREE.Mesh;
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const mat of mats) {
+            mat?.dispose?.();
+          }
+        }
+      });
+    };
+  }, [clonedScene]);
+
   useEffect(() => {
     const isNight = lightingMode === 'night';
     const isSunset = lightingMode === 'sunset';
@@ -119,9 +136,10 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
-    const now = new Date();
-    const mins = now.getMinutes() + now.getSeconds() / 60;
-    const hrs = (now.getHours() % 12) + mins / 60;
+    const localMs = Date.now() + tzOffsetMs;
+    const secsInDay = Math.floor(localMs / 1000) % 86400;
+    const mins = (secsInDay % 3600) / 60;
+    const hrs = (secsInDay / 3600) % 12;
     if (clockHourRef.current) {
       clockHourRef.current.rotation.z = -(hrs / 12) * Math.PI * 2;
     }
@@ -186,5 +204,4 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
   );
 };
 
-useGLTF.preload(COZY_VILLA_GLB_URL);
 

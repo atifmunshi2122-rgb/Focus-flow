@@ -94,6 +94,7 @@ export interface UserSettings {
   typingWarmupEnabled?: boolean;
   hideFinancialInReceipt?: boolean;
   myHomeState?: {
+    roomStyle?: 'classic' | 'anime_studio' | 'cozy_villa';
     petSpecies?: 'cat' | 'dog';
     apartmentTierOverride?: 'auto' | 'studio' | 'balcony' | 'penthouse';
     shopState?: { ownedIds: string[]; placedItems: Array<{ itemId: string; x: number; y: number; z: number; rotationY: number }>; spentCoins: number };

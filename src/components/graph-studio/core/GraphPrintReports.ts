@@ -42,7 +42,7 @@ function escapeHtml(str: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-export function openPrintableGraphStudioReport(params: GraphStudioReportParams): void {
+export function openPrintableGraphStudioReport(params: GraphStudioReportParams): boolean {
   const {
     userName = 'FocusFlow Operator',
     currency,
@@ -381,5 +381,7 @@ export function openPrintableGraphStudioReport(params: GraphStudioReportParams):
     printWindow.document.open();
     printWindow.document.write(html);
     printWindow.document.close();
+    return true;
   }
+  return false;
 }

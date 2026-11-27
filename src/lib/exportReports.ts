@@ -190,7 +190,9 @@ export function openPrintableReport(input: {
   totalExpensePaise: number;
   savingsGoals: SavingsGoal[];
   topCategories: Array<{ name: string; amountPaise: number }>;
+  currency?: CurrencyCode;
 }): boolean {
+  const reportCurrency: CurrencyCode = input.currency || 'INR';
   const netPaise = input.totalIncomePaise - input.totalExpensePaise;
   const totalExp = input.totalExpensePaise;
 
@@ -204,7 +206,7 @@ export function openPrintableReport(input: {
             ${escapeHtml(c.name)}
           </td>
           <td style="padding: 7px 10px; text-align: right; font-family: monospace; font-weight: 700; color: #e11d48; font-size: 11px;">
-            ${escapeHtml(formatCurrency(c.amountPaise))}
+            ${escapeHtml(formatCurrency(c.amountPaise, reportCurrency))}
           </td>
           <td style="padding: 7px 10px; text-align: right; font-weight: 600; color: #64748b; font-size: 11px;">${pct}%</td>
           <td style="padding: 7px 10px; width: 140px;">
@@ -222,8 +224,8 @@ export function openPrintableReport(input: {
       return `
         <tr>
           <td style="padding: 7px 10px; font-weight: 600; color: #0f172a; font-size: 11px;">${escapeHtml(g.title)}</td>
-          <td style="padding: 7px 10px; text-align: right; font-family: monospace; font-size: 11px; color: #0f172a;">${escapeHtml(formatCurrency(g.targetPaise))}</td>
-          <td style="padding: 7px 10px; text-align: right; font-family: monospace; font-size: 11px; color: #059669; font-weight: 700;">${escapeHtml(formatCurrency(g.savedPaise))}</td>
+          <td style="padding: 7px 10px; text-align: right; font-family: monospace; font-size: 11px; color: #0f172a;">${escapeHtml(formatCurrency(g.targetPaise, reportCurrency))}</td>
+          <td style="padding: 7px 10px; text-align: right; font-family: monospace; font-size: 11px; color: #059669; font-weight: 700;">${escapeHtml(formatCurrency(g.savedPaise, reportCurrency))}</td>
           <td style="padding: 7px 10px; width: 120px;">
             <div style="background: #f1f5f9; border-radius: 9999px; height: 6px; overflow: hidden;">
               <div style="background: #10b981; height: 100%; width: ${pct}%;"></div>
@@ -284,9 +286,9 @@ export function openPrintableReport(input: {
   </div>
 
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-label">Total Inflows</div><div class="kpi-val" style="color: #059669;">+${escapeHtml(formatCurrency(input.totalIncomePaise))}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Total Outflows</div><div class="kpi-val" style="color: #e11d48;">-${escapeHtml(formatCurrency(input.totalExpensePaise))}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Net Financial Flow</div><div class="kpi-val" style="color: ${netPaise >= 0 ? '#059669' : '#e11d48'};">${netPaise >= 0 ? '+' : '-'}${escapeHtml(formatCurrency(Math.abs(netPaise)))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Inflows</div><div class="kpi-val" style="color: #059669;">+${escapeHtml(formatCurrency(input.totalIncomePaise, reportCurrency))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Outflows</div><div class="kpi-val" style="color: #e11d48;">-${escapeHtml(formatCurrency(input.totalExpensePaise, reportCurrency))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Net Financial Flow</div><div class="kpi-val" style="color: ${netPaise >= 0 ? '#059669' : '#e11d48'};">${netPaise >= 0 ? '+' : '-'}${escapeHtml(formatCurrency(Math.abs(netPaise), reportCurrency))}</div></div>
     <div class="kpi-card"><div class="kpi-label">Focus Time Logged</div><div class="kpi-val" style="color: #7c3aed;">${input.totalFocusMinutes} mins</div></div>
     <div class="kpi-card"><div class="kpi-label">Tasks Velocity</div><div class="kpi-val">${input.completedTasks} done / ${input.pendingTasks} open</div></div>
     <div class="kpi-card"><div class="kpi-label">Active Wealth Targets</div><div class="kpi-val">${input.savingsGoals.length} goals</div></div>

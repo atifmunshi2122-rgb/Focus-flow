@@ -11,6 +11,7 @@ import {
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatCurrency } from '../../lib/currency.ts';
+import { getTodayDateString, formatDateInTimezone } from '../../lib/dateTime.ts';
 import {
   exportFinanceCsv,
   exportProductivityCsv,
@@ -63,20 +64,58 @@ export const AnalyticsReportsView: React.FC = () => {
       .then(([fs, foc, t, s, inc, exp, b, sg]) => {
         setFinanceSummary(fs);
         setFocusStats(foc);
-        setTasks(t);
-        setSessions(s);
-        setIncomes(inc);
-        setExpenses(exp);
-        setBills(b);
-        setGoals(sg);
+        setTasks((t || []).filter((item) => !item.deletedAt));
+        setSessions(s || []);
+        setIncomes((inc || []).filter((item) => !item.deletedAt));
+        setExpenses((exp || []).filter((item) => !item.deletedAt));
+        setBills((b || []).filter((item) => !item.deletedAt));
+        setGoals((sg || []).filter((item) => !(item as { deletedAt?: string | null }).deletedAt));
       })
       .catch(console.error);
   }, [filter, refreshKey]);
 
-  const completedTasks = tasks.filter((t) => t.status === 'completed').length;
-  const pendingTasks = tasks.filter((t) => t.status !== 'completed').length;
+  const todayStr = getTodayDateString(settings?.timezone);
+  const [yr, mo, dy] = todayStr.split('-').map(Number);
+  const monthPrefix = `${yr}-${String(mo).padStart(2, '0')}`;
+  const prevMonthDate = new Date(Date.UTC(yr, mo - 2, 1));
+  const lastMonthPrefix = `${prevMonthDate.getUTCFullYear()}-${String(prevMonthDate.getUTCMonth() + 1).padStart(2, '0')}`;
+  const weekStartDate = new Date(Date.UTC(yr, mo - 1, dy));
+  const dayOfWeek = weekStartDate.getUTCDay();
+  const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  weekStartDate.setUTCDate(weekStartDate.getUTCDate() + diffToMon);
+  const weekStartStr = weekStartDate.toISOString().slice(0, 10);
+
+  const isDateInRange = (dateStr?: string | null): boolean => {
+    if (!dateStr) return false;
+    const d = dateStr.length > 10 ? formatDateInTimezone(new Date(dateStr), settings?.timezone) : dateStr;
+    if (filter === 'today') return d === todayStr;
+    if (filter === 'this_week') return d >= weekStartStr && d <= todayStr;
+    if (filter === 'last_month') return d.startsWith(lastMonthPrefix);
+    return d.startsWith(monthPrefix);
+  };
+
+  const filteredTasks = tasks.filter((t) =>
+    isDateInRange(t.completedAt || t.dueDate || t.updatedAt || t.createdAt)
+  );
+  const completedTasks = filteredTasks.filter((t) => t.status === 'completed').length;
+  const pendingTasks = filteredTasks.filter((t) => t.status !== 'completed').length;
   const completionRate =
-    tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
+    filteredTasks.length > 0 ? Math.round((completedTasks / filteredTasks.length) * 100) : 0;
+
+  const filteredWorkSessions = sessions.filter(
+    (s) => s.mode === 'work' && s.completed && isDateInRange(s.startedAt)
+  );
+  const periodFocusMinutes = filteredWorkSessions.reduce((sum, s) => sum + (s.durationMinutes || 0), 0);
+  const periodFocusSessionsCount = filteredWorkSessions.length;
+  const focusLabel =
+    filter === 'today'
+      ? 'Today Focus Volume'
+      : filter === 'this_week'
+        ? 'Week Focus Volume'
+        : filter === 'last_month'
+          ? 'Last Month Focus Volume'
+          : 'Month Focus Volume';
+
   const totalSavedPaise = goals.reduce((acc, g) => acc + g.savedPaise, 0);
   const monthlyCap = settings?.monthlyBudgetPaise || 0;
   const budgetAdherence =
@@ -88,13 +127,14 @@ export const AnalyticsReportsView: React.FC = () => {
     const ok = openPrintableReport({
       userName: user?.name || 'FocusFlow User',
       rangeLabel: filter.replace('_', ' ').toUpperCase(),
-      totalFocusMinutes: focusStats?.monthMinutes || 0,
+      totalFocusMinutes: periodFocusMinutes,
       completedTasks,
       pendingTasks,
       totalIncomePaise: financeSummary?.totalIncomePaise || 0,
       totalExpensePaise: financeSummary?.totalExpensePaise || 0,
       savingsGoals: goals,
       topCategories: financeSummary?.categoryBreakdown || [],
+      currency,
     });
     if (!ok) {
       showToast('Pop-up blocked — allow pop-ups to open the print PDF report.', 'error');
@@ -105,9 +145,9 @@ export const AnalyticsReportsView: React.FC = () => {
     !financeSummary ||
     (financeSummary.totalIncomePaise === 0 &&
       financeSummary.totalExpensePaise === 0 &&
-      (!focusStats || focusStats.totalMinutes === 0) &&
-      tasks.length === 0 &&
-      sessions.length === 0);
+      periodFocusMinutes === 0 &&
+      filteredTasks.length === 0 &&
+      filteredWorkSessions.length === 0);
 
   return (
     <div className="flex flex-col" style={{ gap: 'var(--ff-section-gap)' }}>
@@ -223,14 +263,14 @@ export const AnalyticsReportsView: React.FC = () => {
                 <MotionStaggerItem>
                   <ThemeCard>
                     <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] mb-1">
-                      <span>Month Focus Volume</span>
+                      <span>{focusLabel}</span>
                       <Clock className="w-4 h-4 text-[var(--ff-accent-text)]" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
-                      <AnimatedNumber value={focusStats?.monthMinutes || 0} format={(v) => `${Math.round(v)} min`} />
+                      <AnimatedNumber value={periodFocusMinutes} format={(v) => `${Math.round(v)} min`} />
                     </div>
                     <span className="text-[11px] text-[var(--ff-text-muted)]">
-                      {focusStats?.monthSessionsCount || 0} work sessions
+                      {periodFocusSessionsCount} work sessions
                     </span>
                   </ThemeCard>
                 </MotionStaggerItem>

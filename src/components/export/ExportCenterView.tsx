@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
 import { formatCurrency } from '../../lib/currency.ts';
-import { DEFAULT_TIMEZONE, addDays, getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, addDays, formatDateInTimezone, getTodayDateString } from '../../lib/dateTime.ts';
 import {
   Bill,
   BudgetEnvelope,
@@ -465,11 +465,12 @@ export const ExportCenterView: React.FC = () => {
       selectedModules.has('calendar') ||
       selectedModules.has('account_backup')
     ) {
+      const tz = settings?.timezone || DEFAULT_TIMEZONE;
       for (const t of filteredData.tasks.slice(0, 15)) {
         rows.push({
           id: t.id,
           module: 'Task',
-          date: t.dueDate || t.createdAt.slice(0, 10),
+          date: t.dueDate || formatDateInTimezone(new Date(t.createdAt), tz),
           title: t.title,
           category: t.category || 'General',
           value: t.status.toUpperCase(),
@@ -483,11 +484,12 @@ export const ExportCenterView: React.FC = () => {
       selectedModules.has('productivity_overview') ||
       selectedModules.has('account_backup')
     ) {
+      const tz = settings?.timezone || DEFAULT_TIMEZONE;
       for (const s of filteredData.sessions.slice(0, 10)) {
         rows.push({
           id: s.id,
           module: 'Focus',
-          date: s.startedAt.slice(0, 10),
+          date: formatDateInTimezone(new Date(s.startedAt), tz),
           title: `${s.mode.toUpperCase()} Session`,
           category: s.completed ? 'Completed' : 'Partial',
           value: `${Math.round(s.durationSeconds / 60)} mins`,
@@ -504,7 +506,7 @@ export const ExportCenterView: React.FC = () => {
           date: '',
           title: h.title,
           category: h.category,
-          value: `${(h.completedDates || []).length} streak`,
+          value: `${(h.completedDates || []).length} days logged`,
         });
       }
     }
@@ -950,8 +952,28 @@ export const ExportCenterView: React.FC = () => {
                 else if (mod.id === 'savings_goals') badgeCount = filteredData.savingsGoals.length;
                 else if (mod.id === 'tasks') badgeCount = filteredData.tasks.length;
                 else if (mod.id === 'focus_sessions') badgeCount = filteredData.sessions.length;
-                else if (mod.id === 'habits') badgeCount = filteredData.habits.length;
+                else if (mod.id === 'productivity_overview') {
+                  badgeCount = filteredData.tasks.length + filteredData.sessions.length;
+                } else if (mod.id === 'habits') badgeCount = filteredData.habits.length;
                 else if (mod.id === 'study_os') badgeCount = filteredData.studySubjects.length;
+                else if (mod.id === 'calendar') {
+                  badgeCount =
+                    filteredData.timeBlocks.length +
+                    filteredData.bills.length +
+                    filteredData.tasks.filter((t) => Boolean(t.dueDate)).length;
+                } else if (mod.id === 'account_backup') {
+                  badgeCount =
+                    filteredData.incomes.length +
+                    filteredData.expenses.length +
+                    filteredData.bills.length +
+                    filteredData.envelopes.length +
+                    filteredData.savingsGoals.length +
+                    filteredData.tasks.length +
+                    filteredData.sessions.length +
+                    filteredData.habits.length +
+                    filteredData.studySubjects.length +
+                    filteredData.timeBlocks.length;
+                }
 
                 return (
                   <button
@@ -1038,7 +1060,7 @@ export const ExportCenterView: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-[var(--ff-border-color)] bg-[var(--ff-surface-card)]">
                     {samplePreviewRows.map((row) => (
-                      <tr key={row.id} className="hover:bg-[var(--ff-surface-hover)] transition-colors">
+                      <tr key={`${row.module}-${row.id}`} className="hover:bg-[var(--ff-surface-hover)] transition-colors">
                         <td className="py-2 px-3">
                           <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)]">
                             {row.module}

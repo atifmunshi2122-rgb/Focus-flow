@@ -84,6 +84,21 @@ export const AnimeStudioRoomModel: React.FC<AnimeStudioRoomModelProps> = ({
   }, [scene]);
 
   useEffect(() => {
+    return () => {
+      document.body.style.cursor = 'auto';
+      clonedScene.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          const mesh = obj as THREE.Mesh;
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const mat of mats) {
+            mat?.dispose?.();
+          }
+        }
+      });
+    };
+  }, [clonedScene]);
+
+  useEffect(() => {
     const isNight = lightingMode === 'night';
     const isSunset = lightingMode === 'sunset';
     const lightScale =
@@ -187,4 +202,3 @@ export const AnimeStudioRoomModel: React.FC<AnimeStudioRoomModelProps> = ({
   );
 };
 
-useGLTF.preload(ANIME_STUDIO_GLB_URL);

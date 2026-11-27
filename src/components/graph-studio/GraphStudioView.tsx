@@ -18,6 +18,7 @@ import { formatCurrency } from '../../lib/currency.ts';
 import {
   DEFAULT_TIMEZONE,
   getTodayDateString,
+  formatDateInTimezone,
   addDays,
 } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeButton, ThemeSegmentedControl } from '../ui/ThemePrimitives.tsx';
@@ -176,18 +177,18 @@ export const GraphStudioView: React.FC = () => {
         api.getStudyActivityLogs(100).catch(() => [] as StudyActivityLog[]),
       ]);
 
-      setTasks(taskList);
-      setSessions(sessionList);
-      setIncomes(incomeList);
-      setExpenses(expenseList);
-      setEnvelopes(envelopeList);
-      setGoals(goalList);
-      setHabits(habitList);
-      setSubjects(subjectList);
-      setTopics(topicList);
-      setRevisions(revisionList);
-      setExams(examList);
-      setActivityLogs(activityList);
+      setTasks((taskList || []).filter((item) => !item.deletedAt));
+      setSessions(sessionList || []);
+      setIncomes((incomeList || []).filter((item) => !item.deletedAt));
+      setExpenses((expenseList || []).filter((item) => !item.deletedAt));
+      setEnvelopes((envelopeList || []).filter((item) => !item.deletedAt));
+      setGoals((goalList || []).filter((item) => !(item as { deletedAt?: string | null }).deletedAt));
+      setHabits((habitList || []).filter((item) => !item.deletedAt));
+      setSubjects((subjectList || []).filter((item) => !item.deletedAt));
+      setTopics((topicList || []).filter((item) => !item.deletedAt));
+      setRevisions((revisionList || []).filter((item) => !item.deletedAt));
+      setExams((examList || []).filter((item) => !item.deletedAt));
+      setActivityLogs(activityList || []);
       if (manual) {
         showToast('Analytics refreshed', 'success');
       }
@@ -209,7 +210,7 @@ export const GraphStudioView: React.FC = () => {
     // Focus hours in selected range
     const rangeSessions = sessions.filter((s) => {
       if ((!s.completed && s.status !== 'completed') || s.mode !== 'work' || !s.startedAt) return false;
-      const d = s.startedAt.slice(0, 10);
+      const d = formatDateInTimezone(new Date(s.startedAt), tz);
       return d >= startDateStr && d <= endDateStr;
     });
 
@@ -225,9 +226,11 @@ export const GraphStudioView: React.FC = () => {
     );
 
     // Completed tasks in selected range
-    const rangeTasks = tasks.filter(
-      (t) => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) >= startDateStr && t.completedAt.slice(0, 10) <= endDateStr
-    );
+    const rangeTasks = tasks.filter((t) => {
+      if (t.status !== 'completed' || !t.completedAt) return false;
+      const d = formatDateInTimezone(new Date(t.completedAt), tz);
+      return d >= startDateStr && d <= endDateStr;
+    });
 
     // Net cashflow in range
     const rangeIncomes = incomes.filter(
@@ -265,7 +268,7 @@ export const GraphStudioView: React.FC = () => {
       habitHits,
       activeHabitsCount: activeHabits.length,
     };
-  }, [sessions, tasks, incomes, expenses, topics, subjects, habits, startDateStr, endDateStr]);
+  }, [sessions, tasks, incomes, expenses, topics, subjects, habits, startDateStr, endDateStr, tz]);
 
   const activeMonthKey = endDateStr.slice(0, 7);
 
@@ -330,7 +333,12 @@ export const GraphStudioView: React.FC = () => {
               <input
                 type="date"
                 value={startDateStr}
-                onChange={(e) => e.target.value && setStartDateStr(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  setStartDateStr(val);
+                  if (val > endDateStr) setEndDateStr(val);
+                }}
                 className="bg-transparent border-none text-[var(--ff-text-primary)] font-mono text-xs focus:outline-none"
                 aria-label="Start date"
               />
@@ -338,7 +346,12 @@ export const GraphStudioView: React.FC = () => {
               <input
                 type="date"
                 value={endDateStr}
-                onChange={(e) => e.target.value && setEndDateStr(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  setEndDateStr(val);
+                  if (val < startDateStr) setStartDateStr(val);
+                }}
                 className="bg-transparent border-none text-[var(--ff-text-primary)] font-mono text-xs focus:outline-none"
                 aria-label="End date"
               />
@@ -354,7 +367,7 @@ export const GraphStudioView: React.FC = () => {
             variant="secondary"
             size="sm"
             onClick={() => {
-              openPrintableGraphStudioReport({
+              const ok = openPrintableGraphStudioReport({
                 userName: user?.name || user?.email?.split('@')[0] || 'FocusFlow Operator',
                 currency,
                 startDateStr,
@@ -371,6 +384,9 @@ export const GraphStudioView: React.FC = () => {
                 tasks,
                 habits,
               });
+              if (!ok) {
+                showToast('Pop-up blocked — allow pop-ups to open the print PDF dossier.', 'error');
+              }
             }}
             title="Print Executive Dossier"
           >

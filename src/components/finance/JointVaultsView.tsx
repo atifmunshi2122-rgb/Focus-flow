@@ -190,7 +190,10 @@ const JoinJointVaultModal: React.FC<JoinJointVaultModalProps> = ({
 );
 
 export const JointVaultsView: React.FC = () => {
-  const { user, currency, showToast, refreshKey } = useApp();
+  const { user, currency, showToast, refreshKey, confirmAction } = useApp();
+  const [reversalTargetId, setReversalTargetId] = useState<string | null>(null);
+  const [reversalReason, setReversalReason] = useState('');
+  const [isReversing, setIsReversing] = useState(false);
   const { isDisabled } = useMotionPreferences();
 
   const [vaults, setVaults] = useState<VaultSummary[]>([]);
@@ -415,17 +418,32 @@ export const JointVaultsView: React.FC = () => {
     }
   };
 
-  const handleReverseContribution = async (contribId: string) => {
+  const handleReverseContribution = (contribId: string) => {
     if (!currentSummary) return;
-    const reason = window.prompt('Reason for reversing this contribution:');
-    if (!reason) return;
+    setReversalTargetId(contribId);
+    setReversalReason('');
+  };
 
+  const handleConfirmReverseContribution = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentSummary || !reversalTargetId) return;
+    const reason = reversalReason.trim();
+    if (!reason) {
+      showToast('Please enter a reason for reversing this contribution.', 'error');
+      return;
+    }
+
+    setIsReversing(true);
     try {
-      await api.reverseVaultContribution(currentSummary.vault.id, contribId, reason);
+      await api.reverseVaultContribution(currentSummary.vault.id, reversalTargetId, reason);
       showToast('Contribution reversed successfully', 'success');
+      setReversalTargetId(null);
+      setReversalReason('');
       loadVaults();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to reverse contribution', 'error');
+    } finally {
+      setIsReversing(false);
     }
   };
 
@@ -534,9 +552,13 @@ export const JointVaultsView: React.FC = () => {
       showToast('As the only remaining member, you cannot leave the vault. Please archive the vault instead.', 'info');
       return;
     }
-    if (!window.confirm('Are you sure you want to leave this vault? Your historical contributions will remain recorded in the vault ledger.')) {
-      return;
-    }
+    const confirmed = await confirmAction({
+      title: 'Leave Joint Vault',
+      message: 'Are you sure you want to leave this vault? Your historical contributions will remain recorded in the vault ledger.',
+      confirmLabel: 'Leave Vault',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       const res = await api.leaveVault(currentSummary.vault.id);
       if (res) {
@@ -557,9 +579,13 @@ export const JointVaultsView: React.FC = () => {
 
   const handleArchiveVault = async () => {
     if (!currentSummary) return;
-    if (!window.confirm('Are you sure you want to archive this vault? It will become read-only.')) {
-      return;
-    }
+    const confirmed = await confirmAction({
+      title: 'Archive Joint Vault',
+      message: 'Are you sure you want to archive this vault? It will become read-only.',
+      confirmLabel: 'Archive',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
     try {
       await api.archiveVault(currentSummary.vault.id);
       showToast('Vault archived', 'info');
@@ -1454,6 +1480,50 @@ export const JointVaultsView: React.FC = () => {
         createDesc={createDesc}
         setCreateDesc={setCreateDesc}
       />
+
+      <ThemeModal
+        isOpen={Boolean(reversalTargetId)}
+        onClose={() => {
+          if (!isReversing) {
+            setReversalTargetId(null);
+            setReversalReason('');
+          }
+        }}
+        title="Reverse Contribution"
+        subtitle="Provide an audit reason for reversing this contribution."
+      >
+        <form onSubmit={handleConfirmReverseContribution} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-[var(--ff-text-secondary)] block mb-1">
+              Reversal Reason
+            </label>
+            <ThemeInput
+              required
+              autoFocus
+              placeholder="e.g. Entered duplicate amount by mistake"
+              value={reversalReason}
+              onChange={(e) => setReversalReason(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <ThemeButton
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={isReversing}
+              onClick={() => {
+                setReversalTargetId(null);
+                setReversalReason('');
+              }}
+            >
+              Cancel
+            </ThemeButton>
+            <ThemeButton type="submit" variant="danger" size="sm" disabled={isReversing}>
+              {isReversing ? 'Reversing...' : 'Reverse Contribution'}
+            </ThemeButton>
+          </div>
+        </form>
+      </ThemeModal>
     </div>
   );
 };

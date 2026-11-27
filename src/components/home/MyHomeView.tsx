@@ -1330,6 +1330,16 @@ export const MyHomeView: React.FC = () => {
     hydratedHomeCloudRef.current = activeUid;
     if (cloud.petSpecies === 'cat' || cloud.petSpecies === 'dog') setPetSpecies(cloud.petSpecies);
     if (
+      cloud.roomStyle === 'classic' ||
+      cloud.roomStyle === 'anime_studio' ||
+      cloud.roomStyle === 'cozy_villa'
+    ) {
+      setRoomStyle(cloud.roomStyle);
+      try {
+        localStorage.setItem(`focusflow_home_room_style_${activeUid}`, cloud.roomStyle);
+      } catch {}
+    }
+    if (
       cloud.apartmentTierOverride === 'auto' ||
       cloud.apartmentTierOverride === 'studio' ||
       cloud.apartmentTierOverride === 'balcony' ||
@@ -1365,6 +1375,7 @@ export const MyHomeView: React.FC = () => {
       void updateSettings(
         {
           myHomeState: {
+            roomStyle,
             petSpecies,
             apartmentTierOverride,
             shopState,
@@ -1388,6 +1399,7 @@ export const MyHomeView: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [
     firebaseUser?.uid,
+    roomStyle,
     petSpecies,
     apartmentTierOverride,
     shopState,
@@ -1597,13 +1609,15 @@ export const MyHomeView: React.FC = () => {
   ];
 
   const effectiveRoomStyle: HomeRoomStyle = useMemo(() => {
+    if (isVisiting) return 'classic';
     const chosen = HOME_ROOM_THEMES.find((t) => t.id === roomStyle);
     if (chosen && currentLevel >= chosen.unlockLevel) return chosen.id;
     return 'classic';
-  }, [roomStyle, currentLevel]);
+  }, [isVisiting, roomStyle, currentLevel]);
 
   const handleChangeRoomStyle = useCallback(
     (next: HomeRoomStyle) => {
+      if (isVisiting) return;
       const target = HOME_ROOM_THEMES.find((t) => t.id === next);
       if (target && currentLevel < target.unlockLevel) {
         showToast?.(
@@ -1627,7 +1641,7 @@ export const MyHomeView: React.FC = () => {
         'info'
       );
     },
-    [activeUid, currentLevel, showToast]
+    [activeUid, currentLevel, isVisiting, showToast]
   );
 
   const effectiveRoutineState = useMemo(() => {
@@ -3089,39 +3103,41 @@ export const MyHomeView: React.FC = () => {
           </button>
 
           {/* Room Theme: Level-Up Unlocks (Classic Lv 1 / Anime Studio Lv 3 / Cozy Villa Lv 5) */}
-          <div className="shrink-0 flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">
-            {HOME_ROOM_THEMES.map((opt) => {
-              const unlocked = currentLevel >= opt.unlockLevel;
-              const active = effectiveRoomStyle === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => handleChangeRoomStyle(opt.id)}
-                  title={
-                    unlocked
-                      ? `Switch to ${opt.label} room`
-                      : `Reach Level ${opt.unlockLevel} to unlock ${opt.label}`
-                  }
-                  className={`inline-flex items-center gap-1 px-2 md:px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${
-                    active
-                      ? 'bg-violet-500/45 text-white border border-violet-400/55'
-                      : unlocked
-                        ? 'text-slate-300 hover:text-white'
-                        : 'text-slate-500 hover:text-slate-300 opacity-75'
-                  }`}
-                >
-                  <Home className="w-3 h-3" />
-                  <span>{opt.label}</span>
-                  {!unlocked && (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800/90 text-amber-300 border border-amber-400/30">
-                      🔒Lv{opt.unlockLevel}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          {!isVisiting && (
+            <div className="shrink-0 flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">
+              {HOME_ROOM_THEMES.map((opt) => {
+                const unlocked = currentLevel >= opt.unlockLevel;
+                const active = effectiveRoomStyle === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => handleChangeRoomStyle(opt.id)}
+                    title={
+                      unlocked
+                        ? `Switch to ${opt.label} room`
+                        : `Reach Level ${opt.unlockLevel} to unlock ${opt.label}`
+                    }
+                    className={`inline-flex items-center gap-1 px-2 md:px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${
+                      active
+                        ? 'bg-violet-500/45 text-white border border-violet-400/55'
+                        : unlocked
+                          ? 'text-slate-300 hover:text-white'
+                          : 'text-slate-500 hover:text-slate-300 opacity-75'
+                    }`}
+                  >
+                    <Home className="w-3 h-3" />
+                    <span>{opt.label}</span>
+                    {!unlocked && (
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800/90 text-amber-300 border border-amber-400/30">
+                        🔒Lv{opt.unlockLevel}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Day / Sunset / Night Toggle */}
           <div className="shrink-0 flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">
