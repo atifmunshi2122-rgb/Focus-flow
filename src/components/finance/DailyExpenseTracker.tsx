@@ -132,6 +132,24 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
     }
   };
 
+  const handleDeleteIncome = async (inc: IncomeTransaction) => {
+    const ok = await confirmAction({
+      title: 'Delete Income',
+      message: 'Move this income entry to trash?',
+      itemLabel: `${inc.source} · ${formatCurrency(inc.amountPaise, currency)}`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await api.deleteIncome(inc.id);
+      showToast('Income moved to Trash', 'info');
+      triggerRefresh();
+    } catch {
+      showToast('Failed to delete income', 'error');
+    }
+  };
+
   const limitPaise = insights.todaySpending.limitPaise;
   const isOverLimit = limitPaise > 0 && totalDayExpensesPaise > limitPaise;
   const limitPct = limitPaise > 0 ? Math.round((totalDayExpensesPaise / limitPaise) * 100) : 0;
@@ -209,7 +227,7 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
             <ThemeCard className="p-4">
               <form onSubmit={handleSaveDailyLimit} className="flex flex-wrap items-center gap-3">
                 <span className="text-xs font-semibold text-[var(--ff-text-secondary)]">
-                  Configure Fixed Daily Spending Limit (₹, enter 0 to reset to automatic safe limit):
+                  Configure Fixed Daily Spending Limit ({currency}, enter 0 to reset to automatic safe limit):
                 </span>
                 <ThemeInput
                   type="number"
@@ -409,10 +427,20 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
                     </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-sm font-mono font-bold text-[var(--ff-success)]">
-                    +{formatCurrency(inc.amountPaise, currency)}
-                  </span>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <span className="text-sm font-mono font-bold text-[var(--ff-success)]">
+                      +{formatCurrency(inc.amountPaise, currency)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteIncome(inc)}
+                    className="p-1.5 rounded text-[var(--ff-text-muted)] hover:text-[var(--ff-danger)]"
+                    aria-label={`Delete ${inc.source}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             ))}

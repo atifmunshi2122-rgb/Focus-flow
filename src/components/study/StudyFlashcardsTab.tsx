@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StudyFlashcard, StudySubject } from '../../types/study.ts';
 import { ThemeCard, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import {
@@ -39,7 +39,17 @@ export const StudyFlashcardsTab: React.FC<StudyFlashcardsTabProps> = ({
     return true;
   });
 
-  const currentCard = activeCards[activeIdx] || null;
+  useEffect(() => {
+    if (activeCards.length === 0) {
+      if (activeIdx !== 0) setActiveIdx(0);
+    } else if (activeIdx >= activeCards.length) {
+      setActiveIdx(activeCards.length - 1);
+      setFlipped(false);
+    }
+  }, [activeCards.length, activeIdx]);
+
+  const safeIdx = activeCards.length > 0 ? Math.min(activeIdx, activeCards.length - 1) : 0;
+  const currentCard = activeCards[safeIdx] || null;
 
   const handleNext = () => {
     setFlipped(false);

@@ -6,6 +6,8 @@ import {
   BedDouble,
   Bot,
   Camera,
+  ChevronDown,
+  ChevronUp,
   Coffee,
   Eye,
   GraduationCap,
@@ -27,6 +29,7 @@ import {
   Sunrise,
   Target,
   Timer,
+  UserPlus,
   Users,
   Utensils,
   Volume2,
@@ -957,6 +960,7 @@ export const MyHomeView: React.FC = () => {
   );
   const [cameraPreset, setCameraPreset] = useState<HomeCameraPreset>('isometric');
   const [zenPovHud, setZenPovHud] = useState(false);
+  const [mobileHudExpanded, setMobileHudExpanded] = useState(false);
   const [resetCounter, setResetCounter] = useState(0);
   const [isWalking, setIsWalking] = useState(false);
   const [isBinauralPlaying, setIsBinauralPlaying] = useState(() => binauralBeatsEngine.getStatus().isPlaying);
@@ -2691,8 +2695,8 @@ export const MyHomeView: React.FC = () => {
   return (
     <HomeWebGLErrorBoundary fallback={fallbackUI}>
       <div className="relative w-full min-h-[540px] h-[calc(100dvh-10rem)] max-h-[780px] rounded-3xl overflow-hidden border border-indigo-500/20 bg-[#071026] shadow-2xl">
-        {/* Interactive R3F Canvas */}
-        <div className="w-full h-full cursor-grab active:cursor-grabbing">
+        {/* Interactive R3F Canvas (isolated stacking context so 3D Html labels stay below HUD) */}
+        <div className="relative z-0 isolate w-full h-full cursor-grab active:cursor-grabbing">
           <Canvas
             shadows
             dpr={[1, 1.5]}
@@ -2835,49 +2839,62 @@ export const MyHomeView: React.FC = () => {
 
         {/* TOP-LEFT STATUS HUD */}
         {!zenPovHud && (
-        <div className="absolute top-28 left-3 right-3 md:top-4 md:left-4 md:right-auto z-10 flex flex-col gap-2 md:max-w-sm pointer-events-none">
-          <div className="pointer-events-auto flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-xl">
-            <span
-              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                isRunning
-                  ? 'bg-red-400 animate-pulse shadow-[0_0_10px_rgba(248,113,113,0.9)]'
-                  : routineState.isSleeping
-                  ? 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.8)]'
-                  : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
-              }`}
-            />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-white truncate">
-                <span>{HOME_ZONES[effectiveRoutineState.zone].icon}</span>
-                <span>{visitingTarget ? `${visitingTarget.displayName} · ${HOME_ZONES[effectiveRoutineState.zone].label}` : HOME_ZONES[effectiveRoutineState.zone].label}</span>
-                <span className="text-slate-400 font-normal">•</span>
-                <span className="text-amber-300 font-medium truncate">
-                  {!isVisiting && isWalking
-                    ? 'Walking...'
-                    : ACTIVITY_LABELS[effectiveRoutineState.activity] || HOME_ZONES[effectiveRoutineState.zone].statusText}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-[11px] text-slate-300/80 mt-0.5 truncate">
-                <span>{effectiveRoutineState.reason}</span>
-                {!isVisiting && isRunning && (
-                  <button
-                    type="button"
-                    onClick={() => setCurrentTab('focus')}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/20 text-red-200 border border-red-400/30 font-mono text-[10px] hover:bg-red-500/30"
-                  >
-                    <Timer className="w-2.5 h-2.5" />
-                    {timerEngine === 'stopwatch'
-                      ? formatTimerClock(stopwatchElapsed)
-                      : formatTimerClock(timeLeft)}
-                  </button>
-                )}
+        <div className="absolute top-16 left-3 right-3 md:top-4 md:left-4 md:right-auto z-20 flex flex-col gap-2 md:max-w-sm pointer-events-none">
+          <div className="pointer-events-auto flex items-center justify-between gap-2.5 px-3 py-2 md:px-3.5 md:py-2.5 rounded-2xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-xl">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                  isRunning
+                    ? 'bg-red-400 animate-pulse shadow-[0_0_10px_rgba(248,113,113,0.9)]'
+                    : routineState.isSleeping
+                    ? 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.8)]'
+                    : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                }`}
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-white truncate">
+                  <span>{HOME_ZONES[effectiveRoutineState.zone].icon}</span>
+                  <span>{visitingTarget ? `${visitingTarget.displayName} · ${HOME_ZONES[effectiveRoutineState.zone].label}` : HOME_ZONES[effectiveRoutineState.zone].label}</span>
+                  <span className="text-slate-400 font-normal">•</span>
+                  <span className="text-amber-300 font-medium truncate">
+                    {!isVisiting && isWalking
+                      ? 'Walking...'
+                      : ACTIVITY_LABELS[effectiveRoutineState.activity] || HOME_ZONES[effectiveRoutineState.zone].statusText}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-slate-300/80 mt-0.5 truncate">
+                  <span>{effectiveRoutineState.reason}</span>
+                  {!isVisiting && isRunning && (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentTab('focus')}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/20 text-red-200 border border-red-400/30 font-mono text-[10px] hover:bg-red-500/30"
+                    >
+                      <Timer className="w-2.5 h-2.5" />
+                      {timerEngine === 'stopwatch'
+                        ? formatTimerClock(stopwatchElapsed)
+                        : formatTimerClock(timeLeft)}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
+            {!isVisiting && (
+              <button
+                type="button"
+                onClick={() => setMobileHudExpanded((v) => !v)}
+                className="md:hidden shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-[10px] font-semibold text-indigo-200 transition"
+                aria-label={mobileHudExpanded ? 'Collapse room stats' : 'Expand room stats'}
+              >
+                <span>Lv {effectiveUnlocksSummary.level}</span>
+                {mobileHudExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+            )}
           </div>
 
-          {/* SIMS-STYLE NEEDS BARS (Energy, Focus, Mood) */}
+          {/* SIMS-STYLE NEEDS BARS (Energy, Focus, Mood) — collapsible on mobile for unobstructed 3D view */}
           {!isVisiting && (
-            <div className="pointer-events-auto rounded-2xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 px-3.5 py-2.5 shadow-xl space-y-2">
+            <div className={`${mobileHudExpanded ? 'block' : 'hidden md:block'} pointer-events-auto rounded-2xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 px-3.5 py-2.5 shadow-xl space-y-2`}>
               <div className="grid grid-cols-3 gap-2.5">
                 {[
                   {
@@ -2995,14 +3012,14 @@ export const MyHomeView: React.FC = () => {
         </div>
         )}
 
-        {/* TOP-RIGHT MODE, LIGHTING & AVATAR CONTROLS */}
+        {/* TOP-RIGHT MODE, LIGHTING & AVATAR CONTROLS (1-row horizontal strip on mobile) */}
         {!zenPovHud && (
-        <div className="absolute top-3 left-3 right-3 md:top-4 md:left-auto md:right-4 z-20 flex flex-wrap items-center justify-start md:justify-end gap-1.5 md:gap-2">
+        <div className="absolute top-3 left-3 right-3 md:top-4 md:left-auto md:right-4 z-30 flex flex-nowrap overflow-x-auto no-scrollbar md:flex-wrap md:overflow-visible items-center justify-start md:justify-end gap-1.5 md:gap-2 pb-0.5">
           {/* Auto-Routine vs Manual Toggle */}
           <button
             type="button"
             onClick={() => setAutoRoutine((v) => !v)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+            className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg whitespace-nowrap ${
               autoRoutine
                 ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40 hover:bg-emerald-500/30'
                 : 'bg-amber-500/20 text-amber-200 border-amber-400/40 hover:bg-amber-500/30'
@@ -3014,7 +3031,7 @@ export const MyHomeView: React.FC = () => {
           </button>
 
           {/* Day / Sunset / Night Toggle */}
-          <div className="flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">
+          <div className="shrink-0 flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">
             {lightingOptions.map((opt) => {
               const Icon = opt.icon;
               const active = lighting === opt.mode;
@@ -3023,7 +3040,7 @@ export const MyHomeView: React.FC = () => {
                   key={opt.mode}
                   type="button"
                   onClick={() => setLighting(opt.mode)}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                  className={`inline-flex items-center gap-1 px-2 md:px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
                     active
                       ? 'bg-indigo-500/40 text-white border border-indigo-400/50'
                       : 'text-slate-300 hover:text-white'
@@ -3040,7 +3057,7 @@ export const MyHomeView: React.FC = () => {
           <button
             type="button"
             onClick={() => void openVisitHomeModal()}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+            className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg whitespace-nowrap ${
               isVisiting
                 ? 'bg-cyan-500/25 text-cyan-100 border-cyan-400/50 hover:bg-cyan-500/35'
                 : 'bg-[#0e1733]/85 hover:bg-cyan-500/25 text-slate-200 border-white/12'
@@ -3055,7 +3072,7 @@ export const MyHomeView: React.FC = () => {
           <button
             type="button"
             onClick={() => handleClickFurniture('window_speaker')}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+            className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg whitespace-nowrap ${
               ambientPreset !== 'off'
                 ? 'bg-sky-500/25 text-sky-100 border-sky-400/45 hover:bg-sky-500/35'
                 : 'bg-[#0e1733]/85 hover:bg-white/10 text-slate-300 border-white/12'
@@ -3077,7 +3094,7 @@ export const MyHomeView: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveShortcutModal('end_day')}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-indigo-500/30 text-indigo-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-indigo-500/30 text-indigo-200 backdrop-blur-md border border-white/12 transition shadow-lg whitespace-nowrap"
               title="End Day Daily Wrap-Up & Moonlight Sleep Ritual"
             >
               <Moon className="w-3.5 h-3.5 text-indigo-300" />
@@ -3091,7 +3108,7 @@ export const MyHomeView: React.FC = () => {
               <button
                 type="button"
                 onClick={handlePetCompanion}
-                className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-pink-500/25 text-pink-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-pink-500/25 text-pink-200 backdrop-blur-md border border-white/12 transition shadow-lg whitespace-nowrap"
                 title="Pet your companion (+Mood)"
               >
                 <Heart className="w-3.5 h-3.5 text-pink-300" />
@@ -3100,7 +3117,7 @@ export const MyHomeView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleFeedCompanion}
-                className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-amber-500/25 text-amber-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-amber-500/25 text-amber-200 backdrop-blur-md border border-white/12 transition shadow-lg whitespace-nowrap"
                 title="Feed your companion (+Energy)"
               >
                 <span className="text-xs">🍖</span>
@@ -3109,7 +3126,7 @@ export const MyHomeView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleStartBreathing}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+                className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg whitespace-nowrap ${
                   breathingSecondsLeft > 0
                     ? 'bg-sky-500/30 text-sky-100 border-sky-400/50'
                     : 'bg-[#0e1733]/85 hover:bg-sky-500/25 text-sky-200 border-white/12'
@@ -3124,7 +3141,7 @@ export const MyHomeView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setActiveShortcutModal('shop')}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+                className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg whitespace-nowrap ${
                   layoutEditMode
                     ? 'bg-emerald-500/30 text-emerald-100 border-emerald-400/50'
                     : 'bg-[#0e1733]/85 hover:bg-amber-500/25 text-amber-200 border-white/12'
@@ -3137,21 +3154,21 @@ export const MyHomeView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void handleToggleCoStudyGuests()}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg ${
+                className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md border transition shadow-lg whitespace-nowrap ${
                   showCoStudyGuests
                     ? 'bg-emerald-500/25 text-emerald-100 border-emerald-400/50'
                     : 'bg-[#0e1733]/85 hover:bg-emerald-500/20 text-slate-200 border-white/12'
                 }`}
-                title="Seat up to 3 live Squadmates in your room"
+                title="Seat up to 3 live Squadmates in your room (Co-Study)"
               >
-                <Users className="w-3.5 h-3.5 text-emerald-300" />
+                <UserPlus className="w-3.5 h-3.5 text-emerald-300" />
                 <span className="hidden lg:inline">Co-Study</span>
               </button>
               {showCoStudyGuests && coStudyGuests.length > 0 && (
                 <button
                   type="button"
                   onClick={() => handleTriggerGuestEmote('wave')}
-                  className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-100 border border-emerald-400/40 transition shadow-lg"
+                  className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-100 border border-emerald-400/40 transition shadow-lg"
                   title="Wave / Clap to Co-Study Guests"
                 >
                   👋
@@ -3164,7 +3181,7 @@ export const MyHomeView: React.FC = () => {
           <button
             type="button"
             onClick={handleTakeRoomPostcard}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-amber-500/25 text-amber-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-amber-500/25 text-amber-200 backdrop-blur-md border border-white/12 transition shadow-lg whitespace-nowrap"
             title="Download Room Postcard Snapshot PNG"
           >
             <Maximize2 className="w-3.5 h-3.5 text-amber-300" />
@@ -3174,7 +3191,7 @@ export const MyHomeView: React.FC = () => {
           <button
             type="button"
             onClick={() => setCurrentTab('avatar_studio')}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-indigo-500/30 text-slate-200 backdrop-blur-md border border-white/12 transition shadow-lg"
+            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl text-xs font-semibold bg-[#0e1733]/85 hover:bg-indigo-500/30 text-slate-200 backdrop-blur-md border border-white/12 transition shadow-lg whitespace-nowrap"
             title="Customize your 3D avatar"
           >
             <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
@@ -3208,9 +3225,9 @@ export const MyHomeView: React.FC = () => {
         )}
 
         {/* BOTTOM NAVIGATION & CAMERA CONTROLS */}
-        <div className="absolute bottom-4 inset-x-4 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-          {/* Quick Room / Action Buttons */}
-          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-[#0e1733]/88 backdrop-blur-md border border-white/12 shadow-xl">
+        <div className="absolute bottom-3 inset-x-3 md:bottom-4 md:inset-x-4 z-20 flex flex-col md:flex-row md:items-center md:justify-between gap-2 pointer-events-none">
+          {/* Quick Room / Action Buttons (single scrollable row on mobile) */}
+          <div className="pointer-events-auto flex flex-nowrap overflow-x-auto no-scrollbar max-w-full items-center gap-1 p-1.5 rounded-2xl bg-[#0e1733]/88 backdrop-blur-md border border-white/12 shadow-xl">
             {zoneButtons.map((btn) => {
               const Icon = btn.icon;
               const active = routineState.zone === btn.zone;
@@ -3219,7 +3236,7 @@ export const MyHomeView: React.FC = () => {
                   key={btn.zone}
                   type="button"
                   onClick={() => handleSelectZone(btn.zone)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                  className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
                     active
                       ? 'bg-indigo-500/45 text-white border border-indigo-400/55 shadow-sm'
                       : 'text-slate-300 hover:text-white hover:bg-white/10 border border-transparent'
@@ -3234,7 +3251,7 @@ export const MyHomeView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setAutoRoutine(true)}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 border border-emerald-400/35 transition"
+                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 border border-emerald-400/35 whitespace-nowrap transition"
                 title="Resume Auto-Routine"
               >
                 <RefreshCw className="w-3 h-3" />
@@ -3244,7 +3261,7 @@ export const MyHomeView: React.FC = () => {
           </div>
 
           {/* Camera Presets */}
-          <div className="pointer-events-auto flex items-center gap-1 p-1.5 rounded-2xl bg-[#0e1733]/88 backdrop-blur-md border border-white/12 shadow-xl">
+          <div className="pointer-events-auto self-start md:self-auto flex flex-nowrap overflow-x-auto no-scrollbar max-w-[calc(100%-3.5rem)] md:max-w-full items-center gap-1 p-1.5 rounded-2xl bg-[#0e1733]/88 backdrop-blur-md border border-white/12 shadow-xl">
             {(
               [
                 { id: 'isometric', label: 'Isometric', icon: Camera },
@@ -3261,7 +3278,7 @@ export const MyHomeView: React.FC = () => {
                   key={cam.id}
                   type="button"
                   onClick={() => setCameraPreset(cam.id)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold transition ${
+                  className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold whitespace-nowrap transition ${
                     active
                       ? 'bg-indigo-500/45 text-white border border-indigo-400/55'
                       : 'text-slate-300 hover:text-white hover:bg-white/10 border border-transparent'
@@ -3275,7 +3292,7 @@ export const MyHomeView: React.FC = () => {
             <button
               type="button"
               onClick={() => setResetCounter((c) => c + 1)}
-              className="p-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition"
+              className="shrink-0 p-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition"
               title="Reset camera angle"
               aria-label="Reset camera"
             >

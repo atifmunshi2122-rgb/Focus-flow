@@ -1,7 +1,8 @@
 import React from 'react';
+import { useApp } from '../../context/AppContext.tsx';
 import { StudyGoal, StudySubject } from '../../types/study.ts';
 import { computeStudyGoalProgress } from '../../lib/studyIntelligence.ts';
-import { getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import { Target, Plus, Trash2, Check, Clock, Calendar } from 'lucide-react';
 
@@ -20,6 +21,9 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
   onToggleMilestone,
   onDeleteGoal,
 }) => {
+  const { settings } = useApp();
+  const tz = settings?.timezone || DEFAULT_TIMEZONE;
+  const today = getTodayDateString(tz);
   const activeGoals = goals.filter((g) => !g.deletedAt);
 
   return (
@@ -56,11 +60,10 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeGoals.map((goal) => {
             const progress = computeStudyGoalProgress(goal);
-            const today = getTodayDateString();
-            const daysLeft = Math.ceil(
-              (new Date(`${goal.endDate}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) /
-                86400000
-            );
+            const isCompleted = progress.percentage >= 100 || goal.status === 'completed';
+            const endMs = goal.endDate ? new Date(`${goal.endDate}T00:00:00Z`).getTime() : NaN;
+            const todayMs = new Date(`${today}T00:00:00Z`).getTime();
+            const daysLeft = Number.isFinite(endMs) ? Math.ceil((endMs - todayMs) / 86400000) : null;
 
             return (
               <ThemeCard key={goal.id} className="p-5 flex flex-col justify-between space-y-4">
@@ -164,14 +167,26 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
                 <div className="pt-3 border-t border-[var(--ff-border-color)] text-[11px] text-[var(--ff-text-muted)] flex items-center justify-between">
                   <span className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
-                    Target: {goal.endDate}
+                    Target: {goal.endDate || 'No deadline'}
                   </span>
                   <span
                     className={`font-semibold ${
-                      daysLeft < 3 ? 'text-rose-400 font-bold' : 'text-[var(--ff-text-muted)]'
+                      isCompleted
+                        ? 'text-emerald-400 font-bold'
+                        : daysLeft !== null && daysLeft < 3
+                        ? 'text-rose-400 font-bold'
+                        : 'text-[var(--ff-text-muted)]'
                     }`}
                   >
-                    {daysLeft > 0 ? `${daysLeft}d left` : daysLeft === 0 ? 'Due Today' : 'Overdue'}
+                    {isCompleted
+                      ? 'Completed ✓'
+                      : daysLeft === null
+                      ? 'Open-ended'
+                      : daysLeft > 0
+                      ? `${daysLeft}d left`
+                      : daysLeft === 0
+                      ? 'Due Today'
+                      : 'Overdue'}
                   </span>
                 </div>
               </ThemeCard>

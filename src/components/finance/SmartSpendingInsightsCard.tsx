@@ -118,7 +118,7 @@ export const SmartSpendingInsightsCard: React.FC<SmartSpendingInsightsCardProps>
             <AlertCircle className="w-3.5 h-3.5 text-[var(--ff-danger)]" />
           </div>
           <div className="text-base font-bold font-mono text-[var(--ff-text-primary)]">
-            {insights.highestSpendingDay ? formatCurrency(insights.highestSpendingDay.amountPaise, currency) : '₹0'}
+            {insights.highestSpendingDay ? formatCurrency(insights.highestSpendingDay.amountPaise, currency) : formatCurrency(0, currency)}
           </div>
           <div className="text-xs text-[var(--ff-text-muted)]">
             {insights.highestSpendingDay ? `Logged on ${insights.highestSpendingDay.date}` : 'No records yet'}

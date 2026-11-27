@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
 import { DEFAULT_TIMEZONE } from '../../lib/dateTime.ts';
 import { StudyExam, StudySubject, StudyTopic } from '../../types/study.ts';
 import { computeStudyExamReadiness } from '../../lib/studyIntelligence.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
-import { Award, Plus, Trash2, Calendar, Clock, BookOpen, AlertCircle } from 'lucide-react';
+import { Award, Plus, Trash2, Calendar, Clock, BookOpen, AlertCircle, Edit2, Check, X } from 'lucide-react';
 
 interface StudyExamsTabProps {
   exams: StudyExam[];
@@ -21,9 +22,46 @@ export const StudyExamsTab: React.FC<StudyExamsTabProps> = ({
   onOpenAddExam,
   onDeleteExam,
 }) => {
-  const { settings } = useApp();
+  const { settings, triggerRefresh, showToast } = useApp();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const activeExams = exams.filter((e) => !e.deletedAt);
+
+  const [editingScoreId, setEditingScoreId] = useState<string | null>(null);
+  const [scoreObtained, setScoreObtained] = useState('');
+  const [scoreTotal, setScoreTotal] = useState('100');
+  const [savingScore, setSavingScore] = useState(false);
+
+  const startEditScore = (exam: StudyExam) => {
+    setEditingScoreId(exam.id);
+    setScoreObtained(typeof exam.obtainedMarks === 'number' ? String(exam.obtainedMarks) : '');
+    setScoreTotal(String(exam.totalMarks || 100));
+  };
+
+  const handleSaveScore = async (exam: StudyExam) => {
+    const obtained = Number(scoreObtained);
+    const total = Math.max(1, Number(scoreTotal) || 100);
+    if (!Number.isFinite(obtained) || obtained < 0 || obtained > total) {
+      showToast(`Enter a valid score between 0 and ${total}`, 'error');
+      return;
+    }
+    setSavingScore(true);
+    try {
+      await api.saveStudyExam({
+        ...exam,
+        obtainedMarks: obtained,
+        totalMarks: total,
+        resultStatus: 'published',
+        preparationStatus: 'completed',
+      });
+      setEditingScoreId(null);
+      triggerRefresh();
+      showToast(`Saved score for ${exam.title}`, 'success');
+    } catch {
+      showToast('Failed to save exam score', 'error');
+    } finally {
+      setSavingScore(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -122,12 +160,73 @@ export const StudyExamsTab: React.FC<StudyExamsTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Marks Obtained if available */}
-                  {typeof exam.obtainedMarks === 'number' && (
+                  {/* Marks Obtained / Inline Score Editor */}
+                  {editingScoreId === exam.id ? (
+                    <div className="mt-3 p-2.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={scoreObtained}
+                          onChange={(e) => setScoreObtained(e.target.value)}
+                          placeholder="Obtained"
+                          className="w-full px-2 py-1 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] font-mono text-xs"
+                          autoFocus
+                        />
+                        <span className="text-[var(--ff-text-muted)]">/</span>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={scoreTotal}
+                          onChange={(e) => setScoreTotal(e.target.value)}
+                          placeholder="Total"
+                          className="w-full px-2 py-1 rounded-lg bg-[var(--ff-surface)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] font-mono text-xs"
+                        />
+                      </div>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setEditingScoreId(null)}
+                          className="px-2 py-1 rounded-lg text-[11px] text-[var(--ff-text-muted)] hover:bg-white/10"
+                        >
+                          <X className="w-3 h-3 inline mr-0.5" />Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingScore}
+                          onClick={() => void handleSaveScore(exam)}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+                        >
+                          <Check className="w-3 h-3 inline mr-0.5" />{savingScore ? 'Saving...' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : typeof exam.obtainedMarks === 'number' ? (
                     <div className="mt-3 flex items-center justify-between p-2 rounded-xl bg-emerald-500/10 text-emerald-400 text-xs font-mono font-bold">
                       <span>Score: {exam.obtainedMarks} / {exam.totalMarks || 100}</span>
-                      <span>{Math.round(((exam.obtainedMarks) / (exam.totalMarks || 100)) * 100)}%</span>
+                      <div className="flex items-center gap-2">
+                        <span>{Math.round(((exam.obtainedMarks) / Math.max(1, exam.totalMarks || 100)) * 100)}%</span>
+                        <button
+                          type="button"
+                          onClick={() => startEditScore(exam)}
+                          className="p-0.5 rounded hover:bg-emerald-500/20"
+                          title="Edit score"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startEditScore(exam)}
+                      className="mt-3 w-full py-1.5 px-2.5 rounded-xl border border-dashed border-[var(--ff-border-color)] text-[11px] font-semibold text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-accent)] transition-colors flex items-center justify-center gap-1"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      <span>Log Exam Score</span>
+                    </button>
                   )}
                 </div>
 

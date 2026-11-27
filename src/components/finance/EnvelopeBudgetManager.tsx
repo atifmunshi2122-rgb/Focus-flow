@@ -248,7 +248,7 @@ export const EnvelopeBudgetManager: React.FC = () => {
         </div>
 
         {/* Month Navigation & Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center bg-[var(--ff-card-bg)] border ff-divider rounded-lg p-1">
             <ThemeButton variant="ghost" size="sm" onClick={handlePrevMonth} aria-label="Previous month" className="p-1.5">
               <ChevronLeft className="w-4 h-4" />
@@ -606,7 +606,14 @@ export const EnvelopeBudgetManager: React.FC = () => {
                 </label>
                 <select
                   value={transferFromId}
-                  onChange={(e) => setTransferFromId(e.target.value)}
+                  onChange={(e) => {
+                    const nextFrom = e.target.value;
+                    setTransferFromId(nextFrom);
+                    if (nextFrom === transferToId) {
+                      const fallbackTo = envelopes.find((env) => env.id !== nextFrom)?.id || '';
+                      setTransferToId(fallbackTo);
+                    }
+                  }}
                   className="ff-input w-full text-xs py-2 px-3 rounded-lg"
                   style={{
                     backgroundColor: 'var(--ff-card-bg)',

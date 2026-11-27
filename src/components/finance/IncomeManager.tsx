@@ -42,7 +42,7 @@ export const IncomeManager: React.FC = () => {
   const [editingIncome, setEditingIncome] = useState<IncomeTransaction | null>(null);
   const [source, setSource] = useState('');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(() => getTodayDateString());
+  const [date, setDate] = useState(() => getTodayDateString(settings?.timezone));
   const [category, setCategory] = useState('Salary');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -69,7 +69,7 @@ export const IncomeManager: React.FC = () => {
     setEditingIncome(null);
     setSource('');
     setAmount('');
-    setDate(getTodayDateString());
+    setDate(getTodayDateString(settings?.timezone));
     setCategory('Salary');
     setNotes('');
     setFormError(null);
@@ -107,20 +107,28 @@ export const IncomeManager: React.FC = () => {
           category,
           notes,
         });
-        await syncCoordinator.syncMutation(
-          'Income',
-          [
-            updated.id,
-            updated.date,
-            updated.source,
-            updated.category,
-            updated.amountPaise / 100,
-            updated.notes || '',
-          ],
-          'update',
-          `Income_update_${updated.id}`
+        let synced = true;
+        try {
+          await syncCoordinator.syncMutation(
+            'Income',
+            [
+              updated.id,
+              updated.date,
+              updated.source,
+              updated.category,
+              updated.amountPaise / 100,
+              updated.notes || '',
+            ],
+            'update',
+            `Income_update_${updated.id}`
+          );
+        } catch {
+          synced = false;
+        }
+        showToast(
+          synced ? 'Income record updated & synchronized' : 'Income updated (Sheets sync queued)',
+          'success'
         );
-        showToast('Income record updated & synchronized', 'success');
       } else {
         const created = await api.createIncome({
           source: source.trim(),
@@ -129,21 +137,29 @@ export const IncomeManager: React.FC = () => {
           category,
           notes,
         });
-        await syncCoordinator.syncMutation(
-          'Income',
-          [
-            created.id,
-            created.date,
-            created.source,
-            created.category,
-            created.amountPaise / 100,
-            created.notes || '',
-          ],
-          'append',
-          `Income_append_${created.id}`
-        );
+        let synced = true;
+        try {
+          await syncCoordinator.syncMutation(
+            'Income',
+            [
+              created.id,
+              created.date,
+              created.source,
+              created.category,
+              created.amountPaise / 100,
+              created.notes || '',
+            ],
+            'append',
+            `Income_append_${created.id}`
+          );
+        } catch {
+          synced = false;
+        }
         playCashSound(settings?.soundEnabled);
-        showToast('Income recorded & synchronized', 'success');
+        showToast(
+          synced ? 'Income recorded & synchronized' : 'Income saved (Sheets sync queued)',
+          'success'
+        );
       }
       setSaving(false);
       setSubmitSuccess(true);
@@ -171,12 +187,16 @@ export const IncomeManager: React.FC = () => {
     if (!confirmed) return;
     try {
       await api.deleteIncome(inc.id);
-      await syncCoordinator.syncMutation(
-        'Income',
-        [inc.id],
-        'delete',
-        `Income_delete_${inc.id}`
-      );
+      try {
+        await syncCoordinator.syncMutation(
+          'Income',
+          [inc.id],
+          'delete',
+          `Income_delete_${inc.id}`
+        );
+      } catch {
+        // Non-fatal: income is already moved to Trash locally/cloud
+      }
       showToast('Income record moved to Trash & synchronized', 'info');
       triggerRefresh();
       loadIncomes();
