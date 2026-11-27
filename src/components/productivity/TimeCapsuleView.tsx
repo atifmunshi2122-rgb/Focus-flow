@@ -37,10 +37,10 @@ export function revealContent(stored: string): string {
 }
 
 export const TimeCapsuleView: React.FC = () => {
-  const { user } = useApp();
+  const { user, settings, confirmAction } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_time_capsules_v1`;
-  const todayStr = getTodayDateString();
+  const todayStr = getTodayDateString(settings?.timezone);
 
   const [capsules, setCapsules] = useState<TimeCapsuleLetter[]>(() => {
     try {
@@ -124,11 +124,11 @@ export const TimeCapsuleView: React.FC = () => {
     let targetDateStr = customDate;
     const now = Date.now();
     if (unlockPreset === '6m') {
-      targetDateStr = formatDateInTimezone(new Date(now + 180 * 86400000));
+      targetDateStr = formatDateInTimezone(new Date(now + 180 * 86400000), settings?.timezone);
     } else if (unlockPreset === '1y') {
-      targetDateStr = formatDateInTimezone(new Date(now + 365 * 86400000));
+      targetDateStr = formatDateInTimezone(new Date(now + 365 * 86400000), settings?.timezone);
     } else if (unlockPreset === '3y') {
-      targetDateStr = formatDateInTimezone(new Date(now + 3 * 365 * 86400000));
+      targetDateStr = formatDateInTimezone(new Date(now + 3 * 365 * 86400000), settings?.timezone);
     }
 
     if (!targetDateStr) {
@@ -168,7 +168,13 @@ export const TimeCapsuleView: React.FC = () => {
   };
 
   const handleDeleteCapsule = async (id: string) => {
-    if (!window.confirm('Delete this time capsule letter permanently?')) return;
+    const confirmed = await confirmAction({
+      title: 'Delete Time Capsule',
+      message: 'Delete this time capsule letter permanently?',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setApiError(null);
     try {
       await api.deleteTimeCapsule(id);
@@ -422,7 +428,7 @@ export const TimeCapsuleView: React.FC = () => {
                     required
                     value={customDate}
                     onChange={(e) => setCustomDate(e.target.value)}
-                    min={formatDateInTimezone(new Date(Date.now() + 86400000))}
+                    min={formatDateInTimezone(new Date(Date.now() + 86400000), settings?.timezone)}
                     className="w-full px-3 py-2 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)]"
                   />
                 </div>

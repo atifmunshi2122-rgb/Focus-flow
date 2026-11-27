@@ -76,7 +76,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   topics = [],
   onSaveAttachment,
 }) => {
-  const { user } = useApp();
+  const { user, confirmAction } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_whiteboard_latest`;
 
@@ -105,6 +105,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
 
   const isDrawingRef = useRef(false);
   const startPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const snapshotRef = useRef<ImageData | null>(null);
 
   // Initialize buffer canvas
@@ -215,6 +216,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     isDrawingRef.current = true;
     const pos = getCanvasCoordinates(e.clientX, e.clientY, canvas);
     startPosRef.current = pos;
+    lastPosRef.current = pos;
 
     snapshotRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -240,6 +242,9 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
     } else if (activeTool === 'highlighter') {
+      if (snapshotRef.current) {
+        ctx.putImageData(snapshotRef.current, 0, 0);
+      }
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = strokeWidth * 3.5;
       ctx.lineCap = 'round';
@@ -248,13 +253,32 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
     } else if (activeTool === 'eraser') {
+      const eraserWidth = strokeWidth * 4;
+      const radius = eraserWidth / 2;
+      const prev = lastPosRef.current;
       ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = strokeWidth * 4;
+      ctx.lineWidth = eraserWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.globalAlpha = 1.0;
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
+
+      // Re-draw dot-grid points inside the erased segment bounding box so eraser preserves the grid
+      const gridSize = 24;
+      const minX = Math.max(gridSize, Math.floor((Math.min(prev.x, pos.x) - radius) / gridSize) * gridSize);
+      const maxX = Math.min(canvas.width - 1, Math.ceil((Math.max(prev.x, pos.x) + radius) / gridSize) * gridSize);
+      const minY = Math.max(gridSize, Math.floor((Math.min(prev.y, pos.y) - radius) / gridSize) * gridSize);
+      const maxY = Math.min(canvas.height - 1, Math.ceil((Math.max(prev.y, pos.y) + radius) / gridSize) * gridSize);
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.12)';
+      for (let gx = minX; gx <= maxX; gx += gridSize) {
+        for (let gy = minY; gy <= maxY; gy += gridSize) {
+          ctx.beginPath();
+          ctx.arc(gx, gy, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      lastPosRef.current = pos;
     } else if (['line', 'rect', 'circle'].includes(activeTool) && snapshotRef.current) {
       // Shape preview - restore snapshot then render shape preview
       ctx.putImageData(snapshotRef.current, 0, 0);
@@ -360,13 +384,19 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
    * 3. Renders dedicated blank canvas with dot grid.
    * 4. Updates undo/redo state so Undo can restore it.
    */
-  const handleClear = () => {
+  const handleClear = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    if (!window.confirm('Clear entire scratchpad?')) return;
+    const confirmed = await confirmAction({
+      title: 'Clear Whiteboard',
+      message: 'Clear entire scratchpad?',
+      confirmLabel: 'Clear',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
 
     // Save previous drawing state into undo stack
     pushUndoState();

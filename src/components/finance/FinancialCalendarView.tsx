@@ -174,9 +174,10 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
       });
     }
 
-    // Next month padding to fill grid
-    const remaining = 42 - days.length;
-    for (let d = 1; d <= remaining && days.length < 35; d++) {
+    // Next month padding to fill grid evenly (5 or 6 full weeks)
+    const targetCells = days.length > 35 ? 42 : 35;
+    const remaining = targetCells - days.length;
+    for (let d = 1; d <= remaining; d++) {
       const nextM = currentMonth === 12 ? 1 : currentMonth + 1;
       const nextY = currentMonth === 12 ? currentYear + 1 : currentYear;
       const dateStr = `${nextY}-${String(nextM).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -253,7 +254,7 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
             </span>
           </div>
 
-          <ThemeButton variant="primary" size="sm" onClick={() => onOpenQuickAction('expense')}>
+          <ThemeButton variant="primary" size="sm" onClick={() => onOpenQuickAction('expense', selectedDate || undefined)}>
             <Plus className="w-3.5 h-3.5" />
             <span>Add Record</span>
           </ThemeButton>

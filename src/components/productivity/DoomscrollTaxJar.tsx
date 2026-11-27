@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { DoomscrollTaxEntry } from '../../types/features15.ts';
+import type { SavingsGoal } from '../../types/index.ts';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { CURRENCY_SYMBOLS, formatCurrency } from '../../lib/currency.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Flame,
@@ -44,12 +46,15 @@ const SEED_ENTRIES: DoomscrollTaxEntry[] = [
 ];
 
 export const DoomscrollTaxJar: React.FC = () => {
-  const { user, showToast } = useApp();
+  const { user, showToast, currency, confirmAction } = useApp();
+  const currencySymbol = CURRENCY_SYMBOLS[currency] || '₹';
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_doomscroll_jar_v1`;
 
-  const [taxRatePer15Min, setTaxRatePer15Min] = useState<number>(25); // ₹25 per 15 min default
+  const [taxRatePer15Min, setTaxRatePer15Min] = useState<number>(25); // 25 per 15 min default
   const [transferError, setTransferError] = useState<string | null>(null);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [selectedGoalId, setSelectedGoalId] = useState<string>('');
   const [entries, setEntries] = useState<DoomscrollTaxEntry[]>(() => {
     const saved = localStorage.getItem(storageKey);
     if (saved) {
@@ -83,7 +88,22 @@ export const DoomscrollTaxJar: React.FC = () => {
           localStorage.setItem(storageKey, JSON.stringify(remote));
         } catch {}
       }
-    }).catch(() => {});
+    }).catch((err) => {
+      if (isMounted) {
+        console.warn('[DoomscrollTaxJar] Failed to sync doomscroll logs:', err);
+      }
+    });
+
+    api.getSavingsGoals().then((goals) => {
+      if (isMounted && Array.isArray(goals)) {
+        setSavingsGoals(goals);
+        setSelectedGoalId((prev) => prev || goals[0]?.id || '');
+      }
+    }).catch((err) => {
+      if (isMounted) {
+        console.warn('[DoomscrollTaxJar] Failed to load savings goals:', err);
+      }
+    });
 
     return () => {
       isMounted = false;
@@ -131,36 +151,52 @@ export const DoomscrollTaxJar: React.FC = () => {
       ratePerHour: Math.round(taxRatePer15Min * 4),
       amountTaxed: penaltyPaise / 100,
       taxAmountPaise: penaltyPaise,
-      currency: '₹',
+      currency: currencySymbol,
       notes: notes.trim() || undefined,
       reason: notes.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
 
     saveState([newEntry, ...entries]);
-    api.saveDoomscrollLog(newEntry).catch(() => {});
+    api.saveDoomscrollLog(newEntry).catch((err) => {
+      const msg = err instanceof Error ? err.message : 'Cloud sync failed; saved locally.';
+      showToast?.(msg, 'error');
+    });
     setNotes('');
   };
 
   const handleEmptyJar = async () => {
     if (totalJarAmountPaise <= 0) return;
-    if (!window.confirm('Transfer this Discipline Jar balance to your active Savings Goal?')) return;
     setTransferError(null);
     try {
       const goals = await api.getSavingsGoals();
-      const targetGoal = Array.isArray(goals) && goals.length > 0 ? goals[0] : undefined;
+      const goalList = Array.isArray(goals) ? goals : [];
+      setSavingsGoals(goalList);
+      const targetGoal =
+        goalList.find((g) => g.id === selectedGoalId) ?? goalList[0];
       if (!targetGoal) {
         const msg = 'No active Savings Goal found. Create a savings goal before transferring your jar balance.';
         setTransferError(msg);
         showToast?.(msg, 'error');
         return;
       }
+      const confirmed = await confirmAction({
+        title: 'Transfer Discipline Jar',
+        message: `Transfer ${formatCurrency(totalJarAmountPaise, currency)} to "${targetGoal.title}"?`,
+        confirmLabel: 'Transfer',
+        tone: 'primary',
+      });
+      if (!confirmed) return;
+
       await api.updateSavingsGoal(targetGoal.id, {
         savedPaise: (targetGoal.savedPaise || 0) + totalJarAmountPaise,
       });
       setIsTransferredNotice(true);
       saveState([]);
-      api.clearDoomscrollLogs().catch(() => {});
+      api.clearDoomscrollLogs().catch((err) => {
+        const msg = err instanceof Error ? err.message : 'Failed to clear cloud doomscroll logs';
+        showToast?.(msg, 'error');
+      });
       setTimeout(() => setIsTransferredNotice(false), 5000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to transfer Discipline Jar to savings goal';
@@ -169,10 +205,19 @@ export const DoomscrollTaxJar: React.FC = () => {
     }
   };
 
-  const handleResetHistory = () => {
-    if (!window.confirm('Reset all doomscroll tax entries?')) return;
+  const handleResetHistory = async () => {
+    const confirmed = await confirmAction({
+      title: 'Reset History',
+      message: 'Reset all doomscroll tax entries?',
+      confirmLabel: 'Reset',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     saveState([]);
-    api.clearDoomscrollLogs().catch(() => {});
+    api.clearDoomscrollLogs().catch((err) => {
+      const msg = err instanceof Error ? err.message : 'Failed to clear cloud doomscroll logs';
+      showToast?.(msg, 'error');
+    });
   };
 
   return (
@@ -203,10 +248,10 @@ export const DoomscrollTaxJar: React.FC = () => {
               onChange={(e) => setTaxRatePer15Min(Math.max(1, parseInt(e.target.value, 10) || 1))}
               className="w-14 px-1.5 py-0.5 rounded bg-[var(--ff-surface)] border border-[var(--ff-border)] text-center font-bold text-[var(--ff-text-primary)]"
             />
-            <span className="text-[var(--ff-text-muted)]">₹ / 15m</span>
+            <span className="text-[var(--ff-text-muted)]">{currencySymbol} / 15m</span>
           </div>
 
-          <ThemeButton variant="ghost" size="sm" onClick={handleResetHistory} title="Reset History">
+          <ThemeButton variant="ghost" size="sm" onClick={() => void handleResetHistory()} title="Reset History">
             <RotateCcw className="w-3.5 h-3.5 text-neutral-400" />
           </ThemeButton>
         </div>
@@ -219,7 +264,7 @@ export const DoomscrollTaxJar: React.FC = () => {
             Accumulated Discipline Jar
           </span>
           <div className="text-3xl font-bold font-mono text-[var(--ff-text-primary)]">
-            ₹ {(totalJarAmountPaise / 100).toFixed(2)}
+            {formatCurrency(totalJarAmountPaise, currency)}
           </div>
           <p className="text-[11px] text-[var(--ff-text-muted)]">
             Self-imposed penalty for distraction time.
@@ -248,11 +293,26 @@ export const DoomscrollTaxJar: React.FC = () => {
             </p>
           </div>
 
+          {savingsGoals.length > 0 && (
+            <select
+              value={selectedGoalId || savingsGoals[0]?.id || ''}
+              onChange={(e) => setSelectedGoalId(e.target.value)}
+              aria-label="Target Savings Goal"
+              className="w-full px-2.5 py-1.5 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-xs text-[var(--ff-text-primary)]"
+            >
+              {savingsGoals.map((goal) => (
+                <option key={goal.id} value={goal.id}>
+                  {goal.title} ({formatCurrency(goal.savedPaise || 0, currency)})
+                </option>
+              ))}
+            </select>
+          )}
+
           <ThemeButton
             variant="primary"
             size="sm"
             disabled={totalJarAmountPaise === 0}
-            onClick={handleEmptyJar}
+            onClick={() => void handleEmptyJar()}
           >
             Transfer to Savings Goal
             <ArrowRight className="w-3.5 h-3.5 ml-1" />
@@ -326,7 +386,7 @@ export const DoomscrollTaxJar: React.FC = () => {
           <div className="flex items-end">
             <ThemeButton type="submit" variant="danger" size="sm" className="w-full">
               <Plus className="w-3.5 h-3.5 mr-1" />
-              Tax Self: ₹ {((durationMinutes / 15) * taxRatePer15Min).toFixed(2)}
+              Tax Self: {formatCurrency(Math.round((durationMinutes / 15) * taxRatePer15Min * 100), currency)}
             </ThemeButton>
           </div>
         </form>
@@ -357,7 +417,7 @@ export const DoomscrollTaxJar: React.FC = () => {
 
                 <div className="text-right">
                   <div className="font-bold font-mono text-rose-400">
-                    + ₹ {((entry.taxAmountPaise ?? Math.round(entry.amountTaxed * 100)) / 100).toFixed(2)}
+                    + {formatCurrency(entry.taxAmountPaise ?? Math.round((entry.amountTaxed || 0) * 100), currency)}
                   </div>
                   <div className="text-[10px] text-[var(--ff-text-muted)] font-mono">
                     {entry.createdAt.split('T')[0]}

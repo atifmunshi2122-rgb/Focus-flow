@@ -150,7 +150,7 @@ import StudyAvatar, { preloadStudyAvatarModels, type StudyAvatarActivity } from 
 import RoomCameraRig, { type RoomCameraMode } from '../study-room/RoomCameraRig.tsx';
 import RoomLightingController from '../study-room/RoomLightingController.tsx';
 import RoomWeatherEffects from '../study-room/RoomWeatherEffects.tsx';
-import { MyHomeApartment } from './MyHomeApartment.tsx';
+import { MyHomeApartment, type HomeRoomStyle } from './MyHomeApartment.tsx';
 import { MyHomePet } from './MyHomePet.tsx';
 import {
   CustomWallFramesModal,
@@ -262,6 +262,7 @@ interface HomeSceneContentProps {
   isStaticUnrigged: boolean;
   routineState: ReturnType<typeof deriveHomeRoutineState>;
   lighting: RoomLighting;
+  roomStyle: HomeRoomStyle;
   cameraPreset: HomeCameraPreset;
   resetCounter: number;
   isWalking: boolean;
@@ -347,6 +348,7 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
   isStaticUnrigged,
   routineState,
   lighting,
+  roomStyle,
   cameraPreset,
   resetCounter,
   isWalking,
@@ -657,6 +659,7 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
       />
 
       <MyHomeApartment
+        roomStyle={roomStyle}
         activeZone={routineState.zone}
         lightingMode={roomLightingMode}
         isSleeping={routineState.isSleeping && !isWalking}
@@ -958,6 +961,15 @@ export const MyHomeView: React.FC = () => {
   const [lighting, setLighting] = useState<RoomLighting>(() =>
     deriveDefaultLightingForHour(clockTick.hour)
   );
+  const [roomStyle, setRoomStyle] = useState<HomeRoomStyle>(() => {
+    try {
+      const saved = localStorage.getItem(`focusflow_home_room_style_${activeUid}`);
+      if (saved === 'anime_studio' || saved === 'cozy_villa' || saved === 'classic') return saved;
+    } catch {
+      // ignore
+    }
+    return 'classic';
+  });
   const [cameraPreset, setCameraPreset] = useState<HomeCameraPreset>('isometric');
   const [zenPovHud, setZenPovHud] = useState(false);
   const [mobileHudExpanded, setMobileHudExpanded] = useState(false);
@@ -1571,6 +1583,51 @@ export const MyHomeView: React.FC = () => {
         streakDays: effectiveStreakDays,
       }),
     [visitingTarget, gamificationXP, savingsGoalsData, effectiveStreakDays]
+  );
+
+  const currentLevel = effectiveUnlocksSummary.level;
+  const HOME_ROOM_THEMES: ReadonlyArray<{
+    id: HomeRoomStyle;
+    label: string;
+    unlockLevel: number;
+  }> = [
+    { id: 'classic', label: 'Classic', unlockLevel: 1 },
+    { id: 'anime_studio', label: 'Anime Studio', unlockLevel: 3 },
+    { id: 'cozy_villa', label: 'Cozy Villa', unlockLevel: 5 },
+  ];
+
+  const effectiveRoomStyle: HomeRoomStyle = useMemo(() => {
+    const chosen = HOME_ROOM_THEMES.find((t) => t.id === roomStyle);
+    if (chosen && currentLevel >= chosen.unlockLevel) return chosen.id;
+    return 'classic';
+  }, [roomStyle, currentLevel]);
+
+  const handleChangeRoomStyle = useCallback(
+    (next: HomeRoomStyle) => {
+      const target = HOME_ROOM_THEMES.find((t) => t.id === next);
+      if (target && currentLevel < target.unlockLevel) {
+        showToast?.(
+          `🔒 Reach Level ${target.unlockLevel} to unlock ${target.label}! (Currently Lv ${currentLevel})`,
+          'info'
+        );
+        return;
+      }
+      setRoomStyle(next);
+      try {
+        localStorage.setItem(`focusflow_home_room_style_${activeUid}`, next);
+      } catch {
+        // ignore
+      }
+      showToast?.(
+        next === 'cozy_villa'
+          ? '🏡 Switched to Cozy Villa 3D room!'
+          : next === 'anime_studio'
+            ? '🏠 Switched to Anime Studio 3D room!'
+            : '🏠 Switched to Classic Apartment!',
+        'info'
+      );
+    },
+    [activeUid, currentLevel, showToast]
   );
 
   const effectiveRoutineState = useMemo(() => {
@@ -2720,6 +2777,7 @@ export const MyHomeView: React.FC = () => {
               isStaticUnrigged={effectiveIsStaticUnrigged}
               routineState={effectiveRoutineState}
               lighting={lighting}
+              roomStyle={effectiveRoomStyle}
               cameraPreset={cameraPreset}
               resetCounter={resetCounter}
               isWalking={visitingTarget ? false : isWalking}
@@ -3029,6 +3087,41 @@ export const MyHomeView: React.FC = () => {
             {autoRoutine ? <Bot className="w-3.5 h-3.5" /> : <Hand className="w-3.5 h-3.5" />}
             <span>{autoRoutine ? 'Auto-Routine' : 'Manual Mode'}</span>
           </button>
+
+          {/* Room Theme: Level-Up Unlocks (Classic Lv 1 / Anime Studio Lv 3 / Cozy Villa Lv 5) */}
+          <div className="shrink-0 flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">
+            {HOME_ROOM_THEMES.map((opt) => {
+              const unlocked = currentLevel >= opt.unlockLevel;
+              const active = effectiveRoomStyle === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleChangeRoomStyle(opt.id)}
+                  title={
+                    unlocked
+                      ? `Switch to ${opt.label} room`
+                      : `Reach Level ${opt.unlockLevel} to unlock ${opt.label}`
+                  }
+                  className={`inline-flex items-center gap-1 px-2 md:px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${
+                    active
+                      ? 'bg-violet-500/45 text-white border border-violet-400/55'
+                      : unlocked
+                        ? 'text-slate-300 hover:text-white'
+                        : 'text-slate-500 hover:text-slate-300 opacity-75'
+                  }`}
+                >
+                  <Home className="w-3 h-3" />
+                  <span>{opt.label}</span>
+                  {!unlocked && (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800/90 text-amber-300 border border-amber-400/30">
+                      🔒Lv{opt.unlockLevel}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
           {/* Day / Sunset / Night Toggle */}
           <div className="shrink-0 flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">

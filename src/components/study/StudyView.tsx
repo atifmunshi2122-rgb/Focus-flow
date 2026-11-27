@@ -1390,6 +1390,12 @@ export const StudyView: React.FC = () => {
     }
   };
 
+  const handleCreateQuiz = async (quiz: StudyQuiz) => {
+    const saved = await api.saveStudyQuiz(quiz);
+    setQuizzes((prev) => [saved, ...prev.filter((q) => q.id !== saved.id)]);
+    showToast('Quiz created', 'success');
+  };
+
   const handleDeleteQuiz = async (quizId: string) => {
     if (!window.confirm('Delete this quiz?')) return;
     setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
@@ -3360,8 +3366,10 @@ export const StudyView: React.FC = () => {
       {activeSubTab === 'quizzes' && (
         <StudyQuizzesTab
           quizzes={quizzes}
+          subjects={subjects}
           onTakeQuiz={(quiz) => setSelectedQuizForAttempt(quiz)}
           onDeleteQuiz={handleDeleteQuiz}
+          onCreateQuiz={handleCreateQuiz}
         />
       )}
 

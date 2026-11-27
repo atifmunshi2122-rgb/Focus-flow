@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
+import { AnimeStudioRoomModel } from './AnimeStudioRoomModel.tsx';
+import { CozyVillaRoomModel } from './CozyVillaRoomModel.tsx';
 import type { HomeZoneId } from '../../features/home/homeRoutineEngine.ts';
 import type { RoomLighting } from '../../features/study-room/customization-types.ts';
 import type {
@@ -103,7 +105,10 @@ const DEFAULT_UNLOCKS: HomeDecorUnlocks = {
   gamingChair: false,
 };
 
+export type HomeRoomStyle = 'classic' | 'anime_studio' | 'cozy_villa';
+
 interface MyHomeApartmentProps {
+  roomStyle?: HomeRoomStyle;
   activeZone: HomeZoneId;
   lightingMode: RoomLighting;
   isSleeping: boolean;
@@ -355,6 +360,7 @@ const DEFAULT_EXPANSION: ApartmentExpansionState = {
 };
 
 export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
+  roomStyle = 'classic',
   activeZone,
   lightingMode,
   isSleeping,
@@ -546,6 +552,51 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
   const bedsideLampPower = isSleeping ? 1.7 : lightingMode === 'night' ? 1.85 : 1.05;
   const lanternPower = hasFourCycleLantern ? 3.2 : isSleeping ? 1.25 : 1.65;
   const showerLightPower = isSleeping ? 0.35 : activeZone === 'washroom' ? 2.2 : 1.35;
+
+  if (roomStyle === 'anime_studio' || roomStyle === 'cozy_villa') {
+    return (
+      <PlantStageContext.Provider value={plantStage}>
+        <group>
+          <Suspense fallback={null}>
+            {roomStyle === 'anime_studio' ? (
+              <AnimeStudioRoomModel
+                lightingMode={lightingMode}
+                lampDimFactor={lampDimFactor}
+                isStudying={isStudying}
+                isSleeping={isSleeping}
+                onSelectZone={onSelectZone}
+                onClickFloor={onClickFloor}
+                onClickFurniture={onClickFurniture}
+              />
+            ) : (
+              <CozyVillaRoomModel
+                lightingMode={lightingMode}
+                lampDimFactor={lampDimFactor}
+                isStudying={isStudying}
+                isSleeping={isSleeping}
+                onSelectZone={onSelectZone}
+                onClickFloor={onClickFloor}
+              />
+            )}
+          </Suspense>
+          {walkTargetPos && (
+            <mesh position={[walkTargetPos[0], 0.018, walkTargetPos[2]]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.16, 0.24, 24]} />
+              <meshBasicMaterial color="#38bdf8" transparent opacity={0.75} />
+            </mesh>
+          )}
+          <SunMoonSkyOrb sky={skyState} />
+          <ConstellationSkyDomeProp stars={constellationStars} isObservatoryMode={isObservatoryMode} />
+          <MilestoneFireworksProp active={showFireworks} />
+          <BreathingOrbProp
+            active={breathingOrb.active}
+            secondsLeft={breathingOrb.secondsLeft}
+            hasBalcony={apartmentExpansion.hasBalcony}
+          />
+        </group>
+      </PlantStageContext.Provider>
+    );
+  }
 
   return (
     <PlantStageContext.Provider value={plantStage}>

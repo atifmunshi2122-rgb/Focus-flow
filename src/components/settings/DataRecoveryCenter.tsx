@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export const DataRecoveryCenter: React.FC = () => {
-  const { showToast, refreshKey, triggerRefresh, offlineOutboxCount, reconcileOutboxNow, isOnline } = useApp();
+  const { showToast, refreshKey, triggerRefresh, offlineOutboxCount, reconcileOutboxNow, isOnline, settings, confirmAction } = useApp();
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [loadingMoreLogs, setLoadingMoreLogs] = useState(false);
@@ -95,7 +95,7 @@ export const DataRecoveryCenter: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `focusflow-backup-${getTodayDateString()}.json`;
+      a.download = `focusflow-backup-${getTodayDateString(settings?.timezone)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -111,7 +111,6 @@ export const DataRecoveryCenter: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setRestoring(true);
     setRestoreStats(null);
     try {
       const text = await file.text();
@@ -121,6 +120,16 @@ export const DataRecoveryCenter: React.FC = () => {
         throw new Error('Invalid JSON format');
       }
 
+      const confirmed = await confirmAction({
+        title: 'Restore Workspace Backup?',
+        message: 'Restoring this JSON backup will overwrite or merge your current workspace records. Export a fresh snapshot first if you want a safety copy.',
+        itemLabel: file.name,
+        confirmLabel: 'Restore Backup',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+
+      setRestoring(true);
       const res = await api.restoreBackup(parsed);
       setRestoreStats(res.counts);
       showToast('Workspace data restored successfully!', 'success');
@@ -321,7 +330,7 @@ export const DataRecoveryCenter: React.FC = () => {
                 </div>
                 {integrityIssues.map((iss) => (
                   <div
-                    key={iss.id}
+                    key={`${iss.id}-${iss.type}`}
                     className="p-2.5 rounded-lg border ff-divider bg-[var(--ff-muted)]/20 flex items-center justify-between text-xs"
                   >
                     <div>
