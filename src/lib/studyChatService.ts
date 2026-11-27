@@ -45,6 +45,38 @@ const LOCAL_CHAT_PREFIX = 'ff_study_chat_v2_';
 const LAST_READ_PREFIX = 'ff_chat_last_read_v1_';
 const CHAT_BROADCAST_CHANNEL = 'ff_study_chat_sync_v2';
 
+let currentChatSyncWarning: string | null = null;
+const chatSyncWarningListeners = new Set<(warning: string | null) => void>();
+
+function notifyChatSyncWarning(warning: string | null) {
+  if (currentChatSyncWarning === warning) return;
+  currentChatSyncWarning = warning;
+  chatSyncWarningListeners.forEach((cb) => {
+    try {
+      cb(warning);
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+function isFirestorePermissionError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | null;
+  return Boolean(
+    e &&
+      (e.code === 'permission-denied' ||
+        (typeof e.message === 'string' && /permission[-_\s]?denied|missing or insufficient permissions/i.test(e.message)))
+  );
+}
+
+export function subscribeChatSyncWarning(cb: (warning: string | null) => void): () => void {
+  chatSyncWarningListeners.add(cb);
+  cb(currentChatSyncWarning);
+  return () => {
+    chatSyncWarningListeners.delete(cb);
+  };
+}
+
 export function buildDmRoomId(uidA: string, uidB: string): string {
   return [uidA.trim(), uidB.trim()].sort().join('__');
 }
@@ -162,6 +194,7 @@ export function subscribeStudyChatMessages(
       fsUnsub = onSnapshot(
         q,
         (snap) => {
+          notifyChatSyncWarning(null);
           latestRemote = snap.docs
             .map((d) => d.data() as StudyChatMessage)
             .filter((m) => Boolean(m?.id && m?.senderId));
@@ -177,6 +210,11 @@ export function subscribeStudyChatMessages(
           emit();
         },
         (err) => {
+          if (isFirestorePermissionError(err)) {
+            notifyChatSyncWarning(
+              'Cloud chat rules not deployed — messages are local-only until Firestore rules are updated.'
+            );
+          }
           console.warn('[StudyChat] Firestore subscription fallback to local mode:', err?.message || err);
         }
       );
@@ -242,7 +280,13 @@ export async function sendStudyChatMessage(input: {
     try {
       const msgRef = doc(getFirestoreMessagesCollection(input.channel), id);
       await setDoc(msgRef, msg);
+      notifyChatSyncWarning(null);
     } catch (err) {
+      if (isFirestorePermissionError(err)) {
+        notifyChatSyncWarning(
+          'Cloud chat rules not deployed — message saved locally only (not visible on other devices).'
+        );
+      }
       console.warn('[StudyChat] Firestore message write fell back to local storage:', err);
     }
   }
@@ -330,27 +374,47 @@ export function subscribeStudyChatTyping(
     onUpdate([]);
     return () => {};
   }
+  let latestDocs: TypingUser[] = [];
+  let lastKey = '';
+
+  const emitActive = () => {
+    const now = Date.now();
+    const active = latestDocs.filter(
+      (u) =>
+        u?.uid &&
+        u.uid !== currentUid &&
+        typeof u.updatedAt === 'number' &&
+        now - u.updatedAt < 5000
+    );
+    const nextKey = active.map((u) => u.uid).join(',');
+    if (nextKey !== lastKey) {
+      lastKey = nextKey;
+      onUpdate(active);
+    }
+  };
+
+  const expiryTimer =
+    typeof window !== 'undefined' ? window.setInterval(emitActive, 1500) : null;
+
   try {
-    return onSnapshot(
+    const fsUnsub = onSnapshot(
       getFirestoreTypingCollection(channel),
       (snap) => {
-        const now = Date.now();
-        const active = snap.docs
-          .map((d) => d.data() as TypingUser)
-          .filter(
-            (u) =>
-              u?.uid &&
-              u.uid !== currentUid &&
-              typeof u.updatedAt === 'number' &&
-              now - u.updatedAt < 5000
-          );
-        onUpdate(active);
+        latestDocs = snap.docs.map((d) => d.data() as TypingUser);
+        emitActive();
       },
       () => {
+        latestDocs = [];
+        lastKey = '';
         onUpdate([]);
       }
     );
+    return () => {
+      if (expiryTimer !== null) window.clearInterval(expiryTimer);
+      fsUnsub();
+    };
   } catch {
+    if (expiryTimer !== null) window.clearInterval(expiryTimer);
     onUpdate([]);
     return () => {};
   }

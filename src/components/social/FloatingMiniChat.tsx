@@ -8,6 +8,7 @@ import {
   markChatRoomRead,
   sendStudyChatMessage,
   setStudyChatTyping,
+  subscribeChatSyncWarning,
   subscribeStudyChatMessages,
   subscribeStudyChatTyping,
   toggleStudyChatReaction,
@@ -30,6 +31,7 @@ export const FloatingMiniChat: React.FC = () => {
     isRunning,
     timerMode,
     fullScreenFocus,
+    refreshKey,
     setCurrentTab,
     setTimerEngine,
     switchTimerMode,
@@ -44,14 +46,24 @@ export const FloatingMiniChat: React.FC = () => {
   const [dmTarget, setDmTarget] = useState<LeaderboardProfile | null>(null);
   const [messages, setMessages] = useState<StudyChatMessage[]>([]);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  const [squadReloadSeq, setSquadReloadSeq] = useState(0);
   const [callingMode, setCallingMode] = useState<'audio' | 'video' | null>(null);
 
   const currentUid = firebaseUser?.uid || user?.id || '';
   const currentName = firebaseUser?.displayName || user?.name || 'Student';
   const isInDeepFocus = isRunning && timerMode === 'work';
 
-  // Load user's Firestore squads
+  useEffect(() => subscribeChatSyncWarning(setSyncWarning), []);
+
+  useEffect(() => {
+    const onSquadsUpdated = () => setSquadReloadSeq((s) => s + 1);
+    window.addEventListener('ff:squads-updated', onSquadsUpdated);
+    return () => window.removeEventListener('ff:squads-updated', onSquadsUpdated);
+  }, []);
+
+  // Load user's Firestore squads (refreshes on login, refreshKey, or squad create/join/leave)
   useEffect(() => {
     if (!firebaseUser?.uid) {
       setSquads([]);
@@ -73,7 +85,7 @@ export const FloatingMiniChat: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [firebaseUser?.uid]);
+  }, [firebaseUser?.uid, refreshKey, squadReloadSeq]);
 
   const activeSquad = useMemo(
     () => squads.find((s) => s.id === selectedSquadId) || squads[0] || null,
@@ -111,14 +123,14 @@ export const FloatingMiniChat: React.FC = () => {
     return null;
   }, [dmTarget, activeSquad, currentUid]);
 
-  // Subscribe to real-time messages & typing indicators
+  // Subscribe to real-time messages & typing indicators for active channel
   useEffect(() => {
     if (!activeChannel) {
       setMessages([]);
       setTypingUsers([]);
-      setUnreadCount(0);
       return;
     }
+    const activeKey = `${activeChannel.kind}_${activeChannel.id}`;
 
     const unsubMsgs = subscribeStudyChatMessages(
       activeChannel,
@@ -126,13 +138,13 @@ export const FloatingMiniChat: React.FC = () => {
         setMessages(nextMsgs);
         if (isOpen) {
           markChatRoomRead(currentUid, activeChannel);
-          setUnreadCount(0);
+          setUnreadMap((prev) => (prev[activeKey] ? { ...prev, [activeKey]: 0 } : prev));
         } else {
           const lastRead = getLastReadTimestamp(currentUid, activeChannel);
           const unread = nextMsgs.filter(
             (m) => m.senderId !== currentUid && (m.createdAt || 0) > lastRead
           ).length;
-          setUnreadCount(unread);
+          setUnreadMap((prev) => (prev[activeKey] === unread ? prev : { ...prev, [activeKey]: unread }));
         }
       },
       { isAuthenticated: Boolean(firebaseUser?.uid) }
@@ -151,11 +163,47 @@ export const FloatingMiniChat: React.FC = () => {
     };
   }, [activeChannel, currentUid, firebaseUser?.uid, isOpen]);
 
+  // Background unread listener for all other squad & 1-on-1 DM channels
+  useEffect(() => {
+    if (!currentUid) return;
+    const allChannels: ChatChannelRef[] = [
+      ...squads.map((sq) => ({ kind: 'squad' as const, id: sq.id })),
+      ...members.map((m) => ({ kind: 'dm' as const, id: buildDmRoomId(currentUid, m.uid) })),
+    ];
+    const activeKey = activeChannel ? `${activeChannel.kind}_${activeChannel.id}` : '';
+    const bgChannels = allChannels.filter((ch) => `${ch.kind}_${ch.id}` !== activeKey);
+
+    const unsubs = bgChannels.map((ch) => {
+      const key = `${ch.kind}_${ch.id}`;
+      return subscribeStudyChatMessages(
+        ch,
+        (nextMsgs) => {
+          const lastRead = getLastReadTimestamp(currentUid, ch);
+          const unread = nextMsgs.filter(
+            (m) => m.senderId !== currentUid && (m.createdAt || 0) > lastRead
+          ).length;
+          setUnreadMap((prev) => (prev[key] === unread ? prev : { ...prev, [key]: unread }));
+        },
+        { isAuthenticated: Boolean(firebaseUser?.uid) }
+      );
+    });
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [squads, members, activeChannel, currentUid, firebaseUser?.uid]);
+
+  const unreadCount = useMemo(
+    () => Object.values(unreadMap).reduce((sum, n) => sum + (n || 0), 0),
+    [unreadMap]
+  );
+
   // Mark read when opening drawer
   useEffect(() => {
     if (isOpen && activeChannel && currentUid) {
+      const activeKey = `${activeChannel.kind}_${activeChannel.id}`;
       markChatRoomRead(currentUid, activeChannel);
-      setUnreadCount(0);
+      setUnreadMap((prev) => (prev[activeKey] ? { ...prev, [activeKey]: 0 } : prev));
     }
   }, [isOpen, activeChannel, currentUid]);
 
@@ -219,7 +267,7 @@ export const FloatingMiniChat: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2.5">
+    <div className="fixed bottom-20 right-4 md:bottom-5 md:right-5 z-40 flex flex-col items-end gap-2.5">
       {isOpen && (
         <div className="w-[340px] sm:w-[375px] max-w-[calc(100vw-2rem)] rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-card)] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-3 duration-200">
           {/* Channel Switcher Header */}
@@ -275,6 +323,12 @@ export const FloatingMiniChat: React.FC = () => {
               <X className="w-4 h-4" />
             </button>
           </div>
+
+          {syncWarning && (
+            <div className="px-3 py-1.5 bg-amber-500/15 border-b border-amber-500/30 text-[10px] text-amber-200 leading-snug">
+              ⚠️ {syncWarning}
+            </div>
+          )}
 
           <StudyChat
             messages={messages}

@@ -39,9 +39,13 @@ export default function WeeklyStudyPlanner({
       const d = new Date(weekStartDate.getTime() + idx * 86400000);
       const dayKey = formatDateInTimezone(d, timezone);
       return {
-        label: DAY_LABELS[idx],
+        label: d.toLocaleDateString(undefined, { weekday: 'short', timeZone: timezone }),
         dayKey,
-        displayDate: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        displayDate: d.toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          timeZone: timezone,
+        }),
         isToday: dayKey === todayKey,
       };
     });
@@ -113,6 +117,7 @@ export default function WeeklyStudyPlanner({
                   const startStr = new Date(sess.startAt).toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit',
+                    timeZone: timezone,
                   });
                   return (
                     <article

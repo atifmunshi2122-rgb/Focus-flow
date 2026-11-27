@@ -118,7 +118,7 @@ export const PushNotificationSettings: React.FC<PushNotificationSettingsProps> =
               className={`px-3 py-1.5 rounded-lg font-medium transition ${
                 isRegistered
                   ? 'bg-rose-500/10 text-rose-500 hover:bg-rose-500/20'
-                  : 'bg-[var(--ff-accent-color)] text-white hover:opacity-90'
+                  : 'bg-[var(--ff-accent)] text-white hover:opacity-90'
               }`}
             >
               {loading ? 'Updating...' : isRegistered ? 'Disable on This Device' : 'Enable on This Device'}
@@ -156,7 +156,7 @@ export const PushNotificationSettings: React.FC<PushNotificationSettingsProps> =
           ].map(({ key, label, desc }) => (
             <label
               key={key}
-              className="flex items-start gap-3 p-3 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] cursor-pointer hover:border-[var(--ff-accent-color)]/30 transition"
+              className="flex items-start gap-3 p-3 rounded-xl border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] cursor-pointer hover:border-[var(--ff-accent)]/30 transition"
             >
               <input
                 type="checkbox"

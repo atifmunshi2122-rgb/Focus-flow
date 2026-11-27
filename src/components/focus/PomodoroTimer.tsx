@@ -1382,6 +1382,10 @@ export const PomodoroTimer: React.FC = () => {
                     : 'Start Stopwatch'
                   : timeLeft < totalDuration
                   ? 'Resume'
+                  : timerEngine === 'pomodoro' && timerMode === 'short_break'
+                  ? 'Start Short Break'
+                  : timerEngine === 'pomodoro' && timerMode === 'long_break'
+                  ? 'Start Long Break'
                   : 'Start Focus'}
               </span>
             </>

@@ -1,16 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, RefreshCw, CheckCircle2, AlertCircle, Unlink, ExternalLink, Settings } from 'lucide-react';
+import { useApp } from '../../context/AppContext.tsx';
 import { googleCalendarClient } from '../../lib/googleCalendarService.ts';
 import type { GoogleCalendarConnectionStatus, GoogleCalendarListEntry } from '../../types/calendar.ts';
 
 export const GoogleCalendarSettings: React.FC = () => {
-  const [status, setStatus] = useState<GoogleCalendarConnectionStatus>({
-    connected: false,
-    calendarId: 'primary',
-    autoSyncTasks: true,
-    autoSyncTimeBlocks: true,
-    autoSyncStudySchedule: true,
-    lastSyncAt: null,
+  const { user, confirmAction } = useApp();
+  const prefsKey = `focusflow_gcal_prefs_${user?.id || 'usr_guest'}`;
+  const [status, setStatus] = useState<GoogleCalendarConnectionStatus>(() => {
+    try {
+      const raw = localStorage.getItem(prefsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          connected: false,
+          calendarId: parsed.calendarId || 'primary',
+          autoSyncTasks: parsed.autoSyncTasks ?? true,
+          autoSyncTimeBlocks: parsed.autoSyncTimeBlocks ?? true,
+          autoSyncStudySchedule: parsed.autoSyncStudySchedule ?? true,
+          lastSyncAt: null,
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      connected: false,
+      calendarId: 'primary',
+      autoSyncTasks: true,
+      autoSyncTimeBlocks: true,
+      autoSyncStudySchedule: true,
+      lastSyncAt: null,
+    };
   });
   const [calendars, setCalendars] = useState<GoogleCalendarListEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -18,10 +39,43 @@ export const GoogleCalendarSettings: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const persistPrefs = (next: Partial<GoogleCalendarConnectionStatus>) => {
+    setStatus((prev) => {
+      const merged = { ...prev, ...next };
+      try {
+        localStorage.setItem(
+          prefsKey,
+          JSON.stringify({
+            calendarId: merged.calendarId,
+            autoSyncTasks: merged.autoSyncTasks,
+            autoSyncTimeBlocks: merged.autoSyncTimeBlocks,
+            autoSyncStudySchedule: merged.autoSyncStudySchedule,
+          })
+        );
+      } catch {
+        // ignore
+      }
+      return merged;
+    });
+  };
+
   const loadStatus = async () => {
     try {
       const s = await googleCalendarClient.getStatus();
-      setStatus(s);
+      let savedPrefs: Partial<GoogleCalendarConnectionStatus> = {};
+      try {
+        const raw = localStorage.getItem(prefsKey);
+        if (raw) savedPrefs = JSON.parse(raw);
+      } catch {
+        // ignore
+      }
+      setStatus({
+        ...s,
+        calendarId: savedPrefs.calendarId || s.calendarId || 'primary',
+        autoSyncTasks: savedPrefs.autoSyncTasks ?? s.autoSyncTasks,
+        autoSyncTimeBlocks: savedPrefs.autoSyncTimeBlocks ?? s.autoSyncTimeBlocks,
+        autoSyncStudySchedule: savedPrefs.autoSyncStudySchedule ?? s.autoSyncStudySchedule,
+      });
       if (s.connected) {
         const cals = await googleCalendarClient.getCalendars();
         setCalendars(cals);
@@ -52,7 +106,14 @@ export const GoogleCalendarSettings: React.FC = () => {
   };
 
   const handleDisconnect = async () => {
-    if (!window.confirm('Are you sure you want to disconnect Google Calendar?')) return;
+    const confirmed = await confirmAction({
+      title: 'Disconnect Google Calendar?',
+      message: 'Are you sure you want to disconnect Google Calendar?',
+      confirmLabel: 'Disconnect',
+      cancelLabel: 'Keep Connected',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setLoading(true);
     try {
       await googleCalendarClient.disconnect();
@@ -90,7 +151,7 @@ export const GoogleCalendarSettings: React.FC = () => {
     <div className="space-y-4 p-5 rounded-2xl border border-[var(--ff-border-color)] bg-[var(--ff-surface)] shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-[var(--ff-accent-color)]/10 text-[var(--ff-accent-color)]">
+          <div className="p-2.5 rounded-xl bg-[var(--ff-accent)]/10 text-[var(--ff-accent)]">
             <Calendar className="w-5 h-5" />
           </div>
           <div>
@@ -148,8 +209,8 @@ export const GoogleCalendarSettings: React.FC = () => {
               </label>
               <select
                 value={status.calendarId}
-                onChange={(e) => setStatus((s) => ({ ...s, calendarId: e.target.value }))}
-                className="w-full text-xs p-2.5 rounded-lg border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent-color)]"
+                onChange={(e) => persistPrefs({ calendarId: e.target.value })}
+                className="w-full text-xs p-2.5 rounded-lg border border-[var(--ff-border-color)] bg-[var(--ff-surface-subtle)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)]"
               >
                 <option value="primary">Primary Calendar</option>
                 {calendars
@@ -178,7 +239,7 @@ export const GoogleCalendarSettings: React.FC = () => {
               <input
                 type="checkbox"
                 checked={status.autoSyncTasks}
-                onChange={(e) => setStatus((s) => ({ ...s, autoSyncTasks: e.target.checked }))}
+                onChange={(e) => persistPrefs({ autoSyncTasks: e.target.checked })}
                 className="rounded border-[var(--ff-border-color)]"
               />
               <span className="text-xs font-medium">Sync Tasks</span>
@@ -188,7 +249,7 @@ export const GoogleCalendarSettings: React.FC = () => {
               <input
                 type="checkbox"
                 checked={status.autoSyncTimeBlocks}
-                onChange={(e) => setStatus((s) => ({ ...s, autoSyncTimeBlocks: e.target.checked }))}
+                onChange={(e) => persistPrefs({ autoSyncTimeBlocks: e.target.checked })}
                 className="rounded border-[var(--ff-border-color)]"
               />
               <span className="text-xs font-medium">Sync Time Blocks</span>
@@ -198,7 +259,7 @@ export const GoogleCalendarSettings: React.FC = () => {
               <input
                 type="checkbox"
                 checked={status.autoSyncStudySchedule}
-                onChange={(e) => setStatus((s) => ({ ...s, autoSyncStudySchedule: e.target.checked }))}
+                onChange={(e) => persistPrefs({ autoSyncStudySchedule: e.target.checked })}
                 className="rounded border-[var(--ff-border-color)]"
               />
               <span className="text-xs font-medium">Sync Study Deadlines</span>
@@ -210,7 +271,7 @@ export const GoogleCalendarSettings: React.FC = () => {
             <button
               onClick={handleSyncNow}
               disabled={syncing}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium bg-[var(--ff-accent-color)] text-white hover:opacity-90 disabled:opacity-50 transition"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium bg-[var(--ff-accent)] text-white hover:opacity-90 disabled:opacity-50 transition"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? 'Syncing...' : 'Sync Tasks to Calendar'}
@@ -233,7 +294,7 @@ export const GoogleCalendarSettings: React.FC = () => {
           <button
             onClick={handleConnect}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium bg-[var(--ff-accent-color)] text-white hover:opacity-90 disabled:opacity-50 transition"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium bg-[var(--ff-accent)] text-white hover:opacity-90 disabled:opacity-50 transition"
           >
             <ExternalLink className="w-4 h-4" />
             {loading ? 'Opening Google Auth...' : 'Connect Google Calendar'}

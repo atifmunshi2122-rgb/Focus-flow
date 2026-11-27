@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { computeGamificationFromRealData } from '../../features/gamification/firestoreGamification.ts';
 import { BINAURAL_PRESETS, binauralBeatsEngine } from '../../lib/binauralBeats.ts';
 import type { AmbientPreset } from '../../lib/ambientAudio.ts';
 import {
@@ -1152,8 +1153,23 @@ export const MyHomeView: React.FC = () => {
           }
         }
 
+        const realGamification = computeGamificationFromRealData({
+          userId: activeUid,
+          tasks: Array.isArray(tasksRes) ? tasksRes : [],
+          focusSessions: Array.isArray(sessionsRes) ? sessionsRes : [],
+          subjects: Array.isArray(subjectsRes) ? subjectsRes : [],
+          topics: Array.isArray(topicsRes) ? topicsRes : [],
+          studyPlanTasks: [],
+          studyRevisions: [],
+          habits: Array.isArray(habits) ? habits : [],
+          bills: Array.isArray(billsRes) ? billsRes : [],
+          savingsGoals: Array.isArray(goalsRes) ? goalsRes : [],
+          leaderboardProfile: null,
+          timezone: settings?.timezone,
+        });
+        const apiXP = Number(gamifRes?.profile?.totalXP || 0);
+        setGamificationXP(Math.max(apiXP, realGamification.progress.totalXP));
         if (gamifRes?.profile) {
-          setGamificationXP(Number(gamifRes.profile.totalXP || 0));
           setGamificationStreak(Number(gamifRes.profile.currentStreak || gamifRes.profile.longestStreak || 0));
         }
       } catch {
@@ -1289,6 +1305,83 @@ export const MyHomeView: React.FC = () => {
     }
     return DEFAULT_HOME_SHOP_STATE;
   });
+
+  // Cross-device Firestore sync for My Home customizations via settings.myHomeState
+  const hydratedHomeCloudRef = useRef<string | null>(null);
+  useEffect(() => {
+    const cloud = settings?.myHomeState;
+    if (!cloud || hydratedHomeCloudRef.current === activeUid) return;
+    hydratedHomeCloudRef.current = activeUid;
+    if (cloud.petSpecies === 'cat' || cloud.petSpecies === 'dog') setPetSpecies(cloud.petSpecies);
+    if (
+      cloud.apartmentTierOverride === 'auto' ||
+      cloud.apartmentTierOverride === 'studio' ||
+      cloud.apartmentTierOverride === 'balcony' ||
+      cloud.apartmentTierOverride === 'penthouse'
+    ) {
+      setApartmentTierOverride(cloud.apartmentTierOverride);
+    }
+    if (cloud.shopState && Array.isArray(cloud.shopState.ownedIds)) {
+      setShopState(cloud.shopState as HomeShopState);
+    }
+    if (Array.isArray(cloud.customFrames) && cloud.customFrames.length > 0) {
+      setCustomFrames(cloud.customFrames as unknown as CustomWallFrameConfig[]);
+    }
+    if (cloud.dreamCityId) {
+      const city = DREAM_GLOBE_CITIES.find((c) => c.id === cloud.dreamCityId);
+      if (city) setDreamCity(city);
+    }
+    if (typeof cloud.arcadeHighScore === 'number') setArcadeHighScore(cloud.arcadeHighScore);
+    if (typeof cloud.isStandingDesk === 'boolean') setIsStandingDesk(cloud.isStandingDesk);
+    if (Array.isArray(cloud.paperMessages) && cloud.paperMessages.length > 0) {
+      setPaperMessages(cloud.paperMessages as PaperAirplaneMessage[]);
+    }
+  }, [activeUid, settings?.myHomeState]);
+
+  const homeCloudSyncInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!firebaseUser?.uid) return;
+    if (!homeCloudSyncInitializedRef.current) {
+      homeCloudSyncInitializedRef.current = true;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void updateSettings(
+        {
+          myHomeState: {
+            petSpecies,
+            apartmentTierOverride,
+            shopState,
+            customFrames: customFrames as unknown as Array<{
+              id: string;
+              preset?: string;
+              title?: string;
+              imageDataUrl?: string | null;
+              [key: string]: unknown;
+            }>,
+            dreamCityId: dreamCity.id,
+            arcadeHighScore,
+            isStandingDesk,
+            paperMessages: paperMessages.slice(0, 12),
+            updatedAt: Date.now(),
+          },
+        },
+        { silent: true, skipRefresh: true }
+      );
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [
+    firebaseUser?.uid,
+    petSpecies,
+    apartmentTierOverride,
+    shopState,
+    customFrames,
+    dreamCity.id,
+    arcadeHighScore,
+    isStandingDesk,
+    paperMessages,
+    updateSettings,
+  ]);
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [selectedShopItemId, setSelectedShopItemId] = useState<ShopItemId | null>(null);
 
@@ -2742,7 +2835,7 @@ export const MyHomeView: React.FC = () => {
 
         {/* TOP-LEFT STATUS HUD */}
         {!zenPovHud && (
-        <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 max-w-[calc(100%-2rem)] sm:max-w-sm pointer-events-none">
+        <div className="absolute top-28 left-3 right-3 md:top-4 md:left-4 md:right-auto z-10 flex flex-col gap-2 md:max-w-sm pointer-events-none">
           <div className="pointer-events-auto flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-xl">
             <span
               className={`w-2.5 h-2.5 rounded-full shrink-0 ${
@@ -2904,7 +2997,7 @@ export const MyHomeView: React.FC = () => {
 
         {/* TOP-RIGHT MODE, LIGHTING & AVATAR CONTROLS */}
         {!zenPovHud && (
-        <div className="absolute top-4 right-4 z-10 flex flex-wrap items-center justify-end gap-2">
+        <div className="absolute top-3 left-3 right-3 md:top-4 md:left-auto md:right-4 z-20 flex flex-wrap items-center justify-start md:justify-end gap-1.5 md:gap-2">
           {/* Auto-Routine vs Manual Toggle */}
           <button
             type="button"

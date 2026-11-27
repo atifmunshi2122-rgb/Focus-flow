@@ -1,4 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useApp } from '../../context/AppContext.tsx';
+import { api } from '../../lib/api.ts';
+import { formatCurrency } from '../../lib/currency.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
   Sliders,
@@ -18,19 +21,75 @@ interface WhatIfCategoryDelta {
   deltaPercent: number; // -100 to +100%
 }
 
-export const WhatIfFinancialSandbox: React.FC = () => {
-  // Baseline defaults (can be calibrated from real summary if available)
-  const baselineMonthlyIncomePaise = 10000000; // ₹1,00,000 / month
-  const [incomeDeltaPercent, setIncomeDeltaPercent] = useState<number>(0);
+const DEFAULT_SANDBOX_CATEGORIES: WhatIfCategoryDelta[] = [
+  { key: 'rent', name: 'Housing & Rent', baselinePaise: 2500000, deltaPercent: 0 },
+  { key: 'groceries', name: 'Groceries & Household', baselinePaise: 1500000, deltaPercent: 0 },
+  { key: 'dining', name: 'Dining Out & Food Delivery', baselinePaise: 1000000, deltaPercent: 0 },
+  { key: 'subscriptions', name: 'Subscriptions & Memberships', baselinePaise: 300000, deltaPercent: 0 },
+  { key: 'shopping', name: 'Discretionary Shopping & Gadgets', baselinePaise: 1200000, deltaPercent: 0 },
+  { key: 'transit', name: 'Commute & Transportation', baselinePaise: 500000, deltaPercent: 0 },
+];
 
-  const [categories, setCategories] = useState<WhatIfCategoryDelta[]>([
-    { key: 'rent', name: 'Housing & Rent', baselinePaise: 2500000, deltaPercent: 0 },
-    { key: 'groceries', name: 'Groceries & Household', baselinePaise: 1500000, deltaPercent: 0 },
-    { key: 'dining', name: 'Dining Out & Food Delivery', baselinePaise: 1000000, deltaPercent: 0 },
-    { key: 'subscriptions', name: 'Subscriptions & Memberships', baselinePaise: 300000, deltaPercent: 0 },
-    { key: 'shopping', name: 'Discretionary Shopping & Gadgets', baselinePaise: 1200000, deltaPercent: 0 },
-    { key: 'transit', name: 'Commute & Transportation', baselinePaise: 500000, deltaPercent: 0 },
-  ]);
+export const WhatIfFinancialSandbox: React.FC = () => {
+  const { settings, refreshKey } = useApp();
+  const currency = settings?.currency || 'INR';
+
+  const [baselineMonthlyIncomePaise, setBaselineMonthlyIncomePaise] = useState<number>(10000000);
+  const [incomeDeltaPercent, setIncomeDeltaPercent] = useState<number>(0);
+  const [categories, setCategories] = useState<WhatIfCategoryDelta[]>(DEFAULT_SANDBOX_CATEGORIES);
+
+  useEffect(() => {
+    let active = true;
+    const monthPrefix = new Date().toISOString().slice(0, 7);
+    Promise.all([
+      api.getIncomes().catch(() => []),
+      api.getExpenses().catch(() => []),
+      api.getCategories().catch(() => []),
+    ]).then(([incomes, expenses, cats]) => {
+      if (!active) return;
+      const monthIncomes = (Array.isArray(incomes) ? incomes : []).filter(
+        (inc) => !inc.deletedAt && (!inc.date || inc.date.startsWith(monthPrefix))
+      );
+      const totalIncomePaise = monthIncomes.reduce(
+        (sum, inc) => sum + Math.max(0, Number(inc.amountPaise || 0)),
+        0
+      );
+      if (totalIncomePaise > 0) {
+        setBaselineMonthlyIncomePaise(totalIncomePaise);
+      }
+
+      const monthExpenses = (Array.isArray(expenses) ? expenses : []).filter(
+        (exp) => !exp.deletedAt && (!exp.date || exp.date.startsWith(monthPrefix))
+      );
+      if (monthExpenses.length > 0) {
+        const catNames = new Map(
+          (Array.isArray(cats) ? cats : []).map((c) => [c.id, c.name])
+        );
+        const byCat = new Map<string, { name: string; paise: number }>();
+        for (const exp of monthExpenses) {
+          const cid = exp.categoryId || 'other';
+          const name = catNames.get(cid) || exp.categoryName || 'General Expenses';
+          const prev = byCat.get(cid) || { name, paise: 0 };
+          byCat.set(cid, { name: prev.name, paise: prev.paise + Math.max(0, Number(exp.amountPaise || 0)) });
+        }
+        const realCats: WhatIfCategoryDelta[] = Array.from(byCat.entries())
+          .sort((a, b) => b[1].paise - a[1].paise)
+          .slice(0, 8)
+          .map(([key, val]) => ({
+            key,
+            name: val.name,
+            baselinePaise: val.paise,
+            deltaPercent: 0,
+          }));
+        if (realCats.length > 0) {
+          setCategories(realCats);
+        }
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [refreshKey]);
 
   const handleCategoryDeltaChange = (key: string, deltaPercent: number) => {
     setCategories((prev) =>
@@ -82,10 +141,10 @@ export const WhatIfFinancialSandbox: React.FC = () => {
       simulatedMonthlySavingsPaise,
       simulatedSavingsRate,
       monthlyDeltaPaise,
-      annualDeltaPaise,
+      baselineAnnualDeltaPaise: annualDeltaPaise,
       fiveYearCompoundDeltaPaise,
     };
-  }, [incomeDeltaPercent, categories]);
+  }, [baselineMonthlyIncomePaise, incomeDeltaPercent, categories]);
 
   return (
     <div className="space-y-6">
@@ -124,10 +183,10 @@ export const WhatIfFinancialSandbox: React.FC = () => {
             Simulated Monthly Savings
           </span>
           <div className="text-2xl font-bold font-mono text-emerald-400">
-            ₹ {(simulation.simulatedMonthlySavingsPaise / 100).toLocaleString()}
+            {formatCurrency(simulation.simulatedMonthlySavingsPaise, currency)}
           </div>
           <span className="text-[11px] text-[var(--ff-text-muted)] font-mono">
-            Baseline: ₹ {(simulation.baselineMonthlySavingsPaise / 100).toLocaleString()}
+            Baseline: {formatCurrency(simulation.baselineMonthlySavingsPaise, currency)}
           </span>
         </div>
 
@@ -140,8 +199,8 @@ export const WhatIfFinancialSandbox: React.FC = () => {
               simulation.monthlyDeltaPaise >= 0 ? 'text-emerald-400' : 'text-rose-400'
             }`}
           >
-            {simulation.monthlyDeltaPaise >= 0 ? '+' : ''}₹{' '}
-            {(simulation.monthlyDeltaPaise / 100).toLocaleString()}
+            {simulation.monthlyDeltaPaise >= 0 ? '+' : ''}
+            {formatCurrency(simulation.monthlyDeltaPaise, currency)}
           </div>
           <span className="text-[11px] text-[var(--ff-text-muted)] font-mono">
             Savings Rate: {simulation.simulatedSavingsRate}% (was {simulation.baselineSavingsRate}%)
@@ -154,11 +213,11 @@ export const WhatIfFinancialSandbox: React.FC = () => {
           </span>
           <div
             className={`text-2xl font-bold font-mono ${
-              simulation.annualDeltaPaise >= 0 ? 'text-emerald-400' : 'text-rose-400'
+              simulation.baselineAnnualDeltaPaise >= 0 ? 'text-emerald-400' : 'text-rose-400'
             }`}
           >
-            {simulation.annualDeltaPaise >= 0 ? '+' : ''}₹{' '}
-            {(simulation.annualDeltaPaise / 100).toLocaleString()}
+            {simulation.baselineAnnualDeltaPaise >= 0 ? '+' : ''}
+            {formatCurrency(simulation.baselineAnnualDeltaPaise, currency)}
           </div>
           <span className="text-[11px] text-[var(--ff-text-muted)]">Net annual surplus change</span>
         </div>
@@ -172,8 +231,8 @@ export const WhatIfFinancialSandbox: React.FC = () => {
               simulation.fiveYearCompoundDeltaPaise >= 0 ? 'text-sky-300' : 'text-rose-400'
             }`}
           >
-            {simulation.fiveYearCompoundDeltaPaise >= 0 ? '+' : ''}₹{' '}
-            {(simulation.fiveYearCompoundDeltaPaise / 100).toLocaleString()}
+            {simulation.fiveYearCompoundDeltaPaise >= 0 ? '+' : ''}
+            {formatCurrency(simulation.fiveYearCompoundDeltaPaise, currency)}
           </div>
           <span className="text-[11px] text-[var(--ff-text-muted)]">Invested at 10% CAGR</span>
         </div>
@@ -213,7 +272,7 @@ export const WhatIfFinancialSandbox: React.FC = () => {
           <div className="flex justify-between text-xs text-[var(--ff-text-muted)] font-mono">
             <span>-50% Pay Cut</span>
             <span className="text-[var(--ff-text-primary)] font-bold">
-              ₹ {(simulation.simulatedIncomePaise / 100).toLocaleString()} / mo
+              {formatCurrency(simulation.simulatedIncomePaise, currency)} / mo
             </span>
             <span>+100% 2x Promotion</span>
           </div>
@@ -262,9 +321,9 @@ export const WhatIfFinancialSandbox: React.FC = () => {
                   />
 
                   <div className="flex justify-between text-[11px] text-[var(--ff-text-muted)] font-mono">
-                    <span>Baseline: ₹ {(cat.baselinePaise / 100).toLocaleString()}</span>
+                    <span>Baseline: {formatCurrency(cat.baselinePaise, currency)}</span>
                     <span className="font-bold text-[var(--ff-text-primary)]">
-                      Simulated: ₹ {(adjustedPaise / 100).toLocaleString()}
+                      Simulated: {formatCurrency(adjustedPaise, currency)}
                     </span>
                   </div>
                 </div>

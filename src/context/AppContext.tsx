@@ -2144,7 +2144,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               .catch(() => api.updateFocusSession(sessId, updatePayload))
           : api.updateFocusSession(sessId, updatePayload);
         persistInterrupted
-          .then(() => triggerRefresh())
+          .then(() => {
+            if (qualifiesPartialCredit && firebaseUser?.uid) {
+              void api
+                .getFocusSessions()
+                .then((allSessions) =>
+                  syncUserLeaderboardStats({
+                    uid: firebaseUser.uid,
+                    displayName: firebaseUser.displayName || undefined,
+                    sessions: Array.isArray(allSessions) ? allSessions : [],
+                    timezone: settingsRef.current?.timezone,
+                    onlyIfExists: true,
+                  })
+                )
+                .catch(() => {});
+            }
+            triggerRefresh();
+          })
           .catch(console.warn);
       }
       activeSessionIdRef.current = null;

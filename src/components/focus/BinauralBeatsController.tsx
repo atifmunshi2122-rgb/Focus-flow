@@ -13,18 +13,28 @@ import {
 } from 'lucide-react';
 
 export const BinauralBeatsController: React.FC = () => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [selectedPresetId, setSelectedPresetId] = useState<string>(BINAURAL_PRESETS[0].id);
+  const [isPlaying, setIsPlaying] = useState<boolean>(() => binauralBeatsEngine.getStatus().isPlaying);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(
+    () => binauralBeatsEngine.getStatus().preset?.id || BINAURAL_PRESETS[0].id
+  );
   const [volume, setVolume] = useState<number>(0.3);
   const [showHeadphoneTip, setShowHeadphoneTip] = useState(false);
 
   const activePreset = BINAURAL_PRESETS.find((p) => p.id === selectedPresetId) || BINAURAL_PRESETS[0];
 
+  // Keep playing in background across tabs & stay synced if toggled from My Home Vinyl
   useEffect(() => {
-    return () => {
-      // Auto-stop binaural audio when component unmounts
-      binauralBeatsEngine.stop();
+    const syncStatus = () => {
+      const st = binauralBeatsEngine.getStatus();
+      setIsPlaying((prev) => (prev === st.isPlaying ? prev : st.isPlaying));
+      const activeId = st.preset?.id;
+      if (activeId) {
+        setSelectedPresetId((prev) => (prev === activeId ? prev : activeId));
+      }
     };
+    syncStatus();
+    const id = window.setInterval(syncStatus, 1000);
+    return () => window.clearInterval(id);
   }, []);
 
   const handleTogglePlay = () => {

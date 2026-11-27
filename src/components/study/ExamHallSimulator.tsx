@@ -139,7 +139,7 @@ export function buildCompletedExamPayload(
 }
 
 export const ExamHallSimulator: React.FC = () => {
-  const { user, firebaseUser, settings, triggerRefresh } = useApp();
+  const { user, firebaseUser, settings, refreshKey, triggerRefresh, confirmAction } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_exam_sim_state_v1`;
 
@@ -173,7 +173,7 @@ export const ExamHallSimulator: React.FC = () => {
         setStudyExamPresets(mapped);
       })
       .catch(() => {});
-  }, []);
+  }, [refreshKey]);
 
   const allExamPresets = useMemo(
     () => [...studyExamPresets, ...PRESET_EXAMS],
@@ -255,38 +255,40 @@ export const ExamHallSimulator: React.FC = () => {
     localStorage.removeItem(storageKey);
     api.saveExamSimulation(completedState).catch(() => {});
 
-    const spentSecs = completedState.totalElapsedSeconds;
-    const durationMinutes = Math.max(1, Math.round(spentSecs / 60) || activeTotalMinutes);
-    const endedAt = completedState.completedAt || new Date().toISOString();
-    const startedAt = new Date(Date.now() - durationMinutes * 60_000).toISOString();
+    const spentSecs = Math.max(0, completedState.totalElapsedSeconds || 0);
+    if (spentSecs >= 60) {
+      const durationMinutes = Math.max(1, Math.round(spentSecs / 60));
+      const endedAt = completedState.completedAt || new Date().toISOString();
+      const startedAt = new Date(Date.now() - spentSecs * 1000).toISOString();
 
-    void api
-      .createFocusSession({
-        mode: 'work',
-        durationMinutes,
-        durationSeconds: durationMinutes * 60,
-        actualDurationSeconds: spentSecs || durationMinutes * 60,
-        completed: true,
-        status: 'completed',
-        startedAt,
-        endedAt,
-        activityType: 'practice',
-      })
-      .then(async (created) => {
-        if (firebaseUser?.uid) {
-          const allSessions = await api.getFocusSessions().catch(() => [created]);
-          await syncUserLeaderboardStats({
-            uid: firebaseUser.uid,
-            displayName: firebaseUser.displayName || undefined,
-            sessions: Array.isArray(allSessions) ? allSessions : [created],
-            timezone: settings?.timezone,
-            onlyIfExists: true,
-          }).catch(() => {});
-        }
-        triggerRefresh();
-      })
-      .catch(() => {});
-  }, [examState, sectionSpentSeconds, storageKey, activeTotalMinutes, firebaseUser, settings?.timezone, triggerRefresh]);
+      void api
+        .createFocusSession({
+          mode: 'work',
+          durationMinutes,
+          durationSeconds: spentSecs,
+          actualDurationSeconds: spentSecs,
+          completed: true,
+          status: 'completed',
+          startedAt,
+          endedAt,
+          activityType: 'practice',
+        })
+        .then(async (created) => {
+          if (firebaseUser?.uid) {
+            const allSessions = await api.getFocusSessions().catch(() => [created]);
+            await syncUserLeaderboardStats({
+              uid: firebaseUser.uid,
+              displayName: firebaseUser.displayName || undefined,
+              sessions: Array.isArray(allSessions) ? allSessions : [created],
+              timezone: settings?.timezone,
+              onlyIfExists: true,
+            }).catch(() => {});
+          }
+          triggerRefresh();
+        })
+        .catch(() => {});
+    }
+  }, [examState, sectionSpentSeconds, storageKey, firebaseUser, settings?.timezone, triggerRefresh]);
 
   // Handle Advance Section
   const handleAdvanceSection = useCallback(() => {
@@ -301,22 +303,28 @@ export const ExamHallSimulator: React.FC = () => {
     }
   }, [examState, activeSections, handleFinishExam]);
 
-  // Countdown timer loop (pure state updates only; side-effects run in the effect below)
+  // Timestamp-based drift-free countdown timer loop
   useEffect(() => {
     if (!examState || (examState.status !== 'in_progress' && examState.status !== 'running')) return;
 
     const currentSec = activeSections[examState.currentSectionIndex];
+    let lastTickMs = Date.now();
     const timer = setInterval(() => {
-      setSectionTimeRemaining((prev) => Math.max(0, prev - 1));
-      setTotalTimeRemaining((prev) => Math.max(0, prev - 1));
+      const now = Date.now();
+      const deltaSecs = Math.floor((now - lastTickMs) / 1000);
+      if (deltaSecs <= 0) return;
+      lastTickMs += deltaSecs * 1000;
+
+      setSectionTimeRemaining((prev) => Math.max(0, prev - deltaSecs));
+      setTotalTimeRemaining((prev) => Math.max(0, prev - deltaSecs));
 
       if (currentSec) {
         setSectionSpentSeconds((map) => ({
           ...map,
-          [currentSec.id]: (map[currentSec.id] || 0) + 1,
+          [currentSec.id]: (map[currentSec.id] || 0) + deltaSecs,
         }));
       }
-    }, 1000);
+    }, 500);
 
     return () => clearInterval(timer);
   }, [examState, activeSections]);
@@ -372,8 +380,15 @@ export const ExamHallSimulator: React.FC = () => {
     );
   };
 
-  const handleResetExam = () => {
-    if (!window.confirm('Abandon active exam and reset simulation?')) return;
+  const handleResetExam = async () => {
+    const confirmed = await confirmAction({
+      title: 'Abandon Active Exam?',
+      message: 'Abandon active exam and reset simulation?',
+      confirmLabel: 'Abandon Exam',
+      cancelLabel: 'Continue Exam',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     finishedExamIdRef.current = null;
     advancingKeyRef.current = null;
     setExamState(null);

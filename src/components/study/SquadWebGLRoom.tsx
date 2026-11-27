@@ -120,33 +120,33 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
         customization={customization}
       />
 
-      {/* Seated Anime 3D Avatars aligned to DESK_SLOTS */}
-      <Suspense fallback={null}>
-        {DESK_SLOTS.map((slot, idx) => {
-          const entry = visibleEntries[idx];
-          if (!entry) return null;
-          const identity = resolveStudyAvatarIdentity(entry);
-          const catalogEntry = getAvatarCatalogEntry(identity.id);
-          const canSit = catalogEntry.hasHumanoidSkeleton && catalogEntry.supportedPoses.includes('seated');
-          const activity = deriveStudyActivity(entry);
-          const isLive = Boolean(entry.isStudyingLive);
-          const isSelected = selectedUid === entry.uid;
-          const activityBadge = ACTIVITY_META[activity]?.badgeText || '📚 Studying';
-          const subtitle = isLive
-            ? `${activityBadge} • ${entry.activeSubject || 'Deep Focus'} • ${
-                entry.liveElapsedMinutes > 0 ? `${entry.liveElapsedMinutes}m` : '<1m'
-              }`
-            : activity === 'break'
-            ? `${activityBadge} • #${entry.rank}`
-            : `Offline / Idle • #${entry.rank} • ${entry.hoursFormatted}`;
+      {/* Seated Anime 3D Avatars aligned to DESK_SLOTS (isolated Suspense per avatar) */}
+      {DESK_SLOTS.map((slot, idx) => {
+        const entry = visibleEntries[idx];
+        if (!entry) return null;
+        const identity = resolveStudyAvatarIdentity(entry);
+        const catalogEntry = getAvatarCatalogEntry(identity.id);
+        const canSit = catalogEntry.hasHumanoidSkeleton && catalogEntry.supportedPoses.includes('seated');
+        const activity = deriveStudyActivity(entry);
+        const isLive = Boolean(entry.isStudyingLive);
+        const isSelected = selectedUid === entry.uid;
+        const activityBadge = ACTIVITY_META[activity]?.badgeText || '📚 Studying';
+        const subtitle = isLive
+          ? `${activityBadge} • ${entry.activeSubject || 'Deep Focus'} • ${
+              entry.liveElapsedMinutes > 0 ? `${entry.liveElapsedMinutes}m` : '<1m'
+            }`
+          : activity === 'break'
+          ? `${activityBadge} • #${entry.rank}`
+          : `Offline / Idle • #${entry.rank} • ${entry.hoursFormatted}`;
 
-          // Rigged avatars sit on the chair at z=0.56; unrigged static models (e.g. avatar-02)
-          // stand right beside the desk at [0.44, 0, 0.56] instead of behind the chair.
-          const avatarPosition: [number, number, number] = canSit ? [0, 0, 0.56] : [0.44, 0, 0.56];
-          const avatarNameplateHeight = canSit ? 1.65 : 2.02;
+        // Rigged avatars sit on the chair at z=0.56; unrigged static models (e.g. avatar-02)
+        // stand right beside the desk at [0.44, 0, 0.56] instead of behind the chair.
+        const avatarPosition: [number, number, number] = canSit ? [0, 0, 0.56] : [0.44, 0, 0.56];
+        const avatarNameplateHeight = canSit ? 1.65 : 2.02;
 
-          return (
-            <group key={`${entry.uid}-${idx}`} position={[slot.x, 0, slot.z]} rotation={[0, slot.rotY, 0]}>
+        return (
+          <group key={`${entry.uid}-${idx}`} position={[slot.x, 0, slot.z]} rotation={[0, slot.rotY, 0]}>
+            <Suspense fallback={null}>
               <StudyAvatar
                 modelUrl={identity.modelUrl}
                 name={entry.displayName}
@@ -164,10 +164,10 @@ const StudyRoomScene: React.FC<StudyRoomSceneProps> = ({
                 emoteEvent={entry.lastEmote ?? null}
                 onSelect={() => onSelectMember(entry.uid)}
               />
-            </group>
-          );
-        })}
-      </Suspense>
+            </Suspense>
+          </group>
+        );
+      })}
     </>
   );
 };

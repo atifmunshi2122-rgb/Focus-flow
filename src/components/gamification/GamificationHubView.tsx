@@ -188,14 +188,54 @@ export const GamificationHubView: React.FC = () => {
           return;
         }
 
+        const friendUids = new Set<string>([firebaseUser.uid]);
+        if (cat === 'friends') {
+          const [overviewRes, userSquads] = await Promise.all([
+            api.getSocialOverview().catch(() => null),
+            listUserSquads(firebaseUser.uid).catch(() => []),
+          ]);
+          const socialFriends = Array.isArray(overviewRes?.friends) ? overviewRes.friends : [];
+          for (const f of socialFriends) {
+            if (f?.userId) friendUids.add(f.userId);
+          }
+          for (const sq of userSquads) {
+            for (const mUid of sq.memberUids || []) {
+              if (mUid) friendUids.add(mUid);
+            }
+          }
+        }
+
         await new Promise<void>((resolve) => {
           let settled = false;
-          const unsub = subscribeGlobalLeaderboard(
+          let unsub: (() => void) | null = null;
+          let shouldUnsubImmediately = false;
+          const safeUnsub = () => {
+            if (unsub) {
+              unsub();
+            } else {
+              shouldUnsubImmediately = true;
+            }
+          };
+
+          const timer = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              safeUnsub();
+              resolve();
+            }
+          }, 3000);
+
+          unsub = subscribeGlobalLeaderboard(
             (profiles) => {
               if (settled) return;
               settled = true;
+              clearTimeout(timer);
+              const filteredProfiles =
+                cat === 'friends'
+                  ? profiles.filter((p) => friendUids.has(p.uid))
+                  : profiles;
               const ranked = computeLeaderboardEntriesFromProfiles({
-                profiles,
+                profiles: filteredProfiles,
                 category: cat,
                 currentUid: firebaseUser.uid,
                 currentUserXP: progress.totalXP,
@@ -205,23 +245,22 @@ export const GamificationHubView: React.FC = () => {
               setLbHasMore(ranked.length > pageNum * 10);
               const myRank = ranked.find((e) => e.userId === firebaseUser.uid)?.rank ?? null;
               setLbCurrentUserRank(myRank);
-              unsub();
+              safeUnsub();
               resolve();
             },
             () => {
               if (!settled) {
                 settled = true;
+                clearTimeout(timer);
+                safeUnsub();
                 resolve();
               }
             }
           );
-          setTimeout(() => {
-            if (!settled) {
-              settled = true;
-              unsub();
-              resolve();
-            }
-          }, 3000);
+
+          if (shouldUnsubImmediately) {
+            unsub();
+          }
         });
       } finally {
         setLbLoading(false);

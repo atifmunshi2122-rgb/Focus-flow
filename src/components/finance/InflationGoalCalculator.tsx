@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { useApp } from '../../context/AppContext.tsx';
+import { CURRENCY_SYMBOLS } from '../../lib/currency.ts';
 import { calculateInflationAdjustedGoal } from '../../lib/inflationCalculator.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
@@ -13,16 +15,24 @@ import {
 } from 'lucide-react';
 
 export const InflationGoalCalculator: React.FC = () => {
-  const [targetCostPV, setTargetCostPV] = useState<number>(2000000); // ₹20 Lakhs default
+  const { settings } = useApp();
+  const currency = settings?.currency || 'INR';
+  const symbol = CURRENCY_SYMBOLS[currency] || '₹';
+
+  const [targetCostInput, setTargetCostInput] = useState<string>('2000000');
+  const targetCostPV = useMemo(() => {
+    const parsed = parseInt(targetCostInput, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [targetCostInput]);
   const [horizonYears, setHorizonYears] = useState<number>(10);
   const [inflationRate, setInflationRate] = useState<number>(6.5); // 6.5% typical developing economy
   const [returnRate, setReturnRate] = useState<number>(11.5); // 11.5% broad market index return
 
   const calc = useMemo(() => {
-    return calculateInflationAdjustedGoal(targetCostPV, horizonYears, inflationRate, returnRate);
+    return calculateInflationAdjustedGoal(Math.max(1000, targetCostPV || 1000), horizonYears, inflationRate, returnRate);
   }, [targetCostPV, horizonYears, inflationRate, returnRate]);
 
-  const inflationErosionPaise = calc.futureNominalTarget - calc.currentAmount;
+  const inflationErosionAmount = calc.futureNominalTarget - calc.currentAmount;
 
   return (
     <div className="space-y-6">
@@ -56,13 +66,19 @@ export const InflationGoalCalculator: React.FC = () => {
                 Goal Cost in Today’s Money (PV)
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-2.5 text-[var(--ff-text-muted)] font-mono font-bold">₹</span>
+                <span className="absolute left-3 top-2.5 text-[var(--ff-text-muted)] font-mono font-bold">{symbol}</span>
                 <input
                   type="number"
-                  min="10000"
+                  min="1000"
                   step="50000"
-                  value={targetCostPV}
-                  onChange={(e) => setTargetCostPV(Math.max(1000, parseInt(e.target.value, 10) || 0))}
+                  value={targetCostInput}
+                  onChange={(e) => setTargetCostInput(e.target.value)}
+                  onBlur={() => {
+                    const num = parseInt(targetCostInput, 10);
+                    if (!Number.isFinite(num) || num < 1000) {
+                      setTargetCostInput('1000');
+                    }
+                  }}
                   className="w-full pl-8 pr-3 py-2 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border)] text-[var(--ff-text-primary)] font-mono font-bold"
                 />
               </div>
@@ -133,11 +149,11 @@ export const InflationGoalCalculator: React.FC = () => {
                 Future Nominal Cost ({horizonYears}y)
               </span>
               <div className="text-3xl font-extrabold font-mono text-[var(--ff-text-primary)]">
-                ₹ {calc.futureNominalTarget.toLocaleString()}
+                {symbol} {calc.futureNominalTarget.toLocaleString()}
               </div>
               <p className="text-xs text-[var(--ff-text-muted)]">
                 Cost increases by{' '}
-                <strong className="text-rose-400">+₹ {inflationErosionPaise.toLocaleString()}</strong> due to inflation.
+                <strong className="text-rose-400">+{symbol} {inflationErosionAmount.toLocaleString()}</strong> due to inflation.
               </p>
             </div>
 
@@ -147,7 +163,7 @@ export const InflationGoalCalculator: React.FC = () => {
                 Required Monthly Compounding SIP
               </span>
               <div className="text-3xl font-extrabold font-mono text-emerald-400">
-                ₹ {calc.requiredMonthlySavings.toLocaleString()}
+                {symbol} {calc.requiredMonthlySavings.toLocaleString()}
                 <span className="text-xs font-normal text-[var(--ff-text-muted)]"> / mo</span>
               </div>
               <p className="text-xs text-[var(--ff-text-muted)]">
@@ -161,9 +177,9 @@ export const InflationGoalCalculator: React.FC = () => {
             <span className="text-xs font-bold text-[var(--ff-text-primary)]">Currency Purchasing Power Erosion</span>
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-[var(--ff-text-muted)]">
-                <span>Value of ₹100 Today</span>
+                <span>Value of {symbol}100 Today</span>
                 <span className="font-bold text-[var(--ff-text-primary)]">
-                  ₹ {Math.round(100 * calc.purchasingPowerLossFactor)} in {horizonYears} Years
+                  {symbol} {Math.round(100 * calc.purchasingPowerLossFactor)} in {horizonYears} Years
                 </span>
               </div>
               <div className="w-full bg-[var(--ff-surface-muted)] h-2 rounded-full overflow-hidden">
@@ -212,9 +228,9 @@ export const InflationGoalCalculator: React.FC = () => {
                       : 'Severe Stagflation'}
                   </td>
                   <td className="py-3 px-3 font-mono font-bold text-amber-400">{sc.inflationRate}%</td>
-                  <td className="py-3 px-3 font-mono">₹ {sc.futureCost.toLocaleString()}</td>
+                  <td className="py-3 px-3 font-mono">{symbol} {sc.futureCost.toLocaleString()}</td>
                   <td className="py-3 px-3 font-mono font-bold text-emerald-400">
-                    ₹ {sc.monthlySavingsRequired.toLocaleString()} / mo
+                    {symbol} {sc.monthlySavingsRequired.toLocaleString()} / mo
                   </td>
                 </tr>
               ))}

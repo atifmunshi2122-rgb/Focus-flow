@@ -93,6 +93,17 @@ export interface UserSettings {
   binauralBeatsPreset?: string;
   typingWarmupEnabled?: boolean;
   hideFinancialInReceipt?: boolean;
+  myHomeState?: {
+    petSpecies?: 'cat' | 'dog';
+    apartmentTierOverride?: 'auto' | 'studio' | 'balcony' | 'penthouse';
+    shopState?: { ownedIds: string[]; placedItems: Array<{ itemId: string; x: number; y: number; z: number; rotationY: number }>; spentCoins: number };
+    customFrames?: Array<{ id: string; preset?: string; title?: string; imageDataUrl?: string | null; [key: string]: unknown }>;
+    dreamCityId?: string;
+    arcadeHighScore?: number;
+    isStandingDesk?: boolean;
+    paperMessages?: Array<{ id: string; senderName: string; sourceLabel: string; message: string; createdAt: string; read: boolean }>;
+    updatedAt?: number;
+  };
 }
 
 export interface SubtaskItem {

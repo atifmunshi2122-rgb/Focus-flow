@@ -212,6 +212,26 @@ export const CodeTypingWarmupModal: React.FC<CodeTypingWarmupModalProps> = ({
             ref={inputRef}
             value={inputVal}
             onChange={handleInputChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Tab') {
+                e.preventDefault();
+                const el = e.currentTarget;
+                const start = el.selectionStart ?? inputVal.length;
+                const end = el.selectionEnd ?? inputVal.length;
+                const nextVal = `${inputVal.slice(0, start)}  ${inputVal.slice(end)}`;
+                if (!isActive && nextVal.length > 0) setIsActive(true);
+                setInputVal(nextVal);
+                requestAnimationFrame(() => {
+                  if (inputRef.current) {
+                    inputRef.current.selectionStart = inputRef.current.selectionEnd = start + 2;
+                  }
+                });
+                if (nextVal.length >= snippet.code.length) {
+                  setIsFinished(true);
+                  setIsActive(false);
+                }
+              }
+            }}
             disabled={isFinished}
             rows={6}
             autoFocus

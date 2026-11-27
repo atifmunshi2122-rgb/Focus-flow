@@ -18,6 +18,7 @@ import {
   TrendingUp,
   Brain,
   History,
+  Trash2,
 } from 'lucide-react';
 
 
@@ -207,6 +208,16 @@ export const DecisionJournal: React.FC = () => {
           {/* Tab Filter */}
           <div className="flex rounded-xl bg-[var(--ff-surface-muted)] p-0.5 border border-[var(--ff-border)]">
             <button
+              onClick={() => setActiveTab('all')}
+              className={`px-3 py-1 text-xs rounded-lg font-medium transition-all ${
+                activeTab === 'all'
+                  ? 'bg-[var(--ff-accent)] text-white shadow-sm'
+                  : 'text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]'
+              }`}
+            >
+              All ({decisions.length})
+            </button>
+            <button
               onClick={() => setActiveTab('pending')}
               className={`px-3 py-1 text-xs rounded-lg font-medium transition-all ${
                 activeTab === 'pending'
@@ -269,6 +280,18 @@ export const DecisionJournal: React.FC = () => {
                   <div className="flex items-center gap-2 text-xs text-[var(--ff-text-muted)]">
                     <Calendar className="w-3.5 h-3.5" />
                     <span>Review Target: {entry.expectedReviewDate}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = decisions.filter((d) => d.id !== entry.id);
+                        saveState(next);
+                      }}
+                      className="p-1 rounded-lg text-[var(--ff-text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      title="Delete decision"
+                      aria-label={`Delete decision ${entry.title}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
 

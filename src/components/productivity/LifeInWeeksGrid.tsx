@@ -12,6 +12,7 @@ import {
   Info,
   Clock,
   Compass,
+  Trash2,
 } from 'lucide-react';
 
 const DEFAULT_MILESTONES: LifeMilestone[] = [
@@ -23,13 +24,13 @@ const DEFAULT_MILESTONES: LifeMilestone[] = [
 ];
 
 export const LifeInWeeksGrid: React.FC = () => {
-  const { user } = useApp();
+  const { user, settings, updateSettings } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const birthKey = `focusflow_${activeUid}_life_grid_birth`;
   const milestonesKey = `focusflow_${activeUid}_life_grid_milestones`;
 
   const [birthDate, setBirthDate] = useState<string>(() => {
-    return localStorage.getItem(birthKey) || '2003-01-01';
+    return settings?.birthDate || localStorage.getItem(birthKey) || '2003-01-01';
   });
 
   const [milestones, setMilestones] = useState<LifeMilestone[]>(() => {
@@ -48,14 +49,14 @@ export const LifeInWeeksGrid: React.FC = () => {
   // Switch data cleanly when user changes (with cancellation guard against stale async responses)
   useEffect(() => {
     let isMounted = true;
-    const savedBirth = localStorage.getItem(birthKey);
+    const savedBirth = settings?.birthDate || localStorage.getItem(birthKey);
     setBirthDate(savedBirth !== null ? savedBirth : '2003-01-01');
 
     const savedMilestones = localStorage.getItem(milestonesKey);
     if (savedMilestones) {
       try {
         const parsed = JSON.parse(savedMilestones);
-        setMilestones(Array.isArray(parsed) ? parsed : DEFAULT_MILESTONES);
+        setMilestones(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_MILESTONES);
       } catch {
         setMilestones(DEFAULT_MILESTONES);
       }
@@ -68,9 +69,14 @@ export const LifeInWeeksGrid: React.FC = () => {
       .then((remote) => {
         if (!isMounted) return;
         if (Array.isArray(remote) && remote.length > 0) {
-          setMilestones(remote);
+          const remoteIds = new Set(remote.map((m) => m.id));
+          const merged = [
+            ...DEFAULT_MILESTONES.filter((dm) => !remoteIds.has(dm.id)),
+            ...remote,
+          ];
+          setMilestones(merged);
           try {
-            localStorage.setItem(milestonesKey, JSON.stringify(remote));
+            localStorage.setItem(milestonesKey, JSON.stringify(merged));
           } catch {}
         }
       })
@@ -79,7 +85,7 @@ export const LifeInWeeksGrid: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [birthKey, milestonesKey]);
+  }, [birthKey, milestonesKey, settings?.birthDate]);
 
   const [hoveredWeek, setHoveredWeek] = useState<{ age: number; week: number } | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
@@ -89,6 +95,18 @@ export const LifeInWeeksGrid: React.FC = () => {
   const handleBirthDateChange = (date: string) => {
     setBirthDate(date);
     localStorage.setItem(birthKey, date);
+    if (user?.id) {
+      void updateSettings({ birthDate: date }, { silent: true, skipRefresh: true });
+    }
+  };
+
+  const handleDeleteMilestone = (id: string) => {
+    const next = milestones.filter((m) => m.id !== id);
+    setMilestones(next);
+    try {
+      localStorage.setItem(milestonesKey, JSON.stringify(next));
+    } catch {}
+    api.deleteLifeMilestone(id).catch(() => {});
   };
 
   const saveMilestones = (updated: LifeMilestone[]) => {
@@ -309,9 +327,25 @@ export const LifeInWeeksGrid: React.FC = () => {
                 </div>
 
                 {isMilestoneRow && (
-                  <span className="text-[10px] text-amber-400 font-medium truncate max-w-[150px] pl-1">
-                    {milestones.filter((m) => m.age === age).map((m) => m.title).join(', ')}
-                  </span>
+                  <div className="flex items-center gap-1 pl-1">
+                    <span className="text-[10px] text-amber-400 font-medium truncate max-w-[140px]">
+                      {milestones.filter((m) => m.age === age).map((m) => m.title).join(', ')}
+                    </span>
+                    {milestones
+                      .filter((m) => m.age === age)
+                      .map((m) => (
+                        <button
+                          key={`del-${m.id}`}
+                          type="button"
+                          onClick={() => handleDeleteMilestone(m.id)}
+                          className="p-0.5 text-[var(--ff-text-muted)] hover:text-rose-400 transition-colors"
+                          title={`Delete milestone "${m.title}"`}
+                          aria-label={`Delete milestone ${m.title}`}
+                        >
+                          <Trash2 className="w-2.5 h-2.5" />
+                        </button>
+                      ))}
+                  </div>
                 )}
               </div>
             );

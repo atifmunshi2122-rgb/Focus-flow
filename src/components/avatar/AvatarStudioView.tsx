@@ -444,7 +444,7 @@ export const AvatarStudioView: React.FC = () => {
                   shadows
                   dpr={[1, 1.5]}
                   gl={{ powerPreference: 'high-performance', antialias: true }}
-                  camera={{ position: [0, 0.35, 3.05], fov: 38 }}
+                  camera={{ position: [0, 0.25, 3.35], fov: 42 }}
                   onCreated={({ gl }) => {
                     gl.domElement.addEventListener(
                       'webglcontextlost',

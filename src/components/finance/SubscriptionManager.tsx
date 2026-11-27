@@ -204,13 +204,14 @@ export const SubscriptionManager: React.FC = () => {
 
   const annualProjectedPaise = monthlyProjectedPaise * 12;
 
-  // Upcoming renewals (within 7 days)
+  // Upcoming & overdue renewals respecting each subscription's configured reminderDays
   const renewalsNear = activeSubs.filter((s) => {
     const diffDays = Math.round(
       (new Date(`${s.nextRenewalDate}T12:00:00Z`).getTime() - new Date(`${todayStr}T12:00:00Z`).getTime()) /
         86400000
     );
-    return diffDays >= 0 && diffDays <= 7;
+    const reminderWindow = Math.max(0, Number(s.reminderDays ?? 7));
+    return diffDays <= reminderWindow;
   });
 
   return (
@@ -431,9 +432,17 @@ export const SubscriptionManager: React.FC = () => {
                   </div>
 
                   <ThemeBadge
-                    tone={diffDays <= 3 && !isPaused ? 'danger' : isPaused ? 'neutral' : 'accent'}
+                    tone={
+                      isCancelled || isPaused
+                        ? 'neutral'
+                        : diffDays <= 3
+                        ? 'danger'
+                        : 'accent'
+                    }
                   >
-                    {isPaused
+                    {isCancelled
+                      ? 'Cancelled'
+                      : isPaused
                       ? 'Paused'
                       : diffDays < 0
                       ? 'Due Now'

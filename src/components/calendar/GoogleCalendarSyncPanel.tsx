@@ -147,7 +147,7 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
             <button
               onClick={handleSyncNow}
               disabled={syncing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--ff-accent-color)] text-white hover:opacity-90 disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--ff-accent)] text-white hover:opacity-90 disabled:opacity-50 transition"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? 'Syncing...' : 'Sync Tasks'}
@@ -165,7 +165,7 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
           <button
             onClick={handleConnect}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--ff-accent-color)] text-white hover:opacity-90 disabled:opacity-50 transition"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--ff-accent)] text-white hover:opacity-90 disabled:opacity-50 transition"
           >
             <ExternalLink className="w-3.5 h-3.5" />
             {loading ? 'Connecting...' : status.revoked ? 'Reauthorize Calendar' : 'Connect Calendar'}

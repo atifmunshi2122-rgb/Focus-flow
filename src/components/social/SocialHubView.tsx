@@ -180,7 +180,7 @@ export const SocialHubView: React.FC = () => {
           setSquadMembers(mergedProfiles);
           const goalHours = Math.max(1, fsSquad.weeklyGoalHours || 20);
           const progressStats = computeSquadChallengeProgress({
-            squad: fsSquad,
+            squad: { ...fsSquad, weeklyGoalHours: goalHours },
             memberProfiles: mergedProfiles,
             timezone: settings?.timezone,
           });
@@ -266,6 +266,7 @@ export const SocialHubView: React.FC = () => {
       });
       setJoinCodeInput('');
       setSelectedSquadId(joined.id);
+      window.dispatchEvent(new Event('ff:squads-updated'));
       showToast(`Joined squad "${joined.name}"!`, 'success');
       await loadOverview();
     } catch (err: any) {
@@ -286,6 +287,7 @@ export const SocialHubView: React.FC = () => {
     if (!confirmed) return;
     try {
       await leaveStudySquad(firebaseUser.uid, squadId);
+      window.dispatchEvent(new Event('ff:squads-updated'));
       showToast(`Left squad "${squadName}"`, 'info');
       setSelectedSquadId(null);
       await loadOverview();
@@ -580,6 +582,7 @@ export const SocialHubView: React.FC = () => {
                 });
                 showToast(`Created squad "${created.name}" (Code: ${created.inviteCode})!`, 'success');
                 setSelectedSquadId(created.id);
+                window.dispatchEvent(new Event('ff:squads-updated'));
                 await loadOverview();
                 return;
               }
