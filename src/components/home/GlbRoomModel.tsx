@@ -1,55 +1,66 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
-import type { ThreeEvent } from '@react-three/fiber';
 import type { HomeZoneId } from '../../features/home/homeRoutineEngine.ts';
+import type { FurnitureShortcutId } from '../../features/home/homeFeaturesEngine.ts';
+import type {
+  GlbInteractionTarget,
+  HomeRoomThemeConfig,
+} from '../../features/home/homeRoomCatalog.ts';
 import type { RoomLighting } from '../../features/study-room/customization-types.ts';
 
-const COZY_VILLA_GLB_URL = '/models/cozy-home-cutaway.glb';
-const VILLA_SCALE = 0.85;
-const VILLA_OFFSET: [number, number, number] = [0.2, 0, 0];
-
-interface CozyVillaRoomModelProps {
+interface GlbRoomModelProps {
+  config: HomeRoomThemeConfig;
   lightingMode: RoomLighting;
   lampDimFactor?: number;
   isStudying?: boolean;
   isSleeping?: boolean;
   onSelectZone?: (zone: HomeZoneId) => void;
   onClickFloor?: (x: number, z: number) => void;
+  onClickFurniture?: (shortcut: FurnitureShortcutId) => void;
 }
 
-function resolveVillaTarget(object: THREE.Object3D | null): string | null {
+function resolveInteractionTarget(
+  object: THREE.Object3D | null,
+  interactionMap?: Record<string, GlbInteractionTarget>
+): GlbInteractionTarget | null {
+  if (!interactionMap) return null;
   let cur: THREE.Object3D | null = object;
   while (cur) {
     const name = cur.name || '';
-    if (
-      name === 'StudyFurniture' ||
-      name === 'BedroomFurniture' ||
-      name === 'LivingFurniture' ||
-      name === 'KitchenFurniture' ||
-      name === 'BathroomFurniture' ||
-      name === 'HouseStructure'
-    ) {
-      return name;
+    if (name) {
+      if (interactionMap[name]) return interactionMap[name];
+      for (const key of Object.keys(interactionMap)) {
+        if (name.startsWith(key)) return interactionMap[key];
+      }
     }
     cur = cur.parent;
   }
   return null;
 }
 
-export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
+/**
+ * Reusable on-demand GLB room renderer driven by HOME_ROOM_CATALOG.
+ * Intentionally avoids top-level useGLTF.preload so unselected/locked rooms
+ * are never downloaded prematurely, and disposes cloned materials on unmount.
+ */
+export const GlbRoomModel: React.FC<GlbRoomModelProps> = ({
+  config,
   lightingMode,
   lampDimFactor = 1,
   isStudying = false,
   isSleeping = false,
   onSelectZone,
   onClickFloor,
+  onClickFurniture,
 }) => {
-  const { scene } = useGLTF(COZY_VILLA_GLB_URL);
+  const glbUrl = config.glbUrl!;
+  const { scene } = useGLTF(glbUrl);
   const clockHourRef = useRef<THREE.Object3D | null>(null);
   const clockMinRef = useRef<THREE.Object3D | null>(null);
   const canopyRefs = useRef<THREE.Object3D[]>([]);
+  const tzOffsetMs = useMemo(() => -new Date().getTimezoneOffset() * 60_000, []);
 
   const clonedScene = useMemo(() => {
     const root = scene.clone(true);
@@ -58,10 +69,12 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
     clockMinRef.current = null;
 
     root.traverse((obj) => {
-      if (obj.name === 'ClockHourPivot') clockHourRef.current = obj;
-      if (obj.name === 'ClockMinutePivot') clockMinRef.current = obj;
-      if (obj.name === 'TreeCanopyPivot' || obj.name === 'StudyVineSwayPivot') {
-        canopies.push(obj);
+      if (config.animateClockAndCanopy) {
+        if (obj.name === 'ClockHourPivot') clockHourRef.current = obj;
+        if (obj.name === 'ClockMinutePivot') clockMinRef.current = obj;
+        if (obj.name === 'TreeCanopyPivot' || obj.name === 'StudyVineSwayPivot') {
+          canopies.push(obj);
+        }
       }
 
       if ((obj as THREE.Mesh).isMesh) {
@@ -81,11 +94,10 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
         light.userData.__baseIntensity = light.intensity;
       }
     });
+
     canopyRefs.current = canopies;
     return root;
-  }, [scene]);
-
-  const tzOffsetMs = useMemo(() => -new Date().getTimezoneOffset() * 60_000, []);
+  }, [scene, config.animateClockAndCanopy]);
 
   useEffect(() => {
     return () => {
@@ -126,7 +138,7 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
             if (typeof std.userData.__baseEmissive !== 'number') {
               std.userData.__baseEmissive = std.emissiveIntensity ?? 1;
             }
-            const boost = isStudying ? 1.15 : isNight ? 1.1 : 0.9;
+            const boost = isStudying ? 1.18 : isNight ? 1.1 : 0.9;
             std.emissiveIntensity = std.userData.__baseEmissive * boost * lampDimFactor;
           }
         }
@@ -135,11 +147,13 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
   }, [clonedScene, lightingMode, lampDimFactor, isStudying, isSleeping]);
 
   useFrame(({ clock }) => {
+    if (!config.animateClockAndCanopy) return;
     const t = clock.getElapsedTime();
     const localMs = Date.now() + tzOffsetMs;
     const secsInDay = Math.floor(localMs / 1000) % 86400;
     const mins = (secsInDay % 3600) / 60;
     const hrs = (secsInDay / 3600) % 12;
+
     if (clockHourRef.current) {
       clockHourRef.current.rotation.z = -(hrs / 12) * Math.PI * 2;
     }
@@ -152,37 +166,21 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
   });
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
-    const target = resolveVillaTarget(e.object);
+    const target = resolveInteractionTarget(e.object, config.interactionMap);
     if (!target) return;
     e.stopPropagation();
 
-    if (target === 'StudyFurniture') {
-      onSelectZone?.('study');
-      return;
-    }
-    if (target === 'BedroomFurniture') {
-      onSelectZone?.('bedroom');
-      return;
-    }
-    if (target === 'LivingFurniture') {
-      onSelectZone?.('dining');
-      return;
-    }
-    if (target === 'KitchenFurniture') {
-      onSelectZone?.('kitchen');
-      return;
-    }
-    if (target === 'BathroomFurniture') {
-      onSelectZone?.('washroom');
-      return;
-    }
-    if (target === 'HouseStructure') {
+    if (target.type === 'floor') {
       onClickFloor?.(e.point.x, e.point.z);
+    } else if (target.type === 'furniture') {
+      onClickFurniture?.(target.shortcut);
+    } else if (target.type === 'zone') {
+      onSelectZone?.(target.zone);
     }
   };
 
   const handlePointerOver = (e: ThreeEvent<PointerEvent>) => {
-    if (resolveVillaTarget(e.object)) {
+    if (resolveInteractionTarget(e.object, config.interactionMap)) {
       e.stopPropagation();
       document.body.style.cursor = 'pointer';
     }
@@ -192,16 +190,30 @@ export const CozyVillaRoomModel: React.FC<CozyVillaRoomModelProps> = ({
     document.body.style.cursor = 'auto';
   };
 
+  const scale = config.scale ?? 1;
+  const offset = config.offset ?? [0, 0, 0];
+
   return (
-    <primitive
-      object={clonedScene}
-      position={VILLA_OFFSET}
-      scale={[VILLA_SCALE, VILLA_SCALE, VILLA_SCALE]}
-      onClick={handleClick}
-      onPointerOver={handlePointerOver}
-      onPointerOut={handlePointerOut}
-    />
+    <group>
+      {config.plinth && (
+        <mesh position={config.plinth.position} receiveShadow>
+          <boxGeometry args={config.plinth.size} />
+          <meshStandardMaterial
+            color={config.plinth.color || '#162040'}
+            roughness={0.8}
+            metalness={0.08}
+          />
+        </mesh>
+      )}
+      <primitive
+        object={clonedScene}
+        position={offset}
+        scale={[scale, scale, scale]}
+        onClick={handleClick}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+      />
+    </group>
   );
 };
-
 

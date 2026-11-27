@@ -2,8 +2,8 @@ import React, { Suspense, createContext, useContext, useEffect, useMemo, useRef,
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
-import { AnimeStudioRoomModel } from './AnimeStudioRoomModel.tsx';
-import { CozyVillaRoomModel } from './CozyVillaRoomModel.tsx';
+import { GlbRoomModel } from './GlbRoomModel.tsx';
+import { getHomeRoomTheme, type HomeRoomStyle } from '../../features/home/homeRoomCatalog.ts';
 import type { HomeZoneId } from '../../features/home/homeRoutineEngine.ts';
 import type { RoomLighting } from '../../features/study-room/customization-types.ts';
 import type {
@@ -105,7 +105,7 @@ const DEFAULT_UNLOCKS: HomeDecorUnlocks = {
   gamingChair: false,
 };
 
-export type HomeRoomStyle = 'classic' | 'anime_studio' | 'cozy_villa';
+export type { HomeRoomStyle };
 
 interface MyHomeApartmentProps {
   roomStyle?: HomeRoomStyle;
@@ -553,31 +553,22 @@ export const MyHomeApartment: React.FC<MyHomeApartmentProps> = ({
   const lanternPower = hasFourCycleLantern ? 3.2 : isSleeping ? 1.25 : 1.65;
   const showerLightPower = isSleeping ? 0.35 : activeZone === 'washroom' ? 2.2 : 1.35;
 
-  if (roomStyle === 'anime_studio' || roomStyle === 'cozy_villa') {
+  const roomTheme = getHomeRoomTheme(roomStyle);
+  if (roomTheme.kind === 'glb' && roomTheme.glbUrl) {
     return (
       <PlantStageContext.Provider value={plantStage}>
         <group>
           <Suspense fallback={null}>
-            {roomStyle === 'anime_studio' ? (
-              <AnimeStudioRoomModel
-                lightingMode={lightingMode}
-                lampDimFactor={lampDimFactor}
-                isStudying={isStudying}
-                isSleeping={isSleeping}
-                onSelectZone={onSelectZone}
-                onClickFloor={onClickFloor}
-                onClickFurniture={onClickFurniture}
-              />
-            ) : (
-              <CozyVillaRoomModel
-                lightingMode={lightingMode}
-                lampDimFactor={lampDimFactor}
-                isStudying={isStudying}
-                isSleeping={isSleeping}
-                onSelectZone={onSelectZone}
-                onClickFloor={onClickFloor}
-              />
-            )}
+            <GlbRoomModel
+              config={roomTheme}
+              lightingMode={lightingMode}
+              lampDimFactor={lampDimFactor}
+              isStudying={isStudying}
+              isSleeping={isSleeping}
+              onSelectZone={onSelectZone}
+              onClickFloor={onClickFloor}
+              onClickFurniture={onClickFurniture}
+            />
           </Suspense>
           {walkTargetPos && (
             <mesh position={[walkTargetPos[0], 0.018, walkTargetPos[2]]} rotation={[-Math.PI / 2, 0, 0]}>

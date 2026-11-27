@@ -150,7 +150,13 @@ import StudyAvatar, { preloadStudyAvatarModels, type StudyAvatarActivity } from 
 import RoomCameraRig, { type RoomCameraMode } from '../study-room/RoomCameraRig.tsx';
 import RoomLightingController from '../study-room/RoomLightingController.tsx';
 import RoomWeatherEffects from '../study-room/RoomWeatherEffects.tsx';
-import { MyHomeApartment, type HomeRoomStyle } from './MyHomeApartment.tsx';
+import { MyHomeApartment } from './MyHomeApartment.tsx';
+import {
+  HOME_ROOM_CATALOG,
+  getHomeRoomTheme,
+  isKnownHomeRoomStyle,
+  type HomeRoomStyle,
+} from '../../features/home/homeRoomCatalog.ts';
 import { MyHomePet } from './MyHomePet.tsx';
 import {
   CustomWallFramesModal,
@@ -964,7 +970,7 @@ export const MyHomeView: React.FC = () => {
   const [roomStyle, setRoomStyle] = useState<HomeRoomStyle>(() => {
     try {
       const saved = localStorage.getItem(`focusflow_home_room_style_${activeUid}`);
-      if (saved === 'anime_studio' || saved === 'cozy_villa' || saved === 'classic') return saved;
+      if (isKnownHomeRoomStyle(saved)) return saved;
     } catch {
       // ignore
     }
@@ -1329,11 +1335,7 @@ export const MyHomeView: React.FC = () => {
     if (!cloud || hydratedHomeCloudRef.current === activeUid) return;
     hydratedHomeCloudRef.current = activeUid;
     if (cloud.petSpecies === 'cat' || cloud.petSpecies === 'dog') setPetSpecies(cloud.petSpecies);
-    if (
-      cloud.roomStyle === 'classic' ||
-      cloud.roomStyle === 'anime_studio' ||
-      cloud.roomStyle === 'cozy_villa'
-    ) {
+    if (isKnownHomeRoomStyle(cloud.roomStyle)) {
       setRoomStyle(cloud.roomStyle);
       try {
         localStorage.setItem(`focusflow_home_room_style_${activeUid}`, cloud.roomStyle);
@@ -1598,48 +1600,32 @@ export const MyHomeView: React.FC = () => {
   );
 
   const currentLevel = effectiveUnlocksSummary.level;
-  const HOME_ROOM_THEMES: ReadonlyArray<{
-    id: HomeRoomStyle;
-    label: string;
-    unlockLevel: number;
-  }> = [
-    { id: 'classic', label: 'Classic', unlockLevel: 1 },
-    { id: 'anime_studio', label: 'Anime Studio', unlockLevel: 3 },
-    { id: 'cozy_villa', label: 'Cozy Villa', unlockLevel: 5 },
-  ];
 
   const effectiveRoomStyle: HomeRoomStyle = useMemo(() => {
     if (isVisiting) return 'classic';
-    const chosen = HOME_ROOM_THEMES.find((t) => t.id === roomStyle);
-    if (chosen && currentLevel >= chosen.unlockLevel) return chosen.id;
+    const chosen = getHomeRoomTheme(roomStyle);
+    if (currentLevel >= chosen.unlockLevel) return chosen.id;
     return 'classic';
   }, [isVisiting, roomStyle, currentLevel]);
 
   const handleChangeRoomStyle = useCallback(
     (next: HomeRoomStyle) => {
       if (isVisiting) return;
-      const target = HOME_ROOM_THEMES.find((t) => t.id === next);
-      if (target && currentLevel < target.unlockLevel) {
+      const target = getHomeRoomTheme(next);
+      if (currentLevel < target.unlockLevel) {
         showToast?.(
           `🔒 Reach Level ${target.unlockLevel} to unlock ${target.label}! (Currently Lv ${currentLevel})`,
           'info'
         );
         return;
       }
-      setRoomStyle(next);
+      setRoomStyle(target.id);
       try {
-        localStorage.setItem(`focusflow_home_room_style_${activeUid}`, next);
+        localStorage.setItem(`focusflow_home_room_style_${activeUid}`, target.id);
       } catch {
         // ignore
       }
-      showToast?.(
-        next === 'cozy_villa'
-          ? '🏡 Switched to Cozy Villa 3D room!'
-          : next === 'anime_studio'
-            ? '🏠 Switched to Anime Studio 3D room!'
-            : '🏠 Switched to Classic Apartment!',
-        'info'
-      );
+      showToast?.(target.toastMessage, 'info');
     },
     [activeUid, currentLevel, isVisiting, showToast]
   );
@@ -3105,7 +3091,7 @@ export const MyHomeView: React.FC = () => {
           {/* Room Theme: Level-Up Unlocks (Classic Lv 1 / Anime Studio Lv 3 / Cozy Villa Lv 5) */}
           {!isVisiting && (
             <div className="shrink-0 flex items-center p-1 rounded-xl bg-[#0e1733]/85 backdrop-blur-md border border-white/12 shadow-lg">
-              {HOME_ROOM_THEMES.map((opt) => {
+              {HOME_ROOM_CATALOG.map((opt) => {
                 const unlocked = currentLevel >= opt.unlockLevel;
                 const active = effectiveRoomStyle === opt.id;
                 return (
