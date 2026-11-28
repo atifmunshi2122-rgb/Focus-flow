@@ -1,7 +1,7 @@
 import type { HomeZoneId } from './homeRoutineEngine.ts';
 import type { FurnitureShortcutId } from './homeFeaturesEngine.ts';
 
-export type HomeRoomStyle = 'classic' | 'anime_studio' | 'cozy_villa';
+export type HomeRoomStyle = 'classic' | 'anime_studio' | 'cozy_villa' | 'neon_gaming';
 
 export type GlbInteractionTarget =
   | { type: 'zone'; zone: HomeZoneId }
@@ -87,6 +87,37 @@ export const HOME_ROOM_CATALOG: ReadonlyArray<HomeRoomThemeConfig> = [
       HouseStructure: { type: 'floor' },
     },
     toastMessage: '🏡 Switched to Cozy Villa 3D room!',
+  },
+  {
+    id: 'neon_gaming',
+    label: 'Neon Gaming',
+    unlockLevel: 7,
+    kind: 'glb',
+    glbUrl: '/models/neon-gaming-apartment.glb',
+    scale: 0.9,
+    offset: [0, 0, 0],
+    interactionMap: {
+      Bedroom_Gaming_Desk: { type: 'zone', zone: 'study' },
+      Bedroom_Gaming_Chair: { type: 'zone', zone: 'study' },
+      Bedroom_GameOn_NeonSign: { type: 'zone', zone: 'study' },
+      Bedroom_King_Bed: { type: 'zone', zone: 'bedroom' },
+      Bedroom_Wardrobe: { type: 'zone', zone: 'bedroom' },
+      Neon_Room_Bedroom: { type: 'zone', zone: 'bedroom' },
+      Bathroom_Glass_Shower: { type: 'zone', zone: 'washroom' },
+      Bathroom_Toilet: { type: 'zone', zone: 'washroom' },
+      Bathroom_Vanity: { type: 'zone', zone: 'washroom' },
+      Neon_Room_Bathroom: { type: 'zone', zone: 'washroom' },
+      Living_TV_Wall: { type: 'furniture', shortcut: 'smart_tv' },
+      Kitchen_Dining_Area: { type: 'zone', zone: 'dining' },
+      Living_Sectional_Sofa: { type: 'zone', zone: 'dining' },
+      Living_Coffee_Table: { type: 'zone', zone: 'dining' },
+      Neon_Room_Living: { type: 'zone', zone: 'dining' },
+      Kitchen_Modular_Area: { type: 'zone', zone: 'kitchen' },
+      Kitchen_Refrigerator: { type: 'zone', zone: 'kitchen' },
+      Neon_Room_KitchenDining: { type: 'zone', zone: 'kitchen' },
+      Neon_Architecture: { type: 'floor' },
+    },
+    toastMessage: '🎮 Switched to Neon Gaming Apartment!',
   },
 ];
 
