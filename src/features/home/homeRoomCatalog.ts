@@ -1,7 +1,12 @@
 import type { HomeZoneId } from './homeRoutineEngine.ts';
 import type { FurnitureShortcutId } from './homeFeaturesEngine.ts';
 
-export type HomeRoomStyle = 'classic' | 'anime_studio' | 'cozy_villa' | 'neon_gaming';
+export type HomeRoomStyle =
+  | 'classic'
+  | 'anime_studio'
+  | 'cozy_villa'
+  | 'neon_gaming'
+  | 'royal_palace';
 
 export type GlbInteractionTarget =
   | { type: 'zone'; zone: HomeZoneId }
@@ -118,6 +123,21 @@ export const HOME_ROOM_CATALOG: ReadonlyArray<HomeRoomThemeConfig> = [
       Neon_Architecture: { type: 'floor' },
     },
     toastMessage: '🎮 Switched to Neon Gaming Apartment!',
+  },
+  {
+    id: 'royal_palace',
+    label: 'Royal Palace',
+    unlockLevel: 10,
+    kind: 'glb',
+    glbUrl: '/models/royal-palace-suite.glb',
+    scale: 0.65,
+    offset: [0, 0, 0],
+    interactionMap: {
+      PlinthAndFloors: { type: 'floor' },
+      PalaceFurnitureAndProps: { type: 'zone', zone: 'study' },
+      CrystalChandelier: { type: 'furniture', shortcut: 'observatory' },
+    },
+    toastMessage: '👑 Switched to Royal Palace Suite!',
   },
 ];
 
