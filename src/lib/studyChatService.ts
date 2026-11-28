@@ -12,13 +12,16 @@
 
 import {
   collection,
+  deleteDoc,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
   setDoc,
   updateDoc,
+  writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase.ts';
@@ -198,11 +201,11 @@ export function subscribeStudyChatMessages(
           latestRemote = snap.docs
             .map((d) => d.data() as StudyChatMessage)
             .filter((m) => Boolean(m?.id && m?.senderId));
-          const merged = mergeMessages(latestRemote, latestLocal);
-          latestLocal = merged;
+          // Treat authoritative Firestore snapshot as source of truth so deletions & clear-chat sync cleanly
+          latestLocal = latestRemote;
           if (typeof window !== 'undefined') {
             try {
-              window.localStorage.setItem(channelStorageKey(channel), JSON.stringify(merged));
+              window.localStorage.setItem(channelStorageKey(channel), JSON.stringify(latestRemote));
             } catch {
               // ignore
             }
@@ -342,6 +345,78 @@ export async function toggleStudyChatReaction(input: {
   }
 
   return updated;
+}
+
+export async function deleteStudyChatMessage(input: {
+  channel: ChatChannelRef;
+  messageId: string;
+  userId: string;
+  isAuthenticated?: boolean;
+}): Promise<void> {
+  const { channel, messageId, userId } = input;
+  // Remove locally immediately for instant UX
+  const local = readLocalMessages(channel);
+  writeLocalMessages(
+    channel,
+    local.filter((m) => m.id !== messageId)
+  );
+
+  if (input.isAuthenticated !== false && userId && !userId.startsWith('usr_guest')) {
+    const msgRef = doc(getFirestoreMessagesCollection(channel), messageId);
+    try {
+      await deleteDoc(msgRef);
+      notifyChatSyncWarning(null);
+    } catch (err) {
+      // Fallback to soft-delete if delete rule isn't deployed yet
+      try {
+        await updateDoc(msgRef, { deletedAt: Date.now(), updatedAt: Date.now() });
+      } catch {
+        if (isFirestorePermissionError(err)) {
+          notifyChatSyncWarning(
+            'Deploy updated Firestore rules so deleted messages sync for everyone.'
+          );
+        }
+        console.warn('[StudyChat] Delete message fell back to local storage:', err);
+      }
+    }
+  }
+}
+
+export async function clearStudyChat(input: {
+  channel: ChatChannelRef;
+  userId: string;
+  isAuthenticated?: boolean;
+}): Promise<{ deletedCount: number; cloudSynced: boolean }> {
+  const { channel, userId } = input;
+  // Clear locally immediately
+  writeLocalMessages(channel, []);
+
+  if (input.isAuthenticated === false || !userId || userId.startsWith('usr_guest')) {
+    return { deletedCount: 0, cloudSynced: false };
+  }
+
+  try {
+    const snap = await getDocs(getFirestoreMessagesCollection(channel));
+    const docs = snap.docs;
+    const CHUNK = 450;
+    for (let i = 0; i < docs.length; i += CHUNK) {
+      const batch = writeBatch(db);
+      for (const d of docs.slice(i, i + CHUNK)) {
+        batch.delete(d.ref);
+      }
+      await batch.commit();
+    }
+    notifyChatSyncWarning(null);
+    return { deletedCount: docs.length, cloudSynced: true };
+  } catch (err) {
+    if (isFirestorePermissionError(err)) {
+      notifyChatSyncWarning(
+        'Deploy updated Firestore rules (`firebase deploy --only firestore:rules`) so Clear Chat removes messages for both users.'
+      );
+    }
+    console.warn('[StudyChat] Clear chat failed on Firestore:', err);
+    return { deletedCount: 0, cloudSynced: false };
+  }
 }
 
 export async function setStudyChatTyping(input: {

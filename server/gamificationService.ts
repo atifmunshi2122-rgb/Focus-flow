@@ -18,7 +18,7 @@ import type {
   XPSource,
   XPTransaction,
 } from '../src/features/gamification/types.ts';
-import { calculateLevel, calculateXPProgress } from '../src/features/gamification/xp-calculator.ts';
+import { calculateFocusSessionXP, calculateLevel, calculateXPProgress } from '../src/features/gamification/xp-calculator.ts';
 import {
   ACHIEVEMENT_CATALOG,
   STREAK_REWARDS,
@@ -367,7 +367,7 @@ export function awardAuthoritativeXP(
         transactions: [],
       };
     }
-    rewardAmount = XP_REWARDS.focus_session;
+    rewardAmount = calculateFocusSessionXP(session.durationMinutes || 0);
     description = `Completed ${session.durationMinutes}m focus session`;
   } else if (source === 'topic_completion') {
     const topic = (db.studyTopics || []).find((t) => t.id === sourceId && t.userId === userId);

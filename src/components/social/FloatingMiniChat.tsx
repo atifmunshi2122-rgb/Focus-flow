@@ -4,6 +4,8 @@ import { useApp } from '../../context/AppContext.tsx';
 import StudyChat, { type SendMessagePayload } from './StudyChat.tsx';
 import {
   buildDmRoomId,
+  clearStudyChat,
+  deleteStudyChatMessage,
   getLastReadTimestamp,
   markChatRoomRead,
   sendStudyChatMessage,
@@ -37,6 +39,7 @@ export const FloatingMiniChat: React.FC = () => {
     switchTimerMode,
     startTimer,
     showToast,
+    confirmAction,
   } = useApp();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -234,6 +237,47 @@ export const FloatingMiniChat: React.FC = () => {
     });
   };
 
+  const handleDeleteMessage = async (msg: StudyChatMessage) => {
+    if (!activeChannel || !currentUid) return;
+    const confirmed = await confirmAction({
+      title: 'Delete Message?',
+      message: 'This message will be deleted for everyone in this chat.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    await deleteStudyChatMessage({
+      channel: activeChannel,
+      messageId: msg.id,
+      userId: currentUid,
+      isAuthenticated: Boolean(firebaseUser?.uid),
+    });
+  };
+
+  const handleClearChat = async () => {
+    if (!activeChannel || !currentUid) return;
+    const confirmed = await confirmAction({
+      title: 'Clear Entire Chat?',
+      message: dmTarget
+        ? `This will permanently clear all messages between you and ${dmTarget.displayName} for BOTH people.`
+        : 'This will permanently clear all messages in this squad chat for everyone.',
+      confirmLabel: 'Clear for Everyone',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    const res = await clearStudyChat({
+      channel: activeChannel,
+      userId: currentUid,
+      isAuthenticated: Boolean(firebaseUser?.uid),
+    });
+    showToast(
+      res.cloudSynced
+        ? 'Chat cleared for everyone.'
+        : 'Chat cleared locally (deploy Firestore rules to sync deletion for both users).',
+      res.cloudSynced ? 'success' : 'info'
+    );
+  };
+
   const handleJoinSprint = (durationMinutes: number) => {
     setTimerEngine('pomodoro');
     switchTimerMode('work', durationMinutes);
@@ -340,6 +384,8 @@ export const FloatingMiniChat: React.FC = () => {
             compact
             onSend={handleSend}
             onReact={handleReact}
+            onDeleteMessage={handleDeleteMessage}
+            onClearChat={handleClearChat}
             onTypingChange={(typing) => {
               if (!activeChannel || !currentUid) return;
               void setStudyChatTyping({

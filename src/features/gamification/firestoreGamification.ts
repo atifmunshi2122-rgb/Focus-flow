@@ -23,7 +23,7 @@ import type {
   XPProgress,
   XPTransaction,
 } from './types.ts';
-import { calculateXPProgress } from './xp-calculator.ts';
+import { calculateFocusSessionXP, calculateXPProgress } from './xp-calculator.ts';
 import type { LeaderboardEntry } from '../../components/gamification/Leaderboard.tsx';
 
 export interface ComputedGamificationData {
@@ -138,12 +138,14 @@ export function computeGamificationFromRealData(input: {
     }
 
     const mins = s.durationMinutes || Math.max(1, Math.round((s.durationSeconds || 1500) / 60));
+    const sessionXP = calculateFocusSessionXP(mins);
+    if (sessionXP <= 0) continue;
     transactions.push({
       id: `xp_focus_${s.id}`,
       userId,
       source: 'focus_session',
       sourceId: s.id,
-      amount: XP_REWARDS.focus_session,
+      amount: sessionXP,
       createdAt: ts,
       description: `Verified focus session (${mins}m)`,
     });

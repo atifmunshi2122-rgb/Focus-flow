@@ -19,6 +19,7 @@ import {
 import {
   syncUserLeaderboardStats,
 } from '../../lib/leaderboardService.ts';
+import { calculateFocusSessionXP } from '../../features/gamification/xp-calculator.ts';
 import type { FocusSession } from '../../types/index.ts';
 import type {
   PomodoroAlertTone,
@@ -133,6 +134,7 @@ export const PomodoroTimer: React.FC = () => {
     refreshKey,
     triggerRefresh,
     showToast,
+    confirmAction,
   } = useApp();
 
   const userTimezone = settings?.timezone || DEFAULT_TIMEZONE;
@@ -588,9 +590,68 @@ export const PomodoroTimer: React.FC = () => {
     setShowStudyModal(false);
   };
 
-  const handleReset = () => {
+  const hasActiveSession =
+    isRunning ||
+    (timerEngine === 'stopwatch'
+      ? stopwatchElapsed > 0
+      : timeLeft < totalDuration && timeLeft > 0);
+
+  const handleReset = async () => {
+    if (hasActiveSession) {
+      const confirmed = await confirmAction({
+        title: 'Reset Active Session?',
+        message: 'Your current timer session is still in progress. Resetting will discard this session progress.',
+        confirmLabel: 'Reset Timer',
+        cancelLabel: 'Keep Focusing',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+    }
     setResetSpinCount((c) => c + 1);
     resetTimer();
+  };
+
+  const handleSkipInterval = async () => {
+    if (hasActiveSession) {
+      const confirmed = await confirmAction({
+        title: 'Skip Current Interval?',
+        message: 'Your current session is still active. Skipping now will end this interval early.',
+        confirmLabel: 'Skip Interval',
+        cancelLabel: 'Continue',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+    }
+    skipInterval();
+  };
+
+  const handleEngineSwitch = async (nextEngine: TimerEngineMode) => {
+    if (nextEngine === timerEngine) return;
+    if (hasActiveSession) {
+      const confirmed = await confirmAction({
+        title: 'Switch Timer Engine?',
+        message: 'Your current session is still active. Switching timer modes will cancel your current progress.',
+        confirmLabel: 'Switch Mode',
+        cancelLabel: 'Keep Focusing',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+    }
+    setTimerEngine(nextEngine);
+  };
+
+  const handleApplyPresetSafe = async (preset: PomodoroPreset) => {
+    if (hasActiveSession) {
+      const confirmed = await confirmAction({
+        title: 'Apply Timer Preset?',
+        message: `Applying '${preset.name}' will reset your currently active session.`,
+        confirmLabel: 'Apply Preset',
+        cancelLabel: 'Keep Focusing',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+    }
+    applyPomodoroPreset(preset);
   };
 
   const toggleSound = () => {
@@ -667,11 +728,10 @@ export const PomodoroTimer: React.FC = () => {
         else startTimer();
       } else if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
-        skipInterval();
+        void handleSkipInterval();
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
-        setResetSpinCount((c) => c + 1);
-        resetTimer();
+        void handleReset();
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
         if (settings) {
@@ -703,7 +763,20 @@ export const PomodoroTimer: React.FC = () => {
     isTypingWarmupOpen,
   ]);
 
-  const handleModeSwitch = (mode: TimerMode) => {
+  const handleModeSwitch = async (mode: TimerMode) => {
+    if (mode === timerMode) return;
+    if (hasActiveSession) {
+      const targetLabel =
+        mode === 'work' ? 'Focus' : mode === 'short_break' ? 'Short Break' : 'Long Break';
+      const confirmed = await confirmAction({
+        title: `Switch to ${targetLabel}?`,
+        message: 'A Pomodoro session is currently running or paused mid-way. Switching now will cancel your active session.',
+        confirmLabel: `Switch to ${targetLabel}`,
+        cancelLabel: 'Keep Focusing',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+    }
     setShowCelebration(false);
     switchTimerMode(mode);
   };
@@ -848,7 +921,7 @@ export const PomodoroTimer: React.FC = () => {
         <ThemeSegmentedControl<TimerEngineMode>
           ariaLabel="Focus timer engine"
           value={timerEngine}
-          onChange={setTimerEngine}
+          onChange={(next) => void handleEngineSwitch(next)}
           options={[
             { id: 'pomodoro', label: 'Pomodoro' },
             { id: 'stopwatch', label: 'Stopwatch' },
@@ -899,7 +972,7 @@ export const PomodoroTimer: React.FC = () => {
           <ThemeSegmentedControl<TimerMode>
             ariaLabel="Pomodoro timer mode"
             value={timerMode}
-            onChange={handleModeSwitch}
+            onChange={(mode) => void handleModeSwitch(mode)}
             options={[
               {
                 id: 'work',
@@ -950,7 +1023,7 @@ export const PomodoroTimer: React.FC = () => {
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => applyPomodoroPreset(p)}
+                  onClick={() => void handleApplyPresetSafe(p)}
                   className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-all whitespace-nowrap min-h-[32px] flex items-center gap-1.5 ${
                     isSelected
                       ? 'bg-[var(--ff-accent)] text-white border-[var(--ff-accent)] shadow-xs'
@@ -1307,6 +1380,33 @@ export const PomodoroTimer: React.FC = () => {
               ? 'Session paused'
               : 'Ready to start'}
           </span>
+
+          {/* Projected Focus Session XP Reward Pill */}
+          {(timerEngine !== 'pomodoro' || timerMode === 'work') && (() => {
+            const isStopwatch = timerEngine === 'stopwatch';
+            const targetMins = isStopwatch
+              ? Math.floor(displaySeconds / 60)
+              : Math.max(1, Math.round(safeTotalDuration / 60));
+            const rewardXP = calculateFocusSessionXP(targetMins);
+            return (
+              <span
+                className="mt-2 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono border"
+                style={{
+                  background: 'rgba(245, 158, 11, 0.14)',
+                  borderColor: 'rgba(245, 158, 11, 0.35)',
+                  color: '#fbbf24',
+                }}
+              >
+                {isStopwatch
+                  ? rewardXP > 0
+                    ? `⚡ +${rewardXP} XP earned (${targetMins}m)`
+                    : '⚡ 5m+ for XP (0.8 XP/m)'
+                  : rewardXP > 0
+                  ? `⚡ ${targetMins}m → +${rewardXP} XP`
+                  : '⚡ Min 5m for XP'}
+              </span>
+            );
+          })()}
         </div>
       </div>
 
@@ -1337,7 +1437,7 @@ export const PomodoroTimer: React.FC = () => {
         <ThemeButton
           variant="secondary"
           size="md"
-          onClick={handleReset}
+          onClick={() => void handleReset()}
           className="p-3 rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center"
           title="Reset timer (R)"
           aria-label="Reset timer"
@@ -1396,7 +1496,7 @@ export const PomodoroTimer: React.FC = () => {
         <ThemeButton
           variant="secondary"
           size="md"
-          onClick={skipInterval}
+          onClick={() => void handleSkipInterval()}
           className="p-3 rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center"
           title="Skip interval (S)"
           aria-label="Skip interval"
@@ -2006,6 +2106,19 @@ export const PomodoroTimer: React.FC = () => {
             }}
             className="font-mono tabular-nums"
           />
+          {(() => {
+            const parsedMins = Math.round(Number(customInputMinutes) || 0);
+            const previewXP = calculateFocusSessionXP(parsedMins);
+            if (parsedMins < 1 || parsedMins > 180) return null;
+            return (
+              <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-[11px] font-semibold text-amber-400 flex items-center justify-between">
+                <span>Completion Reward</span>
+                <span className="font-mono">
+                  {previewXP > 0 ? `+${previewXP} XP` : 'Min 5m for XP'}
+                </span>
+              </div>
+            );
+          })()}
           <ValidationMessage message={customError} tone="error" />
           <div className="flex items-center justify-end gap-2">
             <ThemeButton
@@ -2517,13 +2630,14 @@ export const PomodoroTimer: React.FC = () => {
 
           {/* Live Total Preview */}
           <div className="px-3 py-2 rounded-lg bg-[var(--ff-surface-subtle)] border border-[var(--ff-border-color)] flex items-center justify-between text-xs">
-            <span className="text-[var(--ff-text-muted)]">Total Time to Log</span>
+            <span className="text-[var(--ff-text-muted)]">Total Time &amp; XP</span>
             <span className="font-mono font-bold text-[var(--ff-accent-text)]">
               {(() => {
                 const total = Math.max(0, Math.round((Number(manualHours) || 0) * 60 + (Number(manualMinutes) || 0)));
                 const hrs = Math.floor(total / 60);
                 const mins = total % 60;
-                return `${hrs > 0 ? `${hrs}h ` : ''}${mins}m (${total} min)`;
+                const xp = calculateFocusSessionXP(total);
+                return `${hrs > 0 ? `${hrs}h ` : ''}${mins}m${xp > 0 ? ` · ⚡ +${xp} XP` : ''}`;
               })()}
             </span>
           </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import type { XPProgress } from '../../features/gamification/types.ts';
 import { getLevelTitle } from '../../features/gamification/reward-config.ts';
-import { XP_PER_LEVEL } from '../../features/gamification/xp-calculator.ts';
+import { getXPForLevelGap } from '../../features/gamification/xp-calculator.ts';
 import './GamificationHUD.css';
 
 interface GamificationHUDProps {
@@ -41,7 +41,7 @@ export default function GamificationHUD({
           </div>
 
           <small>
-            {progress.currentLevelXP} / {XP_PER_LEVEL} XP to next level
+            {progress.currentLevelXP.toLocaleString()} / {(progress.levelXPRequired ?? getXPForLevelGap(progress.level)).toLocaleString()} XP to Level {progress.level + 1}
           </small>
         </div>
       </div>

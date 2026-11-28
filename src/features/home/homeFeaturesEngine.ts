@@ -1,4 +1,4 @@
-import { calculateLevel, XP_PER_LEVEL } from '../gamification/xp-calculator.ts';
+import { calculateLevel, getTotalXPForLevel } from '../gamification/xp-calculator.ts';
 import type { HomeZoneId } from './homeRoutineEngine.ts';
 import type { ProceduralPoseActivity } from '../study-room/humanoidRigController.ts';
 import type { StudyActivity } from '../study-room/types.ts';
@@ -541,7 +541,7 @@ export function computeHomeUnlocks(params: {
 }): HomeUnlocksSummary {
   const safeXP = Math.max(0, Math.floor(Number(params.totalXP) || 0));
   const level = calculateLevel(safeXP);
-  const nextLevelXP = level * XP_PER_LEVEL;
+  const nextLevelXP = getTotalXPForLevel(level + 1);
 
   let bestSavingsPct = 0;
   for (const goal of params.savingsGoals) {

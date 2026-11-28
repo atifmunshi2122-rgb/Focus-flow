@@ -35,6 +35,8 @@ import StudyChat from './StudyChat.tsx';
 import { startOrJoinGoogleMeetCall } from '../../lib/googleMeetService.ts';
 import {
   buildDmRoomId,
+  clearStudyChat,
+  deleteStudyChatMessage,
   markChatRoomRead,
   sendStudyChatMessage,
   setStudyChatTyping,
@@ -847,6 +849,43 @@ export const SocialHubView: React.FC = () => {
                     userId: currentUserId,
                     isAuthenticated: Boolean(firebaseUser?.uid),
                   });
+                }}
+                onDeleteMessage={async (msg) => {
+                  const confirmed = await confirmAction({
+                    title: 'Delete Message?',
+                    message: 'This message will be deleted for everyone in this chat.',
+                    confirmLabel: 'Delete',
+                    tone: 'danger',
+                  });
+                  if (!confirmed) return;
+                  await deleteStudyChatMessage({
+                    channel: activeChatChannel,
+                    messageId: msg.id,
+                    userId: currentUserId,
+                    isAuthenticated: Boolean(firebaseUser?.uid),
+                  });
+                }}
+                onClearChat={async () => {
+                  const confirmed = await confirmAction({
+                    title: 'Clear Entire Chat?',
+                    message: dmTarget
+                      ? `This will permanently clear all messages between you and ${dmTarget.displayName} for BOTH people.`
+                      : 'This will permanently clear all messages in this squad chat for everyone.',
+                    confirmLabel: 'Clear for Everyone',
+                    tone: 'danger',
+                  });
+                  if (!confirmed) return;
+                  const res = await clearStudyChat({
+                    channel: activeChatChannel,
+                    userId: currentUserId,
+                    isAuthenticated: Boolean(firebaseUser?.uid),
+                  });
+                  showToast(
+                    res.cloudSynced
+                      ? 'Chat cleared for everyone.'
+                      : 'Chat cleared locally (deploy Firestore rules to sync deletion for both users).',
+                    res.cloudSynced ? 'success' : 'info'
+                  );
                 }}
                 onTypingChange={(typing) => {
                   void setStudyChatTyping({

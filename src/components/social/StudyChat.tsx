@@ -7,6 +7,7 @@ import {
   Send,
   Sparkles,
   Timer,
+  Trash2,
   Video,
   X,
 } from 'lucide-react';
@@ -36,6 +37,8 @@ interface StudyChatProps {
   compact?: boolean;
   onSend: (payload: SendMessagePayload) => Promise<void>;
   onReact: (message: StudyChatMessage, emoji: string) => Promise<void>;
+  onDeleteMessage?: (message: StudyChatMessage) => Promise<void>;
+  onClearChat?: () => Promise<void>;
   onTypingChange?: (isTyping: boolean) => void;
   onJoinSprint?: (durationMinutes: number, subjectCode?: string) => void;
   onStartCall?: (mode: 'audio' | 'video') => Promise<void> | void;
@@ -78,6 +81,8 @@ export default function StudyChat({
   compact = false,
   onSend,
   onReact,
+  onDeleteMessage,
+  onClearChat,
   onTypingChange,
   onJoinSprint,
   onStartCall,
@@ -190,30 +195,46 @@ export default function StudyChat({
           <h3 className="truncate">{title}</h3>
           <span className="truncate block">{subtitle}</span>
         </div>
-        {onStartCall && (
+        {(onStartCall || (onClearChat && messages.length > 0)) && (
           <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              disabled={Boolean(callingMode)}
-              onClick={() => void onStartCall('audio')}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/35 hover:bg-emerald-500/30 disabled:opacity-50 transition-colors"
-              title="Start Voice Call (Google Meet)"
-              aria-label="Voice Call"
-            >
-              <Phone className="w-3.5 h-3.5" />
-              <span>{callingMode === 'audio' ? 'Joining...' : 'Call'}</span>
-            </button>
-            <button
-              type="button"
-              disabled={Boolean(callingMode)}
-              onClick={() => void onStartCall('video')}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-500/25 text-indigo-200 border border-indigo-400/40 hover:bg-indigo-500/35 disabled:opacity-50 transition-colors"
-              title="Start Video Call (Google Meet)"
-              aria-label="Video Call"
-            >
-              <Video className="w-3.5 h-3.5" />
-              <span>{callingMode === 'video' ? 'Starting...' : 'Video'}</span>
-            </button>
+            {onStartCall && (
+              <>
+                <button
+                  type="button"
+                  disabled={Boolean(callingMode)}
+                  onClick={() => void onStartCall('audio')}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/35 hover:bg-emerald-500/30 disabled:opacity-50 transition-colors"
+                  title="Start Voice Call (Google Meet)"
+                  aria-label="Voice Call"
+                >
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>{callingMode === 'audio' ? 'Joining...' : 'Call'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(callingMode)}
+                  onClick={() => void onStartCall('video')}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-500/25 text-indigo-200 border border-indigo-400/40 hover:bg-indigo-500/35 disabled:opacity-50 transition-colors"
+                  title="Start Video Call (Google Meet)"
+                  aria-label="Video Call"
+                >
+                  <Video className="w-3.5 h-3.5" />
+                  <span>{callingMode === 'video' ? 'Starting...' : 'Video'}</span>
+                </button>
+              </>
+            )}
+            {onClearChat && messages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void onClearChat()}
+                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-400/35 hover:bg-rose-500/25 transition-colors"
+                title="Clear chat for everyone"
+                aria-label="Clear Chat"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {!compact && <span>Clear</span>}
+              </button>
+            )}
           </div>
         )}
       </header>
@@ -353,6 +374,18 @@ export default function StudyChat({
                     <CornerUpLeft className="w-3 h-3 inline mr-0.5" />
                     Reply
                   </button>
+                  {own && onDeleteMessage && (
+                    <button
+                      type="button"
+                      onClick={() => void onDeleteMessage(item)}
+                      title="Delete message for everyone"
+                      aria-label="Delete message"
+                      className="!text-rose-300 hover:!bg-rose-500/20"
+                    >
+                      <Trash2 className="w-3 h-3 inline mr-0.5" />
+                      Delete
+                    </button>
+                  )}
                 </div>
               )}
             </article>

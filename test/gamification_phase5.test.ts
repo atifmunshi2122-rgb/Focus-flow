@@ -134,18 +134,23 @@ function makeMockDb(): DatabaseSchema {
 }
 
 describe('Phase 5 — Study RPG Gamification, XP, Achievements & Leaderboard', () => {
-  it('computes level and XP progress accurately with 500 XP per level', () => {
+  it('computes level and XP progress accurately with progressive XP scaling', () => {
     assert.equal(XP_PER_LEVEL, 500);
     assert.equal(calculateLevel(0), 1);
     assert.equal(calculateLevel(499), 1);
     assert.equal(calculateLevel(500), 2);
+    assert.equal(calculateLevel(1249), 2);
     assert.equal(calculateLevel(1250), 3);
+    assert.equal(calculateLevel(2250), 4);
+    assert.equal(calculateLevel(3500), 5);
     assert.equal(calculateLevel(-100), 1);
 
-    const prog = calculateXPProgress(750);
+    // At 875 XP: Level 2 (starts at 500, needs 750 to reach 1250) -> 375 / 750 = 50%
+    const prog = calculateXPProgress(875);
     assert.equal(prog.level, 2);
-    assert.equal(prog.currentLevelXP, 250);
-    assert.equal(prog.nextLevelXP, 1000);
+    assert.equal(prog.currentLevelXP, 375);
+    assert.equal(prog.nextLevelXP, 1250);
+    assert.equal(prog.levelXPRequired, 750);
     assert.equal(prog.progressPercent, 50);
   });
 

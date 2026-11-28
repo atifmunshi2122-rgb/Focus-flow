@@ -15,6 +15,7 @@ export interface XPProgress {
   level: number;
   currentLevelXP: number;
   nextLevelXP: number;
+  levelXPRequired?: number;
   progressPercent: number;
 }
 

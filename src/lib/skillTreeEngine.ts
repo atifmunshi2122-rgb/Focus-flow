@@ -144,10 +144,16 @@ export function getRpgRankTitle(level: number): string {
 
 function computeLevelMetrics(earnedXp: number) {
   const safeXp = Math.max(0, Math.round(earnedXp));
-  const level = Math.floor(safeXp / XP_PER_LEVEL) + 1;
-  const xpIntoLevel = safeXp % XP_PER_LEVEL;
-  const nextLevelXp = level * XP_PER_LEVEL;
-  const levelProgressPct = Math.round((xpIntoLevel / XP_PER_LEVEL) * 100);
+  let level = 1;
+  let remaining = safeXp;
+  const gapFor = (lvl: number) => XP_PER_LEVEL + (lvl - 1) * 150;
+  while (remaining >= gapFor(level)) {
+    remaining -= gapFor(level);
+    level += 1;
+  }
+  const currentGap = gapFor(level);
+  const nextLevelXp = safeXp - remaining + currentGap;
+  const levelProgressPct = Math.round((remaining / currentGap) * 100);
   return {
     level,
     rankTitle: getRpgRankTitle(level),
