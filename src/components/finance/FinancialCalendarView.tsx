@@ -124,7 +124,8 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
   // Average daily expense in month for high spending threshold
   const daysWithSpend = Object.values(dailyData).filter((d) => d.expPaise > 0);
   const avgDailySpend = daysWithSpend.length > 0 ? totalMonthExpPaise / daysWithSpend.length : 0;
-  const highSpendThreshold = Math.max(100000, avgDailySpend * 1.75); // At least ₹1000 and 1.75x average
+  const minThresholdPaise = currency === 'INR' ? 100_000 : 2_500; // ₹1000 INR or $25/€25/£25
+  const highSpendThreshold = Math.max(minThresholdPaise, avgDailySpend * 1.75);
 
   // Calendar matrix calculation
   const calendarDays = useMemo(() => {
@@ -277,6 +278,16 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
           </div>
 
           {/* Days Grid */}
+          {loading && expenses.length === 0 && incomes.length === 0 && bills.length === 0 ? (
+            <div className="grid grid-cols-7 gap-1 sm:gap-2" aria-label="Loading calendar">
+              {Array.from({ length: 35 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="min-h-[64px] sm:min-h-[82px] rounded-xl bg-[var(--ff-surface-subtle)] animate-pulse border border-[var(--ff-border-color)]/40"
+                />
+              ))}
+            </div>
+          ) : (
           <div className="grid grid-cols-7 gap-1 sm:gap-2">
             {calendarDays.map((d) => {
               const isSelected = selectedDate === d.dateStr;
@@ -341,6 +352,7 @@ export const FinancialCalendarView: React.FC<FinancialCalendarViewProps> = ({ on
               );
             })}
           </div>
+          )}
         </ThemeCard>
 
         {/* Selected Date Detail Drawer (lg:col-span-4) */}

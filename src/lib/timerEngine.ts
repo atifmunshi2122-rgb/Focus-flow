@@ -212,9 +212,11 @@ export function loadInitialTimerState(
 
     if (parsed.isRunning) {
       if (engine === 'stopwatch') {
-        const startMs = typeof parsed.stopwatchStartMs === 'number' ? parsed.stopwatchStartMs : null;
-        if (startMs && startMs <= nowMs) {
-          const elapsed = computeStopwatchElapsed(startMs, nowMs);
+        const startMs = typeof parsed.stopwatchStartMs === 'number' && Number.isFinite(parsed.stopwatchStartMs) ? parsed.stopwatchStartMs : null;
+        if (startMs && startMs > 0) {
+          // Guard against minor backward system clock skew so a running stopwatch isn't paused on reload
+          const effectiveStartMs = startMs > nowMs ? nowMs : startMs;
+          const elapsed = computeStopwatchElapsed(effectiveStartMs, nowMs);
           return {
             timerEngine: engine,
             timerMode: mode,
@@ -224,7 +226,7 @@ export function loadInitialTimerState(
             isRunning: true,
             isExpired: false,
             targetEndTimeMs: null,
-            stopwatchStartMs: startMs,
+            stopwatchStartMs: effectiveStartMs,
             sessionStartTime,
             activeSessionId,
             activePresetId,
@@ -322,7 +324,18 @@ export function saveTimerState(
   try {
     const key = getTimerStorageKey(userId ?? state.userId);
     const existing = storage.getItem(key);
-    const prev = existing ? JSON.parse(existing) : {};
+    let prev: Partial<StoredTimerState> = {};
+    if (existing) {
+      try {
+        const parsedPrev = JSON.parse(existing);
+        if (parsedPrev && typeof parsedPrev === 'object') {
+          prev = parsedPrev as Partial<StoredTimerState>;
+        }
+      } catch {
+        // Recover by overwriting corrupted JSON instead of aborting save
+        prev = {};
+      }
+    }
     const merged: StoredTimerState = {
       version: 1,
       userId: userId ?? state.userId ?? prev.userId ?? null,

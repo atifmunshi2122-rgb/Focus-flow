@@ -1,6 +1,11 @@
 import { DurableSyncOperation } from '../types/index.ts';
 import { api } from './api.ts';
-import { auth, getAccessToken } from './firebase.ts';
+import {
+  auth,
+  getAccessToken,
+  getSheetHubAccessToken,
+  getSheetHubWriteAccessToken,
+} from './firebase.ts';
 import { googleSheetsService, WorksheetName } from './googleSheetsService.ts';
 
 export type SyncCoordinatorStatus =
@@ -151,7 +156,7 @@ class GoogleSheetsSyncCoordinator {
       this.emitChange();
     }
 
-    if ((idChanged || tokenChanged) && spreadsheetId && accessToken) {
+    if (spreadsheetId && accessToken && (idChanged || tokenChanged || this.pendingCount > 0)) {
       if (this.status === 'auth_required' || this.status === 'permission_denied') {
         this.status = this.pendingCount > 0 ? 'pending' : 'idle';
         this.lastError = null;
@@ -267,8 +272,9 @@ class GoogleSheetsSyncCoordinator {
 
     this.inFlightFlushPromise = (async () => {
       let totalFlushed = 0;
+      let retriedWithFreshToken = false;
       try {
-        do {
+        while (true) {
           this.hasPendingFlush = false;
 
           // Process canary check if there are pending operations
@@ -280,12 +286,33 @@ class GoogleSheetsSyncCoordinator {
             break;
           }
 
-          // Execute backend-controlled flush
-          const flushedCount = await googleSheetsService.flushQueue(spreadsheetId, accessToken!);
-          totalFlushed += flushedCount;
-          this.pendingCount = googleSheetsService.getQueueLength();
+          try {
+            // Execute backend-controlled flush
+            const flushedCount = await googleSheetsService.flushQueue(spreadsheetId, accessToken!);
+            totalFlushed += flushedCount;
+            this.pendingCount = googleSheetsService.getQueueLength();
+          } catch (flushErr: unknown) {
+            const msg = flushErr instanceof Error ? flushErr.message : '';
+            const isAuthErr = /\b401\b|UNAUTHENTICATED|invalid authentication credentials|Invalid Credentials/i.test(
+              msg
+            );
+            if (isAuthErr && !retriedWithFreshToken) {
+              retriedWithFreshToken = true;
+              const freshToken =
+                (await getSheetHubWriteAccessToken().catch(() => null)) ||
+                (await getSheetHubAccessToken().catch(() => null)) ||
+                (await getAccessToken().catch(() => null));
+              if (freshToken && freshToken !== accessToken) {
+                accessToken = freshToken;
+                this.activeAccessToken = freshToken;
+                continue;
+              }
+            }
+            throw flushErr;
+          }
 
-        } while (this.hasPendingFlush);
+          if (!this.hasPendingFlush) break;
+        }
 
         const remainingQueue = await api.getSyncQueue().catch(() => []);
         const uncompleted = remainingQueue.filter((o) => o.status !== 'completed');

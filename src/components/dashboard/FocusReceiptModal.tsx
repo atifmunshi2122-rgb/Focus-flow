@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FocusReceiptData } from '../../types/features15.ts';
 import { ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
 import {
@@ -26,6 +26,28 @@ export const FocusReceiptModal: React.FC<FocusReceiptModalProps> = ({
   const [hideFinancials, setHideFinancials] = useState<boolean>(data.hideFinancials || false);
   const [isCopied, setIsCopied] = useState(false);
   const receiptCardRef = useRef<HTMLDivElement | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setHideFinancials(Boolean(data.hideFinancials));
+    }
+  }, [isOpen, data.hideFinancials]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   if (!isOpen) return null;
 
@@ -126,14 +148,20 @@ export const FocusReceiptModal: React.FC<FocusReceiptModalProps> = ({
     try {
       await navigator.clipboard.writeText(copyText);
       setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2500);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setIsCopied(false), 2500);
     } catch {
       // Clipboard unavailable
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="w-full max-w-md rounded-2xl bg-[var(--ff-surface)] border border-[var(--ff-border)] p-5 space-y-4 shadow-2xl">
         {/* Modal Top Bar */}
         <div className="flex items-center justify-between border-b border-[var(--ff-border)] pb-3">

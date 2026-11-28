@@ -22,7 +22,7 @@ export const StudyExamsTab: React.FC<StudyExamsTabProps> = ({
   onOpenAddExam,
   onDeleteExam,
 }) => {
-  const { settings, triggerRefresh, showToast } = useApp();
+  const { settings, triggerRefresh, showToast, confirmAction } = useApp();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const activeExams = exams.filter((e) => !e.deletedAt);
 
@@ -38,6 +38,10 @@ export const StudyExamsTab: React.FC<StudyExamsTabProps> = ({
   };
 
   const handleSaveScore = async (exam: StudyExam) => {
+    if (scoreObtained.trim() === '') {
+      showToast('Please enter the marks obtained before saving', 'error');
+      return;
+    }
     const obtained = Number(scoreObtained);
     const total = Math.max(1, Number(scoreTotal) || 100);
     if (!Number.isFinite(obtained) || obtained < 0 || obtained > total) {
@@ -118,7 +122,15 @@ export const StudyExamsTab: React.FC<StudyExamsTabProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => onDeleteExam(exam.id)}
+                      onClick={async () => {
+                        const confirmed = await confirmAction({
+                          title: 'Delete Exam Schedule?',
+                          message: `Delete "${exam.title}" from your exam schedule?`,
+                          confirmLabel: 'Delete',
+                          tone: 'danger',
+                        });
+                        if (confirmed) void onDeleteExam(exam.id);
+                      }}
                       className="text-[var(--ff-text-muted)] hover:text-rose-400 p-1"
                       title="Delete exam schedule"
                     >

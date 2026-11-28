@@ -1,6 +1,24 @@
 import { app, getFirebaseIdToken } from './firebase.ts';
 import { getMessaging, getToken, deleteToken, onMessage, isSupported as isMessagingSupported } from 'firebase/messaging';
 
+const INSTALLATION_ID_STORAGE_KEY = 'ff_fcm_installation_id_v1';
+
+export function getOrCreateDeviceInstallationId(): string {
+  if (typeof localStorage === 'undefined') return 'web_default';
+  try {
+    const existing = localStorage.getItem(INSTALLATION_ID_STORAGE_KEY);
+    if (existing && existing.trim()) return existing.trim();
+    const generated =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? `web_${crypto.randomUUID()}`
+        : `web_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(INSTALLATION_ID_STORAGE_KEY, generated);
+    return generated;
+  } catch {
+    return 'web_default';
+  }
+}
+
 export interface DeviceStatusResult {
   enabled: boolean;
   deviceCount: number;
@@ -84,6 +102,7 @@ export async function enablePushNotifications(vapidKeyOverride?: string): Promis
       },
       body: JSON.stringify({
         token,
+        installationId: getOrCreateDeviceInstallationId(),
         platform: 'web',
       }),
     });
@@ -106,9 +125,20 @@ export async function enablePushNotifications(vapidKeyOverride?: string): Promis
  */
 export async function disablePushNotifications(): Promise<boolean> {
   try {
+    let currentToken: string | undefined;
     const supported = await isMessagingSupported().catch(() => false);
     if (supported) {
       const messaging = getMessaging(app);
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        const swReg = await navigator.serviceWorker?.ready.catch(() => undefined);
+        const vapidKey = resolveVapidKey();
+        if (swReg) {
+          currentToken = await getToken(messaging, {
+            vapidKey: vapidKey || undefined,
+            serviceWorkerRegistration: swReg,
+          }).catch(() => undefined);
+        }
+      }
       await deleteToken(messaging).catch(() => undefined);
     }
 
@@ -120,7 +150,10 @@ export async function disablePushNotifications(): Promise<boolean> {
           Authorization: `Bearer ${idToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ installationId: 'all' }),
+        body: JSON.stringify({
+          installationId: getOrCreateDeviceInstallationId(),
+          ...(currentToken ? { token: currentToken } : {}),
+        }),
       }).catch(() => undefined);
     }
 

@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 import { formatPaymentMethodLabel } from '../../lib/googleSheetsService.ts';
 import { Bill, PaymentHistory, ExpenseCategory } from '../../types/index.ts';
-import { getTodayDateString } from '../../lib/dateTime.ts';
+import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise } from '../../lib/currency.ts';
 import { clientDataCache } from '../../lib/dataCache.ts';
 import { playCashSound } from '../../lib/sound.ts';
@@ -53,6 +53,8 @@ export const BillsTracker: React.FC = () => {
     googleSpreadsheetId,
     googleAccessToken,
   } = useApp();
+  const tz = settings?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = getTodayDateString(tz);
   const cachedBills = clientDataCache.getBills();
   const [bills, setBills] = useState<Bill[]>(() => cachedBills || []);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
@@ -65,7 +67,7 @@ export const BillsTracker: React.FC = () => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [dueDate, setDueDate] = useState(() => getTodayDateString());
+  const [dueDate, setDueDate] = useState(() => getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE));
   const [notes, setNotes] = useState('');
   const [creatingBill, setCreatingBill] = useState(false);
   const [createSuccess, setCreateSuccess] = useState(false);
@@ -73,7 +75,7 @@ export const BillsTracker: React.FC = () => {
 
   const [payingBill, setPayingBill] = useState<Bill | null>(null);
   const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState<string>('');
-  const [payDate, setPayDate] = useState(() => getTodayDateString());
+  const [payDate, setPayDate] = useState(() => getTodayDateString(settings?.timezone || DEFAULT_TIMEZONE));
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'debit_card' | 'upi_bank' | 'cash'>('upi_bank');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paying, setPaying] = useState(false);
@@ -83,6 +85,7 @@ export const BillsTracker: React.FC = () => {
   const openPayModal = (bill: Bill) => {
     setPayingBill(bill);
     setPaymentIdempotencyKey(`idem_${bill.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`);
+    setPayDate(todayStr);
     setPaymentNotes('');
     setPaySuccess(false);
   };
@@ -94,11 +97,9 @@ export const BillsTracker: React.FC = () => {
     if (!clientDataCache.getBills()) {
       setLoading(true);
     }
-    Promise.all([api.getBills(statusFilter), api.getPaymentHistory(), api.getCategories()])
+    Promise.all([api.getBills('ALL'), api.getPaymentHistory(), api.getCategories()])
       .then(([billsData, historyData, catData]) => {
-        if (statusFilter === 'ALL') {
-          clientDataCache.setBills(billsData);
-        }
+        clientDataCache.setBills(billsData);
         setBills(billsData);
         setPaymentHistory(historyData);
         setCategories(catData);
@@ -112,12 +113,13 @@ export const BillsTracker: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [statusFilter, refreshKey]);
+  }, [refreshKey]);
 
   const handleCreateBill = async (e: React.FormEvent) => {
     e.preventDefault();
     setBillFormError(null);
-    if (!name.trim() || !amount || Number(amount) <= 0 || !dueDate) {
+    const amountPaise = toPaise(amount);
+    if (!name.trim() || !amount || amountPaise <= 0 || !dueDate) {
       setBillFormError('Please provide a bill name, positive amount, and due date.');
       return;
     }
@@ -126,7 +128,7 @@ export const BillsTracker: React.FC = () => {
     try {
       const created = await api.createBill({
         name: name.trim(),
-        amountPaise: toPaise(amount),
+        amountPaise,
         categoryId: categoryId || (categories[0]?.id ?? 'cat_1'),
         dueDate,
         notes,
@@ -134,28 +136,37 @@ export const BillsTracker: React.FC = () => {
       const resolvedCategoryName =
         categories.find((c) => c.id === created.categoryId)?.name || 'Bill';
       const initialStatus =
-        created.status || (created.dueDate < getTodayDateString() ? 'OVERDUE' : 'UNPAID');
-      await syncCoordinator.syncMutation(
-        'Bills_Payments',
-        [
-          created.id,
-          created.dueDate,
-          created.name,
-          resolvedCategoryName,
-          created.amountPaise / 100,
-          initialStatus,
-          '',
-          '—',
-          created.notes || '',
-        ],
-        'append',
-        `Bills_Payments_append_${created.id}`
+        created.status || (created.dueDate < todayStr ? 'OVERDUE' : 'UNPAID');
+      let sheetsSynced = true;
+      try {
+        await syncCoordinator.syncMutation(
+          'Bills_Payments',
+          [
+            created.id,
+            created.dueDate,
+            created.name,
+            resolvedCategoryName,
+            created.amountPaise / 100,
+            initialStatus,
+            '',
+            '—',
+            created.notes || '',
+          ],
+          'append',
+          `Bills_Payments_append_${created.id}`
+        );
+      } catch {
+        sheetsSynced = false;
+      }
+      showToast(
+        sheetsSynced
+          ? 'Bill registered to schedule & synchronized'
+          : 'Bill registered, but Sheets sync failed (will retry)',
+        sheetsSynced ? 'success' : 'info'
       );
-      showToast('Bill registered to schedule & synchronized', 'success');
       setCreatingBill(false);
       setCreateSuccess(true);
       triggerRefresh();
-      loadData();
       setTimeout(() => {
         setCreateSuccess(false);
         setAddBillModal(false);
@@ -180,30 +191,39 @@ export const BillsTracker: React.FC = () => {
     try {
       const res = await api.payBill(paidBillId, payDate, paymentMethod, paymentNotes, idemKey);
       playCashSound(settings?.soundEnabled);
-      showToast(`Payment of ${formatCurrency(payingBill.amountPaise, currency)} recorded!`, 'success');
 
-      await syncCoordinator.syncMutation(
-        'Bills_Payments',
-        [
-          res.bill.id,
-          res.bill.dueDate,
-          res.bill.name,
-          res.bill.categoryName || 'Bill',
-          res.bill.amountPaise / 100,
-          'PAID',
-          payDate,
-          formatPaymentMethodLabel(paymentMethod, true),
-          paymentNotes || 'Settled via Tracker',
-        ],
-        'update',
-        `Bills_Payments_update_${res.bill.id}`
+      let sheetsSynced = true;
+      try {
+        await syncCoordinator.syncMutation(
+          'Bills_Payments',
+          [
+            res.bill.id,
+            res.bill.dueDate,
+            res.bill.name,
+            res.bill.categoryName || 'Bill',
+            res.bill.amountPaise / 100,
+            'PAID',
+            payDate,
+            formatPaymentMethodLabel(paymentMethod, true),
+            paymentNotes || 'Settled via Tracker',
+          ],
+          'update',
+          `Bills_Payments_update_${res.bill.id}`
+        );
+      } catch {
+        sheetsSynced = false;
+      }
+      showToast(
+        sheetsSynced
+          ? `Payment of ${formatCurrency(payingBill.amountPaise, currency)} recorded!`
+          : `Payment of ${formatCurrency(payingBill.amountPaise, currency)} recorded, but Sheets sync failed (will retry)`,
+        sheetsSynced ? 'success' : 'info'
       );
 
       setPaying(false);
       setPaySuccess(true);
       setRecentlyPaidBillId(paidBillId);
       triggerRefresh();
-      loadData();
       setTimeout(() => {
         setPaySuccess(false);
         setPayingBill(null);
@@ -230,33 +250,42 @@ export const BillsTracker: React.FC = () => {
     try {
       const undoRes = await api.undoBillPayment(billId);
       const targetBill = undoRes?.bill || bills.find((b) => b.id === billId);
+      let sheetsSynced = true;
       if (targetBill) {
         const revertedStatus =
           targetBill.status === 'PAID'
-            ? targetBill.dueDate < getTodayDateString()
+            ? targetBill.dueDate < todayStr
               ? 'OVERDUE'
               : 'UNPAID'
-            : targetBill.status || (targetBill.dueDate < getTodayDateString() ? 'OVERDUE' : 'UNPAID');
-        await syncCoordinator.syncMutation(
-          'Bills_Payments',
-          [
-            targetBill.id,
-            targetBill.dueDate,
-            targetBill.name,
-            targetBill.categoryName || 'Bill',
-            targetBill.amountPaise / 100,
-            revertedStatus,
-            '',
-            '—',
-            targetBill.notes || '',
-          ],
-          'update',
-          `Bills_Payments_update_${targetBill.id}`
-        );
+            : targetBill.status || (targetBill.dueDate < todayStr ? 'OVERDUE' : 'UNPAID');
+        try {
+          await syncCoordinator.syncMutation(
+            'Bills_Payments',
+            [
+              targetBill.id,
+              targetBill.dueDate,
+              targetBill.name,
+              targetBill.categoryName || 'Bill',
+              targetBill.amountPaise / 100,
+              revertedStatus,
+              '',
+              '—',
+              targetBill.notes || '',
+            ],
+            'update',
+            `Bills_Payments_update_${targetBill.id}`
+          );
+        } catch {
+          sheetsSynced = false;
+        }
       }
-      showToast('Payment undone & synchronized; bill restored to pending status', 'info');
+      showToast(
+        sheetsSynced
+          ? 'Payment undone & synchronized; bill restored to pending status'
+          : 'Payment undone, but Sheets sync failed (will retry)',
+        'info'
+      );
       triggerRefresh();
-      loadData();
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Failed to undo payment', 'error');
     }
@@ -273,19 +302,35 @@ export const BillsTracker: React.FC = () => {
     if (!confirmed) return;
     try {
       await api.deleteBill(bill.id);
-      await syncCoordinator.syncMutation(
-        'Bills_Payments',
-        [bill.id],
-        'delete',
-        `Bills_Payments_delete_${bill.id}`
+      let sheetsSynced = true;
+      try {
+        await syncCoordinator.syncMutation(
+          'Bills_Payments',
+          [bill.id],
+          'delete',
+          `Bills_Payments_delete_${bill.id}`
+        );
+      } catch {
+        sheetsSynced = false;
+      }
+      showToast(
+        sheetsSynced
+          ? 'Bill moved to Trash & synchronized'
+          : 'Bill moved to Trash, but Sheets sync failed (will retry)',
+        'info'
       );
-      showToast('Bill moved to Trash & synchronized', 'info');
       triggerRefresh();
-      loadData();
     } catch {
       showToast('Failed to delete bill', 'error');
     }
   };
+
+  const filteredBills =
+    statusFilter === 'ALL'
+      ? bills
+      : statusFilter === 'UNPAID'
+        ? bills.filter((b) => b.status === 'UNPAID' || b.status === 'OVERDUE')
+        : bills.filter((b) => b.status === statusFilter);
 
   const unpaidCount = bills.filter((b) => b.status === 'UNPAID' || b.status === 'OVERDUE').length;
   const overdueCount = bills.filter((b) => b.status === 'OVERDUE').length;
@@ -359,6 +404,7 @@ export const BillsTracker: React.FC = () => {
                 size="sm"
                 onClick={() => {
                   setBillFormError(null);
+                  setDueDate(todayStr);
                   setAddBillModal(true);
                 }}
                 className="flex-1"
@@ -396,7 +442,7 @@ export const BillsTracker: React.FC = () => {
         />
 
         <span className="text-xs text-[var(--ff-text-muted)] font-mono">
-          Showing {bills.length} records
+          Showing {filteredBills.length} records
         </span>
       </div>
 
@@ -472,13 +518,21 @@ export const BillsTracker: React.FC = () => {
       <ThemeCard noPadding>
         {loading && bills.length === 0 ? (
           <SkeletonList rows={4} />
-        ) : bills.length === 0 ? (
+        ) : filteredBills.length === 0 ? (
           <EmptyStateIllustration
             icon={<CreditCard className="w-6 h-6" />}
             title="No bills match your criteria"
             description="Add recurring obligations or register a scheduled bill above."
             action={
-              <ThemeButton variant="primary" size="sm" onClick={() => setAddBillModal(true)}>
+              <ThemeButton
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setBillFormError(null);
+                  setDueDate(todayStr);
+                  setAddBillModal(true);
+                }}
+              >
                 <Plus className="w-4 h-4" />
                 <span>Add Bill</span>
               </ThemeButton>
@@ -487,7 +541,7 @@ export const BillsTracker: React.FC = () => {
         ) : (
           <div className="divide-y ff-divider">
             <AnimatePresence initial={false}>
-              {bills.map((bill) => {
+              {filteredBills.map((bill) => {
                 const isPaid = bill.status === 'PAID';
                 const isOverdue = bill.status === 'OVERDUE';
 

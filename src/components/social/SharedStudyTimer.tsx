@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useApp } from '../../context/AppContext.tsx';
 import type { GroupStudySession } from '../../features/social/squad-types.ts';
 
 interface SharedStudyTimerProps {
@@ -42,24 +43,65 @@ export default function SharedStudyTimer({
   onEnd,
   canControl,
 }: SharedStudyTimerProps) {
+  const { confirmAction, showToast } = useApp();
   const [now, setNow] = useState(Date.now());
   const [pending, setPending] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const autoCompletedIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (session.status !== 'running' && session.status !== 'paused') {
+      return;
+    }
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [session.status]);
 
   const remaining = calculateRemainingSeconds(session, now);
 
+  useEffect(() => {
+    if (
+      remaining === 0 &&
+      session.status === 'running' &&
+      canControl &&
+      onEnd &&
+      autoCompletedIdRef.current !== session.id
+    ) {
+      autoCompletedIdRef.current = session.id;
+      void onEnd().catch((err) => {
+        const msg = err instanceof Error ? err.message : 'Failed to complete squad session';
+        setActionError(msg);
+        showToast?.(msg, 'error');
+      });
+    }
+  }, [remaining, session.status, session.id, canControl, onEnd, showToast]);
+
   const runAction = async (fn?: () => Promise<void>) => {
     if (!fn || pending) return;
+    setActionError(null);
     setPending(true);
     try {
       await fn();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Squad timer action failed';
+      setActionError(msg);
+      showToast?.(msg, 'error');
     } finally {
       setPending(false);
     }
+  };
+
+  const handleConfirmEnd = async () => {
+    if (!onEnd || pending) return;
+    const confirmed = await confirmAction({
+      title: 'End Squad Session?',
+      message: 'This will end the live focus session for everyone in your squad.',
+      confirmLabel: 'End Session',
+      cancelLabel: 'Keep Studying',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    await runAction(onEnd);
   };
 
   return (
@@ -126,13 +168,17 @@ export default function SharedStudyTimer({
             <button
               type="button"
               disabled={pending}
-              onClick={() => void runAction(onEnd)}
+              onClick={() => void handleConfirmEnd()}
               className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-rose-500/80 hover:bg-rose-500 disabled:opacity-50"
             >
               End Session
             </button>
           )}
         </div>
+      )}
+
+      {actionError && (
+        <p className="text-[11px] text-rose-300 text-center">{actionError}</p>
       )}
     </section>
   );

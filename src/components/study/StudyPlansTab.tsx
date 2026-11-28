@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
+import { useApp } from '../../context/AppContext.tsx';
 import { StudyPlan, StudyPlanTask, StudySubject } from '../../types/study.ts';
 import { FocusSession } from '../../types/index.ts';
 import { computeStudyPlanAnalytics } from '../../lib/studyIntelligence.ts';
@@ -39,19 +40,45 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
   onDeletePlan,
   onQuickAddTask,
 }) => {
+  const { showToast, confirmAction } = useApp();
   const [quickTitle, setQuickTitle] = useState('');
   const [quickMinutes, setQuickMinutes] = useState(45);
   const [quickSubject, setQuickSubject] = useState(subjects[0]?.code || '');
+  const hasUserPickedSubjectRef = useRef(false);
   const [addingTask, setAddingTask] = useState(false);
   const [celebratingTaskId, setCelebratingTaskId] = useState<string | null>(null);
+  const confettiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { isDisabled, profile } = useMotionPreferences();
 
-  const handleToggleTaskWithCelebration = async (task: StudyPlanTask) => {
-    if (task.status !== 'completed') {
-      setCelebratingTaskId(task.id);
-      setTimeout(() => setCelebratingTaskId((c) => (c === task.id ? null : c)), 1400);
+  useEffect(() => {
+    if (!hasUserPickedSubjectRef.current && !quickSubject && subjects.length > 0) {
+      setQuickSubject(subjects[0].code);
     }
-    await onToggleTask(task);
+  }, [subjects, quickSubject]);
+
+  useEffect(() => {
+    return () => {
+      if (confettiTimerRef.current) {
+        clearTimeout(confettiTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleToggleTaskWithCelebration = async (task: StudyPlanTask) => {
+    const wasIncomplete = task.status !== 'completed';
+    try {
+      await onToggleTask(task);
+      if (wasIncomplete) {
+        setCelebratingTaskId(task.id);
+        if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
+        confettiTimerRef.current = setTimeout(
+          () => setCelebratingTaskId((c) => (c === task.id ? null : c)),
+          1400
+        );
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to update study task', 'error');
+    }
   };
 
   // Authoritative analytics
@@ -69,8 +96,40 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
     try {
       await onQuickAddTask(quickTitle.trim(), quickMinutes, quickSubject || undefined);
       setQuickTitle('');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to schedule study task', 'error');
     } finally {
       setAddingTask(false);
+    }
+  };
+
+  const handleDeletePlanClick = async (plan: StudyPlan) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Study Plan?',
+      message: `Delete "${plan.title}"? This action cannot be undone.`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await onDeletePlan(plan.id);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to delete study plan', 'error');
+    }
+  };
+
+  const handleDeleteTaskClick = async (task: StudyPlanTask) => {
+    const confirmed = await confirmAction({
+      title: 'Delete Study Task?',
+      message: `Delete "${task.title}"?`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await onDeleteTask(task.id);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to delete study task', 'error');
     }
   };
 
@@ -180,7 +239,7 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
                         </span>
                         <button
                           type="button"
-                          onClick={() => onDeletePlan(plan.id)}
+                          onClick={() => void handleDeletePlanClick(plan)}
                           className="text-[var(--ff-text-muted)] hover:text-rose-400 p-1"
                           title="Delete Plan"
                         >
@@ -200,7 +259,8 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
                       <div className="flex items-center gap-2 mt-3 text-xs text-[var(--ff-text-muted)]">
                         <Clock className="w-3.5 h-3.5" />
                         <span>
-                          {plan.dailyTargetMinutes}m/day • {plan.weeklyTargetMinutes ? `${Math.round(plan.weeklyTargetMinutes / 60)}h/wk` : ''}
+                          {plan.dailyTargetMinutes}m/day
+                          {plan.weeklyTargetMinutes ? ` • ${Math.round(plan.weeklyTargetMinutes / 60)}h/wk` : ''}
                         </span>
                       </div>
                     </div>
@@ -239,7 +299,10 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
 
             <select
               value={quickSubject}
-              onChange={(e) => setQuickSubject(e.target.value)}
+              onChange={(e) => {
+                hasUserPickedSubjectRef.current = true;
+                setQuickSubject(e.target.value);
+              }}
               className="px-2.5 py-1.5 text-xs rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] focus:outline-none"
             >
               <option value="">General</option>
@@ -352,7 +415,7 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => void onDeleteTask(task.id)}
+                      onClick={() => void handleDeleteTaskClick(task)}
                       className="text-[var(--ff-text-muted)] hover:text-rose-400 p-1"
                       title="Delete task"
                     >

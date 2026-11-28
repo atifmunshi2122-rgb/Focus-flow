@@ -640,7 +640,7 @@ export const PomodoroTimer: React.FC = () => {
     setTimerEngine(nextEngine);
   };
 
-  const handleApplyPresetSafe = async (preset: PomodoroPreset) => {
+  const handleApplyPresetSafe = async (preset: PomodoroPreset): Promise<boolean> => {
     if (hasActiveSession) {
       const confirmed = await confirmAction({
         title: 'Apply Timer Preset?',
@@ -649,9 +649,10 @@ export const PomodoroTimer: React.FC = () => {
         cancelLabel: 'Keep Focusing',
         tone: 'danger',
       });
-      if (!confirmed) return;
+      if (!confirmed) return false;
     }
     applyPomodoroPreset(preset);
+    return true;
   };
 
   const toggleSound = () => {
@@ -745,11 +746,12 @@ export const PomodoroTimer: React.FC = () => {
   }, [
     fullScreenFocus,
     setFullScreenFocus,
+    hasActiveSession,
     isRunning,
     pauseTimer,
     startTimer,
-    skipInterval,
-    resetTimer,
+    handleSkipInterval,
+    handleReset,
     settings,
     updateSettings,
     showCustomModal,
@@ -827,11 +829,21 @@ export const PomodoroTimer: React.FC = () => {
 
   const currentModeColors = modeTokenColors[timerMode];
 
-  const handleCustomSubmit = (e: React.FormEvent) => {
+  const handleCustomSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = customInputMinutes.trim();
     const parsed = Number(trimmed);
     if (trimmed !== '' && Number.isInteger(parsed) && parsed >= 1 && parsed <= 180) {
+      if (hasActiveSession) {
+        const confirmed = await confirmAction({
+          title: 'Apply Custom Duration?',
+          message: 'A Pomodoro session is currently running or paused mid-way. Applying a new duration will reset your active session.',
+          confirmLabel: 'Apply Duration',
+          cancelLabel: 'Keep Focusing',
+          tone: 'danger',
+        });
+        if (!confirmed) return;
+      }
       setCustomError(null);
       setCustomDuration(parsed);
       setShowCustomModal(false);
@@ -2292,8 +2304,9 @@ export const PomodoroTimer: React.FC = () => {
                       variant={activePresetId === p.id ? 'primary' : 'secondary'}
                       size="sm"
                       onClick={() => {
-                        applyPomodoroPreset(p);
-                        setShowPresetModal(false);
+                        void handleApplyPresetSafe(p).then((applied) => {
+                          if (applied) setShowPresetModal(false);
+                        });
                       }}
                       className="text-xs py-1 px-2 min-h-[32px]"
                     >

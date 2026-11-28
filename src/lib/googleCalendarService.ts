@@ -74,6 +74,7 @@ class GoogleCalendarClientService {
       let resolved = false;
 
       const messageListener = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
         if (event.data?.type === 'GOOGLE_CALENDAR_CONNECTED') {
           cleanup();
           resolved = true;
@@ -157,12 +158,19 @@ class GoogleCalendarClientService {
   /**
    * Triggers manual task synchronization.
    */
-  public async syncTasks(calendarId?: string): Promise<SyncResult> {
+  public async syncTasks(
+    calendarId?: string,
+    prefs?: {
+      autoSyncTasks?: boolean;
+      autoSyncTimeBlocks?: boolean;
+      autoSyncStudySchedule?: boolean;
+    }
+  ): Promise<SyncResult> {
     const headers = await this.getAuthHeaders();
     const res = await fetch('/api/integrations/google-calendar/sync/tasks', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ calendarId }),
+      body: JSON.stringify({ calendarId, ...prefs }),
     });
 
     if (!res.ok) {

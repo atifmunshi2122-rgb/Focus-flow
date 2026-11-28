@@ -3312,6 +3312,10 @@ export const StudyView: React.FC = () => {
           subjects={subjects}
           onOpenAddGoal={() => setIsAddGoalOpen(true)}
           onToggleMilestone={handleToggleGoalMilestone}
+          onUpdateGoal={async (updated) => {
+            const saved = await api.saveStudyGoal(updated);
+            setGoals((prev) => prev.map((g) => (g.id === saved.id ? saved : g)));
+          }}
           onDeleteGoal={handleDeleteGoal}
         />
       )}

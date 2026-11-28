@@ -1,6 +1,7 @@
 import type { StudyAvatarActivity } from '../../components/study-room/StudyAvatar.tsx';
 import type { RoomLighting } from '../study-room/customization-types.ts';
 import type { TimerEngineMode, TimerMode } from '../../lib/timerEngine.ts';
+import { getHomeRoomTheme, type HomeRoomStyle } from './homeRoomCatalog.ts';
 
 export type HomeZoneId = 'study' | 'bedroom' | 'kitchen' | 'dining' | 'washroom';
 
@@ -164,13 +165,186 @@ function findNearestFloorNodeId(pos: [number, number, number]): string {
 }
 
 /**
+ * Resolves the effective zone anchor/approach/rotation for the active room theme.
+ */
+export function resolveHomeZoneConfig(
+  zone: HomeZoneId,
+  roomStyle: HomeRoomStyle = 'classic'
+): HomeZoneConfig {
+  const base = HOME_ZONES[zone];
+  const override = getHomeRoomTheme(roomStyle).roomLayout?.zoneOverrides?.[zone];
+  if (!override) return base;
+  return {
+    ...base,
+    anchorPosition: override.anchorPosition,
+    approachPosition: override.approachPosition,
+    targetRotationY: override.targetRotationY,
+  };
+}
+
+function segmentIntersectsBox(
+  x1: number,
+  z1: number,
+  x2: number,
+  z2: number,
+  box: { minX: number; maxX: number; minZ: number; maxZ: number }
+): boolean {
+  let tMin = 0;
+  let tMax = 1;
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+
+  if (Math.abs(dx) < 1e-8) {
+    if (x1 <= box.minX || x1 >= box.maxX) return false;
+  } else {
+    const invDx = 1 / dx;
+    let t1 = (box.minX - x1) * invDx;
+    let t2 = (box.maxX - x1) * invDx;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tMin = Math.max(tMin, t1);
+    tMax = Math.min(tMax, t2);
+    if (tMin >= tMax) return false;
+  }
+
+  if (Math.abs(dz) < 1e-8) {
+    if (z1 <= box.minZ || z1 >= box.maxZ) return false;
+  } else {
+    const invDz = 1 / dz;
+    let t1 = (box.minZ - z1) * invDz;
+    let t2 = (box.maxZ - z1) * invDz;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tMin = Math.max(tMin, t1);
+    tMax = Math.min(tMax, t2);
+    if (tMin >= tMax) return false;
+  }
+
+  return tMin < tMax;
+}
+
+function isPointClearOfObstacles(
+  x: number,
+  z: number,
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
+  obstacles: ReadonlyArray<{ minX: number; maxX: number; minZ: number; maxZ: number }>
+): boolean {
+  if (x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) return false;
+  for (const box of obstacles) {
+    if (x > box.minX && x < box.maxX && z > box.minZ && z < box.maxZ) return false;
+  }
+  return true;
+}
+
+/**
+ * Computes a collision-free floor path around room obstacle boxes for any room theme.
+ */
+export function computeObstacleAwareFloorPath(
+  fromPos: [number, number, number],
+  toPos: [number, number, number],
+  roomStyle: HomeRoomStyle = 'classic'
+): Array<[number, number, number]> {
+  const layout = getHomeRoomTheme(roomStyle).roomLayout;
+  const bounds = layout?.walkBounds || { minX: -3.65, maxX: 2.45, minZ: -2.75, maxZ: 2.45 };
+  const obstacles = layout?.obstacles || [];
+
+  const isSegmentClear = (ax: number, az: number, bx: number, bz: number) =>
+    !obstacles.some((box) => segmentIntersectsBox(ax, az, bx, bz, box));
+
+  if (obstacles.length === 0 || isSegmentClear(fromPos[0], fromPos[2], toPos[0], toPos[2])) {
+    return [toPos];
+  }
+
+  const start: [number, number, number] = [fromPos[0], 0, fromPos[2]];
+  const goal: [number, number, number] = [toPos[0], toPos[1], toPos[2]];
+  const candidates: Array<[number, number, number]> = [start];
+
+  const pad = 0.16;
+  for (const box of obstacles) {
+    const corners: Array<[number, number]> = [
+      [box.minX - pad, box.minZ - pad],
+      [box.maxX + pad, box.minZ - pad],
+      [box.minX - pad, box.maxZ + pad],
+      [box.maxX + pad, box.maxZ + pad],
+    ];
+    for (const [cx, cz] of corners) {
+      if (isPointClearOfObstacles(cx, cz, bounds, obstacles)) {
+        candidates.push([cx, 0, cz]);
+      }
+    }
+  }
+  if (isPointClearOfObstacles(0, 0, bounds, obstacles)) {
+    candidates.push([0, 0, 0]);
+  }
+  candidates.push(goal);
+
+  const n = candidates.length;
+  const goalIdx = n - 1;
+  const dist = new Array<number>(n).fill(Infinity);
+  const prev = new Array<number>(n).fill(-1);
+  const visited = new Array<boolean>(n).fill(false);
+  dist[0] = 0;
+
+  for (let iter = 0; iter < n; iter++) {
+    let u = -1;
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      if (!visited[i] && dist[i] < best) {
+        best = dist[i];
+        u = i;
+      }
+    }
+    if (u === -1 || u === goalIdx) break;
+    visited[u] = true;
+
+    for (let v = 0; v < n; v++) {
+      if (visited[v] || u === v) continue;
+      const ax = candidates[u][0];
+      const az = candidates[u][2];
+      const bx = candidates[v][0];
+      const bz = candidates[v][2];
+      if (!isSegmentClear(ax, az, bx, bz)) continue;
+      const alt = dist[u] + Math.hypot(bx - ax, bz - az);
+      if (alt < dist[v]) {
+        dist[v] = alt;
+        prev[v] = u;
+      }
+    }
+  }
+
+  if (dist[goalIdx] === Infinity) {
+    return [toPos];
+  }
+
+  const path: Array<[number, number, number]> = [];
+  let curr = goalIdx;
+  while (curr > 0) {
+    path.unshift(candidates[curr]);
+    curr = prev[curr];
+  }
+  return path.length > 0 ? path : [toPos];
+}
+
+/**
  * Deterministic BFS shortest path across room hallways avoiding walls & furniture collisions.
  */
 export function computeHomeWaypointPath(
   fromPos: [number, number, number],
   toZone: HomeZoneId,
-  options: { standingOnlyFallback?: boolean } = {}
+  options: { standingOnlyFallback?: boolean; roomStyle?: HomeRoomStyle } = {}
 ): Array<[number, number, number]> {
+  const roomStyle = options.roomStyle || 'classic';
+  if (roomStyle !== 'classic') {
+    const zoneCfg = resolveHomeZoneConfig(toZone, roomStyle);
+    const approachPath = computeObstacleAwareFloorPath(
+      fromPos,
+      zoneCfg.approachPosition,
+      roomStyle
+    );
+    if (options.standingOnlyFallback && zoneCfg.supportsStaticStandingOnlyFallback) {
+      return approachPath;
+    }
+    return [...approachPath, zoneCfg.anchorPosition];
+  }
+
   const startNode = findNearestFloorNodeId(fromPos);
   const goalNode = options.standingOnlyFallback
     ? ZONE_APPROACH_NODE[toZone]
@@ -588,29 +762,36 @@ export function getZonedHourMinute(timezone?: string, date: Date = new Date()): 
 }
 
 /**
- * Clamps free WASD / click-to-walk coordinates cleanly onto unobstructed main Oak floor,
- * preventing walking through walls, study desk, bed, or dining table.
+ * Clamps free WASD / click-to-walk coordinates cleanly onto unobstructed floor
+ * for the active room theme, preventing walking through walls or furniture.
  */
-export function clampWalkableFloorPosition(x: number, z: number): [number, number, number] {
-  let cx = Math.max(-3.65, Math.min(2.45, x));
-  let cz = Math.max(-2.75, Math.min(2.45, z));
+export function clampWalkableFloorPosition(
+  x: number,
+  z: number,
+  roomStyle: HomeRoomStyle = 'classic'
+): [number, number, number] {
+  const layout = getHomeRoomTheme(roomStyle).roomLayout;
+  const bounds = layout?.walkBounds || { minX: -3.65, maxX: 2.45, minZ: -2.75, maxZ: 2.45 };
+  let cx = Math.max(bounds.minX, Math.min(bounds.maxX, x));
+  let cz = Math.max(bounds.minZ, Math.min(bounds.maxZ, z));
 
-  // Keep out of Bed bounding box (x: -2.9..-1.35, z: -3.35..-1.15)
-  if (cx > -2.95 && cx < -1.32 && cz < -1.12) {
-    cz = -1.12;
-  }
-
-  // Keep out of Dining Table bounding box (x: -0.78..+0.48, z: 0.32..1.58)
-  if (cx > -0.78 && cx < 0.48 && cz > 0.32 && cz < 1.58) {
-    const dLeft = Math.abs(cx - -0.78);
-    const dRight = Math.abs(0.48 - cx);
-    const dTop = Math.abs(cz - 0.32);
-    const dBot = Math.abs(1.58 - cz);
-    const minD = Math.min(dLeft, dRight, dTop, dBot);
-    if (minD === dLeft) cx = -0.78;
-    else if (minD === dRight) cx = 0.48;
-    else if (minD === dTop) cz = 0.32;
-    else cz = 1.58;
+  const obstacles = layout?.obstacles || [];
+  for (const box of obstacles) {
+    if (cx > box.minX && cx < box.maxX && cz > box.minZ && cz < box.maxZ) {
+      if (box.pushAxis === 'z_front') {
+        cz = box.maxZ;
+        continue;
+      }
+      const dLeft = Math.abs(cx - box.minX);
+      const dRight = Math.abs(box.maxX - cx);
+      const dTop = Math.abs(cz - box.minZ);
+      const dBot = Math.abs(box.maxZ - cz);
+      const minD = Math.min(dLeft, dRight, dTop, dBot);
+      if (minD === dLeft) cx = box.minX;
+      else if (minD === dRight) cx = box.maxX;
+      else if (minD === dTop) cz = box.minZ;
+      else cz = box.maxZ;
+    }
   }
 
   return [cx, 0, cz];

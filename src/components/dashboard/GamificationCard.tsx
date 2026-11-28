@@ -7,6 +7,7 @@ import {
   SavingsGoal,
   Task,
 } from '../../types/index.ts';
+import { useApp } from '../../context/AppContext.tsx';
 import { computeGamificationState } from '../../lib/gamificationEngine.ts';
 import { ThemeBadge, ThemeCard } from '../ui/ThemePrimitives.tsx';
 import {
@@ -49,6 +50,7 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
   compact = false,
   className = '',
 }) => {
+  const { settings } = useApp();
   const [showAllBadges, setShowAllBadges] = useState(false);
   const { intensity, isDisabled } = useMotionPreferences();
 
@@ -62,8 +64,9 @@ export const GamificationCard: React.FC<GamificationCardProps> = ({
         focusStreakDays,
         bestStreakDays,
         dailyFocusGoalMinutes,
+        timezone: settings?.timezone,
       }),
-    [sessions, tasks, bills, savingsGoals, focusStreakDays, bestStreakDays, dailyFocusGoalMinutes]
+    [sessions, tasks, bills, savingsGoals, focusStreakDays, bestStreakDays, dailyFocusGoalMinutes, settings?.timezone]
   );
 
   const visibleBadges = showAllBadges ? summary.badges : summary.badges.slice(0, 6);

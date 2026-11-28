@@ -139,7 +139,7 @@ export function buildCompletedExamPayload(
 }
 
 export const ExamHallSimulator: React.FC = () => {
-  const { user, firebaseUser, settings, refreshKey, triggerRefresh, confirmAction } = useApp();
+  const { user, firebaseUser, settings, refreshKey, triggerRefresh, confirmAction, showToast } = useApp();
   const activeUid = user?.id || 'usr_guest';
   const storageKey = `focusflow_${activeUid}_exam_sim_state_v1`;
 
@@ -171,9 +171,14 @@ export const ExamHallSimulator: React.FC = () => {
           };
         });
         setStudyExamPresets(mapped);
+        setCustomConfig((prev) =>
+          !initialRestored?.examState && prev.examName === PRESET_EXAMS[0].examName
+            ? mapped[0]
+            : prev
+        );
       })
       .catch(() => {});
-  }, [refreshKey]);
+  }, [refreshKey, initialRestored?.examState]);
 
   const allExamPresets = useMemo(
     () => [...studyExamPresets, ...PRESET_EXAMS],
@@ -244,16 +249,28 @@ export const ExamHallSimulator: React.FC = () => {
   );
   const activeTotalMinutes = examState?.totalDurationMinutes || customConfig.totalMinutes;
 
-  const handleFinishExam = useCallback(() => {
+  const handleFinishExam = useCallback(async (requireConfirm = false) => {
     if (!examState) return;
     if (finishedExamIdRef.current === examState.id) return;
+    if (requireConfirm) {
+      const confirmed = await confirmAction({
+        title: 'Finish Exam Now?',
+        message: 'Submit your mock exam and log your elapsed focus time?',
+        confirmLabel: 'Finish & Submit',
+        cancelLabel: 'Keep Going',
+        tone: 'primary',
+      });
+      if (!confirmed) return;
+    }
     finishedExamIdRef.current = examState.id;
 
     const completedState = buildCompletedExamPayload(examState, sectionSpentSeconds);
     setExamState(completedState);
     setIsFinished(true);
     localStorage.removeItem(storageKey);
-    api.saveExamSimulation(completedState).catch(() => {});
+    api.saveExamSimulation(completedState).catch((err) => {
+      showToast?.(err instanceof Error ? err.message : 'Failed to save exam simulation result', 'error');
+    });
 
     const spentSecs = Math.max(0, completedState.totalElapsedSeconds || 0);
     if (spentSecs >= 60) {
@@ -286,20 +303,26 @@ export const ExamHallSimulator: React.FC = () => {
           }
           triggerRefresh();
         })
-        .catch(() => {});
+        .catch((err) => {
+          showToast?.(err instanceof Error ? err.message : 'Failed to log exam focus session', 'error');
+        });
     }
-  }, [examState, sectionSpentSeconds, storageKey, firebaseUser, settings?.timezone, triggerRefresh]);
+  }, [examState, sectionSpentSeconds, storageKey, firebaseUser, settings?.timezone, triggerRefresh, confirmAction, showToast]);
 
   // Handle Advance Section
-  const handleAdvanceSection = useCallback(() => {
+  const handleAdvanceSection = useCallback((requireConfirmOnFinish = false) => {
     if (!examState) return;
     const nextIdx = examState.currentSectionIndex + 1;
     if (nextIdx < activeSections.length) {
       const nextSec = activeSections[nextIdx];
+      const remainingTotal = activeSections
+        .slice(nextIdx)
+        .reduce((sum, sec) => sum + sec.durationMinutes * 60, 0);
       setExamState((prev) => (prev ? { ...prev, currentSectionIndex: nextIdx } : null));
       setSectionTimeRemaining(nextSec.durationMinutes * 60);
+      setTotalTimeRemaining(remainingTotal);
     } else {
-      handleFinishExam();
+      void handleFinishExam(requireConfirmOnFinish);
     }
   }, [examState, activeSections, handleFinishExam]);
 
@@ -590,7 +613,7 @@ export const ExamHallSimulator: React.FC = () => {
               <ThemeButton
                 variant="primary"
                 size="sm"
-                onClick={handleAdvanceSection}
+                onClick={() => handleAdvanceSection(examState.currentSectionIndex >= activeSections.length - 1)}
               >
                 {examState.currentSectionIndex < activeSections.length - 1 ? (
                   <>

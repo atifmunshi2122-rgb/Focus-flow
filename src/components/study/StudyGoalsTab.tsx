@@ -1,16 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { StudyGoal, StudySubject } from '../../types/study.ts';
 import { computeStudyGoalProgress } from '../../lib/studyIntelligence.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { ThemeCard, ThemeButton, ThemeBadge } from '../ui/ThemePrimitives.tsx';
-import { Target, Plus, Trash2, Check, Clock, Calendar } from 'lucide-react';
+import { Target, Plus, Trash2, Check, Clock, Calendar, Edit2, X } from 'lucide-react';
 
 interface StudyGoalsTabProps {
   goals: StudyGoal[];
   subjects: StudySubject[];
   onOpenAddGoal: () => void;
   onToggleMilestone: (goalId: string, milestoneId: string) => Promise<void>;
+  onUpdateGoal?: (updated: StudyGoal) => Promise<void>;
   onDeleteGoal: (goalId: string) => Promise<void>;
 }
 
@@ -19,12 +20,68 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
   subjects,
   onOpenAddGoal,
   onToggleMilestone,
+  onUpdateGoal,
   onDeleteGoal,
 }) => {
-  const { settings } = useApp();
+  const { settings, showToast } = useApp();
   const tz = settings?.timezone || DEFAULT_TIMEZONE;
   const today = getTodayDateString(tz);
   const activeGoals = goals.filter((g) => !g.deletedAt);
+
+  const [pendingMilestoneKey, setPendingMilestoneKey] = useState<string | null>(null);
+  const [editingGoal, setEditingGoal] = useState<StudyGoal | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [editPriority, setEditPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const openEditGoalModal = (goal: StudyGoal) => {
+    setEditingGoal(goal);
+    setEditTitle(goal.title);
+    setEditDescription(goal.description || '');
+    setEditEndDate(goal.endDate || '');
+    setEditPriority(goal.priority || 'medium');
+  };
+
+  const handleSaveEditGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGoal || !onUpdateGoal || savingEdit) return;
+    if (!editTitle.trim()) {
+      showToast('Goal title cannot be empty', 'error');
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await onUpdateGoal({
+        ...editingGoal,
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        endDate: editEndDate || '',
+        priority: editPriority,
+        updatedAt: new Date().toISOString(),
+      });
+      setEditingGoal(null);
+      showToast('Academic goal updated', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to update goal', 'error');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleMilestoneClick = async (goalId: string, milestoneId: string) => {
+    const key = `${goalId}:${milestoneId}`;
+    if (pendingMilestoneKey === key) return;
+    setPendingMilestoneKey(key);
+    try {
+      await onToggleMilestone(goalId, milestoneId);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to update milestone', 'error');
+    } finally {
+      setPendingMilestoneKey((prev) => (prev === key ? null : prev));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -90,14 +147,28 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => onDeleteGoal(goal.id)}
-                      className="text-[var(--ff-text-muted)] hover:text-rose-400 p-1 transition-colors"
-                      title="Delete goal"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {onUpdateGoal && (
+                        <button
+                          type="button"
+                          onClick={() => openEditGoalModal(goal)}
+                          className="text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] p-1 transition-colors"
+                          title="Edit goal"
+                          aria-label={`Edit ${goal.title}`}
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onDeleteGoal(goal.id)}
+                        className="text-[var(--ff-text-muted)] hover:text-rose-400 p-1 transition-colors"
+                        title="Delete goal"
+                        aria-label={`Delete ${goal.title}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
@@ -132,11 +203,15 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
                         Milestones ({progress.milestonesDone}/{progress.milestonesTotal})
                       </span>
                       <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                        {goal.milestones.map((m) => (
-                          <div
+                        {goal.milestones.map((m) => {
+                          const isPending = pendingMilestoneKey === `${goal.id}:${m.id}`;
+                          return (
+                          <button
+                            type="button"
                             key={m.id}
-                            onClick={() => onToggleMilestone(goal.id, m.id)}
-                            className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[var(--ff-surface-muted)] cursor-pointer text-xs transition-colors"
+                            disabled={isPending}
+                            onClick={() => void handleMilestoneClick(goal.id, m.id)}
+                            className="w-full text-left flex items-center gap-2 p-1.5 rounded-lg hover:bg-[var(--ff-surface-muted)] cursor-pointer text-xs transition-colors disabled:opacity-50"
                           >
                             <div
                               className={`w-4 h-4 rounded flex items-center justify-center transition-all ${
@@ -156,8 +231,9 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
                             >
                               {m.title}
                             </span>
-                          </div>
-                        ))}
+                          </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -192,6 +268,76 @@ export const StudyGoalsTab: React.FC<StudyGoalsTabProps> = ({
               </ThemeCard>
             );
           })}
+        </div>
+      )}
+
+      {editingGoal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[var(--ff-border-color)] pb-3">
+              <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">Edit Academic Goal</h3>
+              <button
+                type="button"
+                onClick={() => setEditingGoal(null)}
+                className="p-1 text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)]"
+                aria-label="Close modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEditGoal} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-medium text-[var(--ff-text-muted)] mb-1">Goal Title</label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)]"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-[var(--ff-text-muted)] mb-1">Description (Optional)</label>
+                <textarea
+                  rows={2}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)] resize-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-[var(--ff-text-muted)] mb-1">Target Deadline</label>
+                  <input
+                    type="date"
+                    value={editEndDate}
+                    onChange={(e) => setEditEndDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)]"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-[var(--ff-text-muted)] mb-1">Priority</label>
+                  <select
+                    value={editPriority}
+                    onChange={(e) => setEditPriority(e.target.value as 'low' | 'medium' | 'high')}
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--ff-surface-muted)] border border-[var(--ff-border-color)] text-[var(--ff-text-primary)]"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--ff-border-color)]">
+                <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setEditingGoal(null)} disabled={savingEdit}>
+                  Cancel
+                </ThemeButton>
+                <ThemeButton type="submit" variant="primary" size="sm" loading={savingEdit} loadingText="Saving...">
+                  Save Goal
+                </ThemeButton>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

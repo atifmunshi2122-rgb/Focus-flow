@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Bell, Send, CheckCircle2, AlertCircle, Smartphone, ShieldCheck, ShieldAlert, Laptop } from 'lucide-react';
 import { usePushNotifications } from '../../hooks/usePushNotifications.ts';
 
@@ -25,19 +25,35 @@ export const PushNotificationSettings: React.FC<PushNotificationSettingsProps> =
 
   const [testSent, setTestSent] = useState<boolean>(false);
   const [localMsg, setLocalMsg] = useState<string | null>(null);
+  const localMsgTimerRef = useRef<number | null>(null);
+  const testSentTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (localMsgTimerRef.current !== null) window.clearTimeout(localMsgTimerRef.current);
+      if (testSentTimerRef.current !== null) window.clearTimeout(testSentTimerRef.current);
+    };
+  }, []);
+
+  const showTransientLocalMsg = (msg: string) => {
+    setLocalMsg(msg);
+    if (localMsgTimerRef.current !== null) window.clearTimeout(localMsgTimerRef.current);
+    localMsgTimerRef.current = window.setTimeout(() => {
+      setLocalMsg(null);
+      localMsgTimerRef.current = null;
+    }, 3000);
+  };
 
   const handleTogglePush = async () => {
     if (isRegistered) {
       const ok = await disable();
       if (ok) {
-        setLocalMsg('Push notifications disabled on this device.');
-        setTimeout(() => setLocalMsg(null), 3000);
+        showTransientLocalMsg('Push notifications disabled on this device.');
       }
     } else {
       const ok = await enable();
       if (ok) {
-        setLocalMsg('Device registered for push notifications!');
-        setTimeout(() => setLocalMsg(null), 3000);
+        showTransientLocalMsg('Device registered for push notifications!');
       }
     }
   };
@@ -46,14 +62,18 @@ export const PushNotificationSettings: React.FC<PushNotificationSettingsProps> =
     const ok = await sendTest();
     if (ok) {
       setTestSent(true);
-      setTimeout(() => setTestSent(false), 4000);
+      if (testSentTimerRef.current !== null) window.clearTimeout(testSentTimerRef.current);
+      testSentTimerRef.current = window.setTimeout(() => {
+        setTestSent(false);
+        testSentTimerRef.current = null;
+      }, 4000);
     }
   };
 
   const toggleCategory = (key: string) => {
     onUpdatePrefs({
       ...notificationPrefs,
-      [key]: !notificationPrefs[key],
+      [key]: !(notificationPrefs[key] ?? true),
     });
   };
 

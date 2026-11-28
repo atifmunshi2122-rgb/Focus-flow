@@ -5,6 +5,8 @@ import type {
   Task,
 } from '../types/index.ts';
 import { DEFAULT_TIMEZONE, formatDateInTimezone, getStartOfWeek, getTodayDateString } from './dateTime.ts';
+import { calculateFocusSessionXP, calculateXPProgress } from '../features/gamification/xp-calculator.ts';
+import { getLevelTitle } from '../features/gamification/reward-config.ts';
 
 export interface GamificationBadge {
   id: string;
@@ -72,6 +74,7 @@ export function computeGamificationState(input: {
   focusStreakDays: number;
   bestStreakDays?: number;
   dailyFocusGoalMinutes?: number;
+  timezone?: string;
 }): GamificationSummary {
   const {
     sessions,
@@ -81,10 +84,12 @@ export function computeGamificationState(input: {
     focusStreakDays,
     bestStreakDays = focusStreakDays,
     dailyFocusGoalMinutes = 100,
+    timezone,
   } = input;
 
-  const todayStr = getTodayDateString(DEFAULT_TIMEZONE);
-  const weekStartStr = getStartOfWeek(todayStr, DEFAULT_TIMEZONE);
+  const tz = timezone || DEFAULT_TIMEZONE;
+  const todayStr = getTodayDateString(tz);
+  const weekStartStr = getStartOfWeek(todayStr, tz);
 
   const workSessions = sessions.filter((s) => s.completed && s.mode === 'work');
   const totalFocusMinutes = Math.round(
@@ -92,22 +97,22 @@ export function computeGamificationState(input: {
   );
   const todayFocusMinutes = Math.round(
     workSessions
-      .filter((s) => formatDateInTimezone(s.startedAt, DEFAULT_TIMEZONE) === todayStr)
+      .filter((s) => formatDateInTimezone(s.startedAt, tz) === todayStr)
       .reduce((acc, s) => acc + s.durationSeconds, 0) / 60
   );
   const weekFocusMinutes = Math.round(
     workSessions
-      .filter((s) => formatDateInTimezone(s.startedAt, DEFAULT_TIMEZONE) >= weekStartStr)
+      .filter((s) => formatDateInTimezone(s.startedAt, tz) >= weekStartStr)
       .reduce((acc, s) => acc + s.durationSeconds, 0) / 60
   );
 
   const activeTasks = tasks.filter((t) => !t.deletedAt);
   const completedTasks = activeTasks.filter((t) => t.status === 'completed');
   const todayCompletedTasks = completedTasks.filter(
-    (t) => formatDateInTimezone(t.completedAt || t.updatedAt, DEFAULT_TIMEZONE) === todayStr
+    (t) => formatDateInTimezone(t.completedAt || t.updatedAt, tz) === todayStr
   ).length;
   const weekCompletedTasks = completedTasks.filter(
-    (t) => formatDateInTimezone(t.completedAt || t.updatedAt, DEFAULT_TIMEZONE) >= weekStartStr
+    (t) => formatDateInTimezone(t.completedAt || t.updatedAt, tz) >= weekStartStr
   ).length;
 
   const activeBills = bills.filter((b) => !b.deletedAt);
@@ -116,26 +121,35 @@ export function computeGamificationState(input: {
     (b) => !b.paymentDate || b.paymentDate <= b.dueDate
   );
 
-  const goalsCompleted = savingsGoals.filter(
+  const activeSavingsGoals = savingsGoals.filter(
+    (g) => !(g as { deletedAt?: string | null }).deletedAt
+  );
+  const goalsCompleted = activeSavingsGoals.filter(
     (g) => g.targetPaise > 0 && g.savedPaise >= g.targetPaise
   );
 
+  const focusXp = workSessions.reduce(
+    (acc, s) =>
+      acc +
+      calculateFocusSessionXP(
+        s.durationMinutes || Math.max(1, Math.round((s.durationSeconds || 1500) / 60))
+      ),
+    0
+  );
+
   const xp =
-    workSessions.length * 25 +
+    focusXp +
     completedTasks.length * 40 +
     paidBills.length * 15 +
     onTimePaidBills.length * 10 +
     goalsCompleted.length * 100 +
     Math.max(focusStreakDays, bestStreakDays) * 15;
 
-  const level = Math.floor(Math.sqrt(xp / 100)) + 1;
-  const currentLevelBase = (level - 1) * (level - 1) * 100;
-  const nextLevelXp = level * level * 100;
-  const span = Math.max(1, nextLevelXp - currentLevelBase);
-  const levelProgressPercent = Math.min(
-    100,
-    Math.max(0, Math.round(((xp - currentLevelBase) / span) * 100))
-  );
+  const progress = calculateXPProgress(xp);
+  const level = progress.level;
+  const currentLevelBase = progress.currentLevelXP;
+  const nextLevelXp = progress.nextLevelXP;
+  const levelProgressPercent = progress.progressPercent;
 
   const peakStreak = Math.max(focusStreakDays, bestStreakDays);
 
@@ -300,7 +314,7 @@ export function computeGamificationState(input: {
   return {
     xp,
     level,
-    rankTitle: getRankTitle(level),
+    rankTitle: getLevelTitle(level),
     currentLevelXp: xp - currentLevelBase,
     nextLevelXp: nextLevelXp - currentLevelBase,
     levelProgressPercent,

@@ -377,8 +377,8 @@ describe('Comprehensive 10-Bug Regression Suite (DB, XLSX Parser, Reports, UI)',
     assert.ok(taskSrc.includes('shifted.map((t) => api.updateTask(t.id, { order: t.order }))'));
 
     const billsSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/finance/BillsTracker.tsx'), 'utf8');
-    assert.ok(billsSrc.includes("if (statusFilter === 'ALL') {\n          clientDataCache.setBills(billsData);"));
-    assert.ok(billsSrc.includes("created.status || (created.dueDate < getTodayDateString() ? 'OVERDUE' : 'UNPAID')"));
+    assert.ok(billsSrc.includes("api.getBills('ALL')") && billsSrc.includes('clientDataCache.setBills(billsData);'));
+    assert.ok(billsSrc.includes("created.status || (created.dueDate < todayStr ? 'OVERDUE' : 'UNPAID')"));
 
     const subSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/components/finance/SubscriptionManager.tsx'), 'utf8');
     assert.equal(subSrc.includes('Number(formReminderDays) || 3'), false);

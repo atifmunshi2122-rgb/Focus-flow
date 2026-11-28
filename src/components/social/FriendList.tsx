@@ -55,7 +55,7 @@ export default function FriendList({
                   className="w-full h-full rounded-full object-cover"
                 />
               ) : (
-                friend.displayName.charAt(0).toUpperCase()
+                (friend.displayName || 'F').charAt(0).toUpperCase()
               )}
               {friend.isOnline !== undefined && (
                 <span
@@ -68,7 +68,7 @@ export default function FriendList({
 
             <div className="min-w-0">
               <strong className="block text-xs font-bold text-[var(--ff-text-primary)] truncate">
-                {friend.displayName}
+                {friend.displayName || 'Study Partner'}
               </strong>
               <small className="block text-[11px] text-[var(--ff-text-muted)]">
                 {friend.level !== undefined ? `Level ${friend.level}` : 'Private Profile'}
@@ -81,7 +81,7 @@ export default function FriendList({
             type="button"
             disabled={friend.allowRoomInvites === false}
             onClick={() => onInvite(friend.userId)}
-            aria-label={`Invite ${friend.displayName}`}
+            aria-label={`Invite ${friend.displayName || 'Friend'}`}
             className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-[var(--ff-accent)]/20 text-[var(--ff-accent-text)] border border-[var(--ff-accent)]/35 hover:bg-[var(--ff-accent)] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
           >
             Invite

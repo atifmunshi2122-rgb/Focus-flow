@@ -5892,28 +5892,51 @@ init_vaultBackendService();
 import { Router as Router5 } from "express";
 
 // src/features/gamification/xp-calculator.ts
-var XP_PER_LEVEL = 500;
+var BASE_XP_PER_LEVEL = 500;
+var XP_STEP_PER_LEVEL = 250;
+function getXPForLevelGap(level) {
+  const safeLevel = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
+  return BASE_XP_PER_LEVEL + (safeLevel - 1) * XP_STEP_PER_LEVEL;
+}
+function getTotalXPForLevel(level) {
+  const safeLevel = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
+  const n = safeLevel - 1;
+  return n * BASE_XP_PER_LEVEL + n * (n - 1) / 2 * XP_STEP_PER_LEVEL;
+}
 function calculateLevel(totalXP) {
   const safeXP = Math.max(0, Math.floor(Number.isFinite(totalXP) ? totalXP : 0));
-  return Math.floor(safeXP / XP_PER_LEVEL) + 1;
+  let level = 1;
+  let remaining = safeXP;
+  while (remaining >= getXPForLevelGap(level)) {
+    remaining -= getXPForLevelGap(level);
+    level += 1;
+  }
+  return level;
 }
 function calculateXPProgress(totalXP) {
   const safeXP = Math.max(0, Math.floor(Number.isFinite(totalXP) ? totalXP : 0));
   const level = calculateLevel(safeXP);
-  const levelStartXP = (level - 1) * XP_PER_LEVEL;
-  const nextLevelXP = level * XP_PER_LEVEL;
+  const levelStartXP = getTotalXPForLevel(level);
+  const levelXPRequired = getXPForLevelGap(level);
+  const nextLevelXP = levelStartXP + levelXPRequired;
   const currentLevelXP = safeXP - levelStartXP;
   const progressPercent = Math.min(
     100,
-    Math.max(0, Math.round(currentLevelXP / XP_PER_LEVEL * 1e3) / 10)
+    Math.max(0, Math.round(currentLevelXP / levelXPRequired * 1e3) / 10)
   );
   return {
     totalXP: safeXP,
     level,
     currentLevelXP,
     nextLevelXP,
+    levelXPRequired,
     progressPercent
   };
+}
+function calculateFocusSessionXP(durationMinutes) {
+  const safeMins = Math.max(0, Math.round(Number.isFinite(durationMinutes) ? durationMinutes : 0));
+  if (safeMins < 5) return 0;
+  return Math.max(4, Math.round(safeMins * 0.8));
 }
 
 // src/features/gamification/reward-config.ts
@@ -6294,7 +6317,7 @@ function awardAuthoritativeXP(db, userId, req) {
         transactions: []
       };
     }
-    rewardAmount = XP_REWARDS.focus_session;
+    rewardAmount = calculateFocusSessionXP(session.durationMinutes || 0);
     description = `Completed ${session.durationMinutes}m focus session`;
   } else if (source === "topic_completion") {
     const topic = (db.studyTopics || []).find((t) => t.id === sourceId && t.userId === userId);
@@ -14728,8 +14751,7 @@ function evaluateDeterministicNotifications(input) {
   }
   if (prefs.budgetWarnings && input.settings?.weeklySpendingLimitPaise && input.settings.weeklySpendingLimitPaise > 0 && input.expenses) {
     const weeklyLimit = input.settings.weeklySpendingLimitPaise;
-    const sevenDaysAgoStr = addDays(todayStr, -6);
-    const spentWeek = input.expenses.filter((e) => !e.deletedAt && e.date >= sevenDaysAgoStr && e.date <= todayStr).reduce((sum, e) => sum + e.amountPaise, 0);
+    const spentWeek = input.expenses.filter((e) => !e.deletedAt && e.date >= weekKey && e.date <= todayStr).reduce((sum, e) => sum + e.amountPaise, 0);
     const pct = Math.round(spentWeek / weeklyLimit * 100);
     const threshold = Math.max(50, Math.min(100, prefs.budgetWarningPercent || 80));
     if (pct >= 100) {
@@ -14756,6 +14778,7 @@ function evaluateDeterministicNotifications(input) {
   }
   if (input.savingsGoals) {
     for (const goal of input.savingsGoals) {
+      if (goal.deletedAt) continue;
       if (goal.targetPaise > 0) {
         const pct = Math.round(goal.savedPaise / goal.targetPaise * 100);
         if (pct >= 100) {
@@ -14774,8 +14797,9 @@ function evaluateDeterministicNotifications(input) {
   }
   if (prefs.budgetWarnings && input.expenses && input.expenses.length > 0) {
     const todayExpenses = input.expenses.filter((e) => !e.deletedAt && e.date === todayStr);
+    const largeExpenseThresholdPaise = currency === "INR" ? 1e6 : 25e3;
     for (const exp of todayExpenses) {
-      if (exp.amountPaise >= 1e6) {
+      if (exp.amountPaise >= largeExpenseThresholdPaise) {
         items.push({
           id: `unusual_expense_${exp.id}`,
           severity: "info",
@@ -14821,7 +14845,7 @@ function evaluateDeterministicNotifications(input) {
   if (prefs.taskDeadlines) {
     const activeUncompletedTasks = input.tasks.filter((t) => !t.deletedAt && t.status !== "completed");
     const todayTasks = input.tasks.filter(
-      (t) => !t.deletedAt && (t.dueDate === todayStr || t.completedAt && t.completedAt.slice(0, 10) === todayStr)
+      (t) => !t.deletedAt && (t.dueDate === todayStr || t.completedAt && formatDateInTimezone(new Date(t.completedAt), tz) === todayStr)
     );
     if (todayTasks.length === 0 && activeUncompletedTasks.length > 0) {
       items.push({

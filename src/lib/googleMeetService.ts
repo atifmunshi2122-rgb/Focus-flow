@@ -14,9 +14,42 @@ export interface MeetSpaceResult {
 
 const MEET_SCOPE = 'https://www.googleapis.com/auth/meetings.space.created';
 const MEET_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
+const MEET_CONSENT_KEY_PREFIX = 'ff_meet_consent_granted_';
 
 let cachedMeetAccessToken: string | null = null;
 let cachedMeetTokenExpiresAt = 0;
+let cachedMeetLoginHint: string | null = null;
+
+function normalizeAccountKey(loginHint?: string): string {
+  return loginHint?.trim().toLowerCase() || 'default';
+}
+
+function getMeetConsentStorageKey(loginHint?: string): string {
+  return `${MEET_CONSENT_KEY_PREFIX}${encodeURIComponent(normalizeAccountKey(loginHint))}`;
+}
+
+function hasGrantedMeetConsent(loginHint?: string): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return localStorage.getItem(getMeetConsentStorageKey(loginHint)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setMeetConsentGranted(granted: boolean, loginHint?: string): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const key = getMeetConsentStorageKey(loginHint);
+    if (granted) {
+      localStorage.setItem(key, '1');
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
 
 function getMeetApiKey(): string {
   try {
@@ -43,8 +76,18 @@ function getMeetApiKey(): string {
 }
 
 async function requestMeetAccessToken(loginHint?: string): Promise<string | null> {
-  if (cachedMeetAccessToken && Date.now() < cachedMeetTokenExpiresAt - 30_000) {
+  const accountKey = normalizeAccountKey(loginHint);
+  if (
+    cachedMeetAccessToken &&
+    cachedMeetLoginHint === accountKey &&
+    Date.now() < cachedMeetTokenExpiresAt - 30_000
+  ) {
     return cachedMeetAccessToken;
+  }
+  if (cachedMeetLoginHint !== accountKey) {
+    cachedMeetAccessToken = null;
+    cachedMeetTokenExpiresAt = 0;
+    cachedMeetLoginHint = accountKey;
   }
   if (typeof window === 'undefined') return null;
   try {
@@ -52,6 +95,7 @@ async function requestMeetAccessToken(loginHint?: string): Promise<string | null
     const oauth2 = window.google?.accounts?.oauth2;
     if (!oauth2) return null;
 
+    const priorConsent = hasGrantedMeetConsent(loginHint);
     return await new Promise<string | null>((resolve) => {
       const client = oauth2.initTokenClient({
         client_id: getGoogleOAuthClientId(),
@@ -60,25 +104,36 @@ async function requestMeetAccessToken(loginHint?: string): Promise<string | null
         callback: (res) => {
           if (res?.access_token) {
             cachedMeetAccessToken = res.access_token;
+            cachedMeetLoginHint = accountKey;
             cachedMeetTokenExpiresAt =
               Date.now() + Math.max(60, Number(res.expires_in) || 3500) * 1000;
+            setMeetConsentGranted(true, loginHint);
             resolve(res.access_token);
           } else {
+            setMeetConsentGranted(false, loginHint);
             resolve(null);
           }
         },
-        error_callback: () => resolve(null),
+        error_callback: () => {
+          setMeetConsentGranted(false, loginHint);
+          resolve(null);
+        },
       });
-      client.requestAccessToken({ prompt: '' });
+      client.requestAccessToken({ prompt: priorConsent ? '' : 'consent' });
     });
   } catch {
     return null;
   }
 }
 
-export function getCachedRoomMeetLink(roomKey: string): MeetSpaceResult | null {
+function roomCacheKey(roomKey: string, loginHint?: string): string {
+  const accountPart = loginHint?.trim() ? `${encodeURIComponent(normalizeAccountKey(loginHint))}_` : '';
+  return `focusflow_meet_room_${accountPart}${roomKey}`;
+}
+
+export function getCachedRoomMeetLink(roomKey: string, loginHint?: string): MeetSpaceResult | null {
   try {
-    const raw = localStorage.getItem(`focusflow_meet_room_${roomKey}`);
+    const raw = localStorage.getItem(roomCacheKey(roomKey, loginHint));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as MeetSpaceResult & { savedAt: number };
     if (!parsed?.meetingUri || Date.now() - (parsed.savedAt || 0) > MEET_CACHE_TTL_MS) {
@@ -95,10 +150,10 @@ export function getCachedRoomMeetLink(roomKey: string): MeetSpaceResult | null {
   }
 }
 
-export function saveCachedRoomMeetLink(roomKey: string, data: MeetSpaceResult): void {
+export function saveCachedRoomMeetLink(roomKey: string, data: MeetSpaceResult, loginHint?: string): void {
   try {
     localStorage.setItem(
-      `focusflow_meet_room_${roomKey}`,
+      roomCacheKey(roomKey, loginHint),
       JSON.stringify({ ...data, savedAt: Date.now() })
     );
   } catch {
@@ -116,7 +171,7 @@ export async function startOrJoinGoogleMeetCall(params: {
   mode: MeetCallMode;
   loginHint?: string;
 }): Promise<MeetSpaceResult> {
-  const cached = getCachedRoomMeetLink(params.roomKey);
+  const cached = getCachedRoomMeetLink(params.roomKey, params.loginHint);
   if (cached && cached.createdViaApi) {
     return { ...cached, mode: params.mode };
   }
@@ -150,7 +205,7 @@ export async function startOrJoinGoogleMeetCall(params: {
             mode: params.mode,
             createdViaApi: true,
           };
-          saveCachedRoomMeetLink(params.roomKey, result);
+          saveCachedRoomMeetLink(params.roomKey, result, params.loginHint);
           return result;
         }
       }

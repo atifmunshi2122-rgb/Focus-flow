@@ -79,6 +79,11 @@ export const TaskManager: React.FC = () => {
     setActiveTaskId,
     switchTimerMode,
     startTimer,
+    isRunning,
+    timeLeft,
+    totalDuration,
+    timerEngine,
+    stopwatchElapsed,
     setCurrentTab,
     setTrashModalOpen,
     confirmAction,
@@ -173,7 +178,7 @@ export const TaskManager: React.FC = () => {
     setCategory('General');
     setRecurrence('none');
     setEstimatedPomodoros('2');
-    setDueDate(getTodayDateString());
+    setDueDate(getTodayDateString(settings?.timezone));
     setSubtasks([]);
     setNewSubtaskTitle('');
     setFormError(null);
@@ -411,7 +416,7 @@ export const TaskManager: React.FC = () => {
     if (!cleanTitle || isSubmittingQuick) return;
     setIsSubmittingQuick(true);
     try {
-      const todayStr = getTodayDateString();
+      const todayStr = getTodayDateString(settings?.timezone);
       const created = await api.createTask({
         title: cleanTitle,
         description: '',
@@ -451,7 +456,23 @@ export const TaskManager: React.FC = () => {
     }
   };
 
-  const handleStartFocusOnTask = (task: Task) => {
+  const hasActivePomodoro =
+    isRunning ||
+    (timerEngine === 'stopwatch'
+      ? stopwatchElapsed > 0
+      : timeLeft > 0 && timeLeft < totalDuration);
+
+  const handleStartFocusOnTask = async (task: Task) => {
+    if (hasActivePomodoro) {
+      const confirmed = await confirmAction({
+        title: 'Switch Focus Task?',
+        message: 'A Pomodoro session is currently running or paused mid-way. Switching now will cancel your active session.',
+        confirmLabel: 'Switch & Start',
+        cancelLabel: 'Keep Current',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+    }
     setActiveTaskId(task.id);
     switchTimerMode('work');
     startTimer();
@@ -482,11 +503,12 @@ export const TaskManager: React.FC = () => {
     try {
       await Promise.all(shifted.map((t) => api.updateTask(t.id, { order: t.order })));
     } catch {
+      showToast('Failed to save task order. Restoring previous order.', 'error');
       loadTasks();
     }
   };
 
-  const todayStr = getTodayDateString();
+  const todayStr = getTodayDateString(settings?.timezone);
 
   const baseFiltered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -507,14 +529,38 @@ export const TaskManager: React.FC = () => {
   const handleCarryForwardOverdue = async () => {
     if (overdueTasks.length === 0 || isCarryingForward) return;
     setIsCarryingForward(true);
+    const count = overdueTasks.length;
     try {
       await Promise.all(
         overdueTasks.map((t) => api.updateTask(t.id, { dueDate: todayStr }))
       );
+      await Promise.allSettled(
+        overdueTasks.map((t) =>
+          syncCoordinator.syncMutation(
+            'Tasks',
+            [
+              t.id,
+              t.title,
+              t.priority,
+              t.status,
+              t.estimatedPomodoros,
+              t.completedPomodoros,
+              todayStr,
+              t.category || 'General',
+              t.recurrence || 'none',
+              t.createdAt,
+            ],
+            'update',
+            `Tasks_update_${t.id}_${todayStr}`
+          )
+        )
+      );
+      showToast(`Carried forward ${count} overdue task(s) to today & synchronized`, 'success');
       triggerRefresh();
       await loadTasks();
     } catch (err) {
       console.error('Failed to carry forward overdue tasks:', err);
+      showToast('Failed to carry forward overdue tasks', 'error');
     } finally {
       setIsCarryingForward(false);
     }
@@ -1053,17 +1099,24 @@ export const TaskManager: React.FC = () => {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-[var(--ff-text-primary)]">
               Current Month Task Schedule (
-              {new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })})
+              {(() => {
+                const [cy, cm] = todayStr.split('-').map(Number);
+                return new Date(Date.UTC(cy, cm - 1, 1)).toLocaleDateString(undefined, {
+                  month: 'long',
+                  year: 'numeric',
+                  timeZone: 'UTC',
+                });
+              })()}
+              )
             </h3>
             <span className="text-xs text-[var(--ff-text-muted)]">
               Click any dated task below to edit
             </span>
           </div>
           {(() => {
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = now.getMonth();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const [year, monthOneBased] = todayStr.split('-').map(Number);
+            const month = monthOneBased - 1;
+            const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
             const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
             return (
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">

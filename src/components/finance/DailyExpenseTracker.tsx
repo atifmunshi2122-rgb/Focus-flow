@@ -15,12 +15,13 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
+import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 import { formatCurrency, formatPaiseForInput, toPaise } from '../../lib/currency.ts';
 import { DEFAULT_TIMEZONE, addDays, getTodayDateString } from '../../lib/dateTime.ts';
 import { computeSpendingInsights } from '../../lib/financeIntelligence.ts';
 import type { ExpenseTransaction, IncomeTransaction } from '../../types/index.ts';
 import { ThemeBadge, ThemeButton, ThemeCard, ThemeInput } from '../ui/ThemePrimitives.tsx';
-import { AnimatedNumber, AnimatedProgressBar, EmptyStateIllustration, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { AnimatedNumber, AnimatedProgressBar, EmptyStateIllustration, SkeletonList, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
 
 interface DailyExpenseTrackerProps {
   onOpenQuickAction: (initialType?: 'expense' | 'income', initialDate?: string) => void;
@@ -99,7 +100,7 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
 
   // Date shifting (timezone-safe, avoids IST UTC midnight off-by-one)
   const handleShiftDate = (days: number) => {
-    setSelectedDate((prev) => addDays(prev, days));
+    setSelectedDate((prev) => addDays(prev || todayStr, days));
   };
 
   const handleSaveDailyLimit = async (e: React.FormEvent) => {
@@ -125,6 +126,10 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
     if (!ok) return;
     try {
       await api.deleteExpense(exp.id);
+      const sheetName = exp.type === 'fixed' ? 'Fixed_Expenses' : 'Variable_Expenses';
+      void syncCoordinator
+        .syncMutation(sheetName, [exp.id], 'delete', `${sheetName}_delete_${exp.id}`)
+        .catch(() => {});
       showToast('Moved to Trash', 'info');
       triggerRefresh();
     } catch {
@@ -143,6 +148,9 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
     if (!ok) return;
     try {
       await api.deleteIncome(inc.id);
+      void syncCoordinator
+        .syncMutation('Income', [inc.id], 'delete', `Income_delete_${inc.id}`)
+        .catch(() => {});
       showToast('Income moved to Trash', 'info');
       triggerRefresh();
     } catch {
@@ -177,7 +185,7 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
             <ThemeInput
               type="date"
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              onChange={(e) => setSelectedDate(e.target.value || todayStr)}
               className="w-auto text-xs py-1 px-2.5 font-semibold"
             />
           </div>
@@ -271,11 +279,11 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
               <span>Same as previous day</span>
             ) : vsYesterday > 0 ? (
               <span className="text-[var(--ff-danger)] flex items-center">
-                <TrendingUp className="w-3 h-3 mr-0.5" /> +{formatCurrency(vsYesterday, currency)} vs yesterday
+                <TrendingUp className="w-3 h-3 mr-0.5" /> +{formatCurrency(vsYesterday, currency)} {isToday ? 'vs yesterday' : 'vs previous day'}
               </span>
             ) : (
               <span className="text-[var(--ff-success)] flex items-center">
-                <TrendingDown className="w-3 h-3 mr-0.5" /> {formatCurrency(Math.abs(vsYesterday), currency)} less than yesterday
+                <TrendingDown className="w-3 h-3 mr-0.5" /> {formatCurrency(Math.abs(vsYesterday), currency)} {isToday ? 'less than yesterday' : 'less than previous day'}
               </span>
             )}
           </div>
@@ -342,7 +350,11 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
             <AnimatedNumber value={netDayFlowPaise} format={(v) => formatCurrency(v, currency)} />
           </div>
           <div className="text-[11px] text-[var(--ff-text-muted)]">
-            {totalDayIncomesPaise > 0 ? `Inflow: ${formatCurrency(totalDayIncomesPaise, currency)}` : 'No income recorded today'}
+            {totalDayIncomesPaise > 0
+              ? `Inflow: ${formatCurrency(totalDayIncomesPaise, currency)}`
+              : isToday
+                ? 'No income recorded today'
+                : `No income recorded on ${selectedDate}`}
           </div>
         </ThemeCard>
       </div>
@@ -376,7 +388,7 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
                     ariaLabel={`${c.name} share`}
                   />
                   <div className="text-[10px] text-right font-mono text-[var(--ff-text-muted)]">
-                    {share}% of today&apos;s spending
+                    {share}% of {isToday ? "today's spending" : `spending on ${selectedDate}`}
                   </div>
                 </div>
               );
@@ -397,7 +409,9 @@ export const DailyExpenseTracker: React.FC<DailyExpenseTrackerProps> = ({ onOpen
           </span>
         </div>
 
-        {dayExpenses.length === 0 && dayIncomes.length === 0 ? (
+        {loading && expenses.length === 0 && incomes.length === 0 ? (
+          <SkeletonList rows={3} />
+        ) : dayExpenses.length === 0 && dayIncomes.length === 0 ? (
           <EmptyStateIllustration
             icon={<Receipt className="w-6 h-6" />}
             title={`No spending recorded on ${selectedDate}`}

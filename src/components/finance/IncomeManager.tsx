@@ -56,7 +56,7 @@ export const IncomeManager: React.FC = () => {
     setLoading(true);
     api
       .getIncomes()
-      .then(setIncomes)
+      .then((list) => setIncomes(Array.isArray(list) ? list.filter((i) => !i.deletedAt) : []))
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -92,7 +92,7 @@ export const IncomeManager: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
-    if (!source.trim() || !amount || Number(amount) <= 0) {
+    if (!source.trim() || !amount || toPaise(amount) <= 0) {
       setFormError('Please provide a valid income source and positive amount.');
       return;
     }
@@ -164,7 +164,6 @@ export const IncomeManager: React.FC = () => {
       setSaving(false);
       setSubmitSuccess(true);
       triggerRefresh();
-      loadIncomes();
       setTimeout(() => {
         setSubmitSuccess(false);
         setModalOpen(false);
@@ -199,7 +198,6 @@ export const IncomeManager: React.FC = () => {
       }
       showToast('Income record moved to Trash & synchronized', 'info');
       triggerRefresh();
-      loadIncomes();
     } catch {
       showToast('Failed to delete income', 'error');
     }

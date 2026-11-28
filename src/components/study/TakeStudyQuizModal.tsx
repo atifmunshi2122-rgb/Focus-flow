@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ThemeModal, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import { StudyQuiz } from '../../types/study.ts';
-import { CheckCircle2, XCircle, Award, Timer, RotateCcw } from 'lucide-react';
+import { CheckCircle2, XCircle, Award, Timer, RotateCcw, AlertTriangle } from 'lucide-react';
 
 interface TakeStudyQuizModalProps {
   quiz: StudyQuiz | null;
@@ -24,23 +24,25 @@ export const TakeStudyQuizModal: React.FC<TakeStudyQuizModalProps> = ({
   const [startTime, setStartTime] = useState<number>(Date.now());
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen && quiz) {
       setSelectedAnswers({});
       setSubmitted(false);
+      setSaveError(null);
       setStartTime(Date.now());
       setElapsedSeconds(0);
     }
   }, [isOpen, quiz]);
 
   useEffect(() => {
-    if (!isOpen || submitted) return;
+    if (!isOpen || submitted || (quiz?.questions?.length ?? 0) === 0) return;
     const interval = setInterval(() => {
       setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
     return () => clearInterval(interval);
-  }, [isOpen, submitted, startTime]);
+  }, [isOpen, submitted, startTime, quiz]);
 
   if (!quiz) return null;
 
@@ -62,8 +64,9 @@ export const TakeStudyQuizModal: React.FC<TakeStudyQuizModalProps> = ({
   };
 
   const handleSubmit = async () => {
+    if (questions.length === 0) return;
     const score = calculateScore();
-    setSubmitted(true);
+    setSaveError(null);
     setSubmitting(true);
     try {
       await onRecordAttempt(quiz.id, {
@@ -71,8 +74,14 @@ export const TakeStudyQuizModal: React.FC<TakeStudyQuizModalProps> = ({
         totalQuestions: questions.length,
         timeTakenSeconds: elapsedSeconds,
       });
+      setSubmitted(true);
     } catch (err) {
       console.error('Failed to record attempt:', err);
+      setSaveError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to save your quiz attempt. Please check your connection and retry.'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -88,6 +97,40 @@ export const TakeStudyQuizModal: React.FC<TakeStudyQuizModalProps> = ({
       title={`Quiz: ${quiz.title}`}
     >
       <div className="space-y-5">
+        {questions.length === 0 ? (
+          <div className="p-6 text-center rounded-xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] space-y-3 text-xs">
+            <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
+            <p className="text-sm font-semibold text-[var(--ff-text-primary)]">
+              This quiz has no questions yet.
+            </p>
+            <p className="text-[var(--ff-text-muted)]">
+              Add at least one question before taking this quiz.
+            </p>
+            <div className="pt-2">
+              <ThemeButton variant="secondary" size="sm" onClick={onClose}>
+                Close
+              </ThemeButton>
+            </div>
+          </div>
+        ) : (
+          <>
+        {saveError && (
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+              {saveError}
+            </span>
+            <ThemeButton
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={() => void handleSubmit()}
+              disabled={submitting}
+            >
+              Retry Save
+            </ThemeButton>
+          </div>
+        )}
         <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] text-xs">
           <div className="flex items-center gap-2">
             <Timer className="w-4 h-4 text-[var(--ff-accent)]" />
@@ -211,6 +254,8 @@ export const TakeStudyQuizModal: React.FC<TakeStudyQuizModalProps> = ({
             )}
           </div>
         </div>
+          </>
+        )}
       </div>
     </ThemeModal>
   );

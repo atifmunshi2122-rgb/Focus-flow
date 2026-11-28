@@ -154,10 +154,11 @@ export const DataRecoveryCenter: React.FC = () => {
       ]);
 
       const catIds = new Set(categories.map((c) => c.id));
-      const billIds = new Set(bills.map((b) => b.id));
+      const billIds = new Set(bills.filter((b) => !b.deletedAt).map((b) => b.id));
       const issues: Array<{ id: string; description: string; type: string }> = [];
 
       for (const exp of expenses) {
+        if (exp.deletedAt) continue;
         if (exp.categoryId && !catIds.has(exp.categoryId)) {
           issues.push({
             id: exp.id,
@@ -396,49 +397,58 @@ export const DataRecoveryCenter: React.FC = () => {
 
         {loadingLogs ? (
           <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">Loading verified audit log...</div>
-        ) : filteredLogs.length === 0 ? (
-          <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">No audit entries matching filters.</div>
         ) : (
-          <div className="divide-y ff-divider max-h-[500px] overflow-y-auto">
-            {filteredLogs.map((log) => (
-              <div
-                key={log.id}
-                className="p-3.5 hover:bg-[var(--ff-muted)]/10 flex items-center justify-between gap-4 transition-colors text-xs"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <ThemeBadge
-                    tone={
-                      log.action === 'undo_payment'
-                        ? 'danger'
-                        : log.action === 'pay'
-                        ? 'success'
-                        : log.action === 'delete'
-                        ? 'danger'
-                        : 'neutral'
-                    }
-                    className="uppercase shrink-0 font-mono text-[10px]"
+          <>
+            {filteredLogs.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[var(--ff-text-muted)]">No audit entries matching filters.</div>
+            ) : (
+              <div className="divide-y ff-divider max-h-[500px] overflow-y-auto">
+                {filteredLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="p-3.5 hover:bg-[var(--ff-muted)]/10 flex items-center justify-between gap-4 transition-colors text-xs"
                   >
-                    {log.action.replace('_', ' ')}
-                  </ThemeBadge>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <ThemeBadge
+                        tone={
+                          log.action === 'undo_payment'
+                            ? 'danger'
+                            : log.action === 'pay'
+                            ? 'success'
+                            : log.action === 'delete'
+                            ? 'danger'
+                            : 'neutral'
+                        }
+                        className="uppercase shrink-0 font-mono text-[10px]"
+                      >
+                        {log.action.replace('_', ' ')}
+                      </ThemeBadge>
 
-                  <div className="min-w-0">
-                    <p className="font-semibold text-[var(--ff-text-primary)] truncate">
-                      {log.entityTitle || log.entityId}
-                    </p>
-                    {log.details && (
-                      <p className="text-[11px] text-[var(--ff-text-muted)] truncate">{log.details}</p>
-                    )}
+                      <div className="min-w-0">
+                        <p className="font-semibold text-[var(--ff-text-primary)] truncate">
+                          {log.entityTitle || log.entityId}
+                        </p>
+                        {log.details && (
+                          <p className="text-[11px] text-[var(--ff-text-muted)] truncate">{log.details}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0 text-[11px] font-mono text-[var(--ff-text-muted)]">
+                      <span>
+                        {new Date(log.timestamp).toLocaleString(
+                          undefined,
+                          settings?.timezone ? { timeZone: settings.timezone } : undefined
+                        )}
+                      </span>
+                      <span className="block uppercase text-[9px] text-[var(--ff-text-muted)]">
+                        {log.entityType}
+                      </span>
+                    </div>
                   </div>
-                </div>
-
-                <div className="text-right shrink-0 text-[11px] font-mono text-[var(--ff-text-muted)]">
-                  <span>{new Date(log.timestamp).toLocaleString()}</span>
-                  <span className="block uppercase text-[9px] text-[var(--ff-text-muted)]">
-                    {log.entityType}
-                  </span>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
             {hasMoreLogs && (
               <div className="p-3 text-center border-t ff-divider">
                 <ThemeButton
@@ -453,7 +463,7 @@ export const DataRecoveryCenter: React.FC = () => {
                 </ThemeButton>
               </div>
             )}
-          </div>
+          </>
         )}
       </ThemeCard>
     </div>

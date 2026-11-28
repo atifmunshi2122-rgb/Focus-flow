@@ -204,9 +204,8 @@ export function evaluateDeterministicNotifications(input: {
     input.expenses
   ) {
     const weeklyLimit = input.settings.weeklySpendingLimitPaise;
-    const sevenDaysAgoStr = addDays(todayStr, -6);
     const spentWeek = input.expenses
-      .filter((e) => !e.deletedAt && e.date >= sevenDaysAgoStr && e.date <= todayStr)
+      .filter((e) => !e.deletedAt && e.date >= weekKey && e.date <= todayStr)
       .reduce((sum, e) => sum + e.amountPaise, 0);
     const pct = Math.round((spentWeek / weeklyLimit) * 100);
     const threshold = Math.max(50, Math.min(100, prefs.budgetWarningPercent || 80));
@@ -236,6 +235,7 @@ export function evaluateDeterministicNotifications(input: {
   // Savings Goal Milestones
   if (input.savingsGoals) {
     for (const goal of input.savingsGoals) {
+      if ((goal as { deletedAt?: string | null }).deletedAt) continue;
       if (goal.targetPaise > 0) {
         const pct = Math.round((goal.savedPaise / goal.targetPaise) * 100);
         if (pct >= 100) {
@@ -256,8 +256,9 @@ export function evaluateDeterministicNotifications(input: {
   // Unusual Single Expense Detection
   if (prefs.budgetWarnings && input.expenses && input.expenses.length > 0) {
     const todayExpenses = input.expenses.filter((e) => !e.deletedAt && e.date === todayStr);
+    const largeExpenseThresholdPaise = currency === 'INR' ? 1_000_000 : 25_000;
     for (const exp of todayExpenses) {
-      if (exp.amountPaise >= 1000000) {
+      if (exp.amountPaise >= largeExpenseThresholdPaise) {
         items.push({
           id: `unusual_expense_${exp.id}`,
           severity: 'info',
@@ -314,7 +315,8 @@ export function evaluateDeterministicNotifications(input: {
     const todayTasks = input.tasks.filter(
       (t) =>
         !t.deletedAt &&
-        (t.dueDate === todayStr || (t.completedAt && t.completedAt.slice(0, 10) === todayStr))
+        (t.dueDate === todayStr ||
+          (t.completedAt && formatDateInTimezone(new Date(t.completedAt), tz) === todayStr))
     );
     if (todayTasks.length === 0 && activeUncompletedTasks.length > 0) {
       items.push({

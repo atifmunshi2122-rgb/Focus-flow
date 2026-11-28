@@ -73,9 +73,11 @@ import {
   HOME_ZONES,
   clampWalkableFloorPosition,
   computeHomeWaypointPath,
+  computeObstacleAwareFloorPath,
   deriveDefaultLightingForHour,
   deriveHomeRoutineState,
   getZonedHourMinute,
+  resolveHomeZoneConfig,
   type HomeZoneId,
 } from '../../features/home/homeRoutineEngine.ts';
 import {
@@ -429,7 +431,7 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
     });
     return () => onRegisterCapture?.(null);
   }, [gl, scene, camera, onRegisterCapture]);
-  const initialCfg = HOME_ZONES[routineState.zone];
+  const initialCfg = resolveHomeZoneConfig(routineState.zone, roomStyle);
   const startPos: [number, number, number] = isStaticUnrigged ? initialCfg.approachPosition : initialCfg.anchorPosition;
 
   const walkerRef = useRef<THREE.Group>(null);
@@ -441,6 +443,7 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
   const [rigCaps, setRigCaps] = useState<RigCapabilities | null>(null);
 
   const mountedZoneRef = useRef<HomeZoneId>(routineState.zone);
+  const prevRoomStyleRef = useRef<HomeRoomStyle>(roomStyle);
   const wasdKeysRef = useRef<Record<string, boolean>>({});
   const isWasdMovingRef = useRef(false);
 
@@ -465,24 +468,48 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
     };
   }, []);
 
-  // Trigger direct floor walk whenever user clicks a walkable floor coordinate
+  // Trigger clamped obstacle-aware floor walk whenever user clicks a walkable floor coordinate
   useEffect(() => {
     if (!walkTarget || isVisiting) return;
-    queueRef.current = [[walkTarget.pos[0], 0, walkTarget.pos[2]]];
+    const clampedTarget = clampWalkableFloorPosition(walkTarget.pos[0], walkTarget.pos[2], roomStyle);
+    queueRef.current = computeObstacleAwareFloorPath(
+      currentPosRef.current,
+      clampedTarget,
+      roomStyle
+    );
     if (!walkingFlagRef.current) {
       walkingFlagRef.current = true;
       onWalkingChange(true);
     }
-  }, [walkTarget?.seq, isVisiting, onWalkingChange]);
+  }, [walkTarget?.seq, isVisiting, roomStyle, onWalkingChange]);
 
-  // Trigger smooth waypoint path whenever destination zone or rig type changes
+  // Trigger smooth waypoint path whenever destination zone, rig type, or roomStyle changes
   useEffect(() => {
+    const zoneCfg = resolveHomeZoneConfig(routineState.zone, roomStyle);
+    const dest = isStaticUnrigged && zoneCfg.supportsStaticStandingOnlyFallback
+      ? zoneCfg.approachPosition
+      : zoneCfg.anchorPosition;
+
+    if (prevRoomStyleRef.current !== roomStyle) {
+      prevRoomStyleRef.current = roomStyle;
+      mountedZoneRef.current = routineState.zone;
+      queueRef.current = [];
+      currentPosRef.current = dest;
+      currentRotYRef.current = zoneCfg.targetRotationY;
+      followPointRef.current = dest;
+      if (walkerRef.current) {
+        walkerRef.current.position.set(dest[0], dest[1], dest[2]);
+        walkerRef.current.rotation.y = zoneCfg.targetRotationY;
+      }
+      if (walkingFlagRef.current) {
+        walkingFlagRef.current = false;
+        onWalkingChange(false);
+      }
+      return;
+    }
+
     if (mountedZoneRef.current === routineState.zone && !walkingFlagRef.current) {
       // Snap cleanly on first load or when toggling seated <-> standing fallback on same zone
-      const zoneCfg = HOME_ZONES[routineState.zone];
-      const dest = isStaticUnrigged && zoneCfg.supportsStaticStandingOnlyFallback
-        ? zoneCfg.approachPosition
-        : zoneCfg.anchorPosition;
       const dist = Math.hypot(
         dest[0] - currentPosRef.current[0],
         dest[2] - currentPosRef.current[2]
@@ -491,23 +518,23 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
     }
 
     mountedZoneRef.current = routineState.zone;
-    const zoneCfg = HOME_ZONES[routineState.zone];
     const nextPath = computeHomeWaypointPath(currentPosRef.current, routineState.zone, {
       standingOnlyFallback: isStaticUnrigged && zoneCfg.supportsStaticStandingOnlyFallback,
+      roomStyle,
     });
     queueRef.current = nextPath;
     if (nextPath.length > 0 && !walkingFlagRef.current) {
       walkingFlagRef.current = true;
       onWalkingChange(true);
     }
-  }, [routineState.zone, isStaticUnrigged, onWalkingChange]);
+  }, [routineState.zone, isStaticUnrigged, roomStyle, onWalkingChange]);
 
   useFrame((_, delta) => {
     const walker = walkerRef.current;
     if (!walker) return;
 
     const clampedDelta = Math.min(0.05, Math.max(0.001, delta));
-    const zoneCfg = HOME_ZONES[routineState.zone];
+    const zoneCfg = resolveHomeZoneConfig(routineState.zone, roomStyle);
     const queue = queueRef.current;
 
     // Free WASD / Arrow walking in own home (outside Desk POV)
@@ -525,7 +552,8 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
         const speed = 2.35 * clampedDelta;
         const nextClamped = clampWalkableFloorPosition(
           currentPosRef.current[0] + (moveX / len) * speed,
-          currentPosRef.current[2] + (moveZ / len) * speed
+          currentPosRef.current[2] + (moveZ / len) * speed,
+          roomStyle
         );
         currentPosRef.current = nextClamped;
         queueRef.current = [];
@@ -580,8 +608,9 @@ const HomeSceneContent: React.FC<HomeSceneContentProps> = ({
     } else {
       // Arrived cleanly: face the zone's natural orientation
       if (routineState.zone === 'study' && !isVisiting && !isStaticUnrigged) {
-        const targetStandX = isStandingDesk ? -3.68 : zoneCfg.anchorPosition[0];
-        const targetStandZ = isStandingDesk ? 1.05 : zoneCfg.anchorPosition[2];
+        const standingPos = getHomeRoomTheme(roomStyle).roomLayout?.standingDeskPos;
+        const targetStandX = isStandingDesk && standingPos ? standingPos[0] : zoneCfg.anchorPosition[0];
+        const targetStandZ = isStandingDesk && standingPos ? standingPos[2] : zoneCfg.anchorPosition[2];
         currentPosRef.current = [
           THREE.MathUtils.lerp(currentPosRef.current[0], targetStandX, Math.min(1, clampedDelta * 6)),
           currentPosRef.current[1],

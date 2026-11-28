@@ -133,7 +133,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
   // Common date & payment states
   const [date, setDate] = useState<string>(
-    () => initialDate || getTodayDateString()
+    () => initialDate || getTodayDateString(settings?.timezone)
   );
   const [paymentMethod, setPaymentMethod] = useState<
     'credit_card' | 'debit_card' | 'upi_bank' | 'cash'
@@ -161,7 +161,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   // Bill specific states
   const [billName, setBillName] = useState('');
   const [billAmount, setBillAmount] = useState('');
-  const [billDueDate, setBillDueDate] = useState(() => getTodayDateString());
+  const [billDueDate, setBillDueDate] = useState(() => getTodayDateString(settings?.timezone));
   const [billCategory, setBillCategory] = useState('Bills & Utilities');
 
   // Task specific states
@@ -179,7 +179,9 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   // Budget envelope specific states
   const [envelopeName, setEnvelopeName] = useState('');
   const [envelopeAmount, setEnvelopeAmount] = useState('');
-  const [envelopeMonthKey, setEnvelopeMonthKey] = useState(() => new Date().toISOString().slice(0, 7));
+  const [envelopeMonthKey, setEnvelopeMonthKey] = useState(() =>
+    getTodayDateString(settings?.timezone).slice(0, 7)
+  );
 
   // Savings goal specific states
   const [goalTitle, setGoalTitle] = useState('');
@@ -205,7 +207,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   }, [isOpen, safeInitialType, initialDate]);
 
   const resetFields = () => {
-    const today = initialDate || getTodayDateString();
+    const today = initialDate || getTodayDateString(settings?.timezone);
     setDate(today);
     setPaymentMethod('upi_bank');
     setExpenseEntries([]);
@@ -240,7 +242,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
     setEnvelopeName('');
     setEnvelopeAmount('');
-    setEnvelopeMonthKey(new Date().toISOString().slice(0, 7));
+    setEnvelopeMonthKey(getTodayDateString(settings?.timezone).slice(0, 7));
 
     setGoalTitle('');
     setGoalAmount('');
@@ -463,8 +465,13 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       if (activeType === 'expense') {
         let entriesToSave = [...expenseEntries];
         if (currentAmount && Number(currentAmount) > 0) {
+          if (isCustomReason && !customReasonInput.trim()) {
+            setFormError('Please enter a custom expense reason or select a preset.');
+            setLoading(false);
+            return;
+          }
           const effectiveReason = isCustomReason
-            ? customReasonInput.trim() || 'General Expense'
+            ? customReasonInput.trim()
             : selectedReason;
           entriesToSave.push({
             id: `temp_${Date.now()}`,
@@ -501,7 +508,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           const createdExp = await api.createExpense({
             description: item.reason.trim(),
             amountPaise: itemAmountPaise,
-            date: date || getTodayDateString(),
+            date: date || getTodayDateString(settings?.timezone),
             paymentMethod,
             categoryId: resolvedCategoryId,
             categoryName: resolvedCategoryName,
@@ -538,7 +545,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
         const createdInc = await api.createIncome({
           source: incomeSource.trim(),
           amountPaise: itemAmountPaise,
-          date: date || getTodayDateString(),
+          date: date || getTodayDateString(settings?.timezone),
           category: incomeCategory.trim() || 'Salary',
           notes: incomeNotes.trim() || undefined,
         });
@@ -649,12 +656,26 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
         });
         showToast('Habit tracker entry created', 'success');
       } else if (activeType === 'envelope') {
-        await api.createEnvelope({
+        const createdEnv = await api.createEnvelope({
           name: envelopeName.trim(),
           allocatedPaise: toPaise(envelopeAmount),
           monthKey: envelopeMonthKey,
         });
-        showToast('Budget envelope allocated', 'success');
+        await syncCoordinator.syncMutation(
+          'Budgets',
+          [
+            createdEnv.id,
+            createdEnv.name,
+            createdEnv.allocatedPaise / 100,
+            0,
+            createdEnv.allocatedPaise / 100,
+            0,
+            'ON_TRACK',
+          ],
+          'append',
+          `Budgets_append_${createdEnv.id}`
+        );
+        showToast('Budget envelope allocated & synchronized', 'success');
       } else if (activeType === 'goal') {
         const targetNum = Number(goalAmount);
         const createdGoal = await api.createSavingsGoal({
@@ -831,28 +852,31 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                       {savedCustomReasons.map((customName) => {
                         const isSelected = !isCustomReason && selectedReason === customName;
                         return (
-                          <button
+                          <div
                             key={customName}
-                            type="button"
-                            onClick={() => handleSelectReason(customName)}
-                            className={`group flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg transition-all ${
+                            className={`group inline-flex items-center rounded-lg transition-all ${
                               isSelected
                                 ? 'bg-[var(--ff-accent)] text-white shadow-sm font-semibold'
                                 : 'bg-[var(--ff-surface-muted)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-border-color)]'
                             }`}
                           >
-                            <span>🏷️</span>
-                            <span>{customName}</span>
-                            <span
-                              role="button"
-                              tabIndex={0}
+                            <button
+                              type="button"
+                              onClick={() => handleSelectReason(customName)}
+                              className="flex items-center gap-1 pl-2.5 pr-1 py-1 text-xs"
+                            >
+                              <span>🏷️</span>
+                              <span>{customName}</span>
+                            </button>
+                            <button
+                              type="button"
                               aria-label={`Remove saved reason ${customName}`}
                               onClick={(e) => handleDeleteCustomReason(customName, e)}
-                              className="ml-0.5 hover:text-red-300 transition-colors p-0.5"
+                              className="pr-2 pl-0.5 py-1 hover:text-red-300 transition-colors"
                             >
                               <X className="w-3 h-3" />
-                            </span>
-                          </button>
+                            </button>
+                          </div>
                         );
                       })}
 

@@ -1,7 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Calendar, RefreshCw, CheckCircle2, AlertCircle, Unlink, ExternalLink } from 'lucide-react';
+import { useApp } from '../../context/AppContext.tsx';
 import { googleCalendarClient } from '../../lib/googleCalendarService.ts';
 import type { GoogleCalendarConnectionStatus } from '../../types/calendar.ts';
+
+const DEFAULT_GCAL_STATUS: GoogleCalendarConnectionStatus = {
+  connected: false,
+  calendarId: 'primary',
+  autoSyncTasks: false,
+  autoSyncTimeBlocks: false,
+  autoSyncStudySchedule: false,
+  lastSyncAt: null,
+};
 
 interface GoogleCalendarSyncPanelProps {
   onSyncComplete?: () => void;
@@ -16,31 +26,44 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
   showEvents = true,
   onToggleShowEvents,
 }) => {
-  const [status, setStatus] = useState<GoogleCalendarConnectionStatus>({
-    connected: false,
-    calendarId: 'primary',
-    autoSyncTasks: false,
-    autoSyncTimeBlocks: false,
-    autoSyncStudySchedule: false,
-    lastSyncAt: null,
-  });
+  const { user, confirmAction } = useApp();
+  const [status, setStatus] = useState<GoogleCalendarConnectionStatus>(DEFAULT_GCAL_STATUS);
   const [loading, setLoading] = useState<boolean>(false);
   const [syncing, setSyncing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const loadStatus = async () => {
+  const showTransientSuccess = useCallback((msg: string, ms = 4000) => {
+    setSuccessMsg(msg);
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    successTimerRef.current = setTimeout(() => {
+      setSuccessMsg(null);
+      successTimerRef.current = null;
+    }, ms);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, []);
+
+  const loadStatus = useCallback(async () => {
     try {
       const s = await googleCalendarClient.getStatus();
       setStatus(s);
     } catch {
       // Ignore
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadStatus();
-  }, []);
+    setStatus(DEFAULT_GCAL_STATUS);
+    setError(null);
+    setSuccessMsg(null);
+    void loadStatus();
+  }, [user?.id, loadStatus]);
 
   const handleConnect = async () => {
     setLoading(true);
@@ -48,8 +71,7 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
     try {
       await googleCalendarClient.connectCalendar();
       await loadStatus();
-      setSuccessMsg('Google Calendar connected successfully!');
-      setTimeout(() => setSuccessMsg(null), 4000);
+      showTransientSuccess('Google Calendar connected successfully!', 4000);
       if (onSyncComplete) onSyncComplete();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to connect Google Calendar';
@@ -60,15 +82,18 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
   };
 
   const handleDisconnect = async () => {
-    if (!window.confirm('Disconnect Google Calendar? FocusFlow events already synced to Google Calendar will remain.')) {
-      return;
-    }
+    const confirmed = await confirmAction({
+      title: 'Disconnect Google Calendar?',
+      message: 'FocusFlow events already synced to Google Calendar will remain.',
+      confirmLabel: 'Disconnect',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setLoading(true);
     try {
       await googleCalendarClient.disconnect();
       await loadStatus();
-      setSuccessMsg('Google Calendar disconnected.');
-      setTimeout(() => setSuccessMsg(null), 3000);
+      showTransientSuccess('Google Calendar disconnected.', 3000);
       if (onSyncComplete) onSyncComplete();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to disconnect';
@@ -82,10 +107,21 @@ export const GoogleCalendarSyncPanel: React.FC<GoogleCalendarSyncPanelProps> = (
     setSyncing(true);
     setError(null);
     try {
-      const res = await googleCalendarClient.syncTasks();
+      let savedPrefs: Partial<GoogleCalendarConnectionStatus> = {};
+      try {
+        const raw = localStorage.getItem(`ff_gcal_prefs_${user?.id || 'guest'}`);
+        if (raw) savedPrefs = JSON.parse(raw) as Partial<GoogleCalendarConnectionStatus>;
+      } catch {
+        // ignore storage parse errors
+      }
+      const targetCalendarId = savedPrefs.calendarId || status.calendarId || 'primary';
+      const res = await googleCalendarClient.syncTasks(targetCalendarId, {
+        autoSyncTasks: savedPrefs.autoSyncTasks ?? status.autoSyncTasks,
+        autoSyncTimeBlocks: savedPrefs.autoSyncTimeBlocks ?? status.autoSyncTimeBlocks,
+        autoSyncStudySchedule: savedPrefs.autoSyncStudySchedule ?? status.autoSyncStudySchedule,
+      });
       await loadStatus();
-      setSuccessMsg(`Synced: ${res.synced} created, ${res.updated} updated.`);
-      setTimeout(() => setSuccessMsg(null), 4000);
+      showTransientSuccess(`Synced: ${res.synced} created, ${res.updated} updated.`, 4000);
       if (onSyncComplete) onSyncComplete();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to sync tasks';

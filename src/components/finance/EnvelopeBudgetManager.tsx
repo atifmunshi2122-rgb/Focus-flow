@@ -6,7 +6,8 @@ import { BudgetEnvelope, ExpenseCategory } from '../../types/index.ts';
 import { DEFAULT_TIMEZONE, getTodayDateString } from '../../lib/dateTime.ts';
 import { formatCurrency, toPaise, toMajorCurrency } from '../../lib/currency.ts';
 import { ThemeCard, ThemeButton, ThemeInput } from '../ui/ThemePrimitives.tsx';
-import { AnimatedProgressBar, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { AnimatedProgressBar, SkeletonList, useMotionPreferences } from '../ui/MotionPrimitives.tsx';
+import { syncCoordinator } from '../../lib/syncCoordinator.ts';
 import { getSpringTransition, MOTION_DURATION } from '../../theme/motionTokens.ts';
 import {
   Wallet,
@@ -49,6 +50,8 @@ export const EnvelopeBudgetManager: React.FC = () => {
   const [transferFromId, setTransferFromId] = useState('');
   const [transferToId, setTransferToId] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
+  const [savingEnvelope, setSavingEnvelope] = useState(false);
+  const [transferring, setTransferring] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -97,8 +100,25 @@ export const EnvelopeBudgetManager: React.FC = () => {
     setIsTransferModalOpen(true);
   };
 
+  const buildBudgetSheetRow = (env: BudgetEnvelope) => {
+    const spent = env.spentPaise || 0;
+    const rem = env.allocatedPaise - spent;
+    const pct = env.allocatedPaise > 0 ? Math.round((spent / env.allocatedPaise) * 100) : 0;
+    const health = spent > env.allocatedPaise ? 'OVERSPENT' : pct >= 85 ? 'WARNING' : 'ON_TRACK';
+    return [
+      env.id,
+      env.name,
+      env.allocatedPaise / 100,
+      spent / 100,
+      rem / 100,
+      pct,
+      health,
+    ];
+  };
+
   const handleSaveEnvelope = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingEnvelope) return;
     if (!formName.trim()) {
       showToast('Please enter an envelope name', 'error');
       return;
@@ -110,24 +130,31 @@ export const EnvelopeBudgetManager: React.FC = () => {
       return;
     }
 
+    setSavingEnvelope(true);
     try {
       if (editingEnvelope) {
-        await api.updateEnvelope(editingEnvelope.id, {
+        const updated = await api.updateEnvelope(editingEnvelope.id, {
           name: formName.trim(),
           categoryId: formCategoryId || null,
           allocatedPaise,
           color: formColor,
           monthKey: selectedMonth,
         });
+        void syncCoordinator
+          .syncMutation('Budgets', buildBudgetSheetRow(updated), 'update', `Budgets_update_${updated.id}`)
+          .catch(() => {});
         showToast('Envelope budget updated', 'success');
       } else {
-        await api.createEnvelope({
+        const created = await api.createEnvelope({
           name: formName.trim(),
           categoryId: formCategoryId || null,
           allocatedPaise,
           color: formColor,
           monthKey: selectedMonth,
         });
+        void syncCoordinator
+          .syncMutation('Budgets', buildBudgetSheetRow(created), 'append', `Budgets_append_${created.id}`)
+          .catch(() => {});
         showToast('New budget envelope created', 'success');
       }
       setIsModalOpen(false);
@@ -135,11 +162,14 @@ export const EnvelopeBudgetManager: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save envelope';
       showToast(msg, 'error');
+    } finally {
+      setSavingEnvelope(false);
     }
   };
 
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (transferring) return;
     if (!transferFromId || !transferToId) {
       showToast('Please select source and destination envelopes', 'error');
       return;
@@ -156,6 +186,7 @@ export const EnvelopeBudgetManager: React.FC = () => {
     }
 
     const source = envelopes.find((e) => e.id === transferFromId);
+    const dest = envelopes.find((e) => e.id === transferToId);
     const availablePaise = source
       ? Math.max(0, source.allocatedPaise - Math.max(0, source.spentPaise || 0))
       : 0;
@@ -164,8 +195,19 @@ export const EnvelopeBudgetManager: React.FC = () => {
       return;
     }
 
+    setTransferring(true);
     try {
       await api.transferEnvelopeFunds(transferFromId, transferToId, amountPaise);
+      const updatedSource: BudgetEnvelope = { ...source, allocatedPaise: source.allocatedPaise - amountPaise };
+      void syncCoordinator
+        .syncMutation('Budgets', buildBudgetSheetRow(updatedSource), 'update', `Budgets_update_${updatedSource.id}_${Date.now()}`)
+        .catch(() => {});
+      if (dest) {
+        const updatedDest: BudgetEnvelope = { ...dest, allocatedPaise: dest.allocatedPaise + amountPaise };
+        void syncCoordinator
+          .syncMutation('Budgets', buildBudgetSheetRow(updatedDest), 'update', `Budgets_update_${updatedDest.id}_${Date.now()}`)
+          .catch(() => {});
+      }
       showToast(
         `Transferred ${formatCurrency(amountPaise, currency)} between envelopes`,
         'success'
@@ -175,6 +217,8 @@ export const EnvelopeBudgetManager: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Transfer failed';
       showToast(msg, 'error');
+    } finally {
+      setTransferring(false);
     }
   };
 
@@ -189,6 +233,9 @@ export const EnvelopeBudgetManager: React.FC = () => {
     if (!confirmed) return;
     try {
       await api.deleteEnvelope(env.id);
+      void syncCoordinator
+        .syncMutation('Budgets', [env.id], 'delete', `Budgets_delete_${env.id}`)
+        .catch(() => {});
       showToast('Envelope moved to trash', 'info');
       triggerRefresh();
     } catch {
@@ -327,7 +374,13 @@ export const EnvelopeBudgetManager: React.FC = () => {
       </div>
 
       {/* Envelopes Grid */}
-      {envelopes.length === 0 ? (
+      {loading && envelopes.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonList rows={3} />
+          <SkeletonList rows={3} />
+          <SkeletonList rows={3} />
+        </div>
+      ) : envelopes.length === 0 ? (
         <ThemeCard className="text-center py-12">
           <Wallet className="w-10 h-10 mx-auto text-[var(--ff-text-muted)] mb-3" />
           <h3 className="text-base font-bold text-[var(--ff-text-primary)]">No Envelopes Created Yet</h3>
@@ -371,15 +424,17 @@ export const EnvelopeBudgetManager: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => openTransferModal(env.id)}
-                      className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)]"
-                      title="Transfer funds out"
-                      aria-label={`Transfer funds from ${env.name}`}
-                    >
-                      <ArrowRightLeft className="w-3.5 h-3.5" />
-                    </button>
+                    {envelopes.length >= 2 && (
+                      <button
+                        type="button"
+                        onClick={() => openTransferModal(env.id)}
+                        className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)]"
+                        title="Transfer funds out"
+                        aria-label={`Transfer funds from ${env.name}`}
+                      >
+                        <ArrowRightLeft className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => openEditModal(env)}
@@ -552,10 +607,10 @@ export const EnvelopeBudgetManager: React.FC = () => {
             </div>
 
             <div className="p-4 border-t ff-divider flex items-center justify-end gap-2">
-              <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsModalOpen(false)}>
+              <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsModalOpen(false)} disabled={savingEnvelope}>
                 Cancel
               </ThemeButton>
-              <ThemeButton type="submit" variant="primary" size="sm">
+              <ThemeButton type="submit" variant="primary" size="sm" loading={savingEnvelope} loadingText="Saving...">
                 {editingEnvelope ? 'Save Changes' : 'Create Envelope'}
               </ThemeButton>
             </div>
@@ -673,10 +728,10 @@ export const EnvelopeBudgetManager: React.FC = () => {
             </div>
 
             <div className="p-4 border-t ff-divider flex items-center justify-end gap-2">
-              <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsTransferModalOpen(false)}>
+              <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsTransferModalOpen(false)} disabled={transferring}>
                 Cancel
               </ThemeButton>
-              <ThemeButton type="submit" variant="primary" size="sm">
+              <ThemeButton type="submit" variant="primary" size="sm" loading={transferring} loadingText="Transferring...">
                 Transfer Funds
               </ThemeButton>
             </div>

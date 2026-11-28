@@ -36,7 +36,8 @@ export const SmartSpendingInsightsCard: React.FC<SmartSpendingInsightsCardProps>
     });
   }, [expenses, incomes, settings, todayStr]);
 
-  const hasData = expenses.length > 0;
+  const activeExpenses = useMemo(() => expenses.filter((e) => !e.deletedAt), [expenses]);
+  const hasData = activeExpenses.length > 0;
   if (!hasData) return null;
 
   return (

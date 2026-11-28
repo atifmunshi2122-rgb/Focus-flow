@@ -47,6 +47,7 @@ export const SubscriptionManager: React.FC = () => {
   const [formStatus, setFormStatus] = useState<'active' | 'paused' | 'cancelled'>('active');
   const [formUrl, setFormUrl] = useState('');
   const [formNotes, setFormNotes] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const fetchSubscriptions = useCallback(() => {
     let isMounted = true;
@@ -110,6 +111,7 @@ export const SubscriptionManager: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     if (!formName.trim()) {
       showToast('Please enter a subscription name', 'error');
       return;
@@ -126,6 +128,7 @@ export const SubscriptionManager: React.FC = () => {
       ? Math.max(0, Math.floor(parsedReminderRaw))
       : 3;
 
+    setSaving(true);
     try {
       if (editingSub) {
         await api.updateSubscription(editingSub.id, {
@@ -161,6 +164,8 @@ export const SubscriptionManager: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save subscription';
       showToast(msg, 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -298,7 +303,7 @@ export const SubscriptionManager: React.FC = () => {
             <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
             <div className="flex-1 text-xs">
               <span className="font-bold text-amber-600 dark:text-amber-400">
-                {renewalsNear.length} Subscription{renewalsNear.length > 1 ? 's' : ''} Renewing in the Next 7 Days:
+                {renewalsNear.length} Subscription{renewalsNear.length > 1 ? 's' : ''} Upcoming or Due for Renewal:
               </span>{' '}
               <span className="text-[var(--ff-text-secondary)]">
                 {renewalsNear.map((s) => `${s.name} (${s.nextRenewalDate})`).join(', ')}
@@ -388,10 +393,22 @@ export const SubscriptionManager: React.FC = () => {
                       type="button"
                       onClick={() => void handleToggleStatus(sub)}
                       className="p-1 rounded-md text-[var(--ff-text-muted)] hover:text-[var(--ff-accent)]"
-                      title={isPaused ? 'Resume subscription' : 'Pause subscription'}
-                      aria-label={`${isPaused ? 'Resume' : 'Pause'} ${sub.name}`}
+                      title={
+                        isCancelled
+                          ? 'Reactivate subscription'
+                          : isPaused
+                          ? 'Resume subscription'
+                          : 'Pause subscription'
+                      }
+                      aria-label={`${
+                        isCancelled ? 'Reactivate' : isPaused ? 'Resume' : 'Pause'
+                      } ${sub.name}`}
                     >
-                      {isPaused ? <PlayCircle className="w-3.5 h-3.5" /> : <PauseCircle className="w-3.5 h-3.5" />}
+                      {isPaused || isCancelled ? (
+                        <PlayCircle className="w-3.5 h-3.5" />
+                      ) : (
+                        <PauseCircle className="w-3.5 h-3.5" />
+                      )}
                     </button>
                     <button
                       type="button"
@@ -570,6 +587,51 @@ export const SubscriptionManager: React.FC = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={formCategoryId}
+                    onChange={(e) => setFormCategoryId(e.target.value)}
+                    className="ff-input w-full text-xs py-2 px-3 rounded-lg"
+                    style={{
+                      backgroundColor: 'var(--ff-card-bg)',
+                      borderColor: 'var(--ff-border)',
+                      color: 'var(--ff-text-primary)',
+                    }}
+                  >
+                    {categories.length === 0 && <option value="cat_subs">Subscriptions</option>}
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as 'active' | 'paused' | 'cancelled')}
+                    className="ff-input w-full text-xs py-2 px-3 rounded-lg"
+                    style={{
+                      backgroundColor: 'var(--ff-card-bg)',
+                      borderColor: 'var(--ff-border)',
+                      color: 'var(--ff-text-primary)',
+                    }}
+                  >
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
                   Website / Management URL (Optional)
@@ -579,6 +641,18 @@ export const SubscriptionManager: React.FC = () => {
                   value={formUrl}
                   onChange={(e) => setFormUrl(e.target.value)}
                   placeholder="https://..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">
+                  Notes (Optional)
+                </label>
+                <ThemeInput
+                  type="text"
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  placeholder="Account email, seat info, cancellation notes..."
                 />
               </div>
 
@@ -597,10 +671,10 @@ export const SubscriptionManager: React.FC = () => {
             </div>
 
             <div className="p-4 border-t ff-divider flex items-center justify-end gap-2">
-              <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsModalOpen(false)}>
+              <ThemeButton type="button" variant="ghost" size="sm" onClick={() => setIsModalOpen(false)} disabled={saving}>
                 Cancel
               </ThemeButton>
-              <ThemeButton type="submit" variant="primary" size="sm">
+              <ThemeButton type="submit" variant="primary" size="sm" loading={saving} loadingText="Saving...">
                 {editingSub ? 'Save Changes' : 'Track Subscription'}
               </ThemeButton>
             </div>

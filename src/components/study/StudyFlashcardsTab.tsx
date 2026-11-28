@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useApp } from '../../context/AppContext.tsx';
 import { StudyFlashcard, StudySubject } from '../../types/study.ts';
 import { ThemeCard, ThemeButton } from '../ui/ThemePrimitives.tsx';
 import {
@@ -28,6 +29,7 @@ export const StudyFlashcardsTab: React.FC<StudyFlashcardsTabProps> = ({
   onToggleBookmark,
   onDeleteFlashcard,
 }) => {
+  const { showToast } = useApp();
   const [activeIdx, setActiveIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState('all');
@@ -68,6 +70,11 @@ export const StudyFlashcardsTab: React.FC<StudyFlashcardsTabProps> = ({
       await onReviewFlashcard(currentCard.id, difficulty);
       setFlipped(false);
       handleNext();
+    } catch (err) {
+      showToast?.(
+        err instanceof Error ? err.message : 'Failed to save flashcard review',
+        'error'
+      );
     } finally {
       setReviewing(false);
     }
@@ -127,7 +134,7 @@ export const StudyFlashcardsTab: React.FC<StudyFlashcardsTabProps> = ({
           {/* Deck Counter & Controls */}
           <div className="flex items-center justify-between text-xs text-[var(--ff-text-muted)] px-2">
             <span>
-              Card <strong className="text-[var(--ff-text-primary)]">{activeIdx + 1}</strong> of {activeCards.length}
+              Card <strong className="text-[var(--ff-text-primary)]">{safeIdx + 1}</strong> of {activeCards.length}
             </span>
             <div className="flex items-center gap-2">
               {currentCard && (
@@ -159,8 +166,23 @@ export const StudyFlashcardsTab: React.FC<StudyFlashcardsTabProps> = ({
           {/* Interactive Flip Card Container */}
           {currentCard && (
             <div
+              role="button"
+              tabIndex={0}
+              aria-label={flipped ? 'Show question side of flashcard' : 'Flip flashcard to reveal answer'}
               onClick={() => setFlipped(!flipped)}
-              className="cursor-pointer min-h-[280px] p-8 rounded-3xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between select-none relative group"
+              onKeyDown={(e) => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                  e.preventDefault();
+                  setFlipped((f) => !f);
+                } else if (e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  handleNext();
+                } else if (e.key === 'ArrowLeft') {
+                  e.preventDefault();
+                  handlePrev();
+                }
+              }}
+              className="cursor-pointer min-h-[280px] p-8 rounded-3xl bg-[var(--ff-surface-card)] border border-[var(--ff-border-color)] shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between select-none relative group focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ff-accent)]"
             >
               <div>
                 <div className="flex items-center justify-between mb-4">

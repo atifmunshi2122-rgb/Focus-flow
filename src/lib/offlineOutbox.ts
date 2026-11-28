@@ -1,10 +1,54 @@
 import { OfflineOutboxOperation } from '../types/index.ts';
 
 const OUTBOX_STORAGE_PREFIX = 'ff_firestore_outbox_v1_';
+export const MAX_OUTBOX_RETRY_ATTEMPTS = 12;
 
 type OutboxListener = (count: number) => void;
 
 const listenersByUser = new Map<string, Set<OutboxListener>>();
+let storageListenerAttached = false;
+
+function notifyUserListeners(userId: string, count: number): void {
+  const set = listenersByUser.get(userId);
+  if (!set) return;
+  set.forEach((cb) => {
+    try {
+      cb(count);
+    } catch {
+      // isolate subscriber errors
+    }
+  });
+}
+
+function handleWindowStorage(event: StorageEvent): void {
+  if (typeof localStorage === 'undefined') return;
+  if (event.key === null) {
+    // localStorage.clear()
+    listenersByUser.forEach((_set, uid) => {
+      notifyUserListeners(uid, readOps(uid).length);
+    });
+    return;
+  }
+  if (!event.key.startsWith(OUTBOX_STORAGE_PREFIX)) return;
+  const userId = event.key.slice(OUTBOX_STORAGE_PREFIX.length);
+  if (!userId || !listenersByUser.has(userId)) return;
+  notifyUserListeners(userId, readOps(userId).length);
+}
+
+function ensureStorageListener(): void {
+  if (storageListenerAttached) return;
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  window.addEventListener('storage', handleWindowStorage);
+  storageListenerAttached = true;
+}
+
+function teardownStorageListenerIfIdle(): void {
+  if (!storageListenerAttached || listenersByUser.size > 0) return;
+  if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+    window.removeEventListener('storage', handleWindowStorage);
+  }
+  storageListenerAttached = false;
+}
 
 function storageKey(userId: string): string {
   return `${OUTBOX_STORAGE_PREFIX}${userId}`;
@@ -35,13 +79,7 @@ function writeOps(userId: string, ops: OfflineOutboxOperation[]): void {
   }
   const set = listenersByUser.get(userId);
   if (set) {
-    set.forEach((cb) => {
-      try {
-        cb(ops.length);
-      } catch {
-        // isolate subscriber errors
-      }
-    });
+    notifyUserListeners(userId, ops.length);
   }
 }
 
@@ -59,6 +97,7 @@ export const offlineOutbox = {
       listener(0);
       return () => {};
     }
+    ensureStorageListener();
     let set = listenersByUser.get(userId);
     if (!set) {
       set = new Set();
@@ -70,6 +109,7 @@ export const offlineOutbox = {
       set?.delete(listener);
       if (set && set.size === 0) {
         listenersByUser.delete(userId);
+        teardownStorageListenerIfIdle();
       }
     };
   },
@@ -125,6 +165,7 @@ export const offlineOutbox = {
 
   isEligibleForRetry(op: OfflineOutboxOperation): boolean {
     if (!op.attempts || op.attempts <= 0) return true;
+    if (op.attempts >= MAX_OUTBOX_RETRY_ATTEMPTS) return false;
     if (!op.lastAttemptAt) return true;
     // Bounded exponential backoff with jitter: min(30s, 1000ms * 2^(attempts-1)) + jitter
     const exponent = Math.min(op.attempts - 1, 5);
